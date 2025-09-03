@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XamOps - CloudK8s</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script type="module" src="/src/main.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+        :root {
+            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --k8s-gradient: linear-gradient(135deg, #326ce5 0%, #1e3a8a 100%);
+            --glass-bg: rgba(255, 255, 255, 0.95);
+            --glass-border: rgba(229, 231, 235, 0.8);
+        }
+        body { font-family: 'Inter', sans-serif; background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); }
+        [x-cloak] { display: none !important; }
+        .glass-card { background: var(--glass-bg); backdrop-filter: blur(10px); border: 1px solid var(--glass-border); box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+        .header-gradient { background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%); backdrop-filter: blur(10px); border-bottom: 1px solid var(--glass-border); }
+        .table-enhanced thead { background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); }
+        .table-enhanced tr:hover { background: rgba(102, 126, 234, 0.05); }
+        .fade-in { animation: fadeIn 0.5s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .loading-spinner { border: 3px solid #f3f4f6; border-top: 3px solid #326ce5; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .modal-overlay { background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px); }
+        .modal-content { background: var(--glass-bg); backdrop-filter: blur(10px); border: 1px solid var(--glass-border); }
+        .code-block { background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 0.5rem; font-family: 'Courier New', Courier, monospace; white-space: pre-wrap; word-break: break-all; max-height: 60vh; overflow-y: auto; }
+        .status-badge { display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+        .sortable-header { cursor: pointer; }
+        .sortable-header:hover { color: #326ce5; }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            transition: all 0.3s ease;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(102, 126, 234, 0.4);
+        }
+        .placeholder-highlight {
+            background-color: #fef3c7;
+            color: #92400e;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+
+<div class="flex">
+    <aside class="fixed top-0 left-0 h-screen w-64 bg-white border-r border-gray-200">
+        <div data-include-sidebar></div>
+    </aside>
+
+    <div class="ml-64 flex-1">
+        <main class="flex-1 flex flex-col min-h-screen" x-data="cloudK8s()" @destroy="cleanup()">
+            <header class="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-20">
+                <div class="flex items-center space-x-4">
+                    <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center">
+                        <i class="fas fa-dharmachakra text-white text-xl"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-2xl font-bold text-gray-800">CloudK8s Dashboard</h1>
+                        <p class="text-sm text-gray-600">Monitor your EKS clusters and workloads</p>
+                    </div>
+                </div>
+                <button @click="view === 'clusters' ? fetchClusters(true) : navigateToClusters()" class="px-4 py-2 text-sm font-semibold rounded-lg bg-white border hover:bg-gray-50 flex items-center" :disabled="isRefreshing">
+                    <i class="fas fa-sync-alt mr-2" :class="{'fa-spin': isRefreshing}" x-show="view === 'clusters'"></i>
+                    <i class="fas fa-arrow-left mr-2" x-show="view !== 'clusters'"></i>
+                    <span x-show="view === 'clusters'" x-text="isRefreshing ? 'Refreshing...' : 'Refresh Now'"></span>
+                    <span x-show="view !== 'clusters'">Back to Clusters</span>
+                </button>
+            </header>
+
+            <div class="flex-1 p-4 md:p-8 space-y-8">
+                <div x-show="view === 'clusters'" class="glass-card rounded-2xl p-6 md:p-8 fade-in">
+                    <h2 class="text-xl font-bold text-gray-800 mb-6">EKS Clusters</h2>
+                    <div x-show="isLoading.clusters" class="text-center py-12"><div class="loading-spinner mx-auto"></div></div>
+
+                    <div x-show="!isLoading.clusters && clusters.length === 0" x-cloak class="text-center py-12">
+                        <p class="text-gray-600">No EKS clusters found for this account.</p>
+                    </div>
+                    
+                    <table x-show="!isLoading.clusters && clusters.length > 0" x-cloak class="w-full text-sm table-enhanced rounded-lg overflow-hidden">
+                        <thead class="text-xs text-gray-700 uppercase">
+                            <tr>
+                                <th class="px-6 py-4 text-left font-bold">Name</th>
+                                <th class="px-6 py-4 text-left font-bold hidden md:table-cell">Region</th>
+                                <th class="px-6 py-4 text-left font-bold hidden md:table-cell">Version</th>
+                                <th class="px-6 py-4 text-left font-bold">Connection</th>
+                                <th class="px-6 py-4 text-center font-bold">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-200">
+<template x-for="cluster in clusters" :key="cluster.name + '-' + cluster.region">                                <tr>
+                                    <td class="px-6 py-4 font-semibold text-gray-800" x-text="cluster.name"></td>
+                                    <td class="px-6 py-4 hidden md:table-cell" x-text="cluster.region"></td>
+                                    <td class="px-6 py-4 hidden md:table-cell" x-text="cluster.version"></td>
+                                    <td class="px-6 py-4">
+                                        <template x-if="cluster.connected">
+                                            <span class="status-badge bg-green-100 text-green-800">Connected</span>
+                                        </template>
+                                        <template x-if="!cluster.connected">
+                                             <button @click="enableMonitoring(cluster)" :disabled="cluster.isEnabling" class="px-3 py-1 text-xs font-semibold rounded-lg bg-yellow-500 text-white hover:bg-yellow-600 disabled:opacity-50">
+                                                 <span x-show="!cluster.isEnabling"><i class="fas fa-magic mr-1"></i> Enable Monitoring</span>
+                                                 <span x-show="cluster.isEnabling"><i class="fas fa-spinner fa-spin mr-1"></i> Enabling...</span>
+                                             </button>
+                                        </template>
+                                    </td>
+                                    <td class="px-6 py-4 text-center">
+                                        <button @click="navigateToDetails(cluster)" class="px-4 py-2 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700">
+                                            Details
+                                        </button>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div x-show="view === 'details' && selectedCluster" x-cloak class="fade-in space-y-8">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div class="glass-card p-6 rounded-lg shadow-md">
+                            <h3 class="font-semibold text-gray-600">Status</h3>
+                            <p class="text-2xl font-bold text-green-500" x-text="selectedCluster.status"></p>
+                        </div>
+                        <div class="glass-card p-6 rounded-lg shadow-md">
+                            <h3 class="font-semibold text-gray-600">Kubernetes Version</h3>
+                            <p class="text-2xl font-bold text-gray-800" x-text="selectedCluster.version"></p>
+                        </div>
+                        <div class="glass-card p-6 rounded-lg shadow-md">
+                            <h3 class="font-semibold text-gray-600">Region</h3>
+                            <p class="text-2xl font-bold text-gray-800" x-text="selectedCluster.region"></p>
+                        </div>
+                    </div>
+
+                    <!-- <div class="glass-card p-6 rounded-lg shadow-md">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h3 class="font-bold text-xl text-gray-800">Automated Cost Monitoring</h3>
+                                <p class="text-sm text-gray-600 mt-1">Install OpenCost to get detailed, real-time cost breakdowns for this cluster.</p>
+                            </div>
+                            <template x-if="openCostStatus !== 'installed'">
+                                <button @click="installOpenCost" :disabled="openCostStatus === 'installing'"
+                                        class="btn-primary px-5 py-3 rounded-lg font-semibold text-white transition duration-200 ease-in-out flex items-center"
+                                        :class="{ 'opacity-50 cursor-not-allowed': openCostStatus === 'installing' }">
+                                    <span x-show="openCostStatus === 'not_installed'">
+                                        <i class="fas fa-download mr-2"></i>Install OpenCost
+                                    </span>
+                                    <span x-show="openCostStatus === 'installing'">
+                                        <i class="fas fa-spinner fa-spin mr-2"></i>Installing...
+                                    </span>
+                                </button>
+                            </template>
+                            <template x-if="openCostStatus === 'installed'">
+                                <div class="flex items-center space-x-3 text-green-600 font-semibold p-3 bg-green-50 rounded-lg">
+                                    <i class="fas fa-check-circle text-2xl"></i>
+                                    <span>OpenCost Installed Successfully</span>
+                                </div>
+                            </template>
+                        </div>
+                         <div x-show="installationMessage" x-text="installationMessage" class="mt-4 text-sm font-medium"
+                            :class="installationSuccess ? 'text-green-600' : 'text-red-600'">
+                        </div>
+                    </div> -->
+
+                    <div class="glass-card rounded-2xl p-6 md:p-8" x-show="clusterUsage">
+                        <h3 class="text-lg font-semibold mb-2">Cluster Usage Summary</h3>
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                             <div><p class="text-sm font-medium text-gray-600">CPU Usage</p><p class="text-xl font-bold" x-text="(clusterUsage.cpuUsage || 0).toFixed(2) + ' %'"></p></div>
+                             <div><p class="text-sm font-medium text-gray-600">Memory Usage</p><p class="text-xl font-bold" x-text="(clusterUsage.memoryUsage || 0).toFixed(2) + ' %'"></p></div>
+                             <div><p class="text-sm font-medium text-gray-600">Nodes</p><p class="text-xl font-bold" x-text="clusterUsage.nodeCount || 0"></p></div>
+                             <div><p class="text-sm font-medium text-gray-600">Pods</p><p class="text-xl font-bold" x-text="clusterUsage.podCount || 0"></p></div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mt-6">
+                            <div class="glass-card p-6"><h4 class="text-lg font-semibold text-gray-700 mb-4 text-center">CPU Usage</h4><div class="h-64"><canvas id="cpuUsageChart"></canvas></div></div>
+                            <div class="glass-card p-6"><h4 class="text-lg font-semibold text-gray-700 mb-4 text-center">Memory Usage</h4><div class="h-64"><canvas id="memoryUsageChart"></canvas></div></div>
+                        </div>
+                    </div>
+                    
+                    <!-- <div class="w-full">
+                        <div class="mb-4 border-b border-gray-200">
+                            <ul class="flex flex-wrap -mb-px text-sm font-medium text-center" id="myTab">
+                                <li class="mr-2"><button @click="activeTab = 'nodes'" :class="{'border-indigo-500 text-indigo-600': activeTab === 'nodes'}" class="inline-block p-4 border-b-2 rounded-t-lg">Nodes</button></li>
+                                <li class="mr-2"><button @click="activeTab = 'pods'" :class="{'border-indigo-500 text-indigo-600': activeTab === 'pods'}" class="inline-block p-4 border-b-2 rounded-t-lg">Pods</button></li>
+                                <li class="mr-2"><button @click="activeTab = 'deployments'" :class="{'border-indigo-500 text-indigo-600': activeTab === 'deployments'}" class="inline-block p-4 border-b-2 rounded-t-lg">Deployments</button></li>
+                            </ul>
+                        </div>
+                        <div>
+                            <div x-show="isLoading.details" class="p-8 text-center text-gray-500"><i class="fas fa-spinner fa-spin text-3xl"></i><p>Loading data...</p></div>
+                            <div x-show="!isLoading.details">
+                                 <div x-show="activeTab === 'nodes'"><p class="text-gray-600">Node information will be displayed here.</p></div>
+                                 <div x-show="activeTab === 'pods'"><p class="text-gray-600">Pod information will be displayed here.</p></div>
+                                 <div x-show="activeTab === 'deployments'"><p class="text-gray-600">Deployment information will be displayed here.</p></div>
+                            </div>
+                        </div>
+                    </div> -->
+                </div>
+            </div>
+
+            <div @click="isHelpModalOpen = true" class="fixed bottom-8 right-8 w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center text-white text-2xl shadow-lg cursor-pointer hover:scale-110 transition-transform">
+                <i class="fas fa-question"></i>
+            </div>
+
+            <div x-show="isHelpModalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
+                <div @click="isHelpModalOpen = false" class="modal-overlay fixed inset-0"></div>
+                <div class="modal-content rounded-2xl p-8 w-full max-w-3xl mx-auto max-h-[90vh] overflow-y-auto fade-in" @click.stop>
+                    <div class="flex items-center justify-between pb-4 border-b">
+                        <div class="flex items-center space-x-4">
+                            <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center">
+                                <i class="fas fa-rocket text-white text-xl"></i>
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-xl text-gray-800">EKS Monitoring Setup Guide</h3>
+                                <p class="text-sm text-gray-600">Follow these steps to connect a new EKS cluster.</p>
+                            </div>
+                        </div>
+                        <button @click="isHelpModalOpen = false" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+                    </div>
+                    <div class="space-y-6 mt-6">
+                        <div>
+                            <h4 class="font-semibold text-gray-800"><span class="text-blue-600 font-bold">Step 1:</span> Check for an Existing Node Group</h4>
+                            <p class="text-sm text-gray-600 mt-1">Before deploying the monitoring agent, ensure your EKS cluster has a node group where the agent can run. You can check for existing node groups with the following command:</p>
+                            <div class="code-block mt-2 text-sm">
+                                <code>eksctl get nodegroup --cluster=<span class="placeholder-highlight">your-cluster-name</span> --region=<span class="placeholder-highlight">your-region</span></code>
+                            </div>
+                            <p class="text-sm text-gray-600 mt-2">
+                                <strong>Replace:</strong><br>
+                                • <span class="placeholder-highlight">your-cluster-name</span> - Your actual EKS cluster name<br>
+                                • <span class="placeholder-highlight">your-region</span> - AWS region where your cluster is deployed (e.g., ap-south-1, us-east-1)
+                            </p>
+                            <p class="text-sm text-gray-600 mt-1">If no node group is found, you will need to create one using eksctl or AWS Console.</p>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-gray-800"><span class="text-blue-600 font-bold">Step 2:</span> Attach Required IAM Policy</h4>
+                            <p class="text-sm text-gray-600 mt-1">The worker nodes in your cluster need permission to send metrics to CloudWatch. Attach the <code>CloudWatchAgentServerPolicy</code> to your node instance role using the AWS CLI:</p>
+                            <div class="code-block mt-2 text-sm">
+                                <pre><code>aws iam attach-role-policy \
+--policy-arn arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy \
+--role-name <span class="placeholder-highlight">your-node-instance-role-name</span></code></pre>
+                            </div>
+                            <p class="text-sm text-gray-600 mt-2">
+                                <strong>Replace:</strong><br>
+                                • <span class="placeholder-highlight">your-node-instance-role-name</span> - Your EKS node instance role name (typically starts with "eksctl-")
+                            </p>
+                            <p class="text-sm text-gray-600 mt-1">You can find your node instance role name in the AWS console under <strong>IAM > Roles</strong> or by checking your node group configuration.</p>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-gray-800"><span class="text-blue-600 font-bold">Step 3:</span> Deploy the CloudWatch Agent and Fluent Bit</h4>
+                            <p class="text-sm text-gray-600 mt-1">Next, download and deploy the necessary monitoring agents to your cluster. This is done by applying a pre-configured YAML file from AWS.</p>
+                            <p class="text-sm text-gray-600 mt-1">First, set your cluster name and region as environment variables:</p>
+                            <div class="code-block mt-2 text-sm">
+                                <pre><code>ClusterName='<span class="placeholder-highlight">your-cluster-name</span>'
+RegionName='<span class="placeholder-highlight">your-region</span>'
+HttpServer='On'
+HttpPort='2020'
+ReadHead='Off'
+ReadTail='On'</code></pre>
+                            </div>
+                            <p class="text-sm text-gray-600 mt-2">
+                                <strong>Replace:</strong><br>
+                                • <span class="placeholder-highlight">your-cluster-name</span> - Your actual EKS cluster name<br>
+                                • <span class="placeholder-highlight">your-region</span> - AWS region where your cluster is deployed
+                            </p>
+                            <p class="text-sm text-gray-600 mt-1">Then, download, configure, and apply the manifest (clean up any old file first):</p>
+                            <div class="code-block mt-2 text-sm">
+                                <pre><code># Clean up any old file
+rm -f cwagent-fluent-bit-quickstart.yaml
+
+# Download the latest manifest
+curl -O https://raw.githubusercontent.com/aws-samples/amazon-cloudwatch-container-insights/latest/k8s-deployment-manifest-templates/deployment-mode/daemonset/container-insights-monitoring/quickstart/cwagent-fluent-bit-quickstart.yaml
+
+# Apply substitutions
+sed -i -e "s/{{cluster_name}}/$ClusterName/g" -e "s/{{region_name}}/$RegionName/g" -e "s/{{http_server_toggle}}/\"$HttpServer\"/g" -e "s/{{http_server_port}}/\"$HttpPort\"/g" -e "s/{{read_from_head}}/\"$ReadHead\"/g" -e "s/{{read_from_tail}}/\"$ReadTail\"/g" cwagent-fluent-bit-quickstart.yaml
+
+# Apply the configured manifest
+kubectl apply -f cwagent-fluent-bit-quickstart.yaml</code></pre>
+                            </div>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-gray-800"><span class="text-blue-600 font-bold">Step 4:</span> Patch the Agent Configuration</h4>
+                            <p class="text-sm text-gray-600 mt-1">After deploying the agents, you need to patch the <code>cwagentconfig</code> ConfigMap to ensure the correct cluster name is being used. This is a crucial step for the monitoring data to appear in the correct CloudWatch Log Group.</p>
+                            <p class="text-sm text-gray-600 mt-1">Execute the following <code>kubectl patch</code> command:</p>
+                            <div class="code-block mt-2 text-sm">
+                                <pre><code>kubectl patch configmap cwagentconfig -n amazon-cloudwatch -p '{"data":{"cwagentconfig.json":"{\n  \"agent\": {\n    \"region\": \"<span class="placeholder-highlight">your-region</span>\"\n  },\n  \"logs\": {\n    \"metrics_collected\": {\n      \"kubernetes\": {\n        \"cluster_name\": \"<span class="placeholder-highlight">your-cluster-name</span>\",\n        \"metrics_collection_interval\": 60\n      }\n    },\n    \"force_flush_interval\": 5\n  }\n}"}}'</code></pre>
+                            </div>
+                            <p class="text-sm text-gray-600 mt-2">
+                                <strong>Replace:</strong><br>
+                                • <span class="placeholder-highlight">your-region</span> - AWS region where your cluster is deployed<br>
+                                • <span class="placeholder-highlight">your-cluster-name</span> - Your actual EKS cluster name
+                            </p>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-gray-800"><span class="text-blue-600 font-bold">Step 5:</span> Restart the DaemonSet</h4>
+                            <p class="text-sm text-gray-600 mt-1">Finally, restart the <code>cloudwatch-agent</code> DaemonSet to apply the configuration changes and the new IAM role permissions:</p>
+                            <div class="code-block mt-2 text-sm">
+                                <code>kubectl rollout restart daemonset cloudwatch-agent -n amazon-cloudwatch</code>
+                            </div>
+                            <p class="text-sm text-gray-600 mt-2">After completing these steps, it may take a few minutes for the monitoring data to start appearing in your CloudWatch console and on the XamOps dashboard.</p>
+                            <p class="text-sm text-blue-600 font-semibold mt-2">Note: Make sure your kubectl context is configured to point to your EKS cluster before running these commands.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+</div>
+
+<script>
+function cloudK8s() {
+    return {
+        view: 'clusters',
+        isLoading: { clusters: true, details: true, usage: true },
+        isRefreshing: false,
+        clusters: [],
+        selectedCluster: null,
+        clusterUsage: null,
+        activeTab: 'nodes',
+        selectedAccountId: null,
+        pollingInterval: null,
+        openCostStatus: 'not_installed',
+        installationMessage: '',
+        installationSuccess: false,
+        isHelpModalOpen: false,
+        appBaseUrl: window.location.origin, // Dynamically get the base URL
+
+        init() {
+            this.selectedAccountId = sessionStorage.getItem('selectedAccountId');
+            if (!this.selectedAccountId) { 
+                this.isLoading.clusters = false; return; 
+            }
+            this.fetchClusters(false);
+        },
+        cleanup() { 
+            if (this.pollingInterval) clearInterval(this.pollingInterval); 
+        },
+        navigateToClusters() {
+            this.view = 'clusters';
+            this.selectedCluster = null;
+            this.cleanup();
+        },
+        async navigateToDetails(cluster) {
+            this.selectedCluster = cluster;
+            this.view = 'details';
+            
+            if (!cluster.connected) {
+                this.isLoading.usage = false;
+                this.clusterUsage = null;
+            } else {
+                await this.fetchClusterUsage();
+                this.renderUsageCharts();
+                this.pollingInterval = setInterval(() => this.fetchClusterUsage(), 30000);
+            }
+            this.isLoading.details = false;
+        },
+        fetchClusters(forceRefresh = false) {
+            const cacheKey = `k8sClusters-${this.selectedAccountId}`;
+            if (forceRefresh) {
+                sessionStorage.removeItem(cacheKey);
+            }
+            const cachedData = sessionStorage.getItem(cacheKey);
+
+            if (cachedData && !forceRefresh) {
+                this.clusters = JSON.parse(cachedData).map(c => ({...c, isEnabling: false}));
+                this.isLoading.clusters = false;
+                return;
+            }
+
+            this.isLoading.clusters = !cachedData;
+            this.isRefreshing = forceRefresh;
+
+            fetch(`/api/k8s/clusters?accountId=${this.selectedAccountId}&forceRefresh=${forceRefresh}`)
+                .then(res => res.json())
+                .then(data => { 
+                    this.clusters = data.map(c => ({...c, isEnabling: false})); 
+                    sessionStorage.setItem(cacheKey, JSON.stringify(data));
+                })
+                .catch(err => console.error('Failed to fetch clusters', err))
+                .finally(() => {
+                    this.isLoading.clusters = false;
+                    this.isRefreshing = false;
+                });
+        },
+        async fetchClusterUsage() {
+            if (!this.selectedCluster) return;
+            this.isLoading.usage = true;
+            const { name, region } = this.selectedCluster;
+            
+            try {
+                const response = await fetch(`/api/k8s/clusters/usage?accountId=${this.selectedAccountId}&clusterName=${name}&region=${region}`, { method: 'POST' });
+                if (!response.ok) throw new Error('Failed to fetch usage data');
+                this.clusterUsage = await response.json();
+            } catch (err) {
+                console.error('Failed to fetch cluster usage', err);
+                this.clusterUsage = null;
+            } finally {
+                this.isLoading.usage = false;
+            }
+        },
+        renderUsageCharts() {
+            if (!this.clusterUsage) return;
+
+            if (window.cpuChartInstance) window.cpuChartInstance.destroy();
+            if (window.memChartInstance) window.memChartInstance.destroy();
+
+            const cpuCtx = document.getElementById('cpuUsageChart')?.getContext('2d');
+            if(cpuCtx) {
+                window.cpuChartInstance = new Chart(cpuCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Used', 'Free'],
+                        datasets: [{ data: [this.clusterUsage.cpuUsage, 100 - this.clusterUsage.cpuUsage], backgroundColor: ['#326ce5', '#e5e7eb'], borderWidth: 4, hoverOffset: 8 }]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false, cutout: '70%', plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.label}: ${ctx.raw.toFixed(2)}%` } } } }
+                });
+            }
+
+            const memCtx = document.getElementById('memoryUsageChart')?.getContext('2d');
+            if(memCtx) {
+                window.memChartInstance = new Chart(memCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Used', 'Free'],
+                        datasets: [{ data: [this.clusterUsage.memoryUsage, 100 - this.clusterUsage.memoryUsage], backgroundColor: ['#667eea', '#e5e7eb'], borderWidth: 4, hoverOffset: 8 }]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false, cutout: '70%', plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.label}: ${ctx.raw.toFixed(2)}%` } } } }
+                });
+            }
+        },
+        installOpenCost() {
+            this.openCostStatus = 'installing';
+            this.installationMessage = '';
+            const accountId = sessionStorage.getItem('selectedAccountId');
+            
+            if (!accountId || !this.selectedCluster.name || !this.selectedCluster.region) {
+                this.installationMessage = 'Error: Missing account, cluster, or region information.';
+                this.installationSuccess = false;
+                this.openCostStatus = 'not_installed';
+                return;
+            }
+
+            const apiUrl = `/api/eks/${this.selectedCluster.name}/install-opencost?accountId=${accountId}&region=${this.selectedCluster.region}`;
+
+            fetch(apiUrl, { method: 'POST' })
+            .then(res => {
+                if (!res.ok) { return res.json().then(err => { throw new Error(err.message || 'Installation failed'); }); }
+                return res.json();
+            })
+            .then(data => {
+                this.openCostStatus = 'installed';
+                this.installationMessage = data.message || 'OpenCost installed successfully!';
+                this.installationSuccess = true;
+            })
+            .catch(err => {
+                console.error('OpenCost installation error:', err);
+                this.openCostStatus = 'not_installed';
+                this.installationMessage = `Error: ${err.message}. Check server logs for details.`;
+                this.installationSuccess = false;
+            });
+        },
+        async enableMonitoring(cluster) {
+            cluster.isEnabling = true;
+            const { name, region } = cluster;
+
+            try {
+                const response = await fetch(`/api/eks/${name}/enable-monitoring?accountId=${this.selectedAccountId}&region=${region}`, {
+                    method: 'POST'
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.message);
+                
+                alert(`Successfully initiated monitoring for ${name}. It may take a few minutes to connect.`);
+                setTimeout(() => this.fetchClusters(true), 5000);
+
+            } catch (err) {
+                alert(`Error: ${err.message}`);
+                console.error('Failed to enable monitoring', err);
+            } finally {
+                cluster.isEnabling = false;
+            }
+        }
+    }
+}
+</script>
+
+</body>
+</html>

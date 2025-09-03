@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XamOps - Add Account</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+        
+        :root {
+            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --gcp-gradient: linear-gradient(135deg, #4285F4 0%, #34A853 100%);
+            --aws-orange: #ff9900;
+            --glass-bg: rgba(255, 255, 255, 0.95);
+            --glass-border: rgba(255, 255, 255, 0.2);
+        }
+
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+            min-height: 100vh;
+        }
+        
+        [x-cloak] { display: none !important; }
+        
+        .glass-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        
+        .header-gradient {
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(229, 231, 235, 0.8);
+        }
+        
+        .form-card {
+            position: relative;
+            overflow: hidden;
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+        }
+        
+        .form-input {
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+        }
+        
+        .btn-primary {
+            background: var(--primary-gradient);
+            border: none;
+            color: white;
+        }
+        
+        .radio-option {
+            background: var(--glass-bg);
+            border: 2px solid rgba(229, 231, 235, 0.8);
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        
+        .radio-option:hover {
+            border-color: #667eea;
+        }
+        
+        .radio-option.selected {
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .step-number {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: var(--primary-gradient);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            flex-shrink: 0;
+            margin-right: 1rem;
+        }
+        
+        .fade-in {
+            animation: fadeIn 0.5s ease-in-out;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .modal-overlay {
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+        }
+        
+        .modal-content {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+
+<div class="flex">
+    <aside class="fixed top-0 left-0 h-screen w-64 bg-white border-r border-gray-200">
+        <div th:replace="~{fragments/_sidebar :: sidebar}"></div>
+    </aside>
+
+    <div class="ml-64 flex-1">
+        <main class="flex-1 flex flex-col min-h-screen" x-data="addAccount()">
+            <header class="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-10">
+                <div class="flex items-center space-x-4">
+                    <div class="w-12 h-12 bg-gradient-to-br rounded-xl flex items-center justify-center" :class="{
+                        'from-orange-500 to-red-600': provider === 'aws',
+                        'from-blue-500 to-green-500': provider === 'gcp'
+                    }">
+                        <i class="text-white text-xl" :class="{
+                            'fab fa-aws': provider === 'aws',
+                            'fab fa-google': provider === 'gcp'
+                        }"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-2xl font-bold text-gray-800">Add New Account</h1>
+                        <p class="text-sm text-gray-600" x-text="provider === 'aws' ? 'Connect your AWS account securely using CloudFormation' : 'Connect your Google Cloud project using a Service Account'"></p>
+                    </div>
+                </div>
+                <a href="/account-manager" class="px-4 py-2 bg-white/70 backdrop-blur-sm text-gray-700 rounded-lg border border-gray-200/50 hover:bg-white transition-all">
+                    <i class="fas fa-arrow-left mr-2"></i>Back to Accounts
+                </a>
+            </header>
+
+            <div class="flex-1 p-8">
+                <div class="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    <div class="lg:col-span-1">
+                        <div class="glass-card rounded-2xl p-6 sticky top-28">
+                            <h3 class="text-lg font-bold text-gray-800 mb-6">Connection Process</h3>
+                            <div x-show="provider === 'aws'" class="space-y-4 fade-in">
+                                <div class="flex items-center mb-4"><div class="step-number">1</div><div><p class="font-semibold text-sm text-gray-800">Configure Access</p><p class="text-xs text-gray-600">Choose your account settings</p></div></div>
+                                <div class="flex items-center mb-4"><div class="step-number">2</div><div><p class="font-semibold text-sm text-gray-800">Generate Stack</p><p class="text-xs text-gray-600">Create CloudFormation template</p></div></div>
+                                <div class="flex items-center mb-4"><div class="step-number">3</div><div><p class="font-semibold text-sm text-gray-800">Deploy in AWS</p><p class="text-xs text-gray-600">Launch stack in your account</p></div></div>
+                                <div class="flex items-center mb-4"><div class="step-number">4</div><div><p class="font-semibold text-sm text-gray-800">Verify Connection</p><p class="text-xs text-gray-600">Complete the setup process</p></div></div>
+                            </div>
+                            <div x-show="provider === 'gcp'" x-cloak class="space-y-4 fade-in">
+                                <div class="flex items-center mb-4"><div class="step-number">1</div><div><p class="font-semibold text-sm text-gray-800">Select Provider</p><p class="text-xs text-gray-600">You are here</p></div></div>
+                                <div class="flex items-center mb-4"><div class="step-number">2</div><div><p class="font-semibold text-sm text-gray-800">Provide Credentials</p><p class="text-xs text-gray-600">Enter GCP project details</p></div></div>
+                                <div class="flex items-center mb-4"><div class="step-number">3</div><div><p class="font-semibold text-sm text-gray-800">Verify & Connect</p><p class="text-xs text-gray-600">Finalize the connection</p></div></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="lg:col-span-2 space-y-8">
+                        <div class="form-card rounded-2xl p-8 fade-in">
+                            <div class="flex items-center space-x-3 mb-6">
+                                <div class="step-number">1</div>
+                                <div>
+                                    <h2 class="text-xl font-bold text-gray-800">Choose Cloud Provider</h2>
+                                    <p class="text-sm text-gray-600">Select the cloud provider for the account you want to add.</p>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div class="radio-option p-6 rounded-xl text-center" :class="{'selected': provider === 'aws'}" @click="provider = 'aws'">
+                                    <i class="fab fa-aws text-4xl mb-3" style="color: var(--aws-orange);"></i>
+                                    <h3 class="font-semibold text-gray-800">Amazon Web Services</h3>
+                                </div>
+                                <div class="radio-option p-6 rounded-xl text-center" :class="{'selected': provider === 'gcp'}" @click="provider = 'gcp'">
+                                    <i class="fab fa-google text-4xl mb-3" style="color: #4285F4;"></i>
+                                    <h3 class="font-semibold text-gray-800">Google Cloud Platform</h3>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div x-show="provider === 'aws'" x-cloak class="form-card rounded-2xl p-8 fade-in">
+                            <div x-show="!isVerifying">
+                                <div class="flex items-center space-x-3 mb-8">
+                                    <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center">
+                                        <i class="fas fa-cog text-white text-lg"></i>
+                                    </div>
+                                    <div>
+                                        <h2 class="text-xl font-bold text-gray-800">Cross-Account Role Connection</h2>
+                                        <p class="text-sm text-gray-600">Configure secure access to your AWS account</p>
+                                    </div>
+                                </div>
+                                <form @submit.prevent="launchStack" class="space-y-8">
+                                    <div>
+                                        <label for="accountName" class="block text-sm font-semibold text-gray-700 mb-3"><i class="fas fa-user-tag mr-2 text-indigo-600"></i>Account Name</label>
+                                        <input type="text" id="accountName" x-model="accountName" placeholder="e.g. AWS Production, AWS Development" class="form-input block w-full px-4 py-3 rounded-xl border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200" required>
+                                        <p class="text-xs text-gray-500 mt-2">Choose a descriptive name to identify this account</p>
+                                    </div>
+                                    <div>
+                                        <label for="read-only" class="block text-sm font-semibold text-gray-700 mb-4"><i class="fas fa-key mr-2 text-indigo-600"></i>Access Level</label>
+                                        <div class="space-y-3">
+                                            <div class="radio-option p-4 rounded-xl" :class="{'selected': accessType === 'read-only'}" @click="accessType = 'read-only'">
+                                                <div class="flex items-start">
+                                                    <input id="read-only" name="access-type" type="radio" value="read-only" x-model="accessType" class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 mt-1">
+                                                    <div class="ml-3 flex-1">
+                                                        <label for="read-only" class="block text-sm font-semibold text-gray-700">Read-Only Access</label>
+                                                        <p class="text-xs text-gray-600 mt-1">Full visibility with comprehensive cost analysis and optimization insights</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+																		<div>
+                                        <label class="block text-sm font-semibold text-gray-700 mb-4"><i class="fas fa-shield-alt mr-2 text-indigo-600"></i>Policies</label>
+                                        <div class="space-y-3">
+                                            <button type="button" @click="isPolicyModalOpen = true" class="text-indigo-600 hover:text-indigo-800 font-semibold">View Policies</button>
+                                        </div>
+                                    </div>
+                                    <div class="flex justify-end items-center pt-6 border-t border-gray-200">
+                                        <button type="submit" class="btn-primary px-10 py-4 text-sm font-semibold rounded-xl shadow-md" :disabled="isLoading || !accountName">
+                                            <span x-show="!isLoading">Launch Stack</span>
+                                            <span x-show="isLoading" class="flex items-center"><div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>Generating...</span>
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                            <div x-show="isVerifying" x-cloak class="fade-in">
+                                <div class="text-center mb-6">
+                                    <h2 class="text-xl font-bold text-gray-800">Stack Launched!</h2>
+                                    <p class="text-sm text-gray-600">Complete the final step to verify the connection.</p>
+                                </div>
+                                <form @submit.prevent="verifyAccount" class="space-y-6">
+                                    <div>
+                                        <label for="awsAccountId" class="block text-sm font-semibold text-gray-700 mb-2">AWS Account ID</label>
+                                        <input type="text" id="awsAccountId" x-model="verificationDetails.awsAccountId" placeholder="123456789012" class="form-input w-full px-4 py-3 rounded-xl border-gray-300 shadow-sm" required>
+                                    </div>
+                                    <div>
+                                        <label for="roleName" class="block text-sm font-semibold text-gray-700 mb-2">IAM Role Name</label>
+                                        <input type="text" id="roleName" x-model="verificationDetails.roleName" placeholder="XamOps-ReadOnly-Role" class="form-input w-full px-4 py-3 rounded-xl border-gray-300 shadow-sm" required>
+                                    </div>
+                                    <div x-show="verificationError" class="text-red-500 text-sm mt-2" x-text="verificationError"></div>
+                                    <div class="flex justify-end pt-4">
+                                        <button type="submit" class="btn-primary px-6 py-3 text-sm font-semibold rounded-lg shadow-md">Verify & Connect</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+
+                        <div x-show="provider === 'gcp'" x-cloak class="form-card rounded-2xl p-8 fade-in">
+                            <div class="flex items-center space-x-3 mb-6">
+                                <div class="step-number">2</div>
+                                <div>
+                                    <h2 class="text-xl font-bold text-gray-800">GCP Connection Details</h2>
+                                    <p class="text-sm text-gray-600">Connect using a dedicated Service Account.</p>
+                                </div>
+                            </div>
+                            <div class="space-y-6">
+                                <p class="text-sm text-gray-700">To connect your Google Cloud project, you will be redirected to a dedicated page to provide a Service Account Key with the required permissions.</p>
+                                <div class="flex justify-end pt-6 border-t border-gray-200">
+                                    <a href="/add-gcp-account" class="btn-primary px-10 py-4 text-sm font-semibold rounded-xl" style="background: var(--gcp-gradient);">
+                                        Continue to GCP Setup
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div x-show="isPolicyModalOpen" x-cloak class="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
+                <div @click.away="isPolicyModalOpen = false" class="modal-content rounded-2xl p-8 w-full max-w-2xl mx-auto max-h-[90vh] overflow-y-auto">
+                    <h2 class="text-xl font-bold text-gray-800 mb-4">IAM Policy</h2>
+                    <pre class="bg-gray-100 p-4 rounded-lg text-xs overflow-x-auto"><code>
+Policies:
+  - PolicyName: XamOpsComprehensiveReadOnlyPolicy
+    PolicyDocument:
+      Version: '2012-10-17'
+      Statement:
+        - Sid: 'XamOpsApplicationPermissions'
+          Effect: Allow
+          Action:
+            - 'acm:ListCertificates'
+            - 'access-analyzer:ListAnalyzers'
+            - 'access-analyzer:ListFindings'
+            - 'autoscaling:DescribeAutoScalingGroups'
+            - 'budgets:ViewBudget'
+            - 'ce:GetAnomalies'
+            - 'ce:GetCostAndUsage'
+            - 'ce:GetDimensionValues'
+            - 'ce:GetReservationCoverage'
+            - 'ce:GetReservationPurchaseRecommendation'
+            - 'ce:GetReservationUtilization'
+            - 'cloudtrail:DescribeTrails'
+            - 'cloudtrail:GetTrailStatus'
+            - 'cloudtrail:LookupEvents'
+            - 'cloudwatch:DescribeAlarms'
+            - 'cloudwatch:GetMetricData'
+            - 'cloudwatch:GetMetricStatistics'
+            - 'compute-optimizer:GetEBSVolumeRecommendations'
+            - 'compute-optimizer:GetEc2InstanceRecommendations'
+            - 'compute-optimizer:GetLambdaFunctionRecommendations'
+            - 'dynamodb:DescribeTable'
+            - 'dynamodb:ListTables'
+            - 'ec2:Describe*'
+            - 'ecr:DescribeRepositories'
+            - 'ecs:DescribeClusters'
+            - 'ecs:ListClusters'
+            - 'eks:DescribeCluster'
+            - 'eks:ListClusters'
+            - 'elasticache:DescribeCacheClusters'
+            - 'elasticloadbalancing:DescribeLoadBalancers'
+            - 'elasticloadbalancing:DescribeTargetGroups'
+            - 'elasticloadbalancing:DescribeTargetHealth'
+            - 'iam:GetAccountPasswordPolicy'
+            - 'iam:GetLoginProfile'
+            - 'iam:GetPolicyVersion'
+            - 'iam:GetRole'
+            - 'iam:ListAccessKeys'
+            - 'iam:ListAccountAliases'
+            - 'iam:ListGroups'
+            - 'iam:ListMFADevices'
+            - 'iam:ListPolicies'
+            - 'iam:ListRoles'
+            - 'iam:ListUsers'
+            - 'kms:DescribeKey'
+            - 'kms:GetKeyRotationStatus'
+            - 'kms:ListKeys'
+            - 'lambda:ListFunctions'
+            - 'lambda:ListProvisionedConcurrencyConfigs'
+            - 'lambda:ListVersionsByFunction'
+            - 'logs:DescribeLogGroups'
+            - 'logs:DescribeLogStreams'
+            - 'logs:GetQueryResults'
+            - 'logs:StartQuery'
+            - 'organizations:DescribeAccount'
+            - 'organizations:ListAccounts'
+            - 'pricing:DescribeServices'
+            - 'pricing:GetProducts'
+            - 'pricing:ListPriceLists'
+            - 'rds:DescribeDBInstances'
+            - 'rds:DescribeDBSnapshots'
+            - 'rds:ListTagsForResource'
+            - 'route53:ListHostedZones'
+            - 's3:GetBucketAcl'
+            - 's3:GetBucketLocation'
+            - 's3:GetBucketPublicAccessBlock'
+            - 's3:GetLifecycleConfiguration'
+            - 's3:ListAccessGrantsInstances'
+            - 's3:ListAccessGrantsLocations'
+            - 's3:ListAllMyBuckets'
+            - 's3:ListBucket'
+            - 's3:ListBucketVersions'
+            - 's3:ListMultiRegionAccessPoints'
+            - 'servicequotas:ListServiceQuotas'
+            - 'sns:ListTopics'
+            - 'sqs:GetQueueAttributes'
+            - 'sqs:ListQueues'
+            - 'sts:GetCallerIdentity'
+          Resource: '*'
+                    </code></pre>
+                    <div class="flex justify-end mt-6">
+                        <button @click="isPolicyModalOpen = false" class="btn-primary px-6 py-3 text-sm font-semibold rounded-lg shadow-md">Close</button>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+</div>
+
+<script>
+function addAccount() {
+    return {
+        provider: 'aws', 
+        accountName: '',
+        accessType: 'read-only',
+        isLoading: false,
+        isVerifying: false,
+        isPolicyModalOpen: false,
+        verificationDetails: {
+            awsAccountId: '',
+            roleName: '',
+            externalId: ''
+        },
+        verificationError: '',
+        readOnlyPolicy: `...`, // Omitted for brevity
+        
+        launchStack() {
+            if (!this.accountName) {
+                alert('Please enter an account name.');
+                return;
+            }
+            this.isLoading = true;
+            fetch('/api/account-manager/generate-stack-url', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    accountName: this.accountName,
+                    accessType: this.accessType
+                })
+            })
+            .then(res => res.ok ? res.json() : res.json().then(Promise.reject.bind(Promise)))
+            .then(data => {
+                window.open(data.url, '_blank');
+                this.verificationDetails.externalId = data.externalId; 
+                this.isVerifying = true;
+            })
+            .catch(err => {
+                alert(`Error: ${err.message || 'Failed to generate URL.'}`);
+            })
+            .finally(() => {
+                this.isLoading = false;
+            });
+        },
+        
+        verifyAccount() {
+            this.isLoading = true;
+            this.verificationError = '';
+            fetch('/api/account-manager/verify-account', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(this.verificationDetails)
+            })
+            .then(res => res.ok ? res.json() : res.json().then(Promise.reject.bind(Promise)))
+            .then(data => {
+                window.location.href = '/account-manager';
+            })
+            .catch(err => {
+                this.verificationError = `Error: ${err.message || 'Verification failed.'}`;
+            })
+            .finally(() => {
+                this.isLoading = false;
+            });
+        }
+    }
+}
+</script>
+
+</body>
+</html>

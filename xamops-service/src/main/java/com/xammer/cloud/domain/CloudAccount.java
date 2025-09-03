@@ -1,10 +1,14 @@
 package com.xammer.cloud.domain;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import javax.persistence.*;
 
 @Entity
+@Data
+@NoArgsConstructor
 public class CloudAccount {
 
     @Id
@@ -21,7 +25,7 @@ public class CloudAccount {
     private String externalId;
 
     @Column
-    private final String accessType;
+    private String accessType;
 
     @Column(unique = true)
     private String roleArn;
@@ -62,19 +66,4 @@ public class CloudAccount {
         this.accessType = accessType;
         this.client = client;
     }
-        public Long getId() { return id; }
-        public String getAccountName() { return accountName; }
-        public String getAwsAccountId() { return awsAccountId; }
-        public String getExternalId() { return externalId; }
-        public String getAccessType() { return accessType; }
-        public String getRoleArn() { return roleArn; }
-        public String getGcpServiceAccountKey() { return gcpServiceAccountKey; }
-        public String getGcpWorkloadIdentityPoolId() { return gcpWorkloadIdentityPoolId; }
-        public String getGcpWorkloadIdentityProviderId() { return gcpWorkloadIdentityProviderId; }
-        public String getGcpServiceAccountEmail() { return gcpServiceAccountEmail; }
-        public String getGcpProjectId() { return gcpProjectId; }
-        public String getStatus() { return status; }
-        public String getProvider() { return provider; }
-        public String getBillingExportTable() { return billingExportTable; }
-        public Client getClient() { return client; }
 }

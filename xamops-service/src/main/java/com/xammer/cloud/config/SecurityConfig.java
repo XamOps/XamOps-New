@@ -1,5 +1,7 @@
+// File: src/main/java/com/xammer/cloud/config/SecurityConfig.java
 package com.xammer.cloud.config;
 
+import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.security.CustomAuthenticationSuccessHandler;
 import org.springframework.context.annotation.Bean;
@@ -13,7 +15,6 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.firewall.HttpFirewall;
 import org.springframework.security.web.firewall.StrictHttpFirewall;
-import com.xammer.cloud.repository.UserRepository;
 
 import java.util.ArrayList;
 
@@ -33,15 +34,14 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
             .cors(withDefaults()) // Use the WebConfig CORS settings
-            // ✅ Ignore CSRF for all API and WebSocket paths
+            // ✅ UPDATED: Ignore CSRF for API, WebSocket, AND login/logout paths
             .csrf(csrf -> csrf
-                .ignoringAntMatchers("/api/**", "/ws/**")
+                .ignoringAntMatchers("/api/**", "/ws/**", "/login", "/logout")
             )
-            // Disable X-Frame-Options which interferes with SockJS fallbacks
             .headers(headers -> headers.frameOptions().disable())
             .authorizeHttpRequests((requests) -> requests
-                // Permit all WebSocket handshake requests
                 .antMatchers("/ws/**").permitAll()
+                // You no longer need to permitall /login here, but it doesn't hurt
                 .antMatchers("/login", "/css/**", "/js/**", "/images/**", "/icons/**", "/webjars/**").permitAll()
                 .anyRequest().authenticated()
             )

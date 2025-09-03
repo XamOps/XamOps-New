@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XamOps - GCP FinOps Report</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+        
+        :root {
+            --primary-gradient: linear-gradient(135deg, #4285F4 0%, #34A853 100%);
+            --success-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            --warning-gradient: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            --error-gradient: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            --glass-bg: rgba(255, 255, 255, 0.95);
+            --glass-border: rgba(255, 255, 255, 0.2);
+        }
+
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+            min-height: 100vh;
+        }
+        
+        [x-cloak] { display: none !important; }
+        
+        .glass-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            border-radius: 1.5rem; /* 24px */
+        }
+        
+        .kpi-card {
+            position: relative;
+            overflow: hidden;
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            border-radius: 1.5rem; /* 24px */
+        }
+
+        .kpi-card:hover {
+            transform: translateY(-4px) scale(1.02);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        }
+        
+        .progress-bar { 
+            background: linear-gradient(90deg, #e5e7eb 0%, #f3f4f6 100%);
+            border-radius: 9999px; 
+            overflow: hidden;
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        
+        .progress-bar-fill { 
+            height: 100%; 
+            transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+            border-radius: 9999px;
+            background: var(--success-gradient);
+        }
+
+        .progress-bar-warning { background: var(--warning-gradient); }
+        .progress-bar-danger { background: var(--error-gradient); }
+        
+        .btn-primary {
+            background-color: #4285F4;
+            color: white;
+            transition: all 0.2s ease;
+        }
+        .btn-primary:hover { background-color: #3367D6; }
+
+        .header-gradient {
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(229, 231, 235, 0.8);
+        }
+
+        .table-enhanced {
+            background: var(--glass-bg);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        .table-enhanced thead {
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+        }
+
+        .trend-indicator {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        
+        .trend-up {
+            background: rgba(239, 68, 68, 0.1);
+            color: #dc2626;
+        }
+        
+        .trend-down {
+            background: rgba(16, 185, 129, 0.1);
+            color: #059669;
+        }
+
+        .fade-in {
+            animation: fadeIn 0.5s ease-in-out;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+<div class="flex">
+<aside class="fixed top-0 left-0 h-screen w-64 bg-white border-r border-gray-200">
+    <div th:replace="~{fragments/_sidebar :: sidebar}"></div>
+</aside>
+<div class="ml-64 flex-1">
+    <main class="flex-1 flex flex-col min-h-screen" x-data="finopsReport()">
+        <header class="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-10">
+            <div class="flex items-center space-x-4">
+                <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-green-500 rounded-xl flex items-center justify-center">
+                    <i class="fas fa-chart-pie text-white text-xl"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-2xl font-bold text-gray-800">GCP FinOps Report</h1>
+                        <p class="text-sm text-gray-600">Cloud financial operations dashboard</p>
+                    </div>
+                </div>
+                <button @click="loadReport(true)" class="btn-primary flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md" :disabled="isRefreshing">
+                    <i class="fas fa-sync-alt" :class="{ 'fa-spin': isRefreshing }"></i>
+                    <span x-text="isRefreshing ? 'Refreshing...' : 'Refresh Data'"></span>
+                </button>
+            </header>
+
+            <div class="flex-1 p-8 space-y-8">
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <template x-for="kpi in kpis" :key="kpi.label">
+                        <div class="kpi-card p-6 fade-in">
+                            <div class="flex justify-between items-start mb-4">
+                                <h3 class="text-gray-600 text-sm font-medium" x-text="kpi.label"></h3>
+                                <div class="p-3 rounded-xl" :class="kpi.color.bg">
+                                    <i class="fas text-xl" :class="[kpi.icon, kpi.color.text]"></i>
+                                </div>
+                            </div>
+                            <p class="text-3xl font-bold text-gray-900 mb-2" x-text="kpi.value"></p>
+                            <div class="trend-indicator" :class="kpi.trendColor.includes('red') ? 'trend-up' : 'trend-down'" x-show="kpi.trendText">
+                                <i class="fas mr-1" :class="kpi.trendIcon"></i>
+                                <span x-text="kpi.trendText"></span>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+                
+                <div class="glass-card p-8 fade-in">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">Budgets & Alerts</h3>
+                    <div x-show="!isLoading && reportData.budgets && reportData.budgets.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        <template x-for="budget in reportData.budgets" :key="budget.budgetName">
+                            <div class="bg-white/70 rounded-xl p-6 border hover:shadow-lg transition-shadow">
+                                <h4 class="font-bold text-gray-800" x-text="budget.budgetName"></h4>
+                                <div class="progress-bar h-4 my-2">
+                                    <div class="progress-bar-fill" :class="{
+                                        'progress-bar-danger': (budget.actualSpend / budget.budgetLimit) > 0.9,
+                                        'progress-bar-warning': (budget.actualSpend / budget.budgetLimit) > 0.75 && (budget.actualSpend / budget.budgetLimit) <= 0.9
+                                    }" :style="`width: ${Math.min((budget.actualSpend / budget.budgetLimit) * 100, 100)}%`"></div>
+                                </div>
+                                <div class="flex justify-between text-sm">
+                                    <span x-text="`Spent: ${formatCurrency(budget.actualSpend)}`"></span>
+                                    <span x-text="`${((budget.actualSpend / budget.budgetLimit) * 100).toFixed(1)}%`"></span>
+                                </div>
+                                <div class="text-xs text-gray-500 mt-1" x-text="`Limit: ${formatCurrency(budget.budgetLimit)}`"></div>
+                            </div>
+                        </template>
+                    </div>
+                    <div x-show="!isLoading && (!reportData.budgets || reportData.budgets.length === 0)">
+                        <p class="text-sm text-gray-500">No budget data available for this GCP billing account.</p>
+                    </div>
+                </div>
+
+                <div class="glass-card p-8 fade-in">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">Governance & Cost Allocation</h3>
+                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        <div class="bg-white/70 rounded-xl p-6 border">
+                            <h4 class="text-lg font-bold text-gray-800 mb-4">Tagging Compliance (cost-center)</h4>
+                            <div x-show="!isLoading && reportData.taggingCompliance" class="flex items-center space-x-4">
+                                <div class="text-center">
+                                    <p class="text-4xl font-bold text-green-600" x-text="(reportData.taggingCompliance.compliancePercentage || 0).toFixed(1) + '%'"></p>
+                                    <p class="text-sm text-gray-600">Compliance</p>
+                                </div>
+                                <div class="flex-1">
+                                    <div class="progress-bar h-4 mb-2">
+                                        <div class="progress-bar-fill" :style="`width: ${reportData.taggingCompliance.compliancePercentage || 0}%`"></div>
+                                    </div>
+                                    <div class="flex justify-between text-sm text-gray-600">
+                                        <span>Tagged</span>
+                                        <span x-text="`${(reportData.taggingCompliance.totalResourcesScanned || 0) - (reportData.taggingCompliance.untaggedResourcesCount || 0)}/${reportData.taggingCompliance.totalResourcesScanned || 0}`"></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="bg-white/70 rounded-xl p-6 border">
+                             <h4 class="text-lg font-bold text-gray-800 mb-4">Cost Allocation</h4>
+                             <p class="text-sm text-gray-500">Cost allocation by tag is under development for GCP.</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <div class="glass-card p-8 fade-in">
+                        <h3 class="text-lg font-bold text-gray-800 mb-4">Cost by Service</h3>
+                        <div class="chart-container h-80"><canvas id="costByServiceChart"></canvas></div>
+                    </div>
+                    <div class="glass-card p-8 fade-in">
+                        <h3 class="text-lg font-bold text-gray-800 mb-4">Cost History</h3>
+                        <div class="chart-container h-80"><canvas id="costHistoryChart"></canvas></div>
+                    </div>
+                </div>
+                
+                <div class="glass-card p-8 fade-in" x-show="!isLoading && (reportData.rightsizingRecommendations.length > 0 || reportData.wastedResources.length > 0)">
+                    <div class="flex items-center space-x-3 mb-6">
+                        <div class="w-10 h-10 bg-gradient-to-br from-yellow-500 to-orange-600 rounded-xl flex items-center justify-center">
+                            <i class="fas fa-lightbulb text-white"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-xl font-bold text-gray-800">Insights & Opportunities</h3>
+                            <p class="text-sm text-gray-600">Optimize your cloud spending</p>
+                        </div>
+                    </div>
+
+                    <div x-show="reportData.rightsizingRecommendations.length > 0" x-cloak class="mb-8">
+                        <h4 class="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+                            <i class="fas fa-cogs text-green-500 mr-2"></i> Rightsizing Recommendations
+                        </h4>
+                        <div class="table-enhanced overflow-x-auto">
+                            <table class="w-full text-sm text-left text-gray-600">
+                                <thead class="text-xs text-gray-700 uppercase">
+                                    <tr>
+                                        <th class="px-6 py-4">Resource ID</th>
+                                        <th class="px-6 py-4">Service</th>
+                                        <th class="px-6 py-4">Current</th>
+                                        <th class="px-6 py-4">Recommended</th>
+                                        <th class="px-6 py-4">Savings</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200">
+                                    <template x-for="rec in reportData.rightsizingRecommendations" :key="rec.resourceId">
+                                        <tr class="hover:bg-gray-50">
+                                            <td class="px-6 py-4 font-mono text-xs" x-text="rec.resourceId"></td>
+                                            <td class="px-6 py-4" x-text="rec.service"></td>
+                                            <td class="px-6 py-4" x-text="rec.currentType"></td>
+                                            <td class="px-6 py-4 text-green-700 font-semibold" x-text="rec.recommendedType"></td>
+                                            <td class="px-6 py-4 text-green-700 font-bold" x-text="formatCurrency(rec.estimatedMonthlySavings)"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <div x-show="reportData.wastedResources.length > 0" x-cloak>
+                        <h4 class="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+                            <i class="fas fa-trash-alt text-red-500 mr-2"></i> Wasted Resources
+                        </h4>
+                        <div class="table-enhanced overflow-x-auto">
+                            <table class="w-full text-sm text-left text-gray-600">
+                                <thead class="text-xs text-gray-700 uppercase">
+                                    <tr>
+                                        <th class="px-6 py-4">Resource ID</th>
+                                        <th class="px-6 py-4">Type</th>
+                                        <th class="px-6 py-4">Region</th>
+                                        <th class="px-6 py-4">Reason</th>
+                                        <th class="px-6 py-4">Savings</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200">
+                                    <template x-for="res in reportData.wastedResources" :key="res.resourceId">
+                                        <tr class="hover:bg-gray-50">
+                                            <td class="px-6 py-4 font-mono text-xs" x-text="res.resourceId"></td>
+                                            <td class="px-6 py-4" x-text="res.resourceType"></td>
+                                            <td class="px-6 py-4" x-text="res.region"></td>
+                                            <td class="px-6 py-4" x-text="res.reason"></td>
+                                            <td class="px-6 py-4 text-red-600 font-bold" x-text="formatCurrency(res.monthlySavings)"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+</div>
+
+<script>
+    function finopsReport() {
+        return {
+            isLoading: true, isRefreshing: false,
+            reportData: {
+                billingSummary: [], 
+                costHistory: [], 
+                rightsizingRecommendations: [], // Added for new section
+                wastedResources: [], // Added for new section
+                optimizationSummary: { potentialSavings: 0 }, 
+                monthToDateSpend: 0, 
+                lastMonthSpend: 0, 
+                forecastedSpend: 0,
+                budgets: [], 
+                taggingCompliance: { compliancePercentage: 0, untaggedResources: [] }
+            },
+            charts: { byService: null, costHistory: null },
+            init() { this.loadReport(); },
+            loadReport(forceRefresh = false) {
+                const accountId = sessionStorage.getItem('selectedAccountId');
+                if (!accountId) { this.isLoading = false; return; }
+                this.isRefreshing = forceRefresh; this.isLoading = !forceRefresh;
+                
+                fetch(`/api/gcp/finops/report?accountId=${accountId}`)
+                    .then(res => res.json())
+                    .then(data => { 
+                        this.reportData = data; 
+                        // Mock data for new sections until backend is updated
+                        if (!this.reportData.rightsizingRecommendations) this.reportData.rightsizingRecommendations = [];
+                        if (!this.reportData.wastedResources) this.reportData.wastedResources = [];
+                        this.renderCharts(); 
+                    })
+                    .catch(err => console.error("Failed to load FinOps report:", err))
+                    .finally(() => { this.isLoading = false; this.isRefreshing = false; });
+            },
+            formatCurrency(value) {
+                return (value || 0).toLocaleString('en-IN', { style: 'currency', currency: 'INR' });
+            },
+            get kpis() {
+                const mtdSpend = this.reportData.monthToDateSpend || 0;
+                const lastMonthSpend = this.reportData.lastMonthSpend || 0;
+                const forecast = this.reportData.forecastedSpend || 0;
+                
+                const mtdTrend = lastMonthSpend > 0 ? ((mtdSpend - lastMonthSpend) / lastMonthSpend) * 100 : 0;
+                const forecastTrend = lastMonthSpend > 0 ? ((forecast - lastMonthSpend) / lastMonthSpend) * 100 : 0;
+
+                return [
+                    { 
+                        label: 'Month-to-Date Spend', 
+                        value: this.formatCurrency(mtdSpend),
+                        icon: 'fa-dollar-sign',
+                        color: { bg: 'bg-blue-100', text: 'text-blue-500' },
+                        trendIcon: mtdTrend >= 0 ? 'fa-arrow-up' : 'fa-arrow-down',
+                        trendColor: mtdTrend >= 0 ? 'text-red-500' : 'text-green-500',
+                        trendText: lastMonthSpend > 0 ? `${Math.abs(mtdTrend).toFixed(1)}% vs last month` : ''
+                    },
+                    { 
+                        label: 'Forecasted Spend', 
+                        value: this.formatCurrency(forecast),
+                        icon: 'fa-chart-line',
+                        color: { bg: 'bg-yellow-100', text: 'text-yellow-500' },
+                        trendIcon: forecastTrend >= 0 ? 'fa-arrow-up' : 'fa-arrow-down',
+                        trendColor: forecastTrend >= 0 ? 'text-red-500' : 'text-green-500',
+                        trendText: lastMonthSpend > 0 ? `${Math.abs(forecastTrend).toFixed(1)}% vs last month` : ''
+                    },
+                    { 
+                        label: 'Last Month Spend', 
+                        value: this.formatCurrency(this.reportData.lastMonthSpend),
+                        icon: 'fa-calendar-alt',
+                        color: { bg: 'bg-gray-100', text: 'text-gray-500' },
+                        trendText: ''
+                    },
+                    { 
+                        label: 'Potential Savings', 
+                        value: this.formatCurrency(this.reportData.optimizationSummary.potentialSavings),
+                        icon: 'fa-piggy-bank',
+                        color: { bg: 'bg-green-100', text: 'text-green-500' },
+                        trendText: ''
+                    }
+                ];
+            },
+            renderCharts() {
+                this.renderServiceChart();
+                this.renderCostHistoryChart();
+            },
+            renderServiceChart() {
+                const ctx = document.getElementById('costByServiceChart');
+                if(!ctx || !this.reportData.billingSummary) return;
+                if (this.charts.byService) this.charts.byService.destroy();
+                this.charts.byService = new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: this.reportData.billingSummary.map(d => d.name),
+                        datasets: [{ data: this.reportData.billingSummary.map(d => d.amount), backgroundColor: ['#4285F4', '#34A853', '#FBBC05', '#EA4335', '#667eea', '#764ba2'] }]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } }
+                });
+            },
+            renderCostHistoryChart() {
+                const ctx = document.getElementById('costHistoryChart');
+                 if(!ctx || !this.reportData.costHistory) return;
+                if (this.charts.costHistory) this.charts.costHistory.destroy();
+                this.charts.costHistory = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: this.reportData.costHistory.map(d => d.name),
+                        datasets: [{ label: 'Monthly Cost', data: this.reportData.costHistory.map(d => d.amount), backgroundColor: '#4285F4', borderRadius: 4 }]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+                });
+            }
+        }
+    }
+</script>
+</body>
+</html>
