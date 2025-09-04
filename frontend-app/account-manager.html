@@ -531,10 +531,14 @@ function accountManager() {
                     throw new Error('Failed to remove account.');
                 }
                 this.accounts = this.accounts.filter(acc => acc.dbId !== account.dbId);
-                if (sessionStorage.getItem('selectedAccountId') === account.id) {
-                    sessionStorage.removeItem('selectedAccountId');
-                    window.location.reload();
-                }
+   const selectedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+const newSelectedIds = selectedIds.filter(id => id !== account.id);
+
+if (selectedIds.length !== newSelectedIds.length) {
+    sessionStorage.setItem('selectedAccountIds', JSON.stringify(newSelectedIds));
+    // Force a reload or redirect to the dashboard to reflect the change
+    window.location.href = '/dashboard.html';
+}
             })
             .catch(err => {
                 alert(`Error: ${err.message}`);

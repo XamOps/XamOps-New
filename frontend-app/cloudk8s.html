@@ -332,8 +332,8 @@ function cloudK8s() {
         appBaseUrl: window.location.origin, // Dynamically get the base URL
 
         init() {
-            this.selectedAccountId = sessionStorage.getItem('selectedAccountId');
-            if (!this.selectedAccountId) { 
+const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+this.selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;            if (!this.selectedAccountId) { 
                 this.isLoading.clusters = false; return; 
             }
             this.fetchClusters(false);

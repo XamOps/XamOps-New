@@ -537,8 +537,8 @@ function alerts() {
         },
         
         loadAlerts(forceRefresh = false) {
-            const selectedAccountId = sessionStorage.getItem('selectedAccountId');
-            if (!selectedAccountId) {
+const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;            if (!selectedAccountId) {
                 this.isLoading = false;
                 console.warn('No account selected. Cannot fetch alert data.');
                 return;

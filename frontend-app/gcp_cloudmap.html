@@ -384,8 +384,9 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     function initialize() {
-        const selectedAccountId = sessionStorage.getItem('selectedAccountId');
-        if (!selectedAccountId) {
+const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+// GCP pages operate on a single account, so we take the first one.
+const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;        if (!selectedAccountId) {
             vpcSelector.innerHTML = '<option value="">Please select a GCP account</option>';
             return;
         }

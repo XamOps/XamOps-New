@@ -388,12 +388,14 @@ function rightsizing() {
             this.loadRecommendations(false);
         },
 
-        loadRecommendations(forceRefresh = false) {
-            const selectedAccountId = sessionStorage.getItem('selectedAccountId');
-            if (!selectedAccountId) {
-                this.isLoading = false;
-                return;
-            }
+loadRecommendations(forceRefresh = false) {
+    const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+    const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null; // Use the first ID
+
+    if (!selectedAccountId) {
+        this.isLoading = false;
+        return;
+    }
             
             const cacheKey = `rightsizingRecs-${selectedAccountId}`;
             const cachedData = sessionStorage.getItem(cacheKey);

@@ -670,8 +670,9 @@ function dashboardApp() {
         },
 
         fetchDashboardData(forceRefresh = false) {
-            const selectedAccountId = sessionStorage.getItem('selectedAccountId');
-            
+const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+// GCP pages operate on a single account, so we take the first one.
+const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;            
             if (!selectedAccountId) {
                 this.isLoading = false;
                 document.getElementById('unselectedState').classList.remove('hidden');

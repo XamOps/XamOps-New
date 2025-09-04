@@ -322,8 +322,9 @@
             charts: { byService: null, costHistory: null },
             init() { this.loadReport(); },
             loadReport(forceRefresh = false) {
-                const accountId = sessionStorage.getItem('selectedAccountId');
-                if (!accountId) { this.isLoading = false; return; }
+const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+// GCP pages operate on a single account, so we take the first one.
+const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;                if (!accountId) { this.isLoading = false; return; }
                 this.isRefreshing = forceRefresh; this.isLoading = !forceRefresh;
                 
                 fetch(`/api/gcp/finops/report?accountId=${accountId}`)

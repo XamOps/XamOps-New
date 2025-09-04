@@ -571,8 +571,8 @@
 
 
                 loadForecastServices() {
-                    const selectedAccountId = sessionStorage.getItem('selectedAccountId');
-                    if (!selectedAccountId) return;
+const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;                    if (!selectedAccountId) return;
                     fetch(`/api/costs/breakdown?accountId=${selectedAccountId}&groupBy=SERVICE&forceRefresh=true`)
                         .then(res => res.json())
                         .then(data => {

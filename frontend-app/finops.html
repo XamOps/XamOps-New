@@ -594,12 +594,15 @@
                 this.loadReport(false);
             },
 
-            loadReport(forceRefresh = false) {
-                const selectedAccountId = sessionStorage.getItem('selectedAccountId');
-                if (!selectedAccountId) {
-                    this.isLoading = false;
-                    return;
-                }
+loadReport(forceRefresh = false) {
+    const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+    const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null; // Use the first ID for this report
+
+    if (!selectedAccountId) {
+        this.isLoading = false;
+        // You can add a message here to prompt the user to select an account
+        return;
+    }
 
                 const cacheKey = `finopsReport-${selectedAccountId}`;
                 const cachedData = sessionStorage.getItem(cacheKey);

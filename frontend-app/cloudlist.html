@@ -416,15 +416,25 @@ document.addEventListener('DOMContentLoaded', function() {
             };
         },
 
-        loadResources(forceRefresh = false) {
-            const selectedAccountId = sessionStorage.getItem('selectedAccountId');
-            if (!selectedAccountId) {
-                this.dom.loadingState.style.display = 'none';
-                this.dom.emptyState.classList.remove('hidden');
-                this.dom.updateStatus.textContent = 'Please select an account.';
-                return;
-            }
+loadResources(forceRefresh = false) {
+    const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+    // Cloudlist can support multiple accounts, so we join them
+    const accountIdsParam = selectedAccountIds.join(',');
 
+    if (selectedAccountIds.length === 0) {
+        this.dom.loadingState.style.display = 'none';
+        this.dom.emptyState.classList.remove('hidden');
+        // A more helpful message for the empty state
+        this.dom.emptyState.innerHTML = `
+            <div class="w-16 h-16 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                <i class="fas fa-mouse-pointer text-white text-2xl"></i>
+            </div>
+            <h3 class="text-xl font-bold text-gray-800 mb-2">No Account Selected</h3>
+            <p class="text-gray-600">Please use the sidebar to select a cloud account to view its resources.</p>
+        `;
+        this.dom.updateStatus.textContent = 'Please select an account.';
+        return;
+    }
             const cacheKey = `cloudlistData-${selectedAccountId}`;
             const cachedData = sessionStorage.getItem(cacheKey);
 
@@ -451,7 +461,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 sessionStorage.removeItem(cacheKey); 
             }
             
-            fetch(`/api/cloudlist/resources?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`)
+// Use the 'accountIdsParam' we defined earlier
+fetch(`/api/cloudlist/resources?accountIds=${accountIdsParam}&forceRefresh=${forceRefresh}`)
                 .then(res => res.json())
                 .then(data => {
                     this.allGroups = Array.isArray(data) ? data : [];

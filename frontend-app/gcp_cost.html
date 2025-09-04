@@ -83,23 +83,26 @@
                 init() { this.loadCostData(false); this.loadForecastServices(); this.renderCostForecastChart(); },
                 formatCurrency(value) { return (value || 0).toLocaleString('en-IN', { style: 'currency', currency: 'INR' }); },
                 loadCostData(forceRefresh = false) {
-                    const accountId = sessionStorage.getItem('selectedAccountId');
-                    if (!accountId) { this.isLoading = false; this.costData = []; return; }
+const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+// GCP pages operate on a single account, so we take the first one.
+const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;                    if (!accountId) { this.isLoading = false; this.costData = []; return; }
                     this.isLoading = !forceRefresh; this.isRefreshing = forceRefresh;
                     fetch(`/api/gcp/costs/breakdown?accountId=${accountId}&groupBy=${this.groupBy}`)
                         .then(res => res.json()).then(data => { this.costData = data; this.renderChart(); })
                         .finally(() => { this.isLoading = false; this.isRefreshing = false; });
                 },
                 loadForecastServices() {
-                    const accountId = sessionStorage.getItem('selectedAccountId');
-                    if (!accountId) return;
+const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+// GCP pages operate on a single account, so we take the first one.
+const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;                    if (!accountId) return;
                     fetch(`/api/gcp/costs/breakdown?accountId=${accountId}&groupBy=SERVICE`)
                         .then(res => res.json()).then(data => { this.forecast.availableServices = ['ALL', ...new Set(data.map(item => item.name))]; });
                 },
                 async renderCostForecastChart() {
                     this.forecast.isLoading = true;
-                    const accountId = sessionStorage.getItem('selectedAccountId');
-                    if (!accountId) { this.forecast.isLoading = false; return; }
+const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+// GCP pages operate on a single account, so we take the first one.
+const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;                    if (!accountId) { this.forecast.isLoading = false; return; }
                     try {
                         let url = `/api/gcp/forecast/cost?accountId=${accountId}&periods=${this.forecast.periods}&serviceName=${encodeURIComponent(this.forecast.service)}`;
                         const response = await fetch(url);
