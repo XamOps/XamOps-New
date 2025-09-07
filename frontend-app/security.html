@@ -416,19 +416,30 @@ function securityCenter() {
         selectedFinding: {},
         remediationSteps: '',
         selectedCompliance: 'All',
+        selectedAccountId: null, // <-- ADD THIS
 
         init() {
+            const urlParams = new URLSearchParams(window.location.search);
+            this.selectedAccountId = urlParams.get('accountIds');
+            
+            if (!this.selectedAccountId) {
+                const storedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                if (storedIds.length > 0) {
+                    this.selectedAccountId = storedIds.join(',');
+                }
+            }
+            
             this.loadFindings(false);
         },
         
         loadFindings(forceRefresh = false) {
-            const selectedAccountId = sessionStorage.getItem('selectedAccountId');
-            if (!selectedAccountId) {
+            if (!this.selectedAccountId) {
                 this.isLoading = false;
+                // Add a message for the user
                 return;
             }
             
-            const cacheKey = `securityFindings-${selectedAccountId}`;
+            const cacheKey = `securityFindings-${this.selectedAccountId}`;
             const cachedData = sessionStorage.getItem(cacheKey);
 
             if (cachedData && !forceRefresh) {
@@ -446,7 +457,7 @@ function securityCenter() {
                 sessionStorage.removeItem(cacheKey);
             }
             
-            fetch(`/api/security/findings?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`)
+            fetch(`/api/security/findings?accountId=${this.selectedAccountId}&forceRefresh=${forceRefresh}`)
                 .then(res => res.json())
                 .then(data => {
                     sessionStorage.setItem(cacheKey, JSON.stringify(data));

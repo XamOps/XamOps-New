@@ -17,6 +17,8 @@
     <script src="https://code.highcharts.com/maps/highmaps.js"></script>
     <script src="https://code.highcharts.com/maps/modules/exporting.js"></script>
     <script src="https://code.highcharts.com/mapdata/custom/world.js"></script>
+            <script type="module" src="/src/main.js"></script>
+
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
@@ -398,7 +400,7 @@
 
     <div id="appBody" class="flex">
         <aside class="fixed top-0 left-0 h-screen w-64 bg-white border-r border-gray-200 z-20 slide-in">
-            <div th:replace="~{fragments/_sidebar :: sidebar}"></div>
+            <div data-include-sidebar></div>
         </aside>
 
         <div class="ml-64 flex-1">
@@ -593,27 +595,44 @@
     </button>
 
     <script>
-function dashboardApp() {
-    return {
-        isLoading: true,
-        stompClient: null,
-        layoutChanged: false,
-        showQuickActions: false,
-        
-        init() {
-            // The storage event listener is still useful for cross-tab communication.
-            window.addEventListener('storage', (event) => {
-                if (event.key === 'selectedAccountId') {
-                    window.location.reload();
+    function dashboardApp() {
+        return {
+            isLoading: true,
+            isRefreshing: false,
+            stompClient: null,
+            layoutChanged: false,
+            showQuickActions: false,
+            selectedAccountIds: [], 
+            
+         init() {
+                const urlParams = new URLSearchParams(window.location.search);
+                const accountIdsParam = urlParams.get('accountIds');
+                
+                if (accountIdsParam) {
+                    this.selectedAccountIds = accountIdsParam.split(',');
+                    sessionStorage.setItem('selectedAccountIds', JSON.stringify(this.selectedAccountIds));
+                } else {
+                    this.selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
                 }
-            });
+                
+                window.addEventListener('storage', (event) => {
+                    if (event.key === 'selectedAccountIds') {
+                        window.location.reload();
+                    }
+                });
 
-            // Now, when init() is called, the DOM is guaranteed to be ready.
-            this.fetchDashboardData(false);
-        },
+                if (this.selectedAccountIds.length > 0) {
+                    // MOVE WEBSOCKET CONNECTION HERE
+                    this.connectWebSocket(); 
+                    this.fetchDashboardData(false);
+                } else {
+                    this.isLoading = false;
+                }
+            },
 
-        connectWebSocket() {
-            const accountId = sessionStorage.getItem('selectedAccountId');
+            connectWebSocket() {
+            // FIX: Use the correct key and get the first ID from the array
+            const accountId = this.selectedAccountIds.length > 0 ? this.selectedAccountIds[0] : null;
             if (!accountId) {
                 console.log("No account selected, WebSocket will not connect.");
                 return; 
@@ -636,100 +655,106 @@ function dashboardApp() {
             });
         },
 
-        initializeDashboardLayout() {
-            const container = document.getElementById('widgets-container');
-            fetch('/api/dashboard/layout')
-                .then(res => res.json())
-                .then(layout => {
-                    if (layout && layout.layoutConfig) {
-                        const widgetOrder = JSON.parse(layout.layoutConfig);
-                        if (widgetOrder && widgetOrder.length > 0) {
-                            widgetOrder.forEach(widgetId => {
-                                const widget = document.getElementById(widgetId);
-                                if (widget) container.appendChild(widget);
-                            });
+ initializeDashboardLayout() {
+                const container = document.getElementById('widgets-container');
+                // CORRECTED URL: Added the '/xamops' base path
+                fetch('/api/xamops/dashboard/layout')
+                    .then(res => res.json())
+                    .then(layout => {
+                        if (layout && layout.layoutConfig) {
+                            const widgetOrder = JSON.parse(layout.layoutConfig);
+                            if (widgetOrder && widgetOrder.length > 0) {
+                                widgetOrder.forEach(widgetId => {
+                                    const widget = document.getElementById(widgetId);
+                                    if (widget) container.appendChild(widget);
+                                });
+                            }
                         }
-                    }
-                    new Sortable(container, {
-                        animation: 200,
-                        ghostClass: 'sortable-ghost',
-                        chosenClass: 'sortable-chosen',
-                        handle: '.widget-handle',
-                        onEnd: () => { this.layoutChanged = true; }
+                        new Sortable(container, {
+                            animation: 200,
+                            ghostClass: 'sortable-ghost',
+                            chosenClass: 'sortable-chosen',
+                            handle: '.widget-handle',
+                            onEnd: () => { this.layoutChanged = true; }
+                        });
+                    }).catch(err => {
+                        console.error("Failed to load layout, using default.", err);
+                        new Sortable(container, { /* Sortable config */ });
                     });
-                }).catch(err => {
-                    console.error("Failed to load layout, using default.", err);
-                    new Sortable(container, {
-                        animation: 200,
-                        ghostClass: 'sortable-ghost',
-                        chosenClass: 'sortable-chosen',
-                        handle: '.widget-handle',
-                        onEnd: () => { this.layoutChanged = true; }
-                    });
-                });
-        },
+            },
+            fetchDashboardData(forceRefresh = false) {
+                const selectedAccountId = this.selectedAccountIds.length > 0 ? this.selectedAccountIds[0] : null;            
+                
+                if (!selectedAccountId) {
+                    this.isLoading = false;
+                    document.getElementById('unselectedState').classList.remove('hidden');
+                    return;
+                }
 
-        fetchDashboardData(forceRefresh = false) {
-const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-// GCP pages operate on a single account, so we take the first one.
-const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;            
-            if (!selectedAccountId) {
-                this.isLoading = false;
-                document.getElementById('unselectedState').classList.remove('hidden');
-                return;
-            }
+                // this.connectWebSocket();
+                this.initializeDashboardLayout();
 
-            // THE FIX IS HERE: Always use the main dashboard endpoint.
-            // The backend's DashboardDataService will detect the provider and return the correct data structure.
-            let endpoint = `/api/dashboard?accountId=${selectedAccountId}`;
+                const cacheKey = `dashboardData-${selectedAccountId}`;
+                const cachedData = sessionStorage.getItem(cacheKey);
 
-            if (forceRefresh) {
-                endpoint += '&force=true';
-            }
-
-            // Connect WebSocket for both providers, as backend handles it
-            this.connectWebSocket();
-            this.initializeDashboardLayout();
-
-            if (forceRefresh) {
-                this.showNotification('loading', 'Updating dashboard...');
-            }
-            
-            const cacheKey = `dashboardData-${selectedAccountId}`;
-            const cachedData = sessionStorage.getItem(cacheKey);
-
-            if (cachedData && !forceRefresh) {
-                this.isLoading = false;
-                document.getElementById('dashboardContent').classList.remove('hidden');
-                this.populatePage(JSON.parse(cachedData));
-                return;
-            }
-            
-            this.isLoading = true;
-            document.getElementById('dashboardContent').classList.add('hidden');
-            if (forceRefresh) sessionStorage.removeItem(cacheKey);
-
-            fetch(endpoint)
-                .then(res => res.json())
-                .then(data => {
-                    if (!data) return;
-                    sessionStorage.setItem(cacheKey, JSON.stringify(data));
-                    this.populatePage(data);
-                    if (forceRefresh) {
-                        this.showNotification('success', 'Dashboard updated successfully!');
-                    }
-                })
-                .catch(error => {
-                    console.error('Failed to fetch dashboard data:', error);
-                    const selectedProvider = sessionStorage.getItem('selectedAccountProvider');
-                    document.getElementById('errorMessage').textContent = `Failed to load ${selectedProvider} data. Please check the backend logs or try again later.`;
-                    document.getElementById('errorState').classList.remove('hidden');
-                })
-                .finally(() => {
+                if (cachedData && !forceRefresh) {
                     this.isLoading = false;
                     document.getElementById('dashboardContent').classList.remove('hidden');
+                    this.populatePage(JSON.parse(cachedData));
+                    return;
+                }
+                
+                this.isLoading = true;
+                document.getElementById('dashboardContent').classList.add('hidden');
+                if (forceRefresh) {
+                    this.isRefreshing = true;
+                    this.showNotification('loading', 'Updating dashboard...');
+                    sessionStorage.removeItem(cacheKey); 
+                }
+                
+                // --- CORRECTED ENDPOINT FOR GCP ---
+                let endpoint = `/api/gcp/dashboard?accountId=${selectedAccountId}`;
+                if (forceRefresh) {
+                    endpoint += '&forceRefresh=true';
+                }
+
+                fetch(endpoint)
+                    .then(res => res.json())
+                    .then(data => {
+                        if (!data) return;
+                        sessionStorage.setItem(cacheKey, JSON.stringify(data));
+                        this.populatePage({ selectedAccount: data }); // Wrap the data
+                    })
+                    .catch(error => {
+                        console.error('Failed to fetch GCP dashboard data:', error);
+                        document.getElementById('errorMessage').textContent = 'Failed to load GCP data. Please check the backend logs.';
+                        document.getElementById('errorState').classList.remove('hidden');
+                        document.getElementById('appBody').classList.add('hidden');
+                    })
+                    .finally(() => {
+                        this.isLoading = false;
+                        this.isRefreshing = false;
+                        document.getElementById('dashboardContent').classList.remove('hidden');
+                    });
+            },
+            
+            saveLayout() {
+                const container = document.getElementById('widgets-container');
+                const widgetOrder = [...container.children].map(w => w.id);
+                fetch('/api/xamops/dashboard/layout', { // Corrected URL
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(widgetOrder)
+                }).then(res => {
+                    if (res.ok) {
+                        this.layoutChanged = false;
+                        this.showNotification('success', 'Layout saved successfully!');
+                    } else {
+                        alert('Failed to save layout.');
+                    }
                 });
-        },
+            },
+        
         
         showNotification(type, message) {
             const notification = document.getElementById(type + 'Notification');
@@ -741,112 +766,88 @@ const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] 
             }
         },
 
-        saveLayout() {
-            const container = document.getElementById('widgets-container');
-            const widgetOrder = [...container.children].map(w => w.id);
-            fetch('/api/dashboard/layout', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(widgetOrder)
-            }).then(res => {
-                if (res.ok) {
-                    this.layoutChanged = false;
-                    this.showNotification('success', 'Layout saved successfully!');
-                } else {
-                    alert('Failed to save layout.');
-                }
-            });
-        },
         
-        populatePage(data) {
-            const account = data.selectedAccount;
-            if (!account) return;
-            document.getElementById('updateTime').textContent = `Updated ${new Date().toLocaleTimeString()}`;
-            this.populateKpiCards(account);
-            this.populateResourceInventory(account.resourceInventory);
-            this.populateOptimizationHub(account.optimizationSummary, account.costAnomalies, account.ec2Recommendations, account.ebsRecommendations, account.lambdaRecommendations);
-            this.populateBillingSummary(account.billingSummary);
-            this.renderCostHistoryChart(account.costHistory);
-            this.renderHighchartMap(account.regionStatus);
-        },
+            populatePage(data) {
+                const account = data.selectedAccount;
+                if (!account) return;
+                document.getElementById('updateTime').textContent = `Updated ${new Date().toLocaleTimeString()}`;
+                this.populateKpiCards(account);
+                this.populateResourceInventory(account.resourceInventory);
+                this.populateOptimizationHub(account.optimizationSummary, [], account.rightsizingRecommendations, [], []);
+                this.populateBillingSummary(account.billingSummary);
+                this.renderCostHistoryChart(account.costHistory);
+                this.renderHighchartMap(account.regionStatus);
+            },
+            
+populateKpiCards(account) {
+                const kpiContainer = document.getElementById('kpi-cards');
+                if (!kpiContainer) return;
+                
+                const mtdSpend = account.monthToDateSpend || 0;
+                const lastMonthSpend = account.lastMonthSpend || 0;
+                const forecastedSpend = account.forecastedSpend || 0;
+                const potentialSavings = (account.optimizationSummary && account.optimizationSummary.totalPotentialSavings) ? account.optimizationSummary.totalPotentialSavings : 0;
+                
+                const costHistoryAmounts = account.costHistory ? account.costHistory.map(c => c.amount) : [];
 
-        populateKpiCards(account) {
-            const kpiContainer = document.getElementById('kpi-cards');
-            if (!kpiContainer) return;
-            const costHistory = account.costHistory;
+                const kpis = [
+                    { 
+                        id: 'mtdSpend', 
+                        title: 'Month-to-Date Spend', 
+                        value: this.formatCurrency(mtdSpend), 
+                        icon: 'fa-dollar-sign', 
+                        color: { chartColor: '#3b82f6' }, 
+                        trendData: costHistoryAmounts,
+                        change: lastMonthSpend > 0 ? ((mtdSpend - lastMonthSpend) / lastMonthSpend * 100) : 0
+                    },
+                    { 
+                        id: 'forecastedSpend', 
+                        title: 'Forecasted Spend', 
+                        value: this.formatCurrency(forecastedSpend), 
+                        icon: 'fa-chart-line', 
+                        color: { iconClass: 'text-yellow-500', chartColor: '#f59e0b', gradientClass: 'from-yellow-500 to-yellow-600' }, 
+                        trendData: costHistoryAmounts,
+                        change: mtdSpend > 0 ? ((forecastedSpend - mtdSpend) / mtdSpend * 100) : 0
+                    },
+                    { 
+                        id: 'lastMonthSpend', 
+                        title: 'Last Month Spend', 
+                        value: this.formatCurrency(lastMonthSpend), 
+                        icon: 'fa-calendar-alt', 
+                        color: { iconClass: 'text-gray-500', chartColor: '#6b7280', gradientClass: 'from-gray-500 to-gray-600' }, 
+                        trendData: costHistoryAmounts.slice(0, -1),
+                        change: costHistoryAmounts.length > 2 && costHistoryAmounts[costHistoryAmounts.length - 3] > 0 ? ((lastMonthSpend - costHistoryAmounts[costHistoryAmounts.length - 3]) / costHistoryAmounts[costHistoryAmounts.length - 3] * 100) : 0
+                    },
+                    { 
+                        id: 'potentialSavings', 
+                        title: 'Potential Savings', 
+                        value: this.formatCurrency(potentialSavings), 
+                        icon: 'fa-piggy-bank', 
+                        color: { iconClass: 'text-green-500', chartColor: '#22c55e', gradientClass: 'from-green-500 to-green-600' }, 
+                        trendData: [potentialSavings > 0 ? potentialSavings : 0],
+                        change: 0 
+                    }
+                ];
             
-            const mtdSpend = account.billingSummary.reduce((sum, item) => sum + item.monthToDateCost, 0);
-            
-            const lastMonthSpend = costHistory.costs.length > 1 ? costHistory.costs[costHistory.costs.length - 2] : 0;
-            const forecastedSpend = (mtdSpend / new Date().getDate()) * new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
-
-            const kpis = [
-                { 
-                    id: 'mtdSpend', 
-                    title: 'Month-to-Date Spend', 
-                    value: this.formatCurrency(mtdSpend), 
-                    icon: 'fa-dollar-sign', 
-                    color: { iconClass: 'text-blue-500', chartColor: '#3b82f6', gradientClass: 'from-blue-500 to-blue-600' }, 
-                    trendData: costHistory.costs,
-                    change: lastMonthSpend > 0 ? ((mtdSpend - lastMonthSpend) / lastMonthSpend * 100).toFixed(1) : 0
-                },
-                { 
-                    id: 'forecastedSpend', 
-                    title: 'Forecasted Spend', 
-                    value: this.formatCurrency(forecastedSpend), 
-                    icon: 'fa-chart-line', 
-                    color: { iconClass: 'text-yellow-500', chartColor: '#f59e0b', gradientClass: 'from-yellow-500 to-yellow-600' }, 
-                    trendData: costHistory.costs,
-                    change: '+' + ((forecastedSpend - mtdSpend) / mtdSpend * 100).toFixed(1)
-                },
-                { 
-                    id: 'lastMonthSpend', 
-                    title: 'Last Month Spend', 
-                    value: this.formatCurrency(lastMonthSpend), 
-                    icon: 'fa-calendar-alt', 
-                    color: { iconClass: 'text-gray-500', chartColor: '#6b7280', gradientClass: 'from-gray-500 to-gray-600' }, 
-                    trendData: costHistory.costs.slice(0, -1),
-                    change: costHistory.costs.length > 2 && costHistory.costs[costHistory.costs.length - 3] > 0 ? ((lastMonthSpend - costHistory.costs[costHistory.costs.length - 3]) / costHistory.costs[costHistory.costs.length - 3] * 100).toFixed(1) : 0
-                },
-                { 
-                    id: 'potentialSavings', 
-                    title: 'Potential Savings', 
-                    value: this.formatCurrency(account.optimizationSummary ? account.optimizationSummary.totalPotentialSavings : 0), 
-                    icon: 'fa-piggy-bank', 
-                    color: { iconClass: 'text-green-500', chartColor: '#22c55e', gradientClass: 'from-green-500 to-green-600' }, 
-                    trendData: [account.optimizationSummary ? account.optimizationSummary.totalPotentialSavings : 0],
-                    change: '+100.0'
-                }
-            ];
-            
-            kpiContainer.innerHTML = kpis.map(kpi => `
-                <div class="kpi-card rounded-xl p-6 group" @mouseenter="renderSparkline('sparkline-${kpi.id}', [${kpi.trendData.join(',')}], '${kpi.color.chartColor}')">
-                    <div class="main-content">
+                 kpiContainer.innerHTML = kpis.map(kpi => {
+                    const changeValue = parseFloat(kpi.change);
+                    return `
+                    <div class="kpi-card rounded-xl p-6 group">
                         <div class="flex justify-between items-start">
-                            <div class="flex-1">
+                             <div class="flex-1">
                                 <h3 class="text-gray-600 text-sm font-medium mb-1">${kpi.title}</h3>
                                 <p class="text-2xl font-bold text-gray-900 mb-2">${kpi.value}</p>
                                 <div class="flex items-center text-sm">
-                                    <span class="text-${String(kpi.change).startsWith('+') ? 'green' : String(kpi.change).startsWith('-') ? 'red' : 'gray'}-600 font-medium">
-                                        ${kpi.change}%
+                                    <span class="text-${changeValue >= 0 ? 'red' : 'green'}-600 font-medium">
+                                        ${ isNaN(changeValue) ? 'N/A' : changeValue.toFixed(1) + '%' }
                                     </span>
                                     <span class="text-gray-500 ml-1">vs last period</span>
                                 </div>
                             </div>
-                            <div class="bg-gradient-to-br ${kpi.color.gradientClass} p-3 rounded-xl shadow-lg">
-                                <i class="fas ${kpi.icon} text-white text-lg"></i>
                             </div>
-                        </div>
-                    </div>
-                    <div class="sparkline-container p-4 flex items-center justify-center">
-                        <div class="w-full h-full">
-                            <canvas id="sparkline-${kpi.id}"></canvas>
-                        </div>
-                    </div>
-                </div>
-            `).join('');
-        },
-
+                    </div>`;
+                }).join('');
+            },
         populateResourceInventory(inv) {
             if (!inv) return;
             const container = document.getElementById('resourceInventory');
@@ -1275,16 +1276,16 @@ const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] 
             }, 4000);
         },
 
-        formatCurrency(num) { 
-            return (num != null ? num.toLocaleString('en-IN', {
-                style: 'currency',
-                currency: 'INR',
-                minimumFractionDigits: 2, 
-                maximumFractionDigits: 2
-            }) : '₹0.00'); 
-        },
+    formatCurrency(num) { 
+                return (num != null ? num.toLocaleString('en-US', {
+                    style: 'currency',
+                    currency: 'USD',
+                    minimumFractionDigits: 2, 
+                    maximumFractionDigits: 2
+                }) : '$0.00'); 
+            },
+        }
     }
-}
     </script>
 </body>
 </html>

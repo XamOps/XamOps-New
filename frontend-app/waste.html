@@ -254,6 +254,7 @@ function wasteManagement() {
         wastedResources: [],
         selectedResources: [],
         savingsChart: null,
+        selectedAccountId: null, // <-- ADD THIS
         allPossibleCategories: [
             'All', 'EBS Volume', 'Snapshot', 'AMI', 'Elastic IP', 
             'RDS Instance', 'Load Balancer', 'Security Group', 'EC2 Instance', 
@@ -261,6 +262,17 @@ function wasteManagement() {
         ],
 
         init() {
+            // This is the new logic to get the account ID
+            const urlParams = new URLSearchParams(window.location.search);
+            this.selectedAccountId = urlParams.get('accountIds');
+            
+            if (!this.selectedAccountId) {
+                const storedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                if (storedIds.length > 0) {
+                    this.selectedAccountId = storedIds.join(',');
+                }
+            }
+
             this.loadWastedResources(false);
             this.$watch('filteredResources', () => {
                 this.renderSavingsChart();
@@ -268,12 +280,12 @@ function wasteManagement() {
         },
         
         loadWastedResources(forceRefresh = false) {
-            const selectedAccountId = sessionStorage.getItem('selectedAccountId');
-            if (!selectedAccountId) {
+            if (!this.selectedAccountId) { // <-- CHECK IF AN ACCOUNT IS SELECTED
                 this.isLoading = false;
+                // You can add a message here to prompt the user to select an account
                 return;
             }
-            const cacheKey = `wasteData-${selectedAccountId}`;
+            const cacheKey = `wasteData-${this.selectedAccountId}`;
             const cachedData = sessionStorage.getItem(cacheKey);
 
             if (cachedData && !forceRefresh) {
@@ -292,7 +304,8 @@ function wasteManagement() {
                 sessionStorage.removeItem(cacheKey);
             }
             
-            fetch(`/api/waste?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`)
+            // Use the correct parameter name 'accountIds'
+            fetch(`/api/xamops/waste?accountIds=${this.selectedAccountId}&forceRefresh=${forceRefresh}`)
                 .then(res => res.json())
                 .then(data => {
                     this.wastedResources = data;
@@ -317,10 +330,12 @@ function wasteManagement() {
         },
 
         get potentialSavings() {
+            if (!Array.isArray(this.filteredResources)) return 0; // <-- ADD THIS CHECK
             return this.filteredResources.reduce((sum, r) => sum + r.monthlySavings, 0);
         },
 
         get resourceCount() {
+            if (!Array.isArray(this.filteredResources)) return 0; // <-- ADD THIS CHECK
             return this.filteredResources.length;
         },
 
@@ -337,6 +352,7 @@ function wasteManagement() {
         },
 
         renderSavingsChart() {
+            if (!Array.isArray(this.filteredResources)) return; // <-- ADD THIS CHECK
             const savingsByCategory = this.filteredResources.reduce((acc, resource) => {
                 acc[resource.resourceType] = (acc[resource.resourceType] || 0) + resource.monthlySavings;
                 return acc;
@@ -427,7 +443,7 @@ function wasteManagement() {
                 ];
                 return deletableTypes.includes(resource.resourceType);
             }
-            return true; // For archive action
+            return true;
         },
 
         handleAction(action, resource) {
@@ -437,10 +453,8 @@ function wasteManagement() {
             }
 
             if (!confirm(`Are you sure you want to ${action} "${resource.resourceId}"? This action cannot be undone.`)) return;
-
-            // API call logic would go here
+            
             console.log(`Performing ${action} on`, resource);
-            // On success, remove from list
             this.wastedResources = this.wastedResources.filter(r => r.resourceId !== resource.resourceId);
         },
 
@@ -454,15 +468,13 @@ function wasteManagement() {
                 return;
             }
 
-            // API call logic for bulk actions
             console.log(`Performing bulk ${action} on:`, this.selectedResources);
-            // On success, remove from list
             this.wastedResources = this.wastedResources.filter(r => !this.selectedResources.includes(r.resourceId));
             this.selectedResources = [];
         },
 
         get groupedFilteredResources() {
-            if (!this.wastedResources) return [];
+            if (!Array.isArray(this.wastedResources)) return []; // <-- ADD THIS CHECK
             
             const groups = this.wastedResources.reduce((acc, res) => {
                 const key = res.resourceType || 'Other';
@@ -470,15 +482,14 @@ function wasteManagement() {
                     acc[key] = {
                         serviceType: key,
                         resources: [],
-                        open: false, // Default to closed
+                        open: false,
                     };
                 }
-                res.detailsOpen = false; // Add state for inner dropdown
+                res.detailsOpen = false;
                 acc[key].resources.push(res);
                 return acc;
             }, {});
             
-            // Sort groups alphabetically by serviceType
             return Object.values(groups).sort((a, b) => a.serviceType.localeCompare(b.serviceType));
         },
 

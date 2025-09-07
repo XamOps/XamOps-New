@@ -74,17 +74,19 @@ public class DashboardController {
     /**
      * Fetches wasted resources data.
      */
-    @GetMapping("/waste")
+     @GetMapping("/waste")
     public CompletableFuture<List<DashboardData.WastedResource>> getWastedResources(
-            @RequestParam String accountId,
+            @RequestParam String accountIds, // <-- FIX: Changed parameter name
             @RequestParam(defaultValue = "false") boolean forceRefresh) {
-        CloudAccount account = cloudAccountRepository.findByAwsAccountId(accountId)
-                .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
+        
+        String accountIdToUse = accountIds.split(",")[0]; // Use the first ID
+        CloudAccount account = cloudAccountRepository.findByAwsAccountId(accountIdToUse)
+                .orElseThrow(() -> new RuntimeException("Account not found: " + accountIdToUse));
 
         return cloudListService.getRegionStatusForAccount(account, forceRefresh)
                 .thenCompose(activeRegions -> optimizationService.getWastedResources(account, activeRegions, forceRefresh))
                 .exceptionally(ex -> {
-                    logger.error("Error fetching wasted resources for account {}", accountId, ex);
+                    logger.error("Error fetching wasted resources for account {}", accountIdToUse, ex);
                     return Collections.emptyList();
                 });
     }

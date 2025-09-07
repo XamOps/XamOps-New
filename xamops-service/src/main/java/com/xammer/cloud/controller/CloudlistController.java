@@ -29,12 +29,16 @@ public class CloudlistController {
 
     @GetMapping("/resources")
     public CompletableFuture<ResponseEntity<List<DashboardData.ServiceGroupDto>>> getAllResources(
-            @RequestParam String accountId,
+            @RequestParam String accountIds, // <-- FIX: Changed parameter name from accountId to accountIds
             @RequestParam(defaultValue = "false") boolean forceRefresh) {
-        return cloudListService.getAllResourcesGrouped(accountId, forceRefresh)
+        
+        // Handle potentially multiple, comma-separated IDs by using the first one.
+        String accountIdToUse = accountIds.split(",")[0]; 
+
+        return cloudListService.getAllResourcesGrouped(accountIdToUse, forceRefresh)
                 .thenApply(ResponseEntity::ok)
                 .exceptionally(ex -> {
-                    logger.error("Error fetching grouped resources for account {}", accountId, ex);
+                    logger.error("Error fetching grouped resources for account {}", accountIdToUse, ex);
                     return ResponseEntity.status(500).body(Collections.emptyList());
                 });
     }

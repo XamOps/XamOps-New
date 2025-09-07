@@ -230,15 +230,19 @@ public class GcpDataService {
             data.setLastMonthSpend(lastMonthSpend);
             
             data.setSecurityScore(gcpSecurityService.calculateSecurityScore(securityFindings));
-            List<DashboardData.SecurityInsight> securityInsights = securityFindings.stream()
+           List<DashboardData.SecurityInsight> securityInsights = securityFindings.stream()
                 .collect(Collectors.groupingBy(GcpSecurityFinding::getCategory, Collectors.counting()))
                 .entrySet().stream()
-                .map(entry -> new DashboardData.SecurityInsight(
-                    String.format("%s has potential issues", entry.getKey()),
-                    entry.getKey(),
-                    "High",
-                    entry.getValue().intValue()
-                )).collect(Collectors.toList());
+                .map(entry -> {
+                    // ADD THIS NULL CHECK
+                    String category = entry.getKey() != null ? entry.getKey() : "Uncategorized";
+                    return new DashboardData.SecurityInsight(
+                        String.format("%s has potential issues", category),
+                        category, // Use the safe category variable
+                        "High",
+                        entry.getValue().intValue()
+                    );
+                }).collect(Collectors.toList());
             data.setSecurityInsights(securityInsights);
             data.setIamResources(iamResourcesFuture.join());
 

@@ -42,7 +42,7 @@
                     <h1 class="text-3xl font-bold text-gray-800" x-text="clusterName" aria-live="polite">EKS Cluster Details</h1>
                     <p class="text-gray-500">Details for your EKS cluster</p>
                 </div>
-                <a href="/cloud/eks" class="text-indigo-600 hover:text-indigo-800 font-semibold">
+                <a href="/cloudk8s.html" class="text-indigo-600 hover:text-indigo-800 font-semibold">
                     <i class="fas fa-arrow-left mr-2"></i>Back to Clusters
                 </a>
             </div>
@@ -121,15 +121,9 @@
                         <p>Loading data...</p>
                     </div>
                     <div x-show="!isLoading">
-                         <div x-show="activeTab === 'nodes'">
-                            <p class="text-gray-600">Node information will be displayed here once data is fetched.</p>
-                        </div>
-                        <div x-show="activeTab === 'pods'">
-                            <p class="text-gray-600">Pod information will be displayed here once data is fetched.</p>
-                        </div>
-                        <div x-show="activeTab === 'deployments'">
-                           <p class="text-gray-600">Deployment information will be displayed here once data is fetched.</p>
-                        </div>
+                         <div x-show="activeTab === 'nodes'"><p class="text-gray-600">Node information will be displayed here once data is fetched.</p></div>
+                         <div x-show="activeTab === 'pods'"><p class="text-gray-600">Pod information will be displayed here once data is fetched.</p></div>
+                         <div x-show="activeTab === 'deployments'"><p class="text-gray-600">Deployment information will be displayed here once data is fetched.</p></div>
                     </div>
                 </div>
             </div>
@@ -145,30 +139,37 @@ function eksDetails() {
         clusterName: '',
         cluster: {},
         activeTab: 'nodes',
-        openCostStatus: 'not_installed', // States: 'not_installed', 'installing', 'installed'
+        openCostStatus: 'not_installed',
         installationMessage: '',
         installationSuccess: false,
+        selectedAccountId: null, // <-- ADD THIS
 
         init() {
             const urlParams = new URLSearchParams(window.location.search);
             this.clusterName = urlParams.get('name');
             this.cluster = history.state || {};
+            
+            // This is the corrected logic
+            const storedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+            if (storedIds.length > 0) {
+                this.selectedAccountId = storedIds[0];
+            }
+
             this.isLoading = false; 
         },
 
         installOpenCost() {
             this.openCostStatus = 'installing';
             this.installationMessage = '';
-            const accountId = sessionStorage.getItem('selectedAccountId');
             
-            if (!accountId || !this.clusterName || !this.cluster.region) {
+            if (!this.selectedAccountId || !this.clusterName || !this.cluster.region) {
                 this.installationMessage = 'Error: Missing account, cluster, or region information.';
                 this.installationSuccess = false;
                 this.openCostStatus = 'not_installed';
                 return;
             }
 
-            const apiUrl = `/api/eks/${this.clusterName}/install-opencost?accountId=${accountId}&region=${this.cluster.region}`;
+            const apiUrl = `/api/eks/${this.clusterName}/install-opencost?accountId=${this.selectedAccountId}&region=${this.cluster.region}`;
 
             fetch(apiUrl, { method: 'POST' })
             .then(res => {

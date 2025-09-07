@@ -8,6 +8,8 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+                <script type="module" src="/src/main.js"></script>
+
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
         
@@ -123,9 +125,9 @@
 </head>
 <body class="bg-gray-50">
 <div class="flex">
-<aside class="fixed top-0 left-0 h-screen w-64 bg-white border-r border-gray-200">
-    <div th:replace="~{fragments/_sidebar :: sidebar}"></div>
-</aside>
+       <aside class="fixed top-0 left-0 h-screen w-64 bg-white border-r border-gray-200">
+            <div data-include-sidebar></div>
+        </aside>
 <div class="ml-64 flex-1">
     <main class="flex-1 flex flex-col min-h-screen" x-data="finopsReport()">
         <header class="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-10">
@@ -321,17 +323,28 @@
             },
             charts: { byService: null, costHistory: null },
             init() { this.loadReport(); },
-            loadReport(forceRefresh = false) {
-const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-// GCP pages operate on a single account, so we take the first one.
-const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;                if (!accountId) { this.isLoading = false; return; }
-                this.isRefreshing = forceRefresh; this.isLoading = !forceRefresh;
+ loadReport(forceRefresh = false) {
+                // --- START: FIX ---
+                const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                // GCP pages operate on a single account, so we take the first one.
+                const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
+
+                if (!selectedAccountId) {
+                    this.isLoading = false;
+                    // You can add a user-friendly message here if you want
+                    console.warn("No GCP account selected. Cannot load FinOps report.");
+                    return;
+                }
+                // --- END: FIX ---
+
+                this.isRefreshing = forceRefresh;
+                this.isLoading = !forceRefresh;
                 
-                fetch(`/api/gcp/finops/report?accountId=${accountId}`)
+                // Use the correctly defined 'selectedAccountId' variable
+                fetch(`/api/gcp/finops/report?accountId=${selectedAccountId}`)
                     .then(res => res.json())
                     .then(data => { 
                         this.reportData = data; 
-                        // Mock data for new sections until backend is updated
                         if (!this.reportData.rightsizingRecommendations) this.reportData.rightsizingRecommendations = [];
                         if (!this.reportData.wastedResources) this.reportData.wastedResources = [];
                         this.renderCharts(); 

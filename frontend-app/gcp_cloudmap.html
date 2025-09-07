@@ -12,6 +12,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dagre/0.8.5/dagre.min.js"></script>
     <script src="https://unpkg.com/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
+                <script type="module" src="/src/main.js"></script>
+
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
@@ -246,7 +248,7 @@
 <body class="bg-gray-100">
 
 <div class="flex h-screen bg-white">
-    <div th:replace="~{fragments/_sidebar :: sidebar}"></div>
+    <div data-include-sidebar></div>
 
     <main class="flex-1 flex flex-col">
         <header class="header-gradient h-auto flex-col sm:flex-row flex items-center justify-between border-b px-8 py-4 gap-4">
@@ -357,6 +359,14 @@ document.addEventListener('DOMContentLoaded', function () {
     const saveBtn = document.getElementById('save-btn');
     let cy;
 
+    // This object will hold our application state
+    const appState = {
+        selectedAccountIds: [],
+        get selectedAccountId() {
+            return this.selectedAccountIds.length > 0 ? this.selectedAccountIds[0] : null;
+        }
+    };
+
     cytoscape.use(cytoscapeDagre);
 
     const icons = {
@@ -367,7 +377,9 @@ document.addEventListener('DOMContentLoaded', function () {
         'Cloud Storage': '/icons/gcp-cloud-storage.png',
         'Firewall Rule': '/icons/gcp-firewall.png',
         'Kubernetes Engine': '/icons/gcp-gke.png',
-        'Cloud DNS': '/icons/gcp-cloud-dns.png'
+        'Cloud DNS': '/icons/gcp-cloud-dns.png',
+        'Region': '/icons/gcp-icon.png',
+        'Subnetwork': '/icons/gcp-vpc.png'
     };
 
     closePanelBtn.addEventListener('click', () => infoPanel.classList.add('translate-x-full'));
@@ -383,16 +395,39 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     });
 
+    // --- START: MODIFIED INITIALIZATION LOGIC ---
     function initialize() {
-const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-// GCP pages operate on a single account, so we take the first one.
-const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;        if (!selectedAccountId) {
+        const urlParams = new URLSearchParams(window.location.search);
+        const accountIdsParam = urlParams.get('accountIds');
+
+        if (accountIdsParam) {
+            appState.selectedAccountIds = accountIdsParam.split(',');
+            sessionStorage.setItem('selectedAccountIds', JSON.stringify(appState.selectedAccountIds));
+        } else {
+            appState.selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+        }
+        
+        if (!appState.selectedAccountId) {
             vpcSelector.innerHTML = '<option value="">Please select a GCP account</option>';
+            messageOverlay.innerHTML = `
+                <div class="message-overlay text-center">
+                    <div class="w-16 h-16 bg-gradient-to-br from-red-500 to-pink-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <i class="fas fa-exclamation-triangle text-white text-2xl"></i>
+                    </div>
+                    <h3 class="text-lg font-bold text-gray-800 mb-2">Account Required</h3>
+                    <p class="text-gray-600">Please select a GCP account to begin mapping the infrastructure.</p>
+                </div>
+            `;
+            messageOverlay.style.display = 'flex';
             return;
         }
 
+        loadVpcs();
+    }
+
+    function loadVpcs() {
         vpcSelector.innerHTML = '<option value="">Loading VPCs...</option>';
-        fetch(`/api/gcp/cloudmap/vpcs?accountId=${selectedAccountId}`)
+        fetch(`/api/gcp/cloudmap/vpcs?accountId=${appState.selectedAccountId}`)
             .then(response => {
                 if (!response.ok) throw new Error('Bad Request');
                 return response.json();
@@ -406,8 +441,6 @@ const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] 
                         option.textContent = `${vpc.name} (${vpc.id})`;
                         vpcSelector.appendChild(option);
                     });
-                } else {
-                    console.error('Expected an array of VPCs, but received:', vpcs);
                 }
                 loadGraphForVpc(""); // Load global view by default
             })
@@ -416,26 +449,19 @@ const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] 
                 vpcSelector.innerHTML = '<option value="">❌ Error loading VPCs</option>';
             });
     }
+    // --- END: MODIFIED INITIALIZATION LOGIC ---
 
     function loadGraphForVpc(vpcId) {
         if (cy) cy.destroy();
         infoPanel.classList.add('translate-x-full');
         
-        const selectedAccountId = sessionStorage.getItem('selectedAccountId');
-        if (!selectedAccountId) {
-            messageOverlay.innerHTML = `
-                <div class="message-overlay text-center">
-                    <div class="w-16 h-16 bg-gradient-to-br from-red-500 to-pink-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <i class="fas fa-exclamation-triangle text-white text-2xl"></i>
-                    </div>
-                    <h3 class="text-lg font-bold text-gray-800 mb-2">Account Required</h3>
-                    <p class="text-gray-600">Please select a GCP account to begin mapping the infrastructure.</p>
-                </div>
-            `;
+        // Use the consistent appState to get the account ID
+        if (!appState.selectedAccountId) {
+            console.error("No account ID found in app state for loading graph.");
             return;
         }
 
-        const url = `/api/gcp/cloudmap/graph?accountId=${selectedAccountId}&vpcId=${vpcId || ''}`;
+        const url = `/api/gcp/cloudmap/graph?accountId=${appState.selectedAccountId}&vpcId=${vpcId || ''}`;
         
         messageOverlay.innerHTML = `
             <div class="message-overlay text-center">
@@ -494,7 +520,7 @@ const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] 
                         'width': 60, 
                         'height': 60,
                         'background-opacity': 0,
-                        'background-image': (node) => icons[node.data('type')] || 'none',
+                        'background-image': (node) => icons[node.data('type')] || '/icons/gcp-icon.png',
                         'background-fit': 'contain',
                         'background-clip': 'none',
                         'border-width': 2,
@@ -579,7 +605,6 @@ const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] 
         cy.on('tap', 'node', evt => displayNodeInfo(evt.target.data()));
         cy.on('tap', evt => { if (evt.target === cy) infoPanel.classList.add('translate-x-full'); });
         
-        // Auto-fit the graph
         cy.fit();
     }
 

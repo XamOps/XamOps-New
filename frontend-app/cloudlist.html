@@ -335,10 +335,10 @@
 
             <div id="resource-list-container" class="space-y-6">
                 <div id="loading-state" class="w-full space-y-4">
-                    </div>
+                </div>
                 
                 <div id="empty-state" class="empty-state hidden text-center py-20 px-8 rounded-2xl mt-8">
-                    </div>
+                </div>
             </div>
         </div>
     </main>
@@ -349,6 +349,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const app = {
         allGroups: [],
         isRefreshing: false,
+        selectedAccountId: null, // <-- ADD THIS
         dom: {
             searchInput: document.getElementById('search-input'),
             regionFilter: document.getElementById('region-filter'),
@@ -362,6 +363,18 @@ document.addEventListener('DOMContentLoaded', function() {
         },
 
         init() {
+            // This is the new logic to get the account ID
+            const urlParams = new URLSearchParams(window.location.search);
+            this.selectedAccountId = urlParams.get('accountIds'); // Use 'accountIds' to be consistent with sidebar
+            
+            // If it's not in the URL, try session storage
+            if (!this.selectedAccountId) {
+                const storedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                if (storedIds.length > 0) {
+                    this.selectedAccountId = storedIds.join(',');
+                }
+            }
+            
             this.setupEventListeners();
             this.loadResources(false);
         },
@@ -373,7 +386,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 this.loadResources(true);
             });
             window.addEventListener('storage', (e) => {
-                if (e.key === 'selectedAccountId') {
+                if (e.key === 'selectedAccountIds') {
+                    // Update the account ID and reload data
+                    const storedIds = JSON.parse(e.target.sessionStorage.getItem('selectedAccountIds') || '[]');
+                    this.selectedAccountId = storedIds.join(',');
                     this.loadResources(true);
                 }
             });
@@ -390,7 +406,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     `"${res.region || ''}"`,
                     `"${res.state || ''}"`,
                     `"${res.launchTime ? new Date(res.launchTime).toLocaleString() : 'N/A'}"`,
-                    `"${JSON.stringify(res.details || {}).replace(/"/g, '""')}"` // Escape quotes for CSV
+                    `"${JSON.stringify(res.details || {}).replace(/"/g, '""')}"`
                 ])
             );
 
@@ -416,26 +432,22 @@ document.addEventListener('DOMContentLoaded', function() {
             };
         },
 
-loadResources(forceRefresh = false) {
-    const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-    // Cloudlist can support multiple accounts, so we join them
-    const accountIdsParam = selectedAccountIds.join(',');
-
-    if (selectedAccountIds.length === 0) {
-        this.dom.loadingState.style.display = 'none';
-        this.dom.emptyState.classList.remove('hidden');
-        // A more helpful message for the empty state
-        this.dom.emptyState.innerHTML = `
-            <div class="w-16 h-16 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                <i class="fas fa-mouse-pointer text-white text-2xl"></i>
-            </div>
-            <h3 class="text-xl font-bold text-gray-800 mb-2">No Account Selected</h3>
-            <p class="text-gray-600">Please use the sidebar to select a cloud account to view its resources.</p>
-        `;
-        this.dom.updateStatus.textContent = 'Please select an account.';
-        return;
-    }
-            const cacheKey = `cloudlistData-${selectedAccountId}`;
+        loadResources(forceRefresh = false) {
+            if (!this.selectedAccountId) { // <-- CHECK IF AN ACCOUNT IS SELECTED
+                this.dom.loadingState.style.display = 'none';
+                this.dom.emptyState.classList.remove('hidden');
+                this.dom.emptyState.innerHTML = `
+                    <div class="w-16 h-16 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <i class="fas fa-mouse-pointer text-white text-2xl"></i>
+                    </div>
+                    <h3 class="text-xl font-bold text-gray-800 mb-2">No Account Selected</h3>
+                    <p class="text-gray-600">Please use the sidebar to select a cloud account to view its resources.</p>
+                `;
+                this.dom.updateStatus.textContent = 'Please select an account.';
+                return;
+            }
+            
+            const cacheKey = `cloudlistData-${this.selectedAccountId}`;
             const cachedData = sessionStorage.getItem(cacheKey);
 
             if (cachedData && !forceRefresh) {
@@ -445,7 +457,7 @@ loadResources(forceRefresh = false) {
                 return;
             }
 
-            if (!forceRefresh) {
+            if (!cachedData) {
                 this.dom.listContainer.innerHTML = '';
                 this.dom.listContainer.appendChild(this.dom.loadingState);
                 this.dom.loadingState.style.display = 'block';
@@ -461,8 +473,7 @@ loadResources(forceRefresh = false) {
                 sessionStorage.removeItem(cacheKey); 
             }
             
-// Use the 'accountIdsParam' we defined earlier
-fetch(`/api/cloudlist/resources?accountIds=${accountIdsParam}&forceRefresh=${forceRefresh}`)
+            fetch(`/api/cloudlist/resources?accountIds=${this.selectedAccountId}&forceRefresh=${forceRefresh}`)
                 .then(res => res.json())
                 .then(data => {
                     this.allGroups = Array.isArray(data) ? data : [];
@@ -644,7 +655,7 @@ fetch(`/api/cloudlist/resources?accountIds=${accountIdsParam}&forceRefresh=${for
             addEventListenersForToggles() {
                 this.dom.listContainer.querySelectorAll('.toggle-button').forEach(button => {
                     button.addEventListener('click', (e) => {
-                        if (e.target.closest('.btn-secondary')) return; // Prevent collapse if "View Details" button is clicked
+                        if (e.target.closest('.btn-secondary')) return;
                         const targetSelector = button.getAttribute('data-target');
                         const content = this.dom.listContainer.querySelector(targetSelector);
                         const icon = button.querySelector('.fa-chevron-right');
@@ -658,7 +669,7 @@ fetch(`/api/cloudlist/resources?accountIds=${accountIdsParam}&forceRefresh=${for
 
                 this.dom.listContainer.querySelectorAll('.toggle-resource-details').forEach(rowHeader => {
                     rowHeader.addEventListener('click', (e) => {
-                        if (e.target.closest('.view-details-button') || e.target.closest('.fa-external-link-alt')) return; // Ignore clicks on the "Details" button or external link icon
+                        if (e.target.closest('.view-details-button') || e.target.closest('.fa-external-link-alt')) return;
                         const hasDetails = rowHeader.getAttribute('data-has-details') === 'true';
 
                         if (hasDetails) {
@@ -676,7 +687,7 @@ fetch(`/api/cloudlist/resources?accountIds=${accountIdsParam}&forceRefresh=${for
 
                 this.dom.listContainer.querySelectorAll('.view-details-button').forEach(button => {
                     button.addEventListener('click', (e) => {
-                        e.stopPropagation(); // Prevent the parent .resource-row click event from firing
+                        e.stopPropagation(); 
                         const rowHeader = button.closest('.toggle-resource-details');
                         const targetSelector = rowHeader.getAttribute('data-target');
                         const content = this.dom.listContainer.querySelector(targetSelector);
