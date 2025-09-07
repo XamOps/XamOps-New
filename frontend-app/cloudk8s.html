@@ -98,7 +98,8 @@
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-200">
-<template x-for="cluster in clusters" :key="cluster.name + '-' + cluster.region">                                <tr>
+                            <template x-for="cluster in clusters" :key="cluster.name + '-' + cluster.region">
+                                <tr>
                                     <td class="px-6 py-4 font-semibold text-gray-800" x-text="cluster.name"></td>
                                     <td class="px-6 py-4 hidden md:table-cell" x-text="cluster.region"></td>
                                     <td class="px-6 py-4 hidden md:table-cell" x-text="cluster.version"></td>
@@ -140,36 +141,6 @@
                         </div>
                     </div>
 
-                    <!-- <div class="glass-card p-6 rounded-lg shadow-md">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <h3 class="font-bold text-xl text-gray-800">Automated Cost Monitoring</h3>
-                                <p class="text-sm text-gray-600 mt-1">Install OpenCost to get detailed, real-time cost breakdowns for this cluster.</p>
-                            </div>
-                            <template x-if="openCostStatus !== 'installed'">
-                                <button @click="installOpenCost" :disabled="openCostStatus === 'installing'"
-                                        class="btn-primary px-5 py-3 rounded-lg font-semibold text-white transition duration-200 ease-in-out flex items-center"
-                                        :class="{ 'opacity-50 cursor-not-allowed': openCostStatus === 'installing' }">
-                                    <span x-show="openCostStatus === 'not_installed'">
-                                        <i class="fas fa-download mr-2"></i>Install OpenCost
-                                    </span>
-                                    <span x-show="openCostStatus === 'installing'">
-                                        <i class="fas fa-spinner fa-spin mr-2"></i>Installing...
-                                    </span>
-                                </button>
-                            </template>
-                            <template x-if="openCostStatus === 'installed'">
-                                <div class="flex items-center space-x-3 text-green-600 font-semibold p-3 bg-green-50 rounded-lg">
-                                    <i class="fas fa-check-circle text-2xl"></i>
-                                    <span>OpenCost Installed Successfully</span>
-                                </div>
-                            </template>
-                        </div>
-                         <div x-show="installationMessage" x-text="installationMessage" class="mt-4 text-sm font-medium"
-                            :class="installationSuccess ? 'text-green-600' : 'text-red-600'">
-                        </div>
-                    </div> -->
-
                     <div class="glass-card rounded-2xl p-6 md:p-8" x-show="clusterUsage">
                         <h3 class="text-lg font-semibold mb-2">Cluster Usage Summary</h3>
                         <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -183,24 +154,6 @@
                             <div class="glass-card p-6"><h4 class="text-lg font-semibold text-gray-700 mb-4 text-center">Memory Usage</h4><div class="h-64"><canvas id="memoryUsageChart"></canvas></div></div>
                         </div>
                     </div>
-                    
-                    <!-- <div class="w-full">
-                        <div class="mb-4 border-b border-gray-200">
-                            <ul class="flex flex-wrap -mb-px text-sm font-medium text-center" id="myTab">
-                                <li class="mr-2"><button @click="activeTab = 'nodes'" :class="{'border-indigo-500 text-indigo-600': activeTab === 'nodes'}" class="inline-block p-4 border-b-2 rounded-t-lg">Nodes</button></li>
-                                <li class="mr-2"><button @click="activeTab = 'pods'" :class="{'border-indigo-500 text-indigo-600': activeTab === 'pods'}" class="inline-block p-4 border-b-2 rounded-t-lg">Pods</button></li>
-                                <li class="mr-2"><button @click="activeTab = 'deployments'" :class="{'border-indigo-500 text-indigo-600': activeTab === 'deployments'}" class="inline-block p-4 border-b-2 rounded-t-lg">Deployments</button></li>
-                            </ul>
-                        </div>
-                        <div>
-                            <div x-show="isLoading.details" class="p-8 text-center text-gray-500"><i class="fas fa-spinner fa-spin text-3xl"></i><p>Loading data...</p></div>
-                            <div x-show="!isLoading.details">
-                                 <div x-show="activeTab === 'nodes'"><p class="text-gray-600">Node information will be displayed here.</p></div>
-                                 <div x-show="activeTab === 'pods'"><p class="text-gray-600">Pod information will be displayed here.</p></div>
-                                 <div x-show="activeTab === 'deployments'"><p class="text-gray-600">Deployment information will be displayed here.</p></div>
-                            </div>
-                        </div>
-                    </div> -->
                 </div>
             </div>
 
@@ -329,11 +282,12 @@ function cloudK8s() {
         installationMessage: '',
         installationSuccess: false,
         isHelpModalOpen: false,
-        appBaseUrl: window.location.origin, // Dynamically get the base URL
+        appBaseUrl: window.location.origin,
 
         init() {
-const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-this.selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;            if (!this.selectedAccountId) { 
+            const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+            this.selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;            
+            if (!this.selectedAccountId) { 
                 this.isLoading.clusters = false; return; 
             }
             this.fetchClusters(false);
@@ -342,23 +296,13 @@ this.selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] :
             if (this.pollingInterval) clearInterval(this.pollingInterval); 
         },
         navigateToClusters() {
-            this.view = 'clusters';
-            this.selectedCluster = null;
-            this.cleanup();
+            window.location.href = `/cloudk8s.html?accountIds=${this.selectedAccountId}`;
         },
-        async navigateToDetails(cluster) {
-            this.selectedCluster = cluster;
-            this.view = 'details';
-            
-            if (!cluster.connected) {
-                this.isLoading.usage = false;
-                this.clusterUsage = null;
-            } else {
-                await this.fetchClusterUsage();
-                this.renderUsageCharts();
-                this.pollingInterval = setInterval(() => this.fetchClusterUsage(), 30000);
-            }
-            this.isLoading.details = false;
+        navigateToDetails(cluster) {
+            const url = new URL(`${this.appBaseUrl}/eks-details.html`);
+            url.searchParams.set('name', cluster.name);
+            history.pushState(cluster, '', url); // Save cluster data to history state
+            window.location.href = url.toString();
         },
         fetchClusters(forceRefresh = false) {
             const cacheKey = `k8sClusters-${this.selectedAccountId}`;
@@ -376,8 +320,12 @@ this.selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] :
             this.isLoading.clusters = !cachedData;
             this.isRefreshing = forceRefresh;
 
-            fetch(`/api/k8s/clusters?accountId=${this.selectedAccountId}&forceRefresh=${forceRefresh}`)
-                .then(res => res.json())
+            // --- THIS IS THE CORRECTED LINE ---
+            fetch(`/api/k8s/clusters?accountIds=${this.selectedAccountId}&forceRefresh=${forceRefresh}`)
+                .then(res => {
+                    if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                    return res.json();
+                })
                 .then(data => { 
                     this.clusters = data.map(c => ({...c, isEnabling: false})); 
                     sessionStorage.setItem(cacheKey, JSON.stringify(data));
@@ -437,16 +385,15 @@ this.selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] :
         installOpenCost() {
             this.openCostStatus = 'installing';
             this.installationMessage = '';
-            const accountId = sessionStorage.getItem('selectedAccountId');
             
-            if (!accountId || !this.selectedCluster.name || !this.selectedCluster.region) {
+            if (!this.selectedAccountId || !this.selectedCluster.name || !this.selectedCluster.region) {
                 this.installationMessage = 'Error: Missing account, cluster, or region information.';
                 this.installationSuccess = false;
                 this.openCostStatus = 'not_installed';
                 return;
             }
 
-            const apiUrl = `/api/eks/${this.selectedCluster.name}/install-opencost?accountId=${accountId}&region=${this.selectedCluster.region}`;
+            const apiUrl = `/api/eks/${this.selectedCluster.name}/install-opencost?accountId=${this.selectedAccountId}&region=${this.selectedCluster.region}`;
 
             fetch(apiUrl, { method: 'POST' })
             .then(res => {

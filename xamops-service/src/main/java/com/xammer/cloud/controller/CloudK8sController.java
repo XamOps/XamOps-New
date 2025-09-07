@@ -24,7 +24,6 @@ public class CloudK8sController {
         this.usageService = usageService;
     }
 
-    // This endpoint now fetches usage data from CloudWatch via the refactored service
     @PostMapping("/clusters/usage")
     public CompletableFuture<ResponseEntity<ClusterUsageDto>> getClusterUsage(
         @RequestParam String accountId,
@@ -35,19 +34,22 @@ public class CloudK8sController {
             .exceptionally(ex -> ResponseEntity.status(500).body(new ClusterUsageDto()));
     }
     
-    // This endpoint remains to list available EKS clusters
     @GetMapping("/clusters")
     public CompletableFuture<ResponseEntity<List<K8sClusterInfo>>> getClusters(
-            @RequestParam String accountId,
-            @RequestParam(defaultValue = "false") boolean forceRefresh) { // <-- FIX: Added forceRefresh parameter
-        return eksService.getEksClusterInfo(accountId, forceRefresh) // <-- FIX: Passed forceRefresh to the service
+            @RequestParam String accountIds, // <-- FIX: Changed parameter name
+            @RequestParam(defaultValue = "false") boolean forceRefresh) { 
+        
+        String accountIdToUse = accountIds.split(",")[0]; // Use the first ID
+
+        return eksService.getEksClusterInfo(accountIdToUse, forceRefresh)
                 .thenApply(ResponseEntity::ok)
                 .exceptionally(ex -> ResponseEntity.status(500).body(Collections.emptyList()));
     }
 
-    // This endpoint remains to show basic node information
     @GetMapping("/clusters/{clusterName}/nodes")
-    public CompletableFuture<ResponseEntity<List<K8sNodeInfo>>> getNodes(@RequestParam String accountId, @PathVariable String clusterName) {
+    public CompletableFuture<ResponseEntity<List<K8sNodeInfo>>> getNodes(
+            @RequestParam String accountId, 
+            @PathVariable String clusterName) {
         return eksService.getK8sNodes(accountId, clusterName, false)
                 .thenApply(ResponseEntity::ok)
                 .exceptionally(ex -> ResponseEntity.status(500).body(Collections.emptyList()));

@@ -445,6 +445,7 @@
             currentSeverity: 'ALL',
             summary: {},
             activeTab: 'insights',
+            selectedAccountId: null, // <-- ADD THIS
             whatIf: {
                 resourceId: '',
                 targetInstanceType: '',
@@ -460,6 +461,16 @@
             ],
 
             init() {
+                const urlParams = new URLSearchParams(window.location.search);
+                this.selectedAccountId = urlParams.get('accountIds');
+                
+                if (!this.selectedAccountId) {
+                    const storedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                    if (storedIds.length > 0) {
+                        this.selectedAccountId = storedIds.join(',');
+                    }
+                }
+
                 this.loadInsights(false);
                 this.loadSummary(false);
                 this.$watch('currentSeverity', () => {
@@ -468,14 +479,13 @@
             },
 
             loadInsights(forceRefresh = false) {
-                const selectedAccountId = sessionStorage.getItem('selectedAccountId');
-                if (!selectedAccountId) {
+                if (!this.selectedAccountId) {
                     this.isLoading = false;
                     return;
                 }
                 
                 const severity = this.currentSeverity === 'ALL' ? '' : this.currentSeverity;
-                const cacheKey = `performanceInsights-${selectedAccountId}-${severity}`;
+                const cacheKey = `performanceInsights-${this.selectedAccountId}-${severity}`;
                 const cachedData = sessionStorage.getItem(cacheKey);
 
                 if (cachedData && !forceRefresh) {
@@ -493,7 +503,7 @@
                     sessionStorage.removeItem(cacheKey);
                 }
 
-                fetch(`/api/metrics/insights?accountId=${selectedAccountId}&severity=${severity}&forceRefresh=${forceRefresh}`)
+                fetch(`/api/metrics/insights?accountId=${this.selectedAccountId}&severity=${severity}&forceRefresh=${forceRefresh}`)
                     .then(res => res.json())
                     .then(data => {
                         this.insights = data;
@@ -510,10 +520,9 @@
             },
 
             loadSummary(forceRefresh = false) {
-                const selectedAccountId = sessionStorage.getItem('selectedAccountId');
-                if (!selectedAccountId) return;
+                if (!this.selectedAccountId) return;
 
-                const cacheKey = `performanceSummary-${selectedAccountId}`;
+                const cacheKey = `performanceSummary-${this.selectedAccountId}`;
                 const cachedData = sessionStorage.getItem(cacheKey);
 
                 if (cachedData && !forceRefresh) {
@@ -525,7 +534,7 @@
                     sessionStorage.removeItem(cacheKey);
                 }
 
-                fetch(`/api/metrics/insights/summary?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`)
+                fetch(`/api/metrics/insights/summary?accountId=${this.selectedAccountId}&forceRefresh=${forceRefresh}`)
                     .then(res => res.json())
                     .then(data => {
                         this.summary = data;
@@ -647,8 +656,7 @@
                 }
                 this.whatIf.isLoading = true;
                 this.whatIf.result = null;
-                const selectedAccountId = sessionStorage.getItem('selectedAccountId');
-                fetch(`/api/metrics/insights/what-if?accountId=${selectedAccountId}&resourceId=${this.whatIf.resourceId}&targetInstanceType=${this.whatIf.targetInstanceType}`)
+                fetch(`/api/metrics/insights/what-if?accountId=${this.selectedAccountId}&resourceId=${this.whatIf.resourceId}&targetInstanceType=${this.whatIf.targetInstanceType}`)
                     .then(res => res.json())
                     .then(data => {
                         this.whatIf.result = data;

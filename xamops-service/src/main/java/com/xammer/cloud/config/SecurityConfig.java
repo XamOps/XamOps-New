@@ -30,36 +30,35 @@ public class SecurityConfig {
         this.authenticationSuccessHandler = authenticationSuccessHandler;
     }
 
-    @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-        http
-            .cors(withDefaults()) // Use the WebConfig CORS settings
-            // ✅ UPDATED: Ignore CSRF for API, WebSocket, AND login/logout paths
-            .csrf(csrf -> csrf
-                .ignoringAntMatchers("/api/**", "/ws/**", "/login", "/logout")
-            )
-            .headers(headers -> headers.frameOptions().disable())
-            .authorizeHttpRequests((requests) -> requests
-                .antMatchers("/ws/**").permitAll()
-                // You no longer need to permitall /login here, but it doesn't hurt
-                .antMatchers("/login", "/css/**", "/js/**", "/images/**", "/icons/**", "/webjars/**").permitAll()
-                .anyRequest().authenticated()
-            )
-            .formLogin((form) -> form
-                .loginPage("/login")
-                .successHandler(authenticationSuccessHandler)
-                .permitAll()
-            )
-            .logout((logout) -> logout
-                .logoutUrl("/logout")
-                .logoutSuccessUrl("/login?logout")
-                .invalidateHttpSession(true)
-                .deleteCookies("JSESSIONID")
-                .permitAll()
-            );
+@Bean
+public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    http
+        .cors(withDefaults())
+        .csrf(csrf -> csrf
+            .ignoringAntMatchers("/api/**", "/ws/**", "/login", "/logout")
+        )
+        .headers(headers -> headers.frameOptions().disable())
+        .authorizeHttpRequests((requests) -> requests
+            .antMatchers("/ws/**").permitAll()
+            // ADD "/gcp_*.html" TO THIS LIST
+            .antMatchers("/login", "/*.html", "/gcp_*.html", "/css/**", "/js/**", "/images/**", "/icons/**", "/webjars/**").permitAll()
+            .anyRequest().authenticated()
+        )
+        .formLogin((form) -> form
+            .loginPage("/login")
+            .successHandler(authenticationSuccessHandler)
+            .permitAll()
+        )
+        .logout((logout) -> logout
+            .logoutUrl("/logout")
+            .logoutSuccessUrl("/login?logout")
+            .invalidateHttpSession(true)
+            .deleteCookies("JSESSIONID")
+            .permitAll()
+        );
 
-        return http.build();
-    }
+    return http.build();
+}
 
     @Bean
     public PasswordEncoder passwordEncoder() {

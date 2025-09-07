@@ -6,10 +6,12 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.0/dist/cdn.min.js"></script>
+                <script type="module" src="/src/main.js"></script>
+
 </head>
 <body class="bg-gray-100">
     <div class="flex h-screen">
-        <div th:replace="~{fragments/_sidebar :: sidebar}"></div>
+    <div data-include-sidebar></div>
         <main class="flex-1 p-6" x-data="gcpPerformance()">
             <header class="mb-6">
                 <h1 class="text-2xl font-bold text-gray-800">GCP Performance Monitoring</h1>
