@@ -44,68 +44,6 @@
             box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
         }
         
-        .metric-card {
-            position: relative;
-            overflow: hidden;
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--glass-border);
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        
-        .metric-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 4px;
-            background: var(--primary-gradient);
-            transform: scaleX(0);
-            transition: transform 0.3s ease;
-        }
-        
-        .metric-card:hover::before {
-            transform: scaleX(1);
-        }
-        
-        .metric-card:hover {
-            transform: translateY(-4px) scale(1.02);
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-        }
-        
-        .progress-bar { 
-            background: linear-gradient(90deg, #e5e7eb 0%, #f3f4f6 100%);
-            border-radius: 12px; 
-            overflow: hidden; 
-            width: 100%; 
-            height: 12px;
-            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
-        }
-        
-        .progress-bar-fill { 
-            height: 100%; 
-            transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
-            border-radius: 12px;
-            position: relative;
-        }
-        
-        .progress-bar-fill::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
-            animation: shimmer 2s infinite;
-        }
-        
-        @keyframes shimmer {
-            0% { transform: translateX(-100%); }
-            100% { transform: translateX(100%); }
-        }
-        
         .skeleton {
             background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
             background-size: 200% 100%;
@@ -188,53 +126,6 @@
             transform: translateX(2px);
         }
         
-        .modal-overlay {
-            background: rgba(0, 0, 0, 0.5);
-            backdrop-filter: blur(4px);
-        }
-        
-        .modal-content {
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--glass-border);
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-        }
-        
-        .toast {
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-        }
-        
-        .chart-container {
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            border-radius: 16px;
-            padding: 24px;
-            border: 1px solid var(--glass-border);
-        }
-        
-        .empty-state {
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            border: 2px dashed rgba(156, 163, 175, 0.3);
-            transition: all 0.3s ease;
-        }
-        
-        .empty-state:hover {
-            border-color: rgba(102, 126, 234, 0.3);
-            background: rgba(255, 255, 255, 0.98);
-        }
-        
-        .pulse-dot {
-            animation: pulse-dot 2s infinite;
-        }
-        
-        @keyframes pulse-dot {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-        
         .loading-spinner {
             border: 3px solid #f3f4f6;
             border-top: 3px solid #667eea;
@@ -258,56 +149,6 @@
             to { opacity: 1; transform: translateY(0); }
         }
         
-        .gradient-text {
-            background: var(--primary-gradient);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-        
-        .status-badge {
-            display: inline-flex;
-            align-items: center;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 11px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-        }
-        
-        .reservation-row {
-            position: relative;
-            overflow: hidden;
-        }
-        
-        .reservation-row::before {
-            content: '';
-            position: absolute;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            width: 4px;
-            background: var(--success-gradient);
-            transform: scaleY(0);
-            transition: transform 0.2s ease;
-        }
-        
-        .reservation-row:hover::before {
-            transform: scaleY(1);
-        }
-        
-        .utilization-card {
-            background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(102, 126, 234, 0.1) 100%);
-            border: 1px solid rgba(102, 126, 234, 0.2);
-        }
-        
-        .coverage-card {
-            background: linear-gradient(135deg, rgba(16, 185, 129, 0.05) 0%, rgba(16, 185, 129, 0.1) 100%);
-            border: 1px solid rgba(16, 185, 129, 0.2);
-        }
     </style>
 </head>
 <body class="bg-gray-50">
@@ -325,41 +166,109 @@
                         <i class="fas fa-calendar-check text-white text-xl"></i>
                     </div>
                     <div>
-                        <h1 class="text-2xl font-bold text-gray-800">Reservation Management</h1>
+                        <h1 class="text-2xl font-bold text-gray-800">Reservation Recommendations</h1>
                         <p class="text-sm text-gray-600">Optimize your Reserved Instances and Savings Plans</p>
                     </div>
                 </div>
                 <div class="flex items-center space-x-4">
-                    <div class="flex items-center space-x-2">
-                        <div class="w-2 h-2 bg-green-500 rounded-full pulse-dot"></div>
-                        <span class="text-sm text-gray-600">Active monitoring</span>
-                    </div>
-                    <button @click="loadReservationData(true)" class="btn-primary flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md" :disabled="isRefreshing">
-                        <i class="fas fa-sync-alt" :class="{ 'fa-spin': isRefreshing }"></i>
-                        <span x-text="isRefreshing ? 'Analyzing...' : 'Refresh Analysis'"></span>
+                    <button @click="fetchPurchaseRecommendations(true)" class="btn-primary flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md" :disabled="isRecsLoading">
+                        <i class="fas fa-sync-alt" :class="{ 'fa-spin': isRecsLoading }"></i>
+                        <span x-text="isRecsLoading ? 'Analyzing...' : 'Refresh Recommendations'"></span>
                     </button>
                 </div>
             </header>
 
             <div class="flex-1 p-8 space-y-8">
                 <div x-show="isLoading" x-cloak class="space-y-8">
-                    <div class="grid grid-cols-1 lg:grid-cols-5 gap-8">
-                        <div class="lg:col-span-2 space-y-6">
-                            <div class="skeleton h-64"></div>
-                        </div>
-                        <div class="lg:col-span-3 skeleton h-64"></div>
-                    </div>
                     <div class="skeleton h-96"></div>
-                    <div class="skeleton h-80"></div>
-                    <div class="skeleton h-80"></div>
                 </div>
 
-                <div x-show="!isLoading" x-cloak>
-                    
+                <div x-show="!isLoading" x-cloak class="fade-in space-y-8">
+                    <div>
+                        <div class="glass-card rounded-2xl p-6">
+                            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                                <div>
+                                    <label for="term" class="block text-sm font-medium text-gray-700">Term</label>
+                                    <select x-model="recFilters.term" @change="fetchPurchaseRecommendations(true)" id="term" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md form-select">
+                                        <option value="ONE_YEAR">1 Year</option>
+                                        <option value="THREE_YEARS">3 Years</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="payment" class="block text-sm font-medium text-gray-700">Payment</label>
+                                    <select x-model="recFilters.paymentOption" @change="fetchPurchaseRecommendations(true)" id="payment" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md form-select">
+                                        <option value="NO_UPFRONT">No Upfront</option>
+                                        <option value="PARTIAL_UPFRONT">Partial Upfront</option>
+                                        <option value="ALL_UPFRONT">All Upfront</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="lookback" class="block text-sm font-medium text-gray-700">Lookback</label>
+                                    <select x-model="recFilters.lookback" @change="fetchPurchaseRecommendations(true)" id="lookback" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md form-select">
+                                        <option value="SEVEN_DAYS">7 Days</option>
+                                        <option value="THIRTY_DAYS">30 Days</option>
+                                        <option value="SIXTY_DAYS">60 Days</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="class" class="block text-sm font-medium text-gray-700">Offering Class</label>
+                                    <select x-model="recFilters.offeringClass" @change="fetchPurchaseRecommendations(true)" id="class" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md form-select">
+                                        <option value="STANDARD">Standard</option>
+                                        <option value="CONVERTIBLE">Convertible</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="table-enhanced mt-4">
+                                <table class="w-full text-sm text-left text-gray-500">
+                                     <thead class="text-xs text-gray-700 uppercase">
+                                        <tr>
+                                            <th scope="col" class="px-6 py-3">Instance Family</th>
+                                            <th scope="col" class="px-6 py-3">Region</th>
+                                            <th scope="col" class="px-6 py-3">Platform</th>
+                                            <th scope="col" class="px-6 py-3">Term</th>
+                                            <th scope="col" class="px-6 py-3">Payment</th>
+                                            <th scope="col" class="px-6 py-3">On-Demand Cost</th>
+                                            <th scope="col" class="px-6 py-3">Est. Monthly Cost</th>
+                                            <th scope="col" class="px-6 py-3">Monthly Savings</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <template x-if="isRecsLoading">
+                                            <tr><td colspan="8" class="text-center p-8"><div class="loading-spinner mx-auto"></div></td></tr>
+                                        </template>
+                                        <template x-if="!isRecsLoading && data.purchaseRecommendations.length > 0">
+                                            <template x-for="rec in data.purchaseRecommendations" :key="rec.instanceFamily + rec.region">
+                                                <tr class="border-b border-gray-200 reservation-row">
+                                                    <td class="px-6 py-4 font-medium text-gray-900" x-text="rec.instanceFamily"></td>
+                                                    <td class="px-6 py-4" x-text="rec.region"></td>
+                                                    <td class="px-6 py-4" x-text="rec.platform"></td>
+                                                    <td class="px-6 py-4" x-text="rec.term"></td>
+                                                    <td class="px-6 py-4" x-text="recFilters.paymentOption.replace('_', ' ')"></td>
+                                                    <td class="px-6 py-4" x-text="`$${parseFloat(rec.onDemandCost).toFixed(2)}`"></td>
+                                                    <td class="px-6 py-4" x-text="`$${parseFloat(rec.estimatedMonthlyCost).toFixed(2)}`"></td>
+                                                    <td class="px-6 py-4 text-green-600 font-bold" x-text="`$${parseFloat(rec.monthlySavings).toFixed(2)}`"></td>
+                                                </tr>
+                                            </template>
+                                        </template>
+                                        <template x-if="!isRecsLoading && data.purchaseRecommendations.length === 0">
+                                            <tr>
+                                                <td colspan="8" class="text-center py-12 text-gray-500">
+                                                    <div class="flex flex-col items-center">
+                                                        <i class="fas fa-lightbulb text-4xl text-gray-300 mb-4"></i>
+                                                        <h3 class="text-lg font-semibold">No Recommendations Available</h3>
+                                                        <p class="text-sm">Your instance usage appears to be optimized for your current settings.</p>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
-
-            </main>
+        </main>
     </div>
 </div>
 
@@ -367,25 +276,10 @@
 function reservationManagement() {
     return {
         isLoading: true,
-        isRefreshing: false,
         isRecsLoading: false, 
-        isTagLoading: false,
-        isAnalysisModalOpen: false,
-        isModificationModalOpen: false,
-        isModifying: false,
-        tagKey: 'cost-center',
-        activeTagKey: '',
-        costByTagData: [],
-        analysisData: {},
-        modificationDetails: {},
-        toast: { show: false, message: '', type: 'success' },
-        selectedAccountId: null, // <-- ADD THIS
+        selectedAccountId: null,
         data: {
-            analysis: null,
             purchaseRecommendations: [],
-            inventory: [],
-            historicalData: null,
-            modificationRecommendations: []
         },
         recFilters: {
             term: 'ONE_YEAR',
@@ -393,10 +287,6 @@ function reservationManagement() {
             lookback: 'THIRTY_DAYS',
             offeringClass: 'STANDARD'
         },
-        configuredRegion: 'ap-south-1',
-        historicalChartInstance: null,
-        costByTagChartInstance: null,
-        expiryChartInstance: null,
 
         init() {
             const urlParams = new URLSearchParams(window.location.search);
@@ -409,63 +299,16 @@ function reservationManagement() {
                 }
             }
             
-            this.loadReservationData(false);
             this.fetchPurchaseRecommendations(false);
         },
 
-        loadReservationData(forceRefresh = false) {
-            if (!this.selectedAccountId) {
-                this.isLoading = false;
-                return;
-            }
-            const cacheKey = `reservationPageData-${this.selectedAccountId}`;
-            const cachedData = sessionStorage.getItem(cacheKey);
-
-            if (cachedData && !forceRefresh) {
-                this.data = JSON.parse(cachedData);
-                this.isLoading = false;
-                setTimeout(() => {
-                    this.renderHistoricalChart();
-                    this.renderExpiryChart();
-                }, 0);
-                return;
-            }
-            
-            if (!cachedData) {
-                this.isLoading = true;
-            }
-
-            if (forceRefresh) {
-                this.isRefreshing = true;
-                sessionStorage.removeItem(cacheKey);
-            }
-            
-            fetch(`/api/reservations?accountId=${this.selectedAccountId}&forceRefresh=${forceRefresh}`)
-                .then(res => res.json())
-                .then(data => {
-                    this.data = data;
-                    sessionStorage.setItem(cacheKey, JSON.stringify(data));
-                    setTimeout(() => {
-                        this.renderHistoricalChart();
-                        this.renderExpiryChart();
-                    }, 0);
-                })
-                .catch(err => {
-                    console.error('Failed to load reservation data:', err);
-                    this.data = { analysis: null, purchaseRecommendations: [], inventory: [], historicalData: null, modificationRecommendations: [] };
-                })
-                .finally(() => {
-                    this.isLoading = false;
-                    this.isRefreshing = false;
-                });
-        },
-
         fetchPurchaseRecommendations(forceRefresh = false) {
-            this.isRecsLoading = true;
             if (!this.selectedAccountId) {
-                this.isRecsLoading = false;
+                this.isLoading = false;
                 return;
             }
+            this.isLoading = true;
+            this.isRecsLoading = true;
             
             const { term, paymentOption, lookback, offeringClass } = this.recFilters;
             const url = `/api/reservations/recommendations?accountId=${this.selectedAccountId}&term=${term}&paymentOption=${paymentOption}&lookback=${lookback}&offeringClass=${offeringClass}&forceRefresh=${forceRefresh}`;
@@ -480,362 +323,9 @@ function reservationManagement() {
                     this.data.purchaseRecommendations = [];
                 })
                 .finally(() => {
+                    this.isLoading = false;
                     this.isRecsLoading = false;
                 });
-        },
-
-        getCostByTag() {
-            if (!this.tagKey) {
-                this.showToast('Please enter a tag key.', 'error');
-                return;
-            }
-            this.isTagLoading = true;
-            this.activeTagKey = this.tagKey;
-            
-            fetch(`/api/reservations/cost-by-tag?accountId=${this.selectedAccountId}&tagKey=${this.tagKey}`)
-                .then(res => res.json())
-                .then(data => {
-                    this.costByTagData = data;
-                    this.renderCostByTagChart();
-                })
-                .catch(err => {
-                    console.error('Failed to load cost by tag data:', err);
-                    this.costByTagData = [];
-                })
-                .finally(() => {
-                    this.isTagLoading = false;
-                });
-        },
-
-        openAnalysisModal(recommendation) {
-            this.analysisData = recommendation;
-            this.isAnalysisModalOpen = true;
-        },
-
-        openModificationModal(recommendation) {
-            this.modificationDetails = recommendation;
-            this.isModificationModalOpen = true;
-        },
-
-        applyModification() {
-            if (!this.modificationDetails) return;
-            this.isModifying = true;
-            
-            const inventoryItem = this.data.inventory.find(item => item.reservationId === this.modificationDetails.reservationId);
-            if (!inventoryItem) {
-                this.showToast('Could not find original reservation details.', 'error');
-                this.isModifying = false;
-                return;
-            }
-
-            const requestBody = {
-                reservationId: this.modificationDetails.reservationId,
-                targetInstanceType: this.modificationDetails.recommendedInstanceType,
-                instanceCount: inventoryItem.instanceCount 
-            };
-
-            fetch(`/api/reservations/modify?accountId=${this.selectedAccountId}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(requestBody)
-            })
-            .then(res => {
-                if (!res.ok) {
-                    return res.json().then(err => { throw new Error(err.message || 'Modification failed.') });
-                }
-                return res.json();
-            })
-            .then(data => {
-                this.showToast('Reservation modification submitted successfully!', 'success');
-                this.isModificationModalOpen = false;
-                this.loadReservationData(true);
-            })
-            .catch(err => {
-                this.showToast(`Error: ${err.message}`, 'error');
-            })
-            .finally(() => {
-                this.isModifying = false;
-            });
-        },
-        
-        showToast(message, type = 'success') {
-            this.toast.message = message;
-            this.toast.type = type;
-            this.toast.show = true;
-            setTimeout(() => this.toast.show = false, 5000);
-        },
-
-        get projectedCoverage() {
-            if (!this.analysisData || !this.data.analysis) return 0;
-            const currentCoverage = this.data.analysis.coveragePercentage;
-            const onDemandCost = parseFloat(this.analysisData.onDemandCost);
-            const monthlySavings = parseFloat(this.analysisData.monthlySavings);
-            
-            let savingsPercentage = 0;
-            if (onDemandCost > 0) {
-                savingsPercentage = (monthlySavings / onDemandCost) * 100;
-            }
-            
-            let projected = currentCoverage + (savingsPercentage / 5);
-            return Math.min(projected, 100);
-        },
-
-        renderCostByTagChart() {
-            const ctx = document.getElementById('costByTagChart');
-            if (!ctx) return;
-            if (this.costByTagChartInstance) {
-                this.costByTagChartInstance.destroy();
-            }
-            const backgroundColors = ['#667eea', '#764ba2', '#f093fb', '#f5576c', '#4facfe', '#00f2fe', '#43e97b', '#38f9d7', '#ffecd2', '#fcb69f'];
-            this.costByTagChartInstance = new Chart(ctx, {
-                type: 'doughnut',
-                data: {
-                    labels: this.costByTagData.map(d => d.tagValue),
-                    datasets: [{
-                        data: this.costByTagData.map(d => d.cost),
-                        backgroundColor: backgroundColors,
-                        borderWidth: 0,
-                        hoverOffset: 6
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { 
-                            position: 'bottom',
-                            labels: {
-                                usePointStyle: true,
-                                padding: 15
-                            }
-                        },
-                        tooltip: {
-                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                            titleColor: 'white',
-                            bodyColor: 'white',
-                            borderColor: 'rgba(102, 126, 234, 0.8)',
-                            borderWidth: 1,
-                            cornerRadius: 8
-                        }
-                    }
-                }
-            });
-        },
-
-        renderHistoricalChart() {
-            const ctx = document.getElementById('historicalReservationChart');
-            if (!ctx || !this.data.historicalData || !this.data.historicalData.labels) return;
-
-            if (this.historicalChartInstance) {
-                this.historicalChartInstance.destroy();
-            }
-
-            this.historicalChartInstance = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: this.data.historicalData.labels,
-                    datasets: [
-                        {
-                            label: 'Utilization',
-                            data: this.data.historicalData.utilizationPercentages,
-                            borderColor: '#667eea',
-                            backgroundColor: 'rgba(102, 126, 234, 0.1)',
-                            fill: true,
-                            tension: 0.4,
-                            borderWidth: 3,
-                            pointBackgroundColor: '#667eea',
-                            pointBorderColor: '#ffffff',
-                            pointBorderWidth: 2,
-                            pointRadius: 6,
-                            pointHoverRadius: 8
-                        },
-                        {
-                            label: 'Coverage',
-                            data: this.data.historicalData.coveragePercentages,
-                            borderColor: '#10b981',
-                            backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                            fill: true,
-                            tension: 0.4,
-                            borderWidth: 3,
-                            pointBackgroundColor: '#10b981',
-                            pointBorderColor: '#ffffff',
-                            pointBorderWidth: 2,
-                            pointRadius: 6,
-                            pointHoverRadius: 8
-                        }
-                    ]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            max: 100,
-                            ticks: {
-                                callback: function(value) {
-                                    return value + '%'
-                                },
-                                color: '#6b7280'
-                            },
-                            grid: {
-                                color: 'rgba(0, 0, 0, 0.05)'
-                            }
-                        },
-                        x: {
-                            ticks: {
-                                color: '#6b7280'
-                            },
-                            grid: {
-                                display: false
-                            }
-                        }
-                    },
-                    plugins: {
-                        legend: {
-                            position: 'top',
-                            labels: {
-                                usePointStyle: true,
-                                padding: 20
-                            }
-                        },
-                        tooltip: {
-                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                            titleColor: 'white',
-                            bodyColor: 'white',
-                            borderColor: 'rgba(102, 126, 234, 0.8)',
-                            borderWidth: 1,
-                            cornerRadius: 8,
-                            callbacks: {
-                                label: function(context) {
-                                    let label = context.dataset.label || '';
-                                    if (label) {
-                                        label += ': ';
-                                    }
-                                    if (context.parsed.y !== null) {
-                                        label += context.parsed.y.toFixed(2) + '%';
-                                    }
-                                    return label;
-                                }
-                            }
-                        }
-                    }
-                }
-            });
-        },
-        
-        renderExpiryChart() {
-            const ctx = document.getElementById('expiryTimelineChart');
-            if (!ctx || !this.data.inventory || this.data.inventory.length === 0) return;
-            if (this.expiryChartInstance) {
-                this.expiryChartInstance.destroy();
-            }
-
-            const chartData = this.data.inventory.map(ri => {
-                const endDate = new Date(ri.end);
-                const now = new Date();
-                const diffDays = Math.ceil((endDate - now) / (1000 * 60 * 60 * 24));
-                let color = 'rgba(34, 197, 94, 0.8)';
-                if (diffDays < 30) color = 'rgba(239, 68, 68, 0.8)';
-                else if (diffDays < 90) color = 'rgba(245, 158, 11, 0.8)';
-
-                return {
-                    x: [new Date(ri.start), endDate],
-                    y: `${ri.instanceType} (${ri.instanceCount})`,
-                    backgroundColor: color
-                };
-            });
-
-            this.expiryChartInstance = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: chartData.map(d => d.y),
-                    datasets: [{
-                        label: 'Reservation Term',
-                        data: chartData,
-                        borderRadius: 8,
-                        borderSkipped: false,
-                    }]
-                },
-                options: {
-                    indexAxis: 'y',
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        x: {
-                            type: 'time',
-                            time: {
-                                unit: 'month'
-                            },
-                            min: new Date(),
-                            max: new Date(new Date().setFullYear(new Date().getFullYear() + 1)),
-                            ticks: {
-                                color: '#6b7280'
-                            },
-                            grid: {
-                                color: 'rgba(0, 0, 0, 0.05)'
-                            }
-                        },
-                        y: {
-                            ticks: {
-                                color: '#6b7280'
-                            },
-                            grid: {
-                                display: false
-                            }
-                        }
-                    },
-                    plugins: {
-                        legend: {
-                            display: false
-                        },
-                        tooltip: {
-                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                            titleColor: 'white',
-                            bodyColor: 'white',
-                            borderColor: 'rgba(102, 126, 234, 0.8)',
-                            borderWidth: 1,
-                            cornerRadius: 8,
-                            callbacks: {
-                                title: function(context) {
-                                    return context[0].label;
-                                },
-                                label: function(context) {
-                                    const start = new Date(context.raw.x[0]).toLocaleDateString();
-                                    const end = new Date(context.raw.x[1]).toLocaleDateString();
-                                    return `Term: ${start} - ${end}`;
-                                }
-                            }
-                        }
-                    }
-                }
-            });
-        },
-
-        formatDuration(seconds) {
-            const years = seconds / (365 * 24 * 60 * 60);
-            return `${Math.round(years)} Year(s)`;
-        },
-
-        formatExpiry(endDate) {
-            const end = new Date(endDate);
-            const now = new Date();
-            const diffTime = end - now;
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-            
-            let colorClass = 'text-green-600 font-semibold';
-            if (diffDays <= 0) {
-                 colorClass = 'text-gray-500';
-            } else if (diffDays < 30) {
-                colorClass = 'text-red-600 font-bold';
-            } else if (diffDays < 90) {
-                colorClass = 'text-yellow-600 font-semibold';
-            }
-
-            return {
-                text: diffDays <= 0 ? "Expired" : `${diffDays} days`,
-                color: colorClass
-            };
         },
     }
 }
