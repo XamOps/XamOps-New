@@ -4,3 +4,6 @@
 
 # Ignore node_modules
 /frontend-app/node_modules/
+node_modules/
+frontend-app/node_modules/
+.idea/
