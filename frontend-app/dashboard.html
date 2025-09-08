@@ -593,13 +593,11 @@
             stompClient: null,
             layoutChanged: false,
             showQuickActions: false,
-            // ADDED: State for selected accounts, making it visible to this component
             selectedAccountIds: [], 
             
            init() {
-                // ADDED: Logic to get selected accounts on initialization
                 const urlParams = new URLSearchParams(window.location.search);
-                const accountIdsParam = urlParams.get('accountId') || urlParams.get('accountIds'); // Support both singular and plural
+                const accountIdsParam = urlParams.get('accountId') || urlParams.get('accountIds');
                 
                 if (accountIdsParam) {
                     this.selectedAccountIds = accountIdsParam.split(',');
@@ -608,18 +606,16 @@
                     this.selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
                 }
                 
-                // This event listener will reload the page if the account is changed in the sidebar
                 window.addEventListener('storage', (event) => {
                     if (event.key === 'selectedAccountIds') {
                         window.location.reload();
                     }
                 });
 
-                // Now fetch data only if an account is selected
                 if (this.selectedAccountIds.length > 0) {
                     this.fetchDashboardData(false);
                 } else {
-                    this.isLoading = false; // If no accounts, stop loading
+                    this.isLoading = false;
                 }
             },
 
@@ -671,7 +667,6 @@
         },
 
             fetchDashboardData(forceRefresh = false) {
-                // MODIFIED: This function now uses the component's state instead of re-reading the URL
                 if (this.selectedAccountIds.length === 0) {
                     this.isLoading = false;
                     return;
@@ -696,10 +691,8 @@
                 if (forceRefresh) {
                     this.isRefreshing = true;
                     this.showNotification('loading', 'Updating dashboard...');
-                    sessionStorage.removeItem(cacheKey); 
                 }
                 
-                // Now uses the component's 'selectedAccountIds' state
                 let endpoint = `/api/xamops/dashboard-data?accountId=${this.selectedAccountIds[0]}`;
                 if (forceRefresh) {
                     endpoint += '&force=true';
@@ -1281,9 +1274,6 @@ renderHighchartMap(regionStatus) {
         }
     }
     
-    // document.addEventListener('DOMContentLoaded', () => {
-    //     Alpine.start();
-    // });
     </script>
 </body>
 </html>
