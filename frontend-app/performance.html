@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.0/dist/cdn.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-        <script type="module" src="/src/main.js"></script>
+    <script type="module" src="/src/main.js"></script>
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
@@ -82,9 +82,8 @@
         }
         
         .tab-button.active {
-            background: white;
+            border-bottom-color: #4f46e5;
             color: #4f46e5;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
 
         .action-button {
@@ -260,10 +259,10 @@
                 <div class="glass-card rounded-2xl p-8">
                     <div class="mb-6 border-b border-gray-200">
                         <nav class="flex -mb-px" aria-label="Tabs">
-                            <button @click="activeTab = 'insights'" :class="{ 'border-blue-500 text-blue-600': activeTab === 'insights', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': activeTab !== 'insights' }" class="w-1/2 py-4 px-1 text-center border-b-2 font-medium text-sm">
+                            <button @click="activeTab = 'insights'" :class="{ 'active': activeTab === 'insights'}" class="tab-button w-1/2 py-4 px-1 text-center border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">
                                 Critical Insights
                             </button>
-                            <button @click="activeTab = 'best_practices'" :class="{ 'border-blue-500 text-blue-600': activeTab === 'best_practices', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': activeTab !== 'best_practices' }" class="w-1/2 py-4 px-1 text-center border-b-2 font-medium text-sm">
+                            <button @click="activeTab = 'best_practices'" :class="{ 'active': activeTab === 'best_practices'}" class="tab-button w-1/2 py-4 px-1 text-center border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">
                                 Best Practice Audits
                             </button>
                         </nav>
@@ -272,11 +271,10 @@
                     <div x-show="activeTab === 'insights'">
                         <div class="flex flex-wrap justify-between items-center gap-6 mb-8">
                             <div x-show="selectedInsights.length === 0" class="flex flex-wrap items-center gap-4">
-                                <h2 class="text-xl font-bold text-gray-800">Insights</h2>
                                 <div class="flex gap-2">
                                     <template x-for="severity in severityFilters" :key="severity.value">
                                         <button
-                                                @click="currentSeverity = severity.value"
+                                                @click="toggleSeverityFilter(severity.value)"
                                                 :class="currentSeverity === severity.value ? 'active' : ''"
                                                 class="filter-button px-4 py-2 text-sm font-semibold rounded-lg transition-all flex items-center gap-2"
                                                 x-html="severity.label">
@@ -346,37 +344,26 @@
                                                 <div class="flex-1">
                                                     <p class="font-medium text-gray-900 leading-relaxed" x-text="insight.insight"></p>
                                                     <p class="text-xs text-gray-500 mt-1" x-text="insight.description" x-show="insight.description"></p>
-                                                    <div x-show="insight.resourceType === 'ALB'" class="mt-2 text-xs text-gray-600">
-                                                        <span class="inline-flex items-center px-2 py-1 rounded-full bg-purple-100 text-purple-800 mr-2">
-                                                            <i class="fas fa-tachometer-alt mr-1"></i>
-                                                            Performance Impact
-                                                        </span>
-                                                        <span x-show="insight.insight.includes('latency')" class="inline-flex items-center px-2 py-1 rounded-full bg-red-100 text-red-800">
-                                                            <i class="fas fa-clock mr-1"></i>
-                                                            High Latency
-                                                        </span>
-                                                    </div>
                                                 </div>
                                             </div>
                                         </td>
                                         <td class="px-6 py-4 text-center">
                                             <span class="inline-flex items-center justify-center w-6 h-6 text-xs font-bold text-white bg-red-500 rounded-full"
                                                   x-text="insight.quantity"></span>
-                                            <span class="text-xs text-gray-500 ml-1">Insight</span>
                                         </td>
                                         <td class="px-6 py-4">
                                             <span class="font-medium text-gray-900" x-text="insight.account"></span>
                                             <p class="text-xs text-gray-500" x-text="insight.region" x-show="insight.region"></p>
                                         </td>
                                         <td class="px-6 py-4">
- <div class="flex justify-center gap-2">
-    <button disabled class="action-button px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg opacity-50 cursor-not-allowed">
-        Read Docs
-    </button>
-    <button disabled @click="archiveInsight(insight.id)" class="action-button px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-200 rounded-lg opacity-50 cursor-not-allowed">
-        Archive
-    </button>
-</div>
+                                            <div class="flex justify-center gap-2">
+                                                <a :href="insight.documentationUrl || '#'" target="_blank" class="action-button px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700">
+                                                    Docs
+                                                </a>
+                                                <button @click="archiveInsight(insight.id)" class="action-button px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300">
+                                                    Archive
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 </template>
@@ -445,7 +432,7 @@
             currentSeverity: 'ALL',
             summary: {},
             activeTab: 'insights',
-            selectedAccountId: null, // <-- ADD THIS
+            selectedAccountId: null,
             whatIf: {
                 resourceId: '',
                 targetInstanceType: '',
@@ -473,9 +460,11 @@
 
                 this.loadInsights(false);
                 this.loadSummary(false);
-                this.$watch('currentSeverity', () => {
-                    this.loadInsights(false); 
-                });
+            },
+
+            toggleSeverityFilter(severity) {
+                this.currentSeverity = severity;
+                this.loadInsights(false);
             },
 
             loadInsights(forceRefresh = false) {
@@ -500,14 +489,26 @@
                 
                 if (forceRefresh) {
                     this.isRefreshing = true;
-                    sessionStorage.removeItem(cacheKey);
                 }
 
                 fetch(`/api/metrics/insights?accountId=${this.selectedAccountId}&severity=${severity}&forceRefresh=${forceRefresh}`)
                     .then(res => res.json())
                     .then(data => {
-                        this.insights = data;
-                        sessionStorage.setItem(cacheKey, JSON.stringify(data));
+                        // Remove duplicates by creating a unique key for each insight
+                        const uniqueInsights = [];
+                        const seenInsights = new Set();
+                        
+                        data.forEach(insight => {
+                            // Create a unique key based on insight content
+                            const insightKey = `${insight.insight}-${insight.account}-${insight.severity}`;
+                            if (!seenInsights.has(insightKey)) {
+                                seenInsights.add(insightKey);
+                                uniqueInsights.push(insight);
+                            }
+                        });
+                        
+                        this.insights = uniqueInsights;
+                        sessionStorage.setItem(cacheKey, JSON.stringify(uniqueInsights));
                     })
                     .catch(err => {
                         console.error('Failed to load insights', err);
@@ -555,7 +556,12 @@
             },
 
             get filteredInsights() {
-                return this.insights.filter(i => i.category !== 'BEST_PRACTICE');
+                if (this.currentSeverity === 'ALL') {
+                    return this.insights.filter(i => i.category !== 'BEST_PRACTICE');
+                }
+                return this.insights.filter(i => 
+                    i.category !== 'BEST_PRACTICE' && i.severity === this.currentSeverity
+                );
             },
 
             get bestPracticeInsights() {

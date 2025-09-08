@@ -139,19 +139,28 @@ public class OptimizationService {
                                 opt.savingsOpportunity() != null && opt.savingsOpportunity().estimatedMonthlySavings() != null && opt.savingsOpportunity().estimatedMonthlySavings().value() != null
                                 ? opt.savingsOpportunity().estimatedMonthlySavings().value() : 0.0))
                             .orElse(r.recommendationOptions().get(0));
+double savings = bestOption.savingsOpportunity() != null && bestOption.savingsOpportunity().estimatedMonthlySavings() != null && bestOption.savingsOpportunity().estimatedMonthlySavings().value() != null
+            ? bestOption.savingsOpportunity().estimatedMonthlySavings().value() : 0.0;
+    
+    double recommendedCost = pricingService.getEc2InstanceMonthlyPrice(bestOption.instanceType(), regionId);
+    double currentCost = recommendedCost + savings;
 
-                        double savings = bestOption.savingsOpportunity() != null && bestOption.savingsOpportunity().estimatedMonthlySavings() != null && bestOption.savingsOpportunity().estimatedMonthlySavings().value() != null
-                                ? bestOption.savingsOpportunity().estimatedMonthlySavings().value() : 0.0;
-                        
-                        double recommendedCost = pricingService.getEc2InstanceMonthlyPrice(bestOption.instanceType(), regionId);
-                        double currentCost = recommendedCost + savings;
+    // --- Start of Fix ---
+    // First, try to get the detailed reason codes.
+    String reason = r.findingReasonCodes().stream().map(Object::toString).collect(Collectors.joining(", "));
 
-                        return new DashboardData.OptimizationRecommendation(
-                                "EC2", r.instanceArn().split("/")[1], r.currentInstanceType(), bestOption.instanceType(),
-                                savings, r.findingReasonCodes().stream().map(Object::toString).collect(Collectors.joining(", ")),
-                                currentCost, recommendedCost
-                        );
-                    })
+    // If there are no detailed codes, fall back to the general finding.
+    if (reason.isEmpty() && r.finding() != null) {
+        reason = r.finding().toString();
+    }
+    // --- End of Fix ---
+
+    return new DashboardData.OptimizationRecommendation(
+            "EC2", r.instanceArn().split("/")[1], r.currentInstanceType(), bestOption.instanceType(),
+            savings, reason, // Use the new 'reason' variable
+            currentCost, recommendedCost
+    );
+})
                     .forEach(recommendations::add);
                 
                 nextToken = response.nextToken();
