@@ -159,6 +159,28 @@
             color: white; 
         }
 
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 12px 20px;
+            border-radius: 8px;
+            background: #10b981;
+            color: white;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            z-index: 1000;
+            transform: translateY(-100px);
+            transition: transform 0.3s ease;
+        }
+        
+        .toast.show {
+            transform: translateY(0);
+        }
+        
+        .toast.error {
+            background: #ef4444;
+        }
+
     </style>
 </head>
 <body class="bg-gray-50">
@@ -195,6 +217,14 @@
             </header>
 
             <div class="flex-1 p-8 space-y-8">
+                <!-- Toast notification for duplicates -->
+                <div class="toast" :class="{ 'show': showToast, 'error': toastType === 'error' }" x-show="showToast" x-cloak>
+                    <div class="flex items-center">
+                        <i class="fas mr-2" :class="toastType === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle'"></i>
+                        <span x-text="toastMessage"></span>
+                    </div>
+                </div>
+
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6" x-show="!isLoading">
                     <div class="glass-card metric-card rounded-2xl p-6 lg:col-span-1">
                         <div class="flex items-center justify-between">
@@ -271,16 +301,10 @@
                     <div x-show="activeTab === 'insights'">
                         <div class="flex flex-wrap justify-between items-center gap-6 mb-8">
                             <div x-show="selectedInsights.length === 0" class="flex flex-wrap items-center gap-4">
-                                <div class="flex gap-2">
-                                    <template x-for="severity in severityFilters" :key="severity.value">
-                                        <button
-                                                @click="toggleSeverityFilter(severity.value)"
-                                                :class="currentSeverity === severity.value ? 'active' : ''"
-                                                class="filter-button px-4 py-2 text-sm font-semibold rounded-lg transition-all flex items-center gap-2"
-                                                x-html="severity.label">
-                                        </button>
-                                    </template>
-                                </div>
+                                <button @click="currentSeverity = 'ALL'" :class="{ 'active': currentSeverity === 'ALL' }" class="filter-button px-4 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-100">All Insights</button>
+                                <button @click="currentSeverity = 'CRITICAL'" :class="{ 'active': currentSeverity === 'CRITICAL' }" class="filter-button px-4 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-100">Critical</button>
+                                <button @click="currentSeverity = 'WARNING'" :class="{ 'active': currentSeverity === 'WARNING' }" class="filter-button px-4 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-100">Warning</button>
+                                <button @click="currentSeverity = 'WEAK_WARNING'" :class="{ 'active': currentSeverity === 'WEAK_WARNING' }" class="filter-button px-4 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-100">Weak warning</button>
                             </div>
 
                             <div x-show="selectedInsights.length > 0" x-cloak class="bulk-action-bar flex items-center gap-4 p-4 rounded-xl w-full">
@@ -376,7 +400,7 @@
                                 <i class="fas fa-search text-gray-400 text-xl"></i>
                             </div>
                             <h3 class="text-lg font-semibold text-gray-800 mb-2">No insights found</h3>
-                            <p class="text-gray-600 mb-4" x-text="currentSeverity === 'ALL' ? 'No performance insights available.' : `No ${currentSeverity.toLowerCase()} insights found.`"></p>
+                            <p class="text-gray-600 mb-4">No performance insights available for the selected severity.</p>
                             <button @click="loadInsights(true)" class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all">
                                 <i class="fas fa-sync-alt mr-2"></i>Refresh Insights
                             </button>
@@ -433,19 +457,16 @@
             summary: {},
             activeTab: 'insights',
             selectedAccountId: null,
+            deduplicationCount: 0,
+            showToast: false,
+            toastMessage: '',
+            toastType: 'success',
             whatIf: {
                 resourceId: '',
                 targetInstanceType: '',
                 isLoading: false,
                 result: null
             },
-
-            severityFilters: [
-                { value: 'ALL', label: 'All Insights' },
-                { value: 'CRITICAL', label: '<i class="fas fa-circle text-red-500 mr-1"></i> Critical' },
-                { value: 'WARNING', label: '<i class="fas fa-circle text-orange-500 mr-1"></i> Warning' },
-                { value: 'WEAK_WARNING', label: '<i class="fas fa-circle text-yellow-500 mr-1"></i> Weak warning' }
-            ],
 
             init() {
                 const urlParams = new URLSearchParams(window.location.search);
@@ -462,23 +483,17 @@
                 this.loadSummary(false);
             },
 
-            toggleSeverityFilter(severity) {
-                this.currentSeverity = severity;
-                this.loadInsights(false);
-            },
-
             loadInsights(forceRefresh = false) {
                 if (!this.selectedAccountId) {
                     this.isLoading = false;
                     return;
                 }
                 
-                const severity = this.currentSeverity === 'ALL' ? '' : this.currentSeverity;
-                const cacheKey = `performanceInsights-${this.selectedAccountId}-${severity}`;
+                const cacheKey = `performanceInsights-${this.selectedAccountId}`;
                 const cachedData = sessionStorage.getItem(cacheKey);
 
                 if (cachedData && !forceRefresh) {
-                    this.insights = JSON.parse(cachedData);
+                    this.insights = this.deduplicateInsights(JSON.parse(cachedData));
                     this.isLoading = false;
                     return;
                 }
@@ -491,33 +506,65 @@
                     this.isRefreshing = true;
                 }
 
-                fetch(`/api/metrics/insights?accountId=${this.selectedAccountId}&severity=${severity}&forceRefresh=${forceRefresh}`)
+                fetch(`/api/metrics/insights?accountId=${this.selectedAccountId}&forceRefresh=${forceRefresh}`)
                     .then(res => res.json())
                     .then(data => {
-                        // Remove duplicates by creating a unique key for each insight
-                        const uniqueInsights = [];
-                        const seenInsights = new Set();
-                        
-                        data.forEach(insight => {
-                            // Create a unique key based on insight content
-                            const insightKey = `${insight.insight}-${insight.account}-${insight.severity}`;
-                            if (!seenInsights.has(insightKey)) {
-                                seenInsights.add(insightKey);
-                                uniqueInsights.push(insight);
-                            }
-                        });
-                        
+                        const uniqueInsights = this.deduplicateInsights(data);
                         this.insights = uniqueInsights;
                         sessionStorage.setItem(cacheKey, JSON.stringify(uniqueInsights));
+                        
+                        // Show notification if duplicates were removed
+                        if (this.deduplicationCount > 0) {
+                            this.showToastMessage(`Removed ${this.deduplicationCount} duplicate insights`, 'success');
+                        }
                     })
                     .catch(err => {
                         console.error('Failed to load insights', err);
                         this.insights = [];
+                        this.showToastMessage('Failed to load insights', 'error');
                     })
                     .finally(() => {
                         this.isLoading = false;
                         this.isRefreshing = false;
                     });
+            },
+
+            // Enhanced deduplication method
+            deduplicateInsights(insights) {
+                const seen = new Set();
+                const uniqueInsights = [];
+                this.deduplicationCount = 0;
+                
+                insights.forEach(insight => {
+                    // Create a unique key using multiple properties
+                    const key = this.createInsightKey(insight);
+                    
+                    if (!seen.has(key)) {
+                        seen.add(key);
+                        uniqueInsights.push(insight);
+                    } else {
+                        this.deduplicationCount++;
+                    }
+                });
+                
+                return uniqueInsights;
+            },
+
+            createInsightKey(insight) {
+                // Combine multiple properties to create a unique key
+                // This prevents duplicates that might have the same ID but different content
+                return `${insight.id || ''}-${insight.insight || ''}-${insight.resourceId || ''}-${insight.account || ''}-${insight.region || ''}`;
+            },
+
+            showToastMessage(message, type = 'success') {
+                this.toastMessage = message;
+                this.toastType = type;
+                this.showToast = true;
+                
+                // Auto-hide after 3 seconds
+                setTimeout(() => {
+                    this.showToast = false;
+                }, 3000);
             },
 
             loadSummary(forceRefresh = false) {
@@ -556,12 +603,15 @@
             },
 
             get filteredInsights() {
-                if (this.currentSeverity === 'ALL') {
-                    return this.insights.filter(i => i.category !== 'BEST_PRACTICE');
-                }
-                return this.insights.filter(i => 
-                    i.category !== 'BEST_PRACTICE' && i.severity === this.currentSeverity
-                );
+                return this.insights.filter(i => {
+                    if (i.category === 'BEST_PRACTICE') {
+                        return false;
+                    }
+                    if (this.currentSeverity === 'ALL') {
+                        return true;
+                    }
+                    return i.severity === this.currentSeverity;
+                });
             },
 
             get bestPracticeInsights() {
@@ -591,10 +641,14 @@
                         if (res.ok) {
                             this.insights = this.insights.filter(i => i.id !== insightId);
                             this.loadSummary(true);
+                            this.showToastMessage('Insight archived successfully');
+                        } else {
+                            this.showToastMessage('Failed to archive insight', 'error');
                         }
                     })
                     .catch(err => {
                         console.error('Failed to archive insight', err);
+                        this.showToastMessage('Failed to archive insight', 'error');
                     });
             },
 
@@ -614,10 +668,14 @@
                             this.insights = this.insights.filter(i => !this.selectedInsights.includes(i.id));
                             this.selectedInsights = [];
                             this.loadSummary(true);
+                            this.showToastMessage(`${this.selectedInsights.length} insights archived successfully`);
+                        } else {
+                            this.showToastMessage('Failed to archive insights', 'error');
                         }
                     })
                     .catch(err => {
                         console.error('Failed to bulk archive insights', err);
+                        this.showToastMessage('Failed to archive insights', 'error');
                     });
             },
 
@@ -653,11 +711,12 @@
                 link.click();
                 document.body.removeChild(link);
                 this.isExporting = false;
+                this.showToastMessage('Report exported successfully');
             },
 
             runWhatIfScenario() {
                 if (!this.whatIf.resourceId || !this.whatIf.targetInstanceType) {
-                    alert('Please provide a resource ID and a target instance type.');
+                    this.showToastMessage('Please provide a resource ID and a target instance type.', 'error');
                     return;
                 }
                 this.whatIf.isLoading = true;
@@ -666,10 +725,11 @@
                     .then(res => res.json())
                     .then(data => {
                         this.whatIf.result = data;
+                        this.showToastMessage('What-if analysis completed');
                     })
                     .catch(err => {
                         console.error('Failed to run What-If scenario', err);
-                        alert('Failed to run scenario. Please check the resource ID and instance type.');
+                        this.showToastMessage('Failed to run scenario. Please check the resource ID and instance type.', 'error');
                     })
                     .finally(() => {
                         this.whatIf.isLoading = false;
