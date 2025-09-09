@@ -43,14 +43,26 @@ public class DashboardData {
         private double limit;
         private double usage;
         private String status;
+        private String regionId; // MODIFIED: Added field to store the region ID
 
-        // Corrected constructor to match the call in DashboardDataService
+        // Constructor to match the call in DashboardDataService
         public ServiceQuotaInfo(String quotaName, double limit, double usage, String regionId) {
-            this.serviceName = "VPC"; // Assuming VPC for this specific use case
+            this.serviceName = "VPC";
             this.quotaName = quotaName;
             this.limit = limit;
             this.usage = usage;
-            this.status = "Active"; // Assuming active as data is being collected
+            this.status = "Active";
+            this.regionId = regionId; // MODIFIED: Assigned the regionId to the new field
+        }
+        
+        // ADDED: New constructor to match the call in CloudGuardService
+        public ServiceQuotaInfo(String serviceName, String quotaName, double limit, double usage, String regionId) {
+            this.serviceName = serviceName;
+            this.quotaName = quotaName;
+            this.limit = limit;
+            this.usage = usage;
+            this.status = "Active"; // Assuming active
+            this.regionId = regionId;
         }
     }
 

@@ -15,5 +15,6 @@ public class AlertDto {
     private String status;
     private double usage;
     private double limit;
-    private String type; 
+    private String type;
+    private String region; // MODIFIED: Added field for region
 }

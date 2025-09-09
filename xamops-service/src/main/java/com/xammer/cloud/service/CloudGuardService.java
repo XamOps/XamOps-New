@@ -2,9 +2,11 @@ package com.xammer.cloud.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.xammer.cloud.domain.CloudAccount;
+import com.xammer.cloud.dto.AlertDto;
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.ResourceDto;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,18 +38,21 @@ public class CloudGuardService {
     private final AwsClientProvider awsClientProvider;
     private final DatabaseCacheService dbCache;
     private final CloudListService cloudListService;
+    private final FinOpsService finOpsService;
 
     @Autowired
     public CloudGuardService(
             CloudAccountRepository cloudAccountRepository,
             AwsClientProvider awsClientProvider,
             DatabaseCacheService dbCache,
-            @Lazy CloudListService cloudListService
+            @Lazy CloudListService cloudListService,
+            FinOpsService finOpsService
     ) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.dbCache = dbCache;
         this.cloudListService = cloudListService;
+        this.finOpsService = finOpsService;
     }
 
     private CloudAccount getAccount(String accountId) {
@@ -94,16 +99,17 @@ public class CloudGuardService {
 
                                     return quota.map(serviceQuota -> {
                                         double currentCount = vpcCountsByRegion.getOrDefault(region.getRegionId(), 0L).doubleValue();
-                                        double utilization = (serviceQuota.value() > 0) ? (currentCount / serviceQuota.value()) * 100.0 : 0.0;
+                                        double usage = currentCount;
 
-                                        // Only create an alert if usage is above the threshold or there is at least one VPC.
-                                        if (utilization > ALERT_THRESHOLD_PERCENTAGE || currentCount > 0) {
+                                        double utilization = (serviceQuota.value() > 0) ? (usage / serviceQuota.value()) * 100.0 : 0.0;
+                                        if (utilization > ALERT_THRESHOLD_PERCENTAGE || usage > 0) {
                                             return new DashboardData.ServiceQuotaInfo(
                                                     "VPC",
                                                     serviceQuota.quotaName(),
                                                     serviceQuota.value(),
-                                                    currentCount,
-                                                    region.getRegionId()
+                                                    usage,
+                                                    region.getRegionId(),
+                                                    "Active"
                                             );
                                         }
                                         return null;
@@ -128,6 +134,45 @@ public class CloudGuardService {
                     return Collections.emptyList();
                 }
             });
+        });
+    }
+
+    @Async("awsTaskExecutor")
+    public CompletableFuture<List<AlertDto>> getAlerts(String accountId, boolean forceRefresh) {
+        CloudAccount account = getAccount(accountId);
+        CompletableFuture<List<DashboardData.ServiceQuotaInfo>> quotasFuture = getVpcQuotaAlerts(accountId, forceRefresh);
+        CompletableFuture<List<DashboardData.CostAnomaly>> anomaliesFuture = finOpsService.getCostAnomalies(account, forceRefresh);
+
+        return quotasFuture.thenCombine(anomaliesFuture, (quotas, anomalies) -> {
+            List<AlertDto> quotaAlerts = quotas.stream()
+                    .map(q -> new AlertDto(
+                            q.getQuotaName() + "-" + q.getRegionId(),
+                            "VPC",
+                            q.getQuotaName(),
+                            "Limit: " + q.getLimit(),
+                            q.getStatus(),
+                            q.getUsage(),
+                            q.getLimit(),
+                            "QUOTA",
+                            q.getRegionId()
+                    ))
+                    .collect(Collectors.toList());
+
+            List<AlertDto> anomalyAlerts = anomalies.stream()
+                    .map(a -> new AlertDto(
+                            a.getAnomalyId(),
+                            a.getService(),
+                            "Cost Anomaly Detected",
+                            "Unexpected spend of $" + String.format("%.2f", a.getUnexpectedSpend()),
+                            "CRITICAL",
+                            a.getUnexpectedSpend(),
+                            0,
+                            "ANOMALY",
+                            "Global"
+                    ))
+                    .collect(Collectors.toList());
+
+            return Stream.concat(quotaAlerts.stream(), anomalyAlerts.stream()).collect(Collectors.toList());
         });
     }
 }
