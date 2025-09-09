@@ -320,6 +320,7 @@
                             <thead class="text-xs text-gray-700 uppercase bg-gradient-to-r from-gray-50 to-gray-100">
                                 <tr>
                                     <th class="px-6 py-4 text-left font-bold">Resource Name</th>
+                                    <th class="px-6 py-4 text-left font-bold">Service</th>
                                     <th class="px-6 py-4 text-left font-bold">Machine Type Comparison</th>
                                     <th class="px-6 py-4 text-left font-bold">Savings</th>
                                 </tr>
@@ -334,6 +335,9 @@
                                                 </div>
                                                 <span class="font-mono text-gray-800 font-medium" x-text="rec.resourceName"></span>
                                             </div>
+                                        </td>
+                                        <td class="px-6 py-4">
+                                            <span class="text-gray-600 font-medium" x-text="rec.service"></span>
                                         </td>
                                         <td class="px-6 py-4">
                                             <div class="flex items-center justify-between space-x-4">
@@ -370,7 +374,7 @@ function gcpRightsizing() {
         recommendations: [],
         filter: 'All',
         searchTerm: '',
-        services: ['All', 'Compute Engine', 'Cloud SQL'],
+        services: ['All', 'Compute Engine', 'Cloud SQL', 'BigQuery', 'Cloud Storage'],
 
         init() {
             this.loadRecommendations(false);
@@ -447,7 +451,9 @@ const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] 
         getServiceIcon(serviceType) {
             const iconMap = {
                 'Compute Engine': 'gcp-compute-engine.png',
-                'Cloud SQL': 'gcp-cloud-sql.png'
+                'Cloud SQL': 'gcp-cloud-sql.png',
+                'BigQuery': 'gcp-bigquery.png',
+                'Cloud Storage': 'gcp-cloud-storage.png'
             };
             return iconMap[serviceType] || 'gcp-icon.png';
         }

@@ -250,7 +250,7 @@ public class GcpDataService {
         });
     }
 
-    private GcpResourceDto mapInstanceToDto(Instance instance) {
+    private GcpResourceDto mapInstanceToDto(com.google.cloud.compute.v1.Instance instance) {
         String zoneUrl = instance.getZone();
         String zone = zoneUrl.substring(zoneUrl.lastIndexOf('/') + 1);
         GcpResourceDto dto = new GcpResourceDto();
@@ -262,7 +262,7 @@ public class GcpDataService {
         return dto;
     }
 
-    private GcpResourceDto mapBucketToDto(Bucket bucket) {
+    private GcpResourceDto mapBucketToDto(com.google.cloud.storage.Bucket bucket) {
         GcpResourceDto dto = new GcpResourceDto();
         dto.setId(bucket.getName());
         dto.setName(bucket.getName());
@@ -272,7 +272,7 @@ public class GcpDataService {
         return dto;
     }
 
-    private GcpResourceDto mapGkeToDto(Cluster cluster) {
+    private GcpResourceDto mapGkeToDto(com.google.container.v1.Cluster cluster) {
         GcpResourceDto dto = new GcpResourceDto();
         dto.setId(cluster.getId());
         dto.setName(cluster.getName());
@@ -282,7 +282,7 @@ public class GcpDataService {
         return dto;
     }
 
-    private GcpResourceDto mapSqlToDto(DatabaseInstance instance) {
+    private GcpResourceDto mapSqlToDto(com.google.api.services.sqladmin.model.DatabaseInstance instance) {
         GcpResourceDto dto = new GcpResourceDto();
         dto.setId(instance.getName());
         dto.setName(instance.getName());
@@ -292,7 +292,7 @@ public class GcpDataService {
         return dto;
     }
 
-    private GcpResourceDto mapVpcToDto(Network network) {
+    private GcpResourceDto mapVpcToDto(com.google.cloud.compute.v1.Network network) {
         GcpResourceDto dto = new GcpResourceDto();
         dto.setId(String.valueOf(network.getId()));
         dto.setName(network.getName());
@@ -302,7 +302,7 @@ public class GcpDataService {
         return dto;
     }
 
-    private GcpResourceDto mapDnsToDto(ManagedZone zone) {
+    private GcpResourceDto mapDnsToDto(com.google.api.services.dns.model.ManagedZone zone) {
         GcpResourceDto dto = new GcpResourceDto();
         dto.setId(String.valueOf(zone.getId()));
         dto.setName(zone.getDnsName());
@@ -312,7 +312,7 @@ public class GcpDataService {
         return dto;
     }
 
-    private GcpResourceDto mapFirewallToDto(Firewall firewall) {
+    private GcpResourceDto mapFirewallToDto(com.google.cloud.compute.v1.Firewall firewall) {
         GcpResourceDto dto = new GcpResourceDto();
         dto.setId(String.valueOf(firewall.getId()));
         dto.setName(firewall.getName());
@@ -343,10 +343,10 @@ public class GcpDataService {
     public CompletableFuture<DashboardData.IamResources> getIamResources(String gcpProjectId) {
         log.info("Attempting to get IAM resources for project: {}", gcpProjectId);
         return CompletableFuture.supplyAsync(() -> {
-            Optional<ProjectsClient> clientOpt = gcpClientProvider.getProjectsClient(gcpProjectId);
+            Optional<com.google.cloud.resourcemanager.v3.ProjectsClient> clientOpt = gcpClientProvider.getProjectsClient(gcpProjectId);
             if (clientOpt.isEmpty()) return new DashboardData.IamResources(0, 0, 0, 0);
-            try (ProjectsClient projectsClient = clientOpt.get()) {
-                Project project = projectsClient.getProject("projects/" + gcpProjectId);
+            try (com.google.cloud.resourcemanager.v3.ProjectsClient projectsClient = clientOpt.get()) {
+                com.google.cloud.resourcemanager.v3.Project project = projectsClient.getProject("projects/" + gcpProjectId);
                 log.info("Fetched project details for: {}", project.getDisplayName());
                 int userCount = 10;
                 int roleCount = 20;
@@ -360,8 +360,8 @@ public class GcpDataService {
 
     public void createGcpAccount(GcpAccountRequestDto request, Client client) throws IOException {
         try {
-            Storage storage = gcpClientProvider.createStorageClient(request.getServiceAccountKey());
-            storage.list(Storage.BucketListOption.pageSize(1));
+            com.google.cloud.storage.Storage storage = gcpClientProvider.createStorageClient(request.getServiceAccountKey());
+            storage.list(com.google.cloud.storage.Storage.BucketListOption.pageSize(1));
             CloudAccount account = new CloudAccount();
             account.setAccountName(request.getAccountName());
             account.setProvider("GCP");
@@ -387,9 +387,9 @@ public class GcpDataService {
     public CompletableFuture<List<Map<String, Object>>> getVpcTopologyGraph(String gcpProjectId, String vpcId) {
         return CompletableFuture.supplyAsync(() -> {
             List<Map<String, Object>> elements = new ArrayList<>();
-            List<Instance> allInstances = getRawComputeInstances(gcpProjectId);
-            List<Subnetwork> allSubnetworks = getRawSubnetworks(gcpProjectId);
-            List<Network> allNetworks = getRawVpcNetworks(gcpProjectId);
+            List<com.google.cloud.compute.v1.Instance> allInstances = getRawComputeInstances(gcpProjectId);
+            List<com.google.cloud.compute.v1.Subnetwork> allSubnetworks = getRawSubnetworks(gcpProjectId);
+            List<com.google.cloud.compute.v1.Network> allNetworks = getRawVpcNetworks(gcpProjectId);
 
             if (vpcId == null || vpcId.isBlank()) {
                  allNetworks.forEach(network -> {
@@ -445,7 +445,7 @@ public class GcpDataService {
                                 .anyMatch(ni -> ni.getNetwork().endsWith("/" + network.getName())))
                             .forEach(instance -> {
                                 String subnetworkUrl = instance.getNetworkInterfaces(0).getSubnetwork();
-                                Optional<Subnetwork> parentSubnet = allSubnetworks.stream().filter(sn -> sn.getSelfLink().equals(subnetworkUrl)).findFirst();
+                                Optional<com.google.cloud.compute.v1.Subnetwork> parentSubnet = allSubnetworks.stream().filter(sn -> sn.getSelfLink().equals(subnetworkUrl)).findFirst();
                                 
                                 if(parentSubnet.isPresent()){
                                     Map<String, Object> instanceNode = new HashMap<>();
@@ -464,10 +464,10 @@ public class GcpDataService {
         });
     }
 
-    private List<Network> getRawVpcNetworks(String gcpProjectId) {
-        Optional<NetworksClient> clientOpt = gcpClientProvider.getNetworksClient(gcpProjectId);
+    private List<com.google.cloud.compute.v1.Network> getRawVpcNetworks(String gcpProjectId) {
+        Optional<com.google.cloud.compute.v1.NetworksClient> clientOpt = gcpClientProvider.getNetworksClient(gcpProjectId);
         if (clientOpt.isEmpty()) return List.of();
-        try (NetworksClient client = clientOpt.get()) {
+        try (com.google.cloud.compute.v1.NetworksClient client = clientOpt.get()) {
             return StreamSupport.stream(client.list(gcpProjectId).iterateAll().spliterator(), false)
                     .collect(Collectors.toList());
         } catch (Exception e) {
@@ -476,10 +476,10 @@ public class GcpDataService {
         }
     }
 
-    private List<Subnetwork> getRawSubnetworks(String gcpProjectId) {
-        Optional<SubnetworksClient> clientOpt = gcpClientProvider.getSubnetworksClient(gcpProjectId);
+    private List<com.google.cloud.compute.v1.Subnetwork> getRawSubnetworks(String gcpProjectId) {
+        Optional<com.google.cloud.compute.v1.SubnetworksClient> clientOpt = gcpClientProvider.getSubnetworksClient(gcpProjectId);
         if (clientOpt.isEmpty()) return List.of();
-        try (SubnetworksClient client = clientOpt.get()) {
+        try (com.google.cloud.compute.v1.SubnetworksClient client = clientOpt.get()) {
              return StreamSupport.stream(client.aggregatedList(gcpProjectId).iterateAll().spliterator(), false)
                      .flatMap(entry -> entry.getValue().getSubnetworksList().stream())
                      .collect(Collectors.toList());
@@ -489,10 +489,10 @@ public class GcpDataService {
         }
     }
 
-     private List<Instance> getRawComputeInstances(String gcpProjectId) {
-        Optional<InstancesClient> clientOpt = gcpClientProvider.getInstancesClient(gcpProjectId);
+     private List<com.google.cloud.compute.v1.Instance> getRawComputeInstances(String gcpProjectId) {
+        Optional<com.google.cloud.compute.v1.InstancesClient> clientOpt = gcpClientProvider.getInstancesClient(gcpProjectId);
         if (clientOpt.isEmpty()) return List.of();
-        try (InstancesClient client = clientOpt.get()) {
+        try (com.google.cloud.compute.v1.InstancesClient client = clientOpt.get()) {
             return StreamSupport.stream(client.aggregatedList(gcpProjectId).iterateAll().spliterator(), false)
                     .flatMap(entry -> entry.getValue().getInstancesList().stream())
                     .collect(Collectors.toList());
@@ -509,7 +509,7 @@ public class GcpDataService {
 
     private List<GcpResourceDto> getStorageBuckets(String gcpProjectId) {
         log.info("Fetching Cloud Storage buckets for project: {}", gcpProjectId);
-        Optional<Storage> clientOpt = gcpClientProvider.getStorageClient(gcpProjectId);
+        Optional<com.google.cloud.storage.Storage> clientOpt = gcpClientProvider.getStorageClient(gcpProjectId);
         if (clientOpt.isEmpty()) return List.of();
         try {
             List<GcpResourceDto> buckets = StreamSupport.stream(clientOpt.get().list().iterateAll().spliterator(), false)
@@ -525,11 +525,11 @@ public class GcpDataService {
 
     private List<GcpResourceDto> getGkeClusters(String gcpProjectId) {
         log.info("Fetching Kubernetes Engine clusters for project: {}", gcpProjectId);
-        Optional<ClusterManagerClient> clientOpt = gcpClientProvider.getClusterManagerClient(gcpProjectId);
+        Optional<com.google.cloud.container.v1.ClusterManagerClient> clientOpt = gcpClientProvider.getClusterManagerClient(gcpProjectId);
         if (clientOpt.isEmpty()) return List.of();
-        try (ClusterManagerClient client = clientOpt.get()) {
+        try (com.google.cloud.container.v1.ClusterManagerClient client = clientOpt.get()) {
             String parent = "projects/" + gcpProjectId + "/locations/-";
-            List<Cluster> clusters = client.listClusters(parent).getClustersList();
+            List<com.google.container.v1.Cluster> clusters = client.listClusters(parent).getClustersList();
             log.info("Found {} Kubernetes Engine clusters.", clusters.size());
             return clusters.stream()
                     .map(this::mapGkeToDto)
@@ -542,11 +542,11 @@ public class GcpDataService {
 
     private List<GcpResourceDto> getCloudSqlInstances(String gcpProjectId) {
         log.info("Fetching Cloud SQL instances for project: {}", gcpProjectId);
-        Optional<SQLAdmin> sqlAdminClientOpt = gcpClientProvider.getSqlAdminClient(gcpProjectId);
+        Optional<com.google.api.services.sqladmin.SQLAdmin> sqlAdminClientOpt = gcpClientProvider.getSqlAdminClient(gcpProjectId);
         if (sqlAdminClientOpt.isEmpty()) return List.of();
 
         try {
-            List<DatabaseInstance> instances = sqlAdminClientOpt.get()
+            List<com.google.api.services.sqladmin.model.DatabaseInstance> instances = sqlAdminClientOpt.get()
                     .instances()
                     .list(gcpProjectId)
                     .execute()
@@ -572,7 +572,7 @@ public class GcpDataService {
         try {
             com.google.api.services.dns.Dns dns = clientOpt.get();
             com.google.api.services.dns.Dns.ManagedZones.List request = dns.managedZones().list(gcpProjectId);
-            List<ManagedZone> zones = request.execute().getManagedZones();
+            List<com.google.api.services.dns.model.ManagedZone> zones = request.execute().getManagedZones();
             if (zones == null) return List.of();
             log.info("Found {} Cloud DNS zones.", zones.size());
             return zones.stream()
@@ -595,9 +595,9 @@ public class GcpDataService {
     }
     private List<GcpResourceDto> getLoadBalancers(String gcpProjectId) {
         log.info("Fetching Load Balancers for project: {}", gcpProjectId);
-        Optional<ForwardingRulesClient> clientOpt = gcpClientProvider.getForwardingRulesClient(gcpProjectId);
+        Optional<com.google.cloud.compute.v1.ForwardingRulesClient> clientOpt = gcpClientProvider.getForwardingRulesClient(gcpProjectId);
         if (clientOpt.isEmpty()) return List.of();
-        try (ForwardingRulesClient client = clientOpt.get()) {
+        try (com.google.cloud.compute.v1.ForwardingRulesClient client = clientOpt.get()) {
             return StreamSupport.stream(client.aggregatedList(gcpProjectId).iterateAll().spliterator(), false)
                     .flatMap(entry -> entry.getValue().getForwardingRulesList().stream())
                     .map(this::mapForwardingRuleToDto)
@@ -610,9 +610,9 @@ public class GcpDataService {
 
     private List<GcpResourceDto> getFirewallRules(String gcpProjectId) {
         log.info("Fetching Firewall Rules for project: {}", gcpProjectId);
-        Optional<FirewallsClient> clientOpt = gcpClientProvider.getFirewallsClient(gcpProjectId);
+        Optional<com.google.cloud.compute.v1.FirewallsClient> clientOpt = gcpClientProvider.getFirewallsClient(gcpProjectId);
         if (clientOpt.isEmpty()) return List.of();
-        try (FirewallsClient client = clientOpt.get()) {
+        try (com.google.cloud.compute.v1.FirewallsClient client = clientOpt.get()) {
             return StreamSupport.stream(client.list(gcpProjectId).iterateAll().spliterator(), false)
                     .map(this::mapFirewallToDto)
                     .collect(Collectors.toList());
@@ -622,7 +622,7 @@ public class GcpDataService {
         }
     }
 
-    private GcpResourceDto mapForwardingRuleToDto(ForwardingRule forwardingRule) {
+    private GcpResourceDto mapForwardingRuleToDto(com.google.cloud.compute.v1.ForwardingRule forwardingRule) {
         GcpResourceDto dto = new GcpResourceDto();
         dto.setId(String.valueOf(forwardingRule.getId()));
         dto.setName(forwardingRule.getName());
