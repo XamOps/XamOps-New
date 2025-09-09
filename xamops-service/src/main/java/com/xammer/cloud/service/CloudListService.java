@@ -333,7 +333,7 @@ public class CloudListService {
         }, "Lambda Functions");
     }
 
-    private CompletableFuture<List<ResourceDto>> fetchVpcsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+    CompletableFuture<List<ResourceDto>> fetchVpcsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
             Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
             return ec2.describeVpcs().vpcs().stream()
