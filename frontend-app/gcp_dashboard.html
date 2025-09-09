@@ -722,8 +722,9 @@
                     .then(res => res.json())
                     .then(data => {
                         if (!data) return;
-                        sessionStorage.setItem(cacheKey, JSON.stringify(data));
-                        this.populatePage({ selectedAccount: data }); // Wrap the data
+                        const dashboardData = { selectedAccount: data };
+                        sessionStorage.setItem(cacheKey, JSON.stringify(dashboardData));
+                        this.populatePage(dashboardData);
                     })
                     .catch(error => {
                         console.error('Failed to fetch GCP dashboard data:', error);
@@ -907,15 +908,15 @@ populateKpiCards(account) {
                                 <tbody class="divide-y divide-gray-200">
                                     ${recs.slice(0, 3).map(rec => `
                                         <tr class="hover:bg-gray-50 transition-colors">
-                                            <td class="px-4 py-3 font-mono text-xs text-gray-600">${rec.resourceId}</td>
+                                            <td class="px-4 py-3 font-mono text-xs text-gray-600">${rec.resourceName}</td>
                                             <td class="px-4 py-3">
                                                 <div class="flex items-center space-x-2">
-                                                    <span class="text-gray-600">${rec.currentType}</span>
+                                                    <span class="text-gray-600">${rec.currentMachineType}</span>
                                                     <i class="fas fa-arrow-right text-gray-400"></i>
-                                                    <span class="font-semibold text-${color}-600">${rec.recommendedType}</span>
+                                                    <span class="font-semibold text-${color}-600">${rec.recommendedMachineType}</span>
                                                 </div>
                                             </td>
-                                            <td class="px-4 py-3 text-right font-bold text-${color}-600">${this.formatCurrency(rec.estimatedMonthlySavings)}</td>
+                                            <td class="px-4 py-3 text-right font-bold text-${color}-600">${this.formatCurrency(rec.monthlySavings)}</td>
                                         </tr>
                                     `).join('')}
                                 </tbody>
@@ -1277,12 +1278,12 @@ populateKpiCards(account) {
         },
 
     formatCurrency(num) { 
-                return (num != null ? num.toLocaleString('en-US', {
+                return (num != null ? num.toLocaleString('en-IN', {
                     style: 'currency',
-                    currency: 'USD',
+                    currency: 'INR',
                     minimumFractionDigits: 2, 
                     maximumFractionDigits: 2
-                }) : '$0.00'); 
+                }) : '₹0.00'); 
             },
         }
     }

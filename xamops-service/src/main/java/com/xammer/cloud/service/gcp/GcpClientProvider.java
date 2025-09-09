@@ -283,4 +283,32 @@ public class GcpClientProvider {
             }
         });
     }
+
+    public Optional<DisksClient> getDisksClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                DisksSettings settings = DisksSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials)
+                        .build();
+                return DisksClient.create(settings);
+            } catch (IOException e) {
+                log.error("Failed to create DisksClient for project ID: {}", gcpProjectId, e);
+                return null;
+            }
+        });
+    }
+    
+    public Optional<ImagesClient> getImagesClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                ImagesSettings settings = ImagesSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials)
+                        .build();
+                return ImagesClient.create(settings);
+            } catch (IOException e) {
+                log.error("Failed to create ImagesClient for project ID: {}", gcpProjectId, e);
+                return null;
+            }
+        });
+    }
 }

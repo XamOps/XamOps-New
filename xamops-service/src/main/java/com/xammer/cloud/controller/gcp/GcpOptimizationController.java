@@ -28,11 +28,6 @@ public class GcpOptimizationController {
                 .thenApply(ResponseEntity::ok);
     }
 
-    /**
-     * NEW ENDPOINT: Fetches a report of wasted resources in the specified GCP project.
-     * @param accountId The GCP Project ID.
-     * @return A CompletableFuture containing a list of GcpWasteItem objects.
-     */
     @GetMapping("/waste-report")
     public CompletableFuture<ResponseEntity<List<GcpWasteItem>>> getWasteReport(@RequestParam String accountId) {
         return gcpOptimizationService.getWasteReport(accountId)

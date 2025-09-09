@@ -148,16 +148,28 @@ function gcpWaste() {
     return {
         isLoading: true,
         isRefreshing: false,
-        accountId: sessionStorage.getItem('selectedAccountId'),
+        accountId: '',
         wasteItems: [],
         savingsChart: null,
         get totalSavings() {
             return this.wasteItems.reduce((sum, item) => sum + item.monthlySavings, 0);
         },
         init() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const accountIdsParam = urlParams.get('accountIds');
+            if (accountIdsParam) {
+                this.accountId = accountIdsParam.split(',')[0];
+            } else {
+                this.accountId = JSON.parse(sessionStorage.getItem('selectedAccountIds'))[0];
+            }
             this.fetchWasteReport();
         },
         fetchWasteReport(forceRefresh = false) {
+            if (!this.accountId) {
+                console.error("No accountId found. Cannot fetch waste report.");
+                this.isLoading = false;
+                return;
+            }
             this.isRefreshing = forceRefresh;
             this.isLoading = !forceRefresh;
             fetch(`/api/gcp/optimization/waste-report?accountId=${this.accountId}`)
