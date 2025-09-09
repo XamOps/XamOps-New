@@ -33,14 +33,33 @@ public class DashboardData {
         private int loadBalancers;
         private int firewalls;
     }
-    
-    @Data @AllArgsConstructor @NoArgsConstructor public static class ServiceQuotaInfo { private String serviceName; private String quotaName; private double limit; private double usage; private String status; }
+
+    @Data
+    @AllArgsConstructor
+    @NoArgsConstructor
+    public static class ServiceQuotaInfo {
+        private String serviceName;
+        private String quotaName;
+        private double limit;
+        private double usage;
+        private String status;
+
+        // Corrected constructor to match the call in DashboardDataService
+        public ServiceQuotaInfo(String quotaName, double limit, double usage, String regionId) {
+            this.serviceName = "VPC"; // Assuming VPC for this specific use case
+            this.quotaName = quotaName;
+            this.limit = limit;
+            this.usage = usage;
+            this.status = "Active"; // Assuming active as data is being collected
+        }
+    }
+
     @Data @AllArgsConstructor @NoArgsConstructor public static class BudgetDetails { private String budgetName; private BigDecimal budgetLimit; private String budgetUnit; private BigDecimal actualSpend; private BigDecimal forecastedSpend; }
     @Data @AllArgsConstructor @NoArgsConstructor public static class TaggingCompliance { private double compliancePercentage; private int totalResourcesScanned; private int untaggedResourcesCount; private List<UntaggedResource> untaggedResources; }
     @Data @AllArgsConstructor @NoArgsConstructor public static class UntaggedResource { private String resourceId; private String resourceType; private String region; private List<String> missingTags; }
     @Data @NoArgsConstructor @AllArgsConstructor public static class Account { private String id; private String name; private List<RegionStatus> regionStatus; private ResourceInventory resourceInventory; private CloudWatchStatus cloudWatchStatus; private List<SecurityInsight> securityInsights; private CostHistory costHistory; private List<BillingSummary> billingSummary; private IamResources iamResources; private SavingsSummary savingsSummary; private List<OptimizationRecommendation> ec2Recommendations; private List<CostAnomaly> costAnomalies; private List<OptimizationRecommendation> ebsRecommendations; private List<OptimizationRecommendation> lambdaRecommendations; private ReservationAnalysis reservationAnalysis; private List<ReservationPurchaseRecommendation> reservationPurchaseRecommendations; private OptimizationSummary optimizationSummary; private List<WastedResource> wastedResources; private List<ServiceQuotaInfo> serviceQuotas; private int securityScore; private double monthToDateSpend; private double forecastedSpend; private double lastMonthSpend;}
-    @Data 
-    @NoArgsConstructor 
+    @Data
+    @NoArgsConstructor
     public static class RegionStatus {
         private String regionId;
         private String regionName;
@@ -48,9 +67,9 @@ public class DashboardData {
         private double latitude;
         private double longitude;
         private String activeServices;
-        
-        public RegionStatus(String regionId, String regionName, String status, 
-                           double latitude, double longitude, String activeServices) {
+
+        public RegionStatus(String regionId, String regionName, String status,
+                            double latitude, double longitude, String activeServices) {
             this.regionId = regionId;
             this.regionName = regionName;
             this.status = status;
@@ -58,9 +77,9 @@ public class DashboardData {
             this.longitude = longitude;
             this.activeServices = activeServices;
         }
-        
-        public RegionStatus(String regionId, String regionName, String status, 
-                           double latitude, double longitude) {
+
+        public RegionStatus(String regionId, String regionName, String status,
+                            double latitude, double longitude) {
             this(regionId, regionName, status, latitude, longitude, null);
         }
     }
@@ -72,15 +91,15 @@ public class DashboardData {
     @Data @NoArgsConstructor @AllArgsConstructor public static class SavingsSummary { private double potential; private List<SavingsSuggestion> suggestions; }
     @Data @NoArgsConstructor @AllArgsConstructor public static class SavingsSuggestion { private String service; private double suggested; }
     @Data @NoArgsConstructor @AllArgsConstructor public static class CostHistory { private List<String> labels; private List<Double> costs; private List<Boolean> anomalies; }
-    
-    @Data @AllArgsConstructor @NoArgsConstructor 
-    public static class OptimizationRecommendation { 
-        private String service; 
-        private String resourceId; 
-        private String currentType; 
-        private String recommendedType; 
-        private double estimatedMonthlySavings; 
-        private String recommendationReason; 
+
+    @Data @AllArgsConstructor @NoArgsConstructor
+    public static class OptimizationRecommendation {
+        private String service;
+        private String resourceId;
+        private String currentType;
+        private String recommendedType;
+        private double estimatedMonthlySavings;
+        private String recommendationReason;
         private double currentMonthlyCost;
         private double recommendedMonthlyCost;
 
@@ -99,17 +118,17 @@ public class DashboardData {
     @Data @AllArgsConstructor @NoArgsConstructor public static class RightsizingOption { private String recommendedType; private double recommendedMonthlyCost; private double estimatedMonthlySavings; private String usage; }
     @Data @AllArgsConstructor @NoArgsConstructor public static class CostAnomaly { private String anomalyId; private String service; private double unexpectedSpend; private LocalDate startDate; private LocalDate endDate; }
     @Data @AllArgsConstructor @NoArgsConstructor public static class ReservationAnalysis { private double utilizationPercentage; private double coveragePercentage; }
-    @Data @AllArgsConstructor @NoArgsConstructor 
-    public static class ReservationPurchaseRecommendation { 
-        private String instanceFamily; 
-        private String recommendedInstances; 
-        private String recommendedUnits; 
-        private String minimumUnits; 
-        private String monthlySavings; 
-        private String onDemandCost; 
-        private String estimatedMonthlyCost; 
-        private String term; 
-        
+    @Data @AllArgsConstructor @NoArgsConstructor
+    public static class ReservationPurchaseRecommendation {
+        private String instanceFamily;
+        private String recommendedInstances;
+        private String recommendedUnits;
+        private String minimumUnits;
+        private String monthlySavings;
+        private String onDemandCost;
+        private String estimatedMonthlyCost;
+        private String term;
+
         private String instanceType;
         private String region;
         private String platform;

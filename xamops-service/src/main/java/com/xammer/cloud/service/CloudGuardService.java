@@ -3,22 +3,24 @@ package com.xammer.cloud.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.DashboardData;
+import com.xammer.cloud.dto.ResourceDto;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import software.amazon.awssdk.services.ec2.Ec2Client;
-import software.amazon.awssdk.services.elasticloadbalancingv2.ElasticLoadBalancingV2Client;
-import software.amazon.awssdk.services.rds.RdsClient;
 import software.amazon.awssdk.services.servicequotas.ServiceQuotasClient;
 import software.amazon.awssdk.services.servicequotas.model.ListServiceQuotasRequest;
+import software.amazon.awssdk.services.servicequotas.model.ListServiceQuotasResponse;
 import software.amazon.awssdk.services.servicequotas.model.ServiceQuota;
 
-import java.util.*;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
@@ -27,27 +29,25 @@ public class CloudGuardService {
 
     private static final Logger logger = LoggerFactory.getLogger(CloudGuardService.class);
 
+    // Set a threshold for quota alerts (e.g., 75% utilization)
+    private static final double ALERT_THRESHOLD_PERCENTAGE = 75.0;
+
     private final CloudAccountRepository cloudAccountRepository;
     private final AwsClientProvider awsClientProvider;
+    private final DatabaseCacheService dbCache;
     private final CloudListService cloudListService;
-    private final Set<String> keyQuotas;
-    private final FinOpsService finOpsService;
-    private final DatabaseCacheService dbCache; // Added for caching
 
     @Autowired
     public CloudGuardService(
             CloudAccountRepository cloudAccountRepository,
             AwsClientProvider awsClientProvider,
-            @Lazy CloudListService cloudListService,
-            @Value("${quotas.key-codes}") Set<String> keyQuotas,
-            FinOpsService finOpsService,
-            DatabaseCacheService dbCache) { // Added dbCache
+            DatabaseCacheService dbCache,
+            @Lazy CloudListService cloudListService
+    ) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
+        this.dbCache = dbCache;
         this.cloudListService = cloudListService;
-        this.keyQuotas = keyQuotas;
-        this.finOpsService = finOpsService;
-        this.dbCache = dbCache; // Added dbCache
     }
 
     private CloudAccount getAccount(String accountId) {
@@ -56,160 +56,78 @@ public class CloudGuardService {
     }
 
     @Async("awsTaskExecutor")
-    public CompletableFuture<List<DashboardData.ServiceQuotaInfo>> getServiceQuotaInfo(CloudAccount account, List<DashboardData.RegionStatus> activeRegions, boolean forceRefresh) {
-        String cacheKey = "serviceQuotas-" + account.getAwsAccountId();
+    public CompletableFuture<List<DashboardData.ServiceQuotaInfo>> getVpcQuotaAlerts(String accountId, boolean forceRefresh) {
+        String cacheKey = "vpcQuotaAlerts-" + accountId;
+
         if (!forceRefresh) {
             Optional<List<DashboardData.ServiceQuotaInfo>> cachedData = dbCache.get(cacheKey, new TypeReference<>() {});
             if (cachedData.isPresent()) {
+                logger.info("--- LOADING FROM DATABASE CACHE (TypeReference): {} ---", cacheKey);
                 return CompletableFuture.completedFuture(cachedData.get());
             }
         }
 
-        if (activeRegions.isEmpty()) {
-            logger.warn("No active regions found for account {}, skipping service quota check.", account.getAwsAccountId());
-            return CompletableFuture.completedFuture(Collections.emptyList());
-        }
+        CloudAccount account = getAccount(accountId);
 
-        CompletableFuture<Map<String, Double>> usageFuture = getCurrentUsageData(account, activeRegions);
+        CompletableFuture<List<DashboardData.RegionStatus>> activeRegionsFuture = cloudListService.getRegionStatusForAccount(account, forceRefresh);
 
-        return usageFuture.thenCompose(usageMap -> {
-            String primaryRegion = activeRegions.get(0).getRegionId();
-            ServiceQuotasClient sqClient = awsClientProvider.getServiceQuotasClient(account, primaryRegion);
-            logger.info("Fetching service quota info for account {} in region {}...", account.getAwsAccountId(), primaryRegion);
-            List<DashboardData.ServiceQuotaInfo> quotaInfos = new ArrayList<>();
-            List<String> serviceCodes = Arrays.asList("ec2", "vpc", "rds", "lambda", "elasticloadbalancing");
+        return activeRegionsFuture.thenCompose(activeRegions -> {
+            CompletableFuture<List<ResourceDto>> vpcResourcesFuture = cloudListService.fetchVpcsForCloudlist(account, activeRegions);
 
-            for (String serviceCode : serviceCodes) {
+            return vpcResourcesFuture.thenApplyAsync(vpcResources -> {
                 try {
-                    logger.info("Fetching quotas for service: {} in account {}", serviceCode, account.getAwsAccountId());
-                    ListServiceQuotasRequest request = ListServiceQuotasRequest.builder().serviceCode(serviceCode).build();
-                    List<ServiceQuota> quotas = sqClient.listServiceQuotas(request).quotas();
+                    Map<String, Long> vpcCountsByRegion = vpcResources.stream()
+                            .collect(Collectors.groupingBy(ResourceDto::getRegion, Collectors.counting()));
 
-                    for (ServiceQuota quota : quotas) {
-                        double usage = usageMap.getOrDefault(quota.quotaCode(), 0.0);
-                        double limit = quota.value();
-                        
-                        double percentage = (limit > 0) ? (usage / limit) * 100 : 0;
-                        if (percentage > 50 || isKeyQuota(quota.quotaCode())) {
-                             String status = "OK";
-                            if (percentage > 90) {
-                                status = "CRITICAL";
-                            } else if (percentage > 75) {
-                                status = "WARN";
-                            }
+                    List<CompletableFuture<DashboardData.ServiceQuotaInfo>> futures = activeRegions.stream()
+                            .map(region -> CompletableFuture.supplyAsync(() -> {
+                                try {
+                                    logger.info("Fetching service quota info for account {} in region {}...", accountId, region.getRegionId());
+                                    ServiceQuotasClient sqClient = awsClientProvider.getServiceQuotasClient(account, region.getRegionId());
+                                    ListServiceQuotasRequest listRequest = ListServiceQuotasRequest.builder()
+                                            .serviceCode("vpc")
+                                            .build();
+                                    ListServiceQuotasResponse listResponse = sqClient.listServiceQuotas(listRequest);
+                                    Optional<ServiceQuota> quota = listResponse.quotas().stream()
+                                            .filter(q -> q.quotaCode().equals("L-F678F1CE")) // VPCs per Region quota code
+                                            .findFirst();
 
-                            quotaInfos.add(new DashboardData.ServiceQuotaInfo(
-                                quota.serviceName(),
-                                quota.quotaName(),
-                                limit,
-                                usage,
-                                status
-                            ));
-                        }
-                    }
+                                    return quota.map(serviceQuota -> {
+                                        double currentCount = vpcCountsByRegion.getOrDefault(region.getRegionId(), 0L).doubleValue();
+                                        double utilization = (serviceQuota.value() > 0) ? (currentCount / serviceQuota.value()) * 100.0 : 0.0;
+
+                                        // Only create an alert if usage is above the threshold or there is at least one VPC.
+                                        if (utilization > ALERT_THRESHOLD_PERCENTAGE || currentCount > 0) {
+                                            return new DashboardData.ServiceQuotaInfo(
+                                                    "VPC",
+                                                    serviceQuota.quotaName(),
+                                                    serviceQuota.value(),
+                                                    currentCount,
+                                                    region.getRegionId()
+                                            );
+                                        }
+                                        return null;
+                                    }).orElse(null);
+                                } catch (Exception e) {
+                                    logger.error("Failed to get quota info for service vpc in region {}.", region.getRegionId(), e);
+                                    return null;
+                                }
+                            }))
+                            .collect(Collectors.toList());
+
+                    List<DashboardData.ServiceQuotaInfo> allQuotaInfo = futures.stream()
+                            .map(CompletableFuture::join)
+                            .filter(Objects::nonNull)
+                            .collect(Collectors.toList());
+
+                    logger.info("Successfully fetched {} VPC quota alerts for account {}.", allQuotaInfo.size(), accountId);
+                    dbCache.put(cacheKey, allQuotaInfo);
+                    return allQuotaInfo;
                 } catch (Exception e) {
-                    logger.error("Could not fetch service quotas for {} in account {}.", serviceCode, account.getAwsAccountId(), e);
+                    logger.error("Could not fetch VPC quota alerts for account {}.", accountId, e);
+                    return Collections.emptyList();
                 }
-            }
-            dbCache.put(cacheKey, quotaInfos); // Save fresh data to cache
-            return CompletableFuture.completedFuture(quotaInfos);
-        });
-    }
-
-    private boolean isKeyQuota(String quotaCode) {
-        return this.keyQuotas.contains(quotaCode);
-    }
-
-    private CompletableFuture<Map<String, Double>> getCurrentUsageData(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
-        CompletableFuture<Integer> ec2CountFuture = countEc2Instances(account, activeRegions);
-        CompletableFuture<Integer> vpcCountFuture = countVpcs(account, activeRegions);
-        CompletableFuture<Integer> rdsCountFuture = countRdsInstances(account, activeRegions);
-        CompletableFuture<Integer> albCountFuture = countAlbs(account, activeRegions);
-
-        return CompletableFuture.allOf(ec2CountFuture, vpcCountFuture, rdsCountFuture, albCountFuture)
-            .thenApply(v -> {
-                Map<String, Double> usageMap = new HashMap<>();
-                usageMap.put("L-1216C47A", (double) ec2CountFuture.join());
-                usageMap.put("L-F678F1CE", (double) vpcCountFuture.join());
-                usageMap.put("L-7295265B", (double) rdsCountFuture.join());
-                usageMap.put("L-69A177A2", (double) albCountFuture.join());
-                return usageMap;
             });
-    }
-
-    private CompletableFuture<Integer> countEc2Instances(CloudAccount account, List<DashboardData.RegionStatus> regions) {
-        List<CompletableFuture<Integer>> futures = regions.stream()
-            .map(region -> CompletableFuture.supplyAsync(() -> {
-                try {
-                    Ec2Client ec2 = awsClientProvider.getEc2Client(account, region.getRegionId());
-                    return ec2.describeInstances(r -> r.filters(f -> f.name("instance-state-name").values("running")))
-                             .reservations().stream().mapToInt(r -> r.instances().size()).sum();
-                } catch (Exception e) {
-                    logger.error("Failed to count EC2 instances in region {} for account {}", region.getRegionId(), account.getAwsAccountId(), e);
-                    return 0;
-                }
-            }))
-            .collect(Collectors.toList());
-
-        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-            .thenApply(v -> futures.stream().mapToInt(CompletableFuture::join).sum());
-    }
-
-    private CompletableFuture<Integer> countVpcs(CloudAccount account, List<DashboardData.RegionStatus> regions) {
-        List<CompletableFuture<Integer>> futures = regions.stream()
-            .map(region -> CompletableFuture.supplyAsync(() -> {
-                try {
-                    Ec2Client ec2 = awsClientProvider.getEc2Client(account, region.getRegionId());
-                    return ec2.describeVpcs().vpcs().size();
-                } catch (Exception e) {
-                    logger.error("Failed to count VPCs in region {} for account {}", region.getRegionId(), account.getAwsAccountId(), e);
-                    return 0;
-                }
-            }))
-            .collect(Collectors.toList());
-
-        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-            .thenApply(v -> futures.stream().mapToInt(CompletableFuture::join).sum());
-    }
-
-    private CompletableFuture<Integer> countRdsInstances(CloudAccount account, List<DashboardData.RegionStatus> regions) {
-        List<CompletableFuture<Integer>> futures = regions.stream()
-            .map(region -> CompletableFuture.supplyAsync(() -> {
-                try {
-                    RdsClient rds = awsClientProvider.getRdsClient(account, region.getRegionId());
-                    return rds.describeDBInstances().dbInstances().size();
-                } catch (Exception e) {
-                    logger.error("Failed to count RDS instances in region {} for account {}", region.getRegionId(), account.getAwsAccountId(), e);
-                    return 0;
-                }
-            }))
-            .collect(Collectors.toList());
-
-        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-            .thenApply(v -> futures.stream().mapToInt(CompletableFuture::join).sum());
-    }
-    
-    private CompletableFuture<Integer> countAlbs(CloudAccount account, List<DashboardData.RegionStatus> regions) {
-        List<CompletableFuture<Integer>> futures = regions.stream()
-            .map(region -> CompletableFuture.supplyAsync(() -> {
-                try {
-                    ElasticLoadBalancingV2Client elbv2 = awsClientProvider.getElbv2Client(account, region.getRegionId());
-                    return (int) elbv2.describeLoadBalancers().loadBalancers().stream()
-                        .filter(lb -> "application".equalsIgnoreCase(lb.typeAsString()))
-                        .count();
-                } catch (Exception e) {
-                    logger.error("Failed to count ALBs in region {} for account {}", region.getRegionId(), account.getAwsAccountId(), e);
-                    return 0;
-                }
-            }))
-            .collect(Collectors.toList());
-
-        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-            .thenApply(v -> futures.stream().mapToInt(CompletableFuture::join).sum());
-    }
-
-    @Async("awsTaskExecutor")
-    public CompletableFuture<List<DashboardData.CostAnomaly>> getCostAnomalies(CloudAccount account, boolean forceRefresh) {
-        return finOpsService.getCostAnomalies(account, forceRefresh);
+        });
     }
 }
