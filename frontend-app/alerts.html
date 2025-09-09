@@ -568,17 +568,33 @@
                         return res.json();
                     })
                     .then(data => {
-                        // Assuming data is a list of ServiceQuotaInfo objects
-                        const processedAlerts = data.map(quota => ({
-                            id: `${quota.quotaName}-${quota.regionId}`,
-                            service: 'VPC',
-                            type: 'QUOTA',
-                            name: `${quota.quotaName}`,
-                            limit: quota.limit,
-                            usage: quota.usage,
-                            description: `Limit: ${quota.limit.toLocaleString()}`,
-                            region: quota.regionId
-                        }));
+                        // MODIFIED: Process a list of AlertDto objects from the backend
+                        const processedAlerts = data.map(alert => {
+                            if (alert.type === 'QUOTA') {
+                                return {
+                                    id: alert.id,
+                                    service: alert.service,
+                                    type: 'QUOTA',
+                                    name: alert.name,
+                                    limit: alert.limit,
+                                    usage: alert.usage,
+                                    description: alert.description,
+                                    region: alert.region
+                                };
+                            } else if (alert.type === 'ANOMALY') {
+                                return {
+                                    id: alert.id,
+                                    service: alert.service,
+                                    type: 'ANOMALY',
+                                    name: alert.name,
+                                    usage: alert.usage,
+                                    description: alert.description,
+                                    region: alert.region
+                                };
+                            }
+                            return null; // Should not happen with current backend
+                        }).filter(Boolean); // Filter out any nulls
+
                         sessionStorage.setItem(cacheKey, JSON.stringify(processedAlerts));
                         this.processAlerts(processedAlerts);
                     })
