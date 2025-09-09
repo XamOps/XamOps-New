@@ -6,8 +6,7 @@
     <title>XamOps - Cloudmap</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
-    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.0/dist/cdn.min.js" defer></script>
+
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dagre/0.8.5/dagre.min.js"></script>
@@ -16,7 +15,7 @@
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-        
+
         :root {
             --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             --success-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
@@ -25,47 +24,47 @@
             --glass-border: rgba(255, 255, 255, 0.2);
         }
 
-        body { 
-            font-family: 'Inter', sans-serif; 
+        body {
+            font-family: 'Inter', sans-serif;
             background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
             min-height: 100vh;
         }
-        
+
         .glass-card {
             background: var(--glass-bg);
             backdrop-filter: blur(10px);
             border: 1px solid var(--glass-border);
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
         }
-        
+
         .header-gradient {
             background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%);
             backdrop-filter: blur(10px);
             border-bottom: 1px solid rgba(229, 231, 235, 0.8);
         }
-        
-        #cy { 
-            width: 100%; 
-            height: 100%; 
-            position: absolute; 
-            top: 0; 
-            left: 0; 
-            z-index: 1; 
+
+        #cy {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
             background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
             border-radius: 12px;
             border: 1px solid rgba(229, 231, 235, 0.5);
         }
-        
-        #info-panel { 
-            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
-            z-index: 10; 
+
+        #info-panel {
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 10;
             background: var(--glass-bg);
             backdrop-filter: blur(10px);
             border: 1px solid var(--glass-border);
             border-radius: 16px 0 0 16px;
             box-shadow: -10px 0 25px -5px rgba(0, 0, 0, 0.1), -4px 0 10px -3px rgba(0, 0, 0, 0.05);
         }
-        
+
         .btn-primary {
             background: var(--primary-gradient);
             border: none;
@@ -74,7 +73,7 @@
             position: relative;
             overflow: hidden;
         }
-        
+
         .btn-primary::before {
             content: '';
             position: absolute;
@@ -85,29 +84,29 @@
             background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
             transition: left 0.5s ease;
         }
-        
+
         .btn-primary:hover::before {
             left: 100%;
         }
-        
+
         .btn-primary:hover {
             transform: translateY(-2px);
             box-shadow: 0 10px 15px -3px rgba(102, 126, 234, 0.4);
         }
-        
+
         .form-select {
             background: var(--glass-bg);
             backdrop-filter: blur(10px);
             border: 1px solid var(--glass-border);
             transition: all 0.3s ease;
         }
-        
+
         .form-select:focus {
             background: rgba(255, 255, 255, 1);
             border-color: #667eea;
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
         }
-        
+
         .loading-spinner {
             border: 4px solid #f3f4f6;
             border-top: 4px solid #667eea;
@@ -116,30 +115,30 @@
             height: 60px;
             animation: spin 1s linear infinite;
         }
-        
+
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
-        
+
         .fade-in {
             animation: fadeIn 0.5s ease-in-out;
         }
-        
+
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(20px); }
             to { opacity: 1; transform: translateY(0); }
         }
-        
+
         .slide-in {
             animation: slideIn 0.3s ease-out;
         }
-        
+
         @keyframes slideIn {
             from { transform: translateX(100%); opacity: 0; }
             to { transform: translateX(0); opacity: 1; }
         }
-        
+
         .network-node {
             background: var(--glass-bg);
             backdrop-filter: blur(10px);
@@ -149,22 +148,22 @@
             margin-bottom: 8px;
             transition: all 0.3s ease;
         }
-        
+
         .network-node:hover {
             background: rgba(255, 255, 255, 1);
             transform: translateY(-2px);
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         }
-        
+
         .pulse-dot {
             animation: pulse-dot 2s infinite;
         }
-        
+
         @keyframes pulse-dot {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.5; }
         }
-        
+
         .message-overlay {
             background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%);
             backdrop-filter: blur(10px);
@@ -173,7 +172,7 @@
             padding: 24px;
             margin: 24px;
         }
-        
+
         .vpc-badge {
             background: var(--success-gradient);
             color: white;
@@ -184,7 +183,7 @@
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
-        
+
         .legend {
             background: var(--glass-bg);
             backdrop-filter: blur(10px);
@@ -197,14 +196,14 @@
             left: 0;
             z-index: 5;
         }
-        
+
         .legend-item {
             display: flex;
             align-items: center;
             margin-bottom: 8px;
             font-size: 12px;
         }
-        
+
         .legend-icon {
             width: 20px;
             height: 20px;
@@ -214,7 +213,7 @@
             align-items: center;
             justify-content: center;
         }
-        
+
         .toolbar {
             background: var(--glass-bg);
             backdrop-filter: blur(10px);
@@ -227,7 +226,7 @@
             left: 0;
             z-index: 5;
         }
-        
+
         .toolbar-button {
             background: rgba(255, 255, 255, 0.8);
             border: 1px solid var(--glass-border);
@@ -237,7 +236,7 @@
             font-size: 12px;
             transition: all 0.3s ease;
         }
-        
+
         .toolbar-button:hover {
             background: rgba(255, 255, 255, 1);
             transform: translateY(-1px);
@@ -289,9 +288,9 @@
                         <p class="text-gray-600">Please select a VPC to begin mapping your infrastructure.</p>
                     </div>
                 </div>
-                
+
                 <div id="cy" class="rounded-xl"></div>
-                
+
                 <div class="toolbar">
                     <div class="flex items-center space-x-2">
                         <button class="toolbar-button" onclick="cy && cy.fit()" title="Fit to view">
@@ -308,7 +307,7 @@
                         </button>
                     </div>
                 </div>
-                
+
                 <div class="legend">
                     <h4 class="text-sm font-bold text-gray-800 mb-3">Legend</h4>
                     <div class="legend-item">
@@ -337,7 +336,7 @@
                     </div>
                 </div>
             </div>
-            
+
             <div id="info-panel" class="absolute top-0 right-0 h-full w-96 p-8 border-l transform translate-x-full">
                 <button id="close-panel-btn" class="absolute top-6 right-6 text-gray-400 hover:text-gray-600 transition-colors">
                     <i class="fas fa-times text-xl"></i>
@@ -374,7 +373,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     closePanelBtn.addEventListener('click', () => infoPanel.classList.add('translate-x-full'));
     vpcSelector.addEventListener('change', () => loadGraphForVpc(vpcSelector.value));
-    
+
     saveBtn.addEventListener('click', () => {
         if(cy) {
             const png64 = cy.png({ output: 'base64uri', bg: '#fff', full: true });
@@ -387,15 +386,15 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function initialize() {
         const urlParams = new URLSearchParams(window.location.search);
-        selectedAccountId = urlParams.get('accountIds'); 
-        
+        selectedAccountId = urlParams.get('accountIds');
+
         if (!selectedAccountId) {
             const storedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
             if (storedIds.length > 0) {
                 selectedAccountId = storedIds.join(',');
             }
         }
-        
+
         if (!selectedAccountId) {
             vpcSelector.innerHTML = '<option value="">Please select an account</option>';
             return;
@@ -419,7 +418,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 } else {
                     console.error('Expected an array of VPCs, but received:', vpcs);
                 }
-                loadGraphForVpc(""); 
+                loadGraphForVpc("");
             })
             .catch(error => {
                 console.error('Error fetching VPCs:', error);
@@ -430,7 +429,7 @@ document.addEventListener('DOMContentLoaded', function () {
     function loadGraphForVpc(vpcSelectorValue) {
         if (cy) cy.destroy();
         infoPanel.classList.add('translate-x-full');
-        
+
         if (!selectedAccountId) {
             messageOverlay.innerHTML = `
                 <div class="message-overlay text-center">
@@ -446,7 +445,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         const [vpcId, region] = (vpcSelectorValue || '|').split('|');
         const url = `/api/cloudmap/graph?accountId=${selectedAccountId}&vpcId=${vpcId || ''}&region=${region || ''}`;
-        
+
         messageOverlay.innerHTML = `
             <div class="message-overlay text-center">
                 <div class="loading-spinner mx-auto mb-4"></div>
@@ -455,7 +454,7 @@ document.addEventListener('DOMContentLoaded', function () {
             </div>
         `;
         messageOverlay.style.display = 'flex';
-        
+
         fetch(url)
             .then(response => response.json())
             .then(data => {
@@ -501,7 +500,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         'text-halign': 'center',
                         'color': '#374151',
                         'text-margin-y': 8,
-                        'width': 60, 
+                        'width': 60,
                         'height': 60,
                         'background-opacity': 0,
                         'background-image': (node) => icons[node.data('type')] || 'none',
@@ -525,11 +524,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 },
                 {
                     selector: 'edge',
-                    style: { 
-                        'width': 2, 
-                        'line-color': '#9ca3af', 
-                        'target-arrow-color': '#9ca3af', 
-                        'target-arrow-shape': 'triangle', 
+                    style: {
+                        'width': 2,
+                        'line-color': '#9ca3af',
+                        'target-arrow-color': '#9ca3af',
+                        'target-arrow-shape': 'triangle',
                         'curve-style': 'bezier',
                         'opacity': 0.8
                     }
@@ -537,8 +536,8 @@ document.addEventListener('DOMContentLoaded', function () {
                 {
                     selector: ':parent',
                     style: {
-                        'text-valign': 'top', 
-                        'text-halign': 'center', 
+                        'text-valign': 'top',
+                        'text-halign': 'center',
                         'font-weight': 'bold',
                         'color': '#1f2937',
                         'font-size': '16px',
@@ -574,21 +573,21 @@ document.addEventListener('DOMContentLoaded', function () {
                         'border-style': 'solid'
                     }
                 },
-                { 
-                    selector: 'node[type="Security Group"]', 
-                    style: { 
-                        'width': 40, 
+                {
+                    selector: 'node[type="Security Group"]',
+                    style: {
+                        'width': 40,
                         'height': 40,
                         'background-color': '#fef3c7',
                         'border-color': '#f59e0b'
-                    } 
-                }, 
+                    }
+                },
             ]
         });
 
         cy.on('tap', 'node', evt => displayNodeInfo(evt.target.data()));
         cy.on('tap', evt => { if (evt.target === cy) infoPanel.classList.add('translate-x-full'); });
-        
+
         cy.fit();
     }
 
@@ -606,7 +605,7 @@ document.addEventListener('DOMContentLoaded', function () {
         };
 
         const gradientClass = nodeTypeColors[data.type] || 'from-gray-500 to-gray-600';
-        
+
         let contentHtml = `
             <div class="slide-in">
                 <div class="w-12 h-12 bg-gradient-to-br ${gradientClass} rounded-xl flex items-center justify-center mb-4">
@@ -632,7 +631,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         }
         contentHtml += `</div></div>`;
-        
+
         infoContent.innerHTML = contentHtml;
         infoPanel.classList.remove('translate-x-full');
     }
