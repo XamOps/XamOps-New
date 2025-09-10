@@ -53,7 +53,19 @@ public class CloudAccount {
 
     // ✅ ADD THIS FIELD FOR GCP BILLING
     @Column
-    private String billingExportTable; 
+    private String billingExportTable;
+
+    @Column(name = "azure_tenant_id")
+    private String azureTenantId;
+
+    @Column(name = "azure_subscription_id")
+    private String azureSubscriptionId;
+
+    @Column(name = "azure_client_id")
+    private String azureClientId;
+
+    @Column(name = "azure_client_secret")
+    private String azureClientSecret;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "client_id", nullable = false)

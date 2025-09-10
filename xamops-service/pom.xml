@@ -105,11 +105,11 @@
         <dependency><groupId>com.google.cloud</groupId><artifactId>google-cloud-dns</artifactId></dependency>
         <dependency><groupId>com.google.cloud</groupId><artifactId>google-cloud-resourcemanager</artifactId></dependency>
         <dependency><groupId>com.google.cloud</groupId><artifactId>google-cloud-billingbudgets</artifactId></dependency>
-     <dependency>
-    <groupId>com.google.apis</groupId>
-    <artifactId>google-api-services-sqladmin</artifactId>
-    <version>v1-rev20250807-2.0.0</version>
-</dependency>
+        <dependency>
+            <groupId>com.google.apis</groupId>
+            <artifactId>google-api-services-sqladmin</artifactId>
+            <version>v1-rev20250807-2.0.0</version>
+        </dependency>
 
 
         <dependency>
@@ -139,9 +139,14 @@
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>com.h2database</groupId>
-            <artifactId>h2</artifactId>
-            <scope>test</scope>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-identity</artifactId>
+            <version>1.11.1</version>
+        </dependency>
+        <dependency>
+            <groupId>com.azure.resourcemanager</groupId>
+            <artifactId>azure-resourcemanager</artifactId>
+            <version>2.31.0</version>
         </dependency>
     </dependencies>
 
