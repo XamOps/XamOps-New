@@ -32,6 +32,13 @@ public class DashboardData {
         private int route53Zones;
         private int loadBalancers;
         private int firewalls;
+        private int cloudNatRouters;
+        private int artifactRepositories;
+        private int kmsKeys;
+        private int cloudFunctions;
+        private int cloudBuildTriggers;
+        private int secretManagerSecrets;
+        private int cloudArmorPolicies;
     }
 
     @Data

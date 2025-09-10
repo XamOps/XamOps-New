@@ -1,6 +1,8 @@
 package com.xammer.cloud.controller.gcp;
 
+import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.gcp.GcpFinOpsReportDto;
+import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.service.gcp.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -19,18 +21,25 @@ public class GcpFinOpsController {
     private final GcpOptimizationService gcpOptimizationService;
     private final GcpDataService gcpDataService;
     private final GcpBudgetService gcpBudgetService;
+    private final CloudAccountRepository cloudAccountRepository;
 
-    public GcpFinOpsController(GcpCostService gcpCostService, GcpOptimizationService gcpOptimizationService, GcpDataService gcpDataService, GcpBudgetService gcpBudgetService) {
+    public GcpFinOpsController(GcpCostService gcpCostService, GcpOptimizationService gcpOptimizationService, GcpDataService gcpDataService, GcpBudgetService gcpBudgetService, CloudAccountRepository cloudAccountRepository) {
         this.gcpCostService = gcpCostService;
         this.gcpOptimizationService = gcpOptimizationService;
         this.gcpDataService = gcpDataService;
         this.gcpBudgetService = gcpBudgetService;
+        this.cloudAccountRepository = cloudAccountRepository;
     }
 
     @GetMapping("/report")
     public CompletableFuture<ResponseEntity<GcpFinOpsReportDto>> getFinOpsReport(@RequestParam String accountId) {
         log.info("Starting GCP FinOps report for accountId: {}", accountId);
         GcpFinOpsReportDto finalReport = new GcpFinOpsReportDto();
+
+        CloudAccount account = cloudAccountRepository.findByGcpProjectId(accountId)
+                .orElseThrow(() -> new RuntimeException("GCP Account not found: " + accountId));
+        
+        String billingAccountId = account.getBillingExportTable();
 
         CompletableFuture<Void> billingFuture = gcpCostService.getBillingSummary(accountId).thenAccept(summary -> {
             finalReport.setBillingSummary(summary);
@@ -43,8 +52,6 @@ public class GcpFinOpsController {
             finalReport.setCostHistory(history);
             if (history.size() > 1) finalReport.setLastMonthSpend(history.get(history.size() - 2).getAmount());
         });
-        
-        String billingAccountId = "YOUR_BILLING_ACCOUNT_ID"; // <-- IMPORTANT: Replace placeholder
 
         return CompletableFuture.allOf(
             billingFuture, historyFuture,

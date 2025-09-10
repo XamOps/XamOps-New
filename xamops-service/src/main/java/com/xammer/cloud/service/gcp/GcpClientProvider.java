@@ -7,19 +7,31 @@ import com.google.api.services.dns.DnsScopes;
 import com.google.api.services.sqladmin.SQLAdmin;
 import com.google.auth.http.HttpCredentialsAdapter;
 import com.google.auth.oauth2.GoogleCredentials;
+// import com.google.cloud.devtools.artifactregistry.v1.ArtifactRegistryClient;
+// import com.google.cloud.devtools.artifactregistry.v1.ArtifactRegistrySettings;
 import com.google.cloud.bigquery.BigQuery;
 import com.google.cloud.bigquery.BigQueryOptions;
 import com.google.cloud.billing.budgets.v1.BudgetServiceClient;
 import com.google.cloud.billing.budgets.v1.BudgetServiceSettings;
+import com.google.cloud.devtools.cloudbuild.v1.CloudBuildClient;
+import com.google.cloud.devtools.cloudbuild.v1.CloudBuildSettings;
 import com.google.cloud.compute.v1.*;
 import com.google.cloud.container.v1.ClusterManagerClient;
 import com.google.cloud.container.v1.ClusterManagerSettings;
+import com.google.cloud.functions.v2.FunctionServiceClient;
+import com.google.cloud.functions.v2.FunctionServiceSettings;
+import com.google.cloud.iam.admin.v1.IAMClient;
+import com.google.cloud.iam.admin.v1.IAMSettings;
+import com.google.cloud.kms.v1.KeyManagementServiceClient;
+import com.google.cloud.kms.v1.KeyManagementServiceSettings;
 import com.google.cloud.monitoring.v3.MetricServiceClient;
 import com.google.cloud.monitoring.v3.MetricServiceSettings;
 import com.google.cloud.recommender.v1.RecommenderClient;
 import com.google.cloud.recommender.v1.RecommenderSettings;
 import com.google.cloud.resourcemanager.v3.ProjectsClient;
 import com.google.cloud.resourcemanager.v3.ProjectsSettings;
+import com.google.cloud.secretmanager.v1.SecretManagerServiceClient;
+import com.google.cloud.secretmanager.v1.SecretManagerServiceSettings;
 import com.google.cloud.securitycenter.v2.SecurityCenterClient;
 import com.google.cloud.securitycenter.v2.SecurityCenterSettings;
 import com.google.cloud.storage.Storage;
@@ -63,6 +75,118 @@ public class GcpClientProvider {
             log.error("Failed to create GoogleCredentials for project ID: {}", gcpProjectId, e);
             return Optional.empty();
         }
+    }
+
+    // public Optional<ArtifactRegistryClient> getArtifactRegistryClient(String gcpProjectId) {
+    //     return getCredentials(gcpProjectId).map(credentials -> {
+    //         try {
+    //             ArtifactRegistrySettings settings = ArtifactRegistrySettings.newBuilder()
+    //                     .setCredentialsProvider(() -> credentials)
+    //                     .build();
+    //             return ArtifactRegistryClient.create(settings);
+    //         } catch (IOException e) {
+    //             log.error("Failed to create ArtifactRegistryClient for project ID: {}", gcpProjectId, e);
+    //             return null;
+    //         }
+    //     });
+    // }
+
+    public Optional<CloudBuildClient> getCloudBuildClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                CloudBuildSettings settings = CloudBuildSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials)
+                        .build();
+                return CloudBuildClient.create(settings);
+            } catch (IOException e) {
+                log.error("Failed to create CloudBuildClient for project ID: {}", gcpProjectId, e);
+                return null;
+            }
+        });
+    }
+    
+    public Optional<FunctionServiceClient> getFunctionServiceClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                FunctionServiceSettings settings = FunctionServiceSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials)
+                        .build();
+                return FunctionServiceClient.create(settings);
+            } catch (IOException e) {
+                log.error("Failed to create FunctionServiceClient for project ID: {}", gcpProjectId, e);
+                return null;
+            }
+        });
+    }
+
+    public Optional<IAMClient> getIamClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                IAMSettings settings = IAMSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials)
+                        .build();
+                return IAMClient.create(settings);
+            } catch (IOException e) {
+                log.error("Failed to create IAMClient for project ID: {}", gcpProjectId, e);
+                return null;
+            }
+        });
+    }
+
+    public Optional<KeyManagementServiceClient> getKeyManagementServiceClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                KeyManagementServiceSettings settings = KeyManagementServiceSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials)
+                        .build();
+                return KeyManagementServiceClient.create(settings);
+            } catch (IOException e) {
+                log.error("Failed to create KeyManagementServiceClient for project ID: {}", gcpProjectId, e);
+                return null;
+            }
+        });
+    }
+    
+    public Optional<RoutersClient> getRoutersClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                RoutersSettings settings = RoutersSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials)
+                        .build();
+                return RoutersClient.create(settings);
+            } catch (IOException e) {
+                log.error("Failed to create RoutersClient for project ID: {}", gcpProjectId, e);
+                return null;
+            }
+        });
+    }
+
+    public Optional<SecretManagerServiceClient> getSecretManagerServiceClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                SecretManagerServiceSettings settings = SecretManagerServiceSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials)
+                        .build();
+                return SecretManagerServiceClient.create(settings);
+            } catch (IOException e) {
+                log.error("Failed to create SecretManagerServiceClient for project ID: {}", gcpProjectId, e);
+                return null;
+            }
+        });
+    }
+    
+    public Optional<SecurityPoliciesClient> getSecurityPoliciesClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                SecurityPoliciesSettings settings = SecurityPoliciesSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials)
+                        .build();
+                return SecurityPoliciesClient.create(settings);
+            } catch (IOException e) {
+                log.error("Failed to create SecurityPoliciesClient for project ID: {}", gcpProjectId, e);
+                return null;
+            }
+        });
     }
 
     public Optional<RecommenderClient> getRecommenderClient(String gcpProjectId) {
