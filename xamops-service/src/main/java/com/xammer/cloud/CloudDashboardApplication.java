@@ -15,7 +15,6 @@ import org.springframework.web.client.RestTemplate;
 @EnableDiscoveryClient // Add this annotation
 public class CloudDashboardApplication {
     public static void main(String[] args) {
-        // ADD THIS LINE
         System.setProperty("user.timezone", "UTC");
 
         SpringApplication.run(CloudDashboardApplication.class, args);
