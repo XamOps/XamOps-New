@@ -202,10 +202,16 @@ function gcpWaste() {
         },
         getServiceIcon(serviceType) {
             const iconMap = {
-                'Unused IP Address': 'gcp-icon.png', // Replace with a more specific icon if available
+                'Unused IP Address': 'gcp-icon.png',
                 'Idle Cloud SQL Instance': 'gcp-cloud-sql.png',
-                'Unattached Persistent Disk': 'gcp-compute-engine.png', // Or a disk icon
+                'Unattached Persistent Disk': 'gcp-compute-engine.png',
                 'Idle Load Balancer': 'gcp-load-balancer.png',
+                'Idle Cloud Function': 'gcp-cloud-functions.png',
+                'Unused Secret': 'gcp-secret-manager.png',
+                'Unused Artifact Repository': 'gcp-artifact-registry.png',
+                'Idle NAT Router': 'gcp-nat.png',
+                'Unused Cloud Build Trigger': 'gcp-cloud-build.png',
+                'Unattached Cloud Armor Policy': 'gcp-cloud-armor.png'
             };
             return iconMap[serviceType] || 'default-icon.png';
         },

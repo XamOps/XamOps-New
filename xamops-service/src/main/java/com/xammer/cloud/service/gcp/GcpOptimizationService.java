@@ -1,9 +1,16 @@
 package com.xammer.cloud.service.gcp;
 
 
+// import com.google.cloud.artifactregistry.v1.ArtifactRegistryClient;
+import com.google.cloud.devtools.cloudbuild.v1.CloudBuildClient;
+import com.google.cloud.compute.v1.Router;
+import com.google.cloud.compute.v1.RoutersClient;
+import com.google.cloud.compute.v1.SecurityPoliciesClient;
+import com.google.cloud.functions.v2.FunctionServiceClient;
 import com.google.cloud.recommender.v1.Recommendation;
 import com.google.cloud.recommender.v1.RecommenderClient;
 import com.google.cloud.recommender.v1.RecommenderName;
+import com.google.cloud.secretmanager.v1.SecretManagerServiceClient;
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.gcp.GcpOptimizationRecommendation;
 import com.xammer.cloud.dto.gcp.GcpWasteItem;
@@ -136,6 +143,8 @@ public class GcpOptimizationService {
                     futures.add(getRecommendationsForRecommender(gcpProjectId, "google.bigquery.capacityCommitments.Recommender", location, this::mapToBigQueryDto));
                     futures.add(getRecommendationsForRecommender(gcpProjectId, "google.bigquery.table.PartitionClusterRecommender", location, this::mapToBigQueryDto));
                     futures.add(getRecommendationsForRecommender(gcpProjectId, "google.storage.bucket.SoftDeleteRecommender", location, this::mapToStorageDto));
+                    futures.add(getRecommendationsForRecommender(gcpProjectId, "google.container.recommender.NodePoolRecommender", location, this::mapToGkeRightsizingDto));
+                    futures.add(getRecommendationsForRecommender(gcpProjectId, "google.cloudfunctions.recommender.MemoryRecommender", location, this::mapToFunctionRightsizingDto));
                 }
             }
 
@@ -218,6 +227,36 @@ public class GcpOptimizationService {
         return new GcpOptimizationRecommendation(resourceName, currentMachineType, recommendedMachineType, monthlySavings, "Cloud SQL");
     }
 
+    private GcpOptimizationRecommendation mapToGkeRightsizingDto(Recommendation rec) {
+        String resourceName = "N/A";
+        if (rec.getContent().getOverview().getFieldsMap().containsKey("resource")) {
+            resourceName = rec.getContent().getOverview().getFieldsMap().get("resource").getStringValue();
+            resourceName = resourceName.substring(resourceName.lastIndexOf('/') + 1);
+        }
+        
+        double monthlySavings = 0;
+        if (rec.getPrimaryImpact().hasCostProjection()) {
+            monthlySavings = rec.getPrimaryImpact().getCostProjection().getCost().getNanos() / -1_000_000_000.0;
+        }
+        
+        return new GcpOptimizationRecommendation(resourceName, "N/A", "N/A", monthlySavings, "GKE");
+    }
+
+    private GcpOptimizationRecommendation mapToFunctionRightsizingDto(Recommendation rec) {
+        String resourceName = "N/A";
+        if (rec.getContent().getOverview().getFieldsMap().containsKey("resource")) {
+            resourceName = rec.getContent().getOverview().getFieldsMap().get("resource").getStringValue();
+            resourceName = resourceName.substring(resourceName.lastIndexOf('/') + 1);
+        }
+        
+        double monthlySavings = 0;
+        if (rec.getPrimaryImpact().hasCostProjection()) {
+            monthlySavings = rec.getPrimaryImpact().getCostProjection().getCost().getNanos() / -1_000_000_000.0;
+        }
+        
+        return new GcpOptimizationRecommendation(resourceName, "N/A", "N/A", monthlySavings, "Cloud Function");
+    }
+    
     private GcpOptimizationRecommendation mapToBigQueryDto(Recommendation rec) {
         double monthlySavings = 0;
         if (rec.getPrimaryImpact().hasCostProjection()) {
@@ -273,21 +312,18 @@ public class GcpOptimizationService {
             futures.add(findUnusedFirewallRules(gcpProjectId));
             futures.add(findIdleCloudSqlInstances(gcpProjectId)); // This is a custom check, kept for completeness
             futures.add(findOldSqlSnapshots(gcpProjectId));
+            futures.add(findIdleNatRouters(gcpProjectId));
+            // futures.add(findUnusedArtifactRepositories(gcpProjectId));
+            futures.add(findIdleCloudFunctions(gcpProjectId));
+            futures.add(findUnusedCloudBuildTriggers(gcpProjectId));
+            futures.add(findUnusedSecrets(gcpProjectId));
+            futures.add(findUnattachedCloudArmorPolicies(gcpProjectId));
             
             return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                .thenApply(v -> Stream.of(futures.stream().map(CompletableFuture::join).flatMap(List::stream).collect(Collectors.toList()),
-                                findIdleResources(gcpProjectId, "google.compute.disk.IdleResourceRecommender", "Idle Persistent Disk").join(),
-                                findIdleResources(gcpProjectId, "google.compute.address.IdleResourceRecommender", "Unused IP Address").join(),
-                                findIdleResources(gcpProjectId, "google.compute.instance.IdleResourceRecommender", "Idle VM Instance").join(),
-                                findOldSnapshots(gcpProjectId).join(),
-                                findUnattachedDisks(gcpProjectId).join(),
-                                findUnusedCustomImages(gcpProjectId).join(),
-                                findUnusedFirewallRules(gcpProjectId).join(),
-                                findIdleCloudSqlInstances(gcpProjectId).join(),
-                                findOldSqlSnapshots(gcpProjectId).join()
-                            )
-                            .flatMap(List::stream)
-                            .toList());
+                .thenApply(v -> futures.stream()
+                    .map(CompletableFuture::join)
+                    .flatMap(List::stream)
+                    .collect(Collectors.toList()));
         });
     }
 
@@ -586,6 +622,83 @@ public class GcpOptimizationService {
                 return wasteItems;
             } catch (Exception e) {
                 log.error("Failed to list Cloud SQL backups for project {}: {}", gcpProjectId, e);
+                return List.of();
+            }
+        }, executor);
+    }
+
+    private CompletableFuture<List<GcpWasteItem>> findIdleNatRouters(String gcpProjectId) {
+        return CompletableFuture.supplyAsync(() -> {
+            log.info("Checking for idle NAT routers for project: {}", gcpProjectId);
+            // This is a placeholder as direct idle detection for NAT is complex.
+            // A real implementation would query Cloud Monitoring for traffic metrics.
+            return new ArrayList<GcpWasteItem>();
+        }, executor);
+    }
+
+    // private CompletableFuture<List<GcpWasteItem>> findUnusedArtifactRepositories(String gcpProjectId) {
+    //     return CompletableFuture.supplyAsync(() -> {
+    //         log.info("Checking for unused Artifact Registry repositories for project: {}", gcpProjectId);
+    //         Optional<ArtifactRegistryClient> clientOpt = gcpClientProvider.getArtifactRegistryClient(gcpProjectId);
+    //         if (clientOpt.isEmpty()) return List.of();
+    //         try (ArtifactRegistryClient client = clientOpt.get()) {
+    //             // Placeholder logic: A more advanced check would look at pull/push timestamps.
+    //             return new ArrayList<GcpWasteItem>();
+    //         } catch (Exception e) {
+    //             log.error("Failed to list Artifact Registry repositories for project {}: {}", gcpProjectId, e);
+    //             return List.of();
+    //         }
+    //     }, executor);
+    // }
+
+    private CompletableFuture<List<GcpWasteItem>> findIdleCloudFunctions(String gcpProjectId) {
+        return CompletableFuture.supplyAsync(() -> {
+            log.info("Checking for idle Cloud Functions for project: {}", gcpProjectId);
+            // Placeholder: This would involve checking Cloud Monitoring for invocation counts.
+            return new ArrayList<GcpWasteItem>();
+        }, executor);
+    }
+
+    private CompletableFuture<List<GcpWasteItem>> findUnusedCloudBuildTriggers(String gcpProjectId) {
+        return CompletableFuture.supplyAsync(() -> {
+            log.info("Checking for unused Cloud Build triggers for project: {}", gcpProjectId);
+            Optional<CloudBuildClient> clientOpt = gcpClientProvider.getCloudBuildClient(gcpProjectId);
+            if (clientOpt.isEmpty()) return List.of();
+            try (CloudBuildClient client = clientOpt.get()) {
+                // Placeholder: A real check would look at last trigger execution time.
+                return new ArrayList<GcpWasteItem>();
+            } catch (Exception e) {
+                log.error("Failed to list Cloud Build triggers for project {}: {}", gcpProjectId, e);
+                return List.of();
+            }
+        }, executor);
+    }
+
+    private CompletableFuture<List<GcpWasteItem>> findUnusedSecrets(String gcpProjectId) {
+        return CompletableFuture.supplyAsync(() -> {
+            log.info("Checking for unused secrets in Secret Manager for project: {}", gcpProjectId);
+            Optional<SecretManagerServiceClient> clientOpt = gcpClientProvider.getSecretManagerServiceClient(gcpProjectId);
+            if (clientOpt.isEmpty()) return List.of();
+            try (SecretManagerServiceClient client = clientOpt.get()) {
+                // Placeholder: This would require checking access patterns or timestamps.
+                return new ArrayList<GcpWasteItem>();
+            } catch (Exception e) {
+                log.error("Failed to list secrets from Secret Manager for project {}: {}", gcpProjectId, e);
+                return List.of();
+            }
+        }, executor);
+    }
+
+    private CompletableFuture<List<GcpWasteItem>> findUnattachedCloudArmorPolicies(String gcpProjectId) {
+        return CompletableFuture.supplyAsync(() -> {
+            log.info("Checking for unattached Cloud Armor policies for project: {}", gcpProjectId);
+            Optional<SecurityPoliciesClient> clientOpt = gcpClientProvider.getSecurityPoliciesClient(gcpProjectId);
+            if (clientOpt.isEmpty()) return List.of();
+            try (SecurityPoliciesClient client = clientOpt.get()) {
+                // Placeholder: This would involve checking if a policy is attached to any backend service.
+                return new ArrayList<GcpWasteItem>();
+            } catch (Exception e) {
+                log.error("Failed to list Cloud Armor policies for project {}: {}", gcpProjectId, e);
                 return List.of();
             }
         }, executor);

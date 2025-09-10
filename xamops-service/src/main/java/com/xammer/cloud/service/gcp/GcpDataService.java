@@ -4,6 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.api.services.sqladmin.SQLAdmin;
 import com.google.api.services.sqladmin.model.DatabaseInstance;
+// import com.google.cloud.artifactregistry.v1.ArtifactRegistryClient;
+// import com.google.cloud.artifactregistry.v1.Repository;
+import com.google.cloud.devtools.cloudbuild.v1.CloudBuildClient;
+// import com.google.cloud.build.v1.BuildTrigger;
 import com.google.cloud.compute.v1.Firewall;
 import com.google.cloud.compute.v1.FirewallsClient;
 import com.google.cloud.compute.v1.Instance;
@@ -11,8 +15,17 @@ import com.google.cloud.compute.v1.InstancesClient;
 import com.google.api.services.dns.model.ManagedZone;
 import com.google.cloud.compute.v1.Network;
 import com.google.cloud.compute.v1.NetworksClient;
+import com.google.cloud.compute.v1.Router;
+import com.google.cloud.compute.v1.RoutersClient;
+import com.google.cloud.compute.v1.SecurityPolicy;
+import com.google.cloud.compute.v1.SecurityPoliciesClient;
 import com.google.cloud.compute.v1.Subnetwork;
 import com.google.cloud.compute.v1.SubnetworksClient;
+import com.google.cloud.functions.v2.FunctionServiceClient;
+import com.google.cloud.kms.v1.CryptoKey;
+import com.google.cloud.kms.v1.KeyManagementServiceClient;
+import com.google.cloud.secretmanager.v1.Secret;
+import com.google.cloud.secretmanager.v1.SecretManagerServiceClient;
 import com.google.cloud.storage.Bucket;
 import com.google.cloud.storage.Storage;
 import com.google.container.v1.Cluster;
@@ -214,6 +227,13 @@ public class GcpDataService {
             inventory.setRoute53Zones((int) counts.getOrDefault("Cloud DNS", 0L).longValue());
             inventory.setLoadBalancers((int) counts.getOrDefault("Load Balancer", 0L).longValue());
             inventory.setFirewalls((int) counts.getOrDefault("Firewall Rule", 0L).longValue());
+            inventory.setCloudNatRouters((int) counts.getOrDefault("Cloud NAT", 0L).longValue());
+            inventory.setArtifactRepositories((int) counts.getOrDefault("Artifact Registry", 0L).longValue());
+            inventory.setKmsKeys((int) counts.getOrDefault("Cloud KMS", 0L).longValue());
+            inventory.setCloudFunctions((int) counts.getOrDefault("Cloud Function", 0L).longValue());
+            inventory.setCloudBuildTriggers((int) counts.getOrDefault("Cloud Build", 0L).longValue());
+            inventory.setSecretManagerSecrets((int) counts.getOrDefault("Secret Manager", 0L).longValue());
+            inventory.setCloudArmorPolicies((int) counts.getOrDefault("Cloud Armor", 0L).longValue());
 
             data.setResourceInventory(inventory);
             
@@ -322,22 +342,104 @@ public class GcpDataService {
         return dto;
     }
 
+    private GcpResourceDto mapNatRouterToDto(Router router) {
+        GcpResourceDto dto = new GcpResourceDto();
+        dto.setId(String.valueOf(router.getId()));
+        dto.setName(router.getName());
+        dto.setType("Cloud NAT");
+        dto.setLocation(router.getRegion().substring(router.getRegion().lastIndexOf('/') + 1));
+        dto.setStatus("ACTIVE");
+        return dto;
+    }
+
+    // private GcpResourceDto mapArtifactRepositoryToDto(Repository repository) {
+    //     GcpResourceDto dto = new GcpResourceDto();
+    //     dto.setId(repository.getName());
+    //     dto.setName(repository.getName());
+    //     dto.setType("Artifact Registry");
+    //     dto.setLocation(repository.getName().split("/")[3]);
+    //     dto.setStatus("ACTIVE");
+    //     return dto;
+    // }
+    
+    private GcpResourceDto mapKmsKeyToDto(CryptoKey key) {
+        GcpResourceDto dto = new GcpResourceDto();
+        dto.setId(key.getName());
+        dto.setName(key.getName());
+        dto.setType("Cloud KMS");
+        dto.setLocation(key.getName().split("/")[3]);
+        dto.setStatus(key.getPrimary().getState().toString());
+        return dto;
+    }
+
+    private GcpResourceDto mapCloudFunctionToDto(com.google.cloud.functions.v2.Function function) {
+        GcpResourceDto dto = new GcpResourceDto();
+        dto.setId(function.getName());
+        dto.setName(function.getName());
+        dto.setType("Cloud Function");
+        // Extract location from function name, e.g., "projects/{project}/locations/{location}/functions/{function}"
+        String[] nameParts = function.getName().split("/");
+        String location = (nameParts.length >= 4) ? nameParts[3] : "global";
+        dto.setLocation(location);
+        dto.setStatus(function.getState().toString());
+        return dto;
+    }
+
+    // private GcpResourceDto mapCloudBuildTriggerToDto(BuildTrigger trigger) {
+    //     GcpResourceDto dto = new GcpResourceDto();
+    //     dto.setId(trigger.getId());
+    //     dto.setName(trigger.getName());
+    //     dto.setType("Cloud Build");
+    //     dto.setLocation("global");
+    //     dto.setStatus(trigger.getDisabled() ? "DISABLED" : "ACTIVE");
+    //     return dto;
+    // }
+
+    private GcpResourceDto mapSecretToDto(Secret secret) {
+        GcpResourceDto dto = new GcpResourceDto();
+        dto.setId(secret.getName());
+        dto.setName(secret.getName());
+        dto.setType("Secret Manager");
+        dto.setLocation("global");
+        dto.setStatus("ACTIVE");
+        return dto;
+    }
+
+    private GcpResourceDto mapCloudArmorPolicyToDto(SecurityPolicy policy) {
+        GcpResourceDto dto = new GcpResourceDto();
+        dto.setId(String.valueOf(policy.getId()));
+        dto.setName(policy.getName());
+        dto.setType("Cloud Armor");
+        dto.setLocation("global");
+        dto.setStatus("ACTIVE");
+        return dto;
+    }
+
     public CompletableFuture<List<GcpResourceDto>> getAllResources(String gcpProjectId) {
         log.info("Starting to fetch all GCP resources for project: {}", gcpProjectId);
-        CompletableFuture<List<GcpResourceDto>> instancesFuture = CompletableFuture.supplyAsync(() -> getComputeInstances(gcpProjectId), executor);
-        CompletableFuture<List<GcpResourceDto>> bucketsFuture = CompletableFuture.supplyAsync(() -> getStorageBuckets(gcpProjectId), executor);
-        CompletableFuture<List<GcpResourceDto>> gkeFuture = CompletableFuture.supplyAsync(() -> getGkeClusters(gcpProjectId), executor);
-        CompletableFuture<List<GcpResourceDto>> sqlFuture = CompletableFuture.supplyAsync(() -> getCloudSqlInstances(gcpProjectId), executor);
-        CompletableFuture<List<GcpResourceDto>> vpcFuture = CompletableFuture.supplyAsync(() -> getVpcNetworks(gcpProjectId), executor);
-        CompletableFuture<List<GcpResourceDto>> dnsFuture = CompletableFuture.supplyAsync(() -> getDnsZones(gcpProjectId), executor);
-        CompletableFuture<List<GcpResourceDto>> loadBalancersFuture = CompletableFuture.supplyAsync(() -> getLoadBalancers(gcpProjectId), executor);
-        CompletableFuture<List<GcpResourceDto>> firewallsFuture = CompletableFuture.supplyAsync(() -> getFirewallRules(gcpProjectId), executor);
+        List<CompletableFuture<List<GcpResourceDto>>> futures = List.of(
+            CompletableFuture.supplyAsync(() -> getComputeInstances(gcpProjectId), executor),
+            CompletableFuture.supplyAsync(() -> getStorageBuckets(gcpProjectId), executor),
+            CompletableFuture.supplyAsync(() -> getGkeClusters(gcpProjectId), executor),
+            CompletableFuture.supplyAsync(() -> getCloudSqlInstances(gcpProjectId), executor),
+            CompletableFuture.supplyAsync(() -> getVpcNetworks(gcpProjectId), executor),
+            CompletableFuture.supplyAsync(() -> getDnsZones(gcpProjectId), executor),
+            CompletableFuture.supplyAsync(() -> getLoadBalancers(gcpProjectId), executor),
+            CompletableFuture.supplyAsync(() -> getFirewallRules(gcpProjectId), executor),
+            CompletableFuture.supplyAsync(() -> getCloudNatRouters(gcpProjectId), executor),
+            // CompletableFuture.supplyAsync(() -> getArtifactRepositories(gcpProjectId), executor),
+            CompletableFuture.supplyAsync(() -> getKmsKeys(gcpProjectId), executor),
+            CompletableFuture.supplyAsync(() -> getCloudFunctions(gcpProjectId), executor),
+            // CompletableFuture.supplyAsync(() -> getCloudBuildTriggers(gcpProjectId), executor),
+            CompletableFuture.supplyAsync(() -> getSecretManagerSecrets(gcpProjectId), executor),
+            CompletableFuture.supplyAsync(() -> getCloudArmorPolicies(gcpProjectId), executor)
+        );
 
-        return CompletableFuture.allOf(instancesFuture, bucketsFuture, gkeFuture, sqlFuture, vpcFuture, dnsFuture, loadBalancersFuture, firewallsFuture)
-                .thenApply(v -> Stream.of(instancesFuture.join(), bucketsFuture.join(), gkeFuture.join(),
-                                sqlFuture.join(), vpcFuture.join(), dnsFuture.join(), loadBalancersFuture.join(), firewallsFuture.join())
-                        .flatMap(List::stream)
-                        .collect(Collectors.toList()));
+        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+            .thenApply(v -> futures.stream()
+                .map(CompletableFuture::join)
+                .flatMap(List::stream)
+                .collect(Collectors.toList()));
     }
 
     public CompletableFuture<DashboardData.IamResources> getIamResources(String gcpProjectId) {
@@ -618,6 +720,121 @@ public class GcpDataService {
                     .collect(Collectors.toList());
         } catch (Exception e) {
             log.error("Error fetching Firewall Rules for project: {}", gcpProjectId, e);
+            return List.of();
+        }
+    }
+
+    private List<GcpResourceDto> getCloudNatRouters(String gcpProjectId) {
+        log.info("Fetching Cloud NAT routers for project: {}", gcpProjectId);
+        Optional<RoutersClient> clientOpt = gcpClientProvider.getRoutersClient(gcpProjectId);
+        if (clientOpt.isEmpty()) return List.of();
+        try (RoutersClient client = clientOpt.get()) {
+            return StreamSupport.stream(client.aggregatedList(gcpProjectId).iterateAll().spliterator(), false)
+                .flatMap(entry -> entry.getValue().getRoutersList().stream())
+                .filter(router -> !router.getNatsList().isEmpty())
+                .map(this::mapNatRouterToDto)
+                .collect(Collectors.toList());
+        } catch (Exception e) {
+            log.error("Error fetching Cloud NAT routers for project: {}", gcpProjectId, e);
+            return List.of();
+        }
+    }
+
+    // private List<GcpResourceDto> getArtifactRepositories(String gcpProjectId) {
+    //     log.info("Fetching Artifact Registry repositories for project: {}", gcpProjectId);
+    //     Optional<ArtifactRegistryClient> clientOpt = gcpClientProvider.getArtifactRegistryClient(gcpProjectId);
+    //     if (clientOpt.isEmpty()) return List.of();
+    //     try (ArtifactRegistryClient client = clientOpt.get()) {
+    //         String parent = "projects/" + gcpProjectId + "/locations/-";
+    //         return StreamSupport.stream(client.listRepositories(parent).iterateAll().spliterator(), false)
+    //             .map(this::mapArtifactRepositoryToDto)
+    //             .collect(Collectors.toList());
+    //     } catch (Exception e) {
+    //         log.error("Error fetching Artifact Registry repositories for project: {}", gcpProjectId, e);
+    //         return List.of();
+    //     }
+    // }
+
+    private List<GcpResourceDto> getKmsKeys(String gcpProjectId) {
+        log.info("Fetching KMS keys for project: {}", gcpProjectId);
+        Optional<KeyManagementServiceClient> clientOpt = gcpClientProvider.getKeyManagementServiceClient(gcpProjectId);
+        if (clientOpt.isEmpty()) return List.of();
+        
+        try (KeyManagementServiceClient client = clientOpt.get()) {
+            // Correctly iterate through locations (regions)
+            return this.getRegionStatusForGcp(new ArrayList<>()).join().stream()
+                .flatMap(region -> {
+                    try {
+                        String parent = "projects/" + gcpProjectId + "/locations/" + region.getRegionId();
+                        return StreamSupport.stream(client.listKeyRings(parent).iterateAll().spliterator(), false)
+                            .flatMap(keyRing -> StreamSupport.stream(client.listCryptoKeys(keyRing.getName()).iterateAll().spliterator(), false))
+                            .map(this::mapKmsKeyToDto);
+                    } catch (Exception e) {
+                        log.warn("Could not fetch KMS keys for region {}: {}", region.getRegionId(), e.getMessage());
+                        return Stream.empty();
+                    }
+                })
+                .collect(Collectors.toList());
+        } catch (Exception e) {
+            log.error("Error fetching KMS keys for project: {}", gcpProjectId, e);
+            return List.of();
+        }
+    }
+
+    private List<GcpResourceDto> getCloudFunctions(String gcpProjectId) {
+        log.info("Fetching Cloud Functions for project: {}", gcpProjectId);
+        Optional<FunctionServiceClient> clientOpt = gcpClientProvider.getFunctionServiceClient(gcpProjectId);
+        if (clientOpt.isEmpty()) return List.of();
+        try (FunctionServiceClient client = clientOpt.get()) {
+            String parent = "projects/" + gcpProjectId + "/locations/-";
+            return StreamSupport.stream(client.listFunctions(parent).iterateAll().spliterator(), false)
+                .map(this::mapCloudFunctionToDto)
+                .collect(Collectors.toList());
+        } catch (Exception e) {
+            log.error("Error fetching Cloud Functions for project: {}", gcpProjectId, e);
+            return List.of();
+        }
+    }
+
+    // private List<GcpResourceDto> getCloudBuildTriggers(String gcpProjectId) {
+    //     log.info("Fetching Cloud Build triggers for project: {}", gcpProjectId);
+    //     Optional<CloudBuildClient> clientOpt = gcpClientProvider.getCloudBuildClient(gcpProjectId);
+    //     if (clientOpt.isEmpty()) return List.of();
+    //     try (CloudBuildClient client = clientOpt.get()) {
+    //         return client.listBuildTriggers(gcpProjectId).stream()
+    //             .map(this::mapCloudBuildTriggerToDto)
+    //             .collect(Collectors.toList());
+    //     } catch (Exception e) {
+    //         log.error("Error fetching Cloud Build triggers for project: {}", gcpProjectId, e);
+    //         return List.of();
+    //     }
+    // }
+
+    private List<GcpResourceDto> getSecretManagerSecrets(String gcpProjectId) {
+        log.info("Fetching secrets from Secret Manager for project: {}", gcpProjectId);
+        Optional<SecretManagerServiceClient> clientOpt = gcpClientProvider.getSecretManagerServiceClient(gcpProjectId);
+        if (clientOpt.isEmpty()) return List.of();
+        try (SecretManagerServiceClient client = clientOpt.get()) {
+            String parent = "projects/" + gcpProjectId;
+            return StreamSupport.stream(client.listSecrets(parent).iterateAll().spliterator(), false)
+                .map(this::mapSecretToDto)
+                .collect(Collectors.toList());
+        } catch (Exception e) {
+            log.error("Error fetching secrets from Secret Manager for project: {}", gcpProjectId, e);
+            return List.of();
+        }
+    }
+    
+    private List<GcpResourceDto> getCloudArmorPolicies(String gcpProjectId) {
+        log.info("Fetching Cloud Armor policies for project: {}", gcpProjectId);
+        Optional<SecurityPoliciesClient> clientOpt = gcpClientProvider.getSecurityPoliciesClient(gcpProjectId);
+        if (clientOpt.isEmpty()) return List.of();
+        try (SecurityPoliciesClient client = clientOpt.get()) {
+            return StreamSupport.stream(client.list(gcpProjectId).iterateAll().spliterator(), false)
+                .map(this::mapCloudArmorPolicyToDto)
+                .collect(Collectors.toList());
+        } catch (Exception e) {
+            log.error("Error fetching Cloud Armor policies for project: {}", gcpProjectId, e);
             return List.of();
         }
     }

@@ -853,17 +853,24 @@ populateKpiCards(account) {
             if (!inv) return;
             const container = document.getElementById('resourceInventory');
             const resources = [
-                { name: 'GCE Instances', count: inv.ec2, type: 'GCE Instance', icon: 'gcp-compute-engine.png' },
+                { name: 'GCE Instances', count: inv.ec2, type: 'Compute Engine', icon: 'gcp-compute-engine.png' },
                 { name: 'Cloud Storage Buckets', count: inv.s3Buckets, type: 'Cloud Storage', icon: 'gcp-cloud-storage.png' },
                 { name: 'Cloud SQL Instances', count: inv.rdsInstances, type: 'Cloud SQL', icon: 'gcp-cloud-sql.png' },
-                { name: 'GKE Clusters', count: inv.kubernetes, type: 'GKE Cluster', icon: 'gcp-gke.png' },
-                { name: 'VPC Networks', count: inv.vpc, type: 'VPC', icon: 'gcp-vpc.png' },
+                { name: 'GKE Clusters', count: inv.kubernetes, type: 'Kubernetes Engine', icon: 'gcp-gke.png' },
+                { name: 'VPC Networks', count: inv.vpc, type: 'VPC Network', icon: 'gcp-vpc.png' },
                 { name: 'Cloud DNS Zones', count: inv.route53Zones, type: 'Cloud DNS', icon: 'gcp-cloud-dns.png' },
-                { name: 'Load Balancers', count: inv.loadBalancers, type: 'Load Balancer', icon: 'gcp-load-balancer.png' }
+                { name: 'Load Balancers', count: inv.loadBalancers, type: 'Load Balancer', icon: 'gcp-load-balancer.png' },
+                { name: 'Cloud NAT Gateways', count: inv.cloudNatRouters, type: 'Cloud NAT', icon: 'gcp-nat.png' },
+                { name: 'Artifact Repositories', count: inv.artifactRepositories, type: 'Artifact Registry', icon: 'gcp-artifact-registry.png' },
+                { name: 'KMS Keys', count: inv.kmsKeys, type: 'Cloud KMS', icon: 'gcp-kms.png' },
+                { name: 'Cloud Functions', count: inv.cloudFunctions, type: 'Cloud Function', icon: 'gcp-cloud-functions.png' },
+                { name: 'Cloud Build Triggers', count: inv.cloudBuildTriggers, type: 'Cloud Build', icon: 'gcp-cloud-build.png' },
+                { name: 'Secrets', count: inv.secretManagerSecrets, type: 'Secret Manager', icon: 'gcp-secret-manager.png' },
+                { name: 'Cloud Armor Policies', count: inv.cloudArmorPolicies, type: 'Cloud Armor', icon: 'gcp-cloud-armor.png' }
             ];
             
             container.innerHTML = resources.map(res => `
-                <a href="/gcp_cloudlist?service=${encodeURIComponent(res.type)}" class="resource-card flex items-center gap-4 p-4 rounded-xl hover:shadow-md transition-all group">
+                <a href="/gcp_cloudlist.html?service=${encodeURIComponent(res.type)}" class="resource-card flex items-center gap-4 p-4 rounded-xl hover:shadow-md transition-all group">
                     <div class="resource-icon w-10 h-10 flex-shrink-0">
                         <img src="/icons/${res.icon}" alt="${res.name}" class="w-full h-full rounded-xl object-cover">
                     </div>

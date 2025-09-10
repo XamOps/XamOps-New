@@ -105,6 +105,36 @@
         <dependency><groupId>com.google.cloud</groupId><artifactId>google-cloud-dns</artifactId></dependency>
         <dependency><groupId>com.google.cloud</groupId><artifactId>google-cloud-resourcemanager</artifactId></dependency>
         <dependency><groupId>com.google.cloud</groupId><artifactId>google-cloud-billingbudgets</artifactId></dependency>
+
+  <dependency>
+        <groupId>com.google.cloud</groupId>
+        <artifactId>google-cloud-artifact-registry</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>com.google.cloud</groupId>
+        <artifactId>google-cloud-build</artifactId>
+    </dependency>
+
+<dependency>
+  <groupId>com.google.cloud</groupId>
+  <artifactId>google-cloud-functions</artifactId>
+</dependency>
+
+<dependency>
+  <groupId>com.google.cloud</groupId>
+  <artifactId>google-iam-admin</artifactId>
+</dependency>
+
+<dependency>
+  <groupId>com.google.cloud</groupId>
+  <artifactId>google-cloud-kms</artifactId>
+</dependency>
+
+<dependency>
+  <groupId>com.google.cloud</groupId>
+  <artifactId>google-cloud-secretmanager</artifactId>
+</dependency>
+
      <dependency>
     <groupId>com.google.apis</groupId>
     <artifactId>google-api-services-sqladmin</artifactId>

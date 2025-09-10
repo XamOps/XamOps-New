@@ -374,7 +374,7 @@ function gcpRightsizing() {
         recommendations: [],
         filter: 'All',
         searchTerm: '',
-        services: ['All', 'Compute Engine', 'Cloud SQL', 'BigQuery', 'Cloud Storage'],
+        services: ['All', 'Compute Engine', 'Cloud SQL', 'BigQuery', 'Cloud Storage', 'GKE', 'Cloud Function'],
 
         init() {
             this.loadRecommendations(false);
@@ -453,7 +453,9 @@ const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] 
                 'Compute Engine': 'gcp-compute-engine.png',
                 'Cloud SQL': 'gcp-cloud-sql.png',
                 'BigQuery': 'gcp-bigquery.png',
-                'Cloud Storage': 'gcp-cloud-storage.png'
+                'Cloud Storage': 'gcp-cloud-storage.png',
+                'GKE': 'gcp-gke.png',
+                'Cloud Function': 'gcp-cloud-functions.png'
             };
             return iconMap[serviceType] || 'gcp-icon.png';
         }

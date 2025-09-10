@@ -50,6 +50,22 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
-        </dependencies>
+
+            <dependency>
+                <groupId>com.google.cloud</groupId>
+                <artifactId>google-cloud-artifact-registry</artifactId>
+                <version>1.71.0</version>
+            </dependency>
+            <dependency>
+                <groupId>com.google.cloud</groupId>
+                <artifactId>google-cloud-build</artifactId>
+                <version>3.26.0</version>
+            </dependency>
+            <dependency>
+                <groupId>com.google.apis</groupId>
+                <artifactId>google-api-services-sqladmin</artifactId>
+                <version>v1-rev20250807-2.0.0</version>
+            </dependency>
+            </dependencies>
     </dependencyManagement>
 </project>
