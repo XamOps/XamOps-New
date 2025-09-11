@@ -2,16 +2,12 @@ package com.xammer.billops.controller;
 
 import com.xammer.billops.domain.CloudAccount;
 import com.xammer.billops.domain.User;
+import com.xammer.billops.dto.BillingDashboardDto;
 import com.xammer.billops.dto.CreditRequestDto;
 import com.xammer.billops.dto.DashboardDataDto;
 import com.xammer.billops.repository.CloudAccountRepository;
 import com.xammer.billops.repository.UserRepository;
-import com.xammer.billops.service.CostService;
-import com.xammer.billops.service.DashboardService;
-import com.xammer.billops.service.ResourceService;
-import com.xammer.billops.service.ExcelExportService;
-import com.xammer.billops.service.CreditRequestService;
-import org.springframework.beans.factory.annotation.Autowired;
+import com.xammer.billops.service.*;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -27,6 +23,7 @@ import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/billing")
+@CrossOrigin(origins = "http://localhost:5173") // Allow frontend access
 public class BillopsController {
     private final DashboardService dashboardService;
     private final CostService costService;
@@ -34,23 +31,45 @@ public class BillopsController {
     private final UserRepository userRepository;
     private final CloudAccountRepository cloudAccountRepository;
     private final ExcelExportService excelExportService;
-    private final CreditRequestService creditRequestService; // Make it final
+    private final CreditRequestService creditRequestService;
+    private final BillingService billingService;
 
-    // Updated constructor to include CreditRequestService
-    public BillopsController(DashboardService dashboardService, CostService costService,
-                             ResourceService resourceService, UserRepository userRepository,
+    public BillopsController(DashboardService dashboardService,
+                             CostService costService,
+                             ResourceService resourceService,
+                             UserRepository userRepository,
                              CloudAccountRepository cloudAccountRepository,
                              ExcelExportService excelExportService,
-                             CreditRequestService creditRequestService) { // Add this parameter
+                             CreditRequestService creditRequestService,
+                             BillingService billingService) {
         this.dashboardService = dashboardService;
         this.costService = costService;
         this.resourceService = resourceService;
         this.userRepository = userRepository;
         this.cloudAccountRepository = cloudAccountRepository;
         this.excelExportService = excelExportService;
-        this.creditRequestService = creditRequestService; // Initialize it
+        this.creditRequestService = creditRequestService;
+        this.billingService = billingService;
     }
 
+    // Health check endpoint
+    @GetMapping("/health")
+    public ResponseEntity<String> health() {
+        return ResponseEntity.ok("Billops service is running successfully!");
+    }
+
+    // Main billing dashboard endpoint - THIS IS THE KEY ONE FOR YOUR FRONTEND
+    @GetMapping("/billing/{accountId}")
+    public ResponseEntity<BillingDashboardDto> getBillingData(@PathVariable String accountId) {
+        try {
+            BillingDashboardDto data = billingService.getBillingData(accountId);
+            return ResponseEntity.ok(data);
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    // Your existing endpoints remain the same
     @GetMapping("/accounts")
     public ResponseEntity<List<CloudAccount>> getCloudAccounts(Authentication authentication) {
         User user = userRepository.findByUsername(authentication.getName())
@@ -133,27 +152,22 @@ public class BillopsController {
                 .body(in.readAllBytes());
     }
 
-    // === Credit Request Endpoints ===
-
-    // POST /api/billing/credits - User submits a new request
+    // Credit Request Endpoints
     @PostMapping("/credits")
     public ResponseEntity<CreditRequestDto> createCreditRequest(@RequestBody CreditRequestDto creditRequestDto) {
         return ResponseEntity.ok(creditRequestService.createCreditRequest(creditRequestDto));
     }
 
-    // GET /api/billing/credits/admin/all - Admin gets all requests
     @GetMapping("/credits/admin/all")
     public ResponseEntity<List<CreditRequestDto>> getAllCreditRequests() {
         return ResponseEntity.ok(creditRequestService.getAllCreditRequests());
     }
 
-    // GET /api/billing/credits/user/{userId} - User gets their own requests
     @GetMapping("/credits/user/{userId}")
     public ResponseEntity<List<CreditRequestDto>> getCreditRequestsByUser(@PathVariable Long userId) {
         return ResponseEntity.ok(creditRequestService.getCreditRequestsByUserId(userId));
     }
 
-    // PUT /api/billing/credits/{id}/status - Admin updates a request's status
     @PutMapping("/credits/{id}/status")
     public ResponseEntity<CreditRequestDto> updateRequestStatus(@PathVariable Long id, @RequestBody Map<String, String> statusUpdate) {
         String status = statusUpdate.get("status");

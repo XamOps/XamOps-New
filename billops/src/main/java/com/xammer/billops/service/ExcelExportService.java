@@ -44,6 +44,7 @@ public class ExcelExportService {
 
             // Populate Data Rows
             int rowIdx = 1;
+            // Use the correct method from the new CostService
             List<Map<String, Object>> services = costService.getCostByDimension(account, "SERVICE", year, month);
 
             for (Map<String, Object> service : services) {
@@ -63,6 +64,8 @@ public class ExcelExportService {
                     regionRow.createCell(1).setCellValue(regionName);
                     regionRow.createCell(4).setCellValue(regionCost);
 
+                    // Assuming getResourcesInRegion returns a compatible structure.
+                    // If not, this part might need adjustment based on ResourceService's actual implementation.
                     List<Map<String, Object>> resources = resourceService.getResourcesInRegion(account, regionName, serviceName);
                     for (Map<String, Object> resource : resources) {
                         Row resourceRow = sheet.createRow(rowIdx++);

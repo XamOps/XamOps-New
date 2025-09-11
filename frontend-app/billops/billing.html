@@ -1,257 +1,368 @@
 <!DOCTYPE html>
-<html lang="en" >
+<html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Credits - XamOps</title>
+    <meta charset="UTF-8">
+    <title>XamOps - Billing Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.tailwindcss.com"></script>
-    <link
-            rel="stylesheet"
-            href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css"
-    />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
         [x-cloak] { display: none !important; }
-        .focus-visible { outline: 2px solid #4f46e5; outline-offset: 2px; }
-        .animate-fade-in { animation: fadeIn 0.5s ease-in-out; }
-        .animate-slide-up { animation: slideUp 0.3s ease-out; }
-        @keyframes fadeIn {
-            0% { opacity: 0; transform: translateY(10px); }
-            100% { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes slideUp {
-            0% { opacity: 0; transform: translateY(20px); }
-            100% { opacity: 1; transform: translateY(0); }
-        }
+        .loading { text-align: center; padding: 2rem; color: #6b7280; }
+        .error { text-align: center; padding: 2rem; color: #dc2626; }
+        .success-msg { background-color: #ecfdf5; border-color: #10b981; color: #065f46; }
     </style>
 </head>
-
-<body class="bg-gradient-to-br from-gray-50 to-gray-100 min-h-screen" x-data="{
-    showForm: false,
-    creditRequests: [],
-    selectedFilter: 'all',
-    userId: 1, // Set the logged-in user ID here as per your auth system
-    newRequest: {
-        awsAccountId: '',
-        expectedCredits: '',
-        services: '',
-        useCase: '',
-        priority: 'medium'
-    },
-    notification: '',
-    notificationType: '',
-
-    init() {
-        this.fetchRequests();
-    },
-
-    async fetchRequests() {
-        try {
-            const response = await fetch(`http://localhost:8082/api/billing/credits/user/${this.userId}`);
-            if (!response.ok) throw new Error('Network response was not ok');
-            this.creditRequests = await response.json();
-        } catch (error) {
-            console.error('Error fetching credit requests:', error);
-            this.showNotification('Could not fetch credit requests from the server.', 'error');
-        }
-    },
-
-    async submitRequest() {
-        if (!this.validateForm()) {
-            this.showNotification('Please fill all fields correctly.', 'error');
-            return;
-        }
-        try {
-            const payload = {...this.newRequest, userId: this.userId};
-            const response = await fetch('http://localhost:8082/api/billing/credits', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-            if (!response.ok)
-                throw new Error('Submission failed with status ' + response.status);
-
-            await this.fetchRequests();
-            this.resetForm();
-            this.showForm = false;
-            this.showNotification('Request submitted successfully!', 'success');
-        } catch (error) {
-            console.error('Error submitting credit request:', error);
-            this.showNotification('Failed to submit request. Please check the console.', 'error');
-        }
-    },
-
-    validateForm() {
-        return this.newRequest.awsAccountId.length > 10 &&
-               Number(this.newRequest.expectedCredits) > 0 &&
-               this.newRequest.services.length > 3 &&
-               this.newRequest.useCase.length > 5;
-    },
-
-    resetForm() {
-        this.newRequest = { awsAccountId: '', expectedCredits: '', services: '', useCase: '', priority: 'medium' };
-    },
-
-    get filteredRequests() {
-        if (this.selectedFilter === 'all') return this.creditRequests;
-        return this.creditRequests.filter(req => req.status === this.selectedFilter);
-    },
-
-    showNotification(message, type) {
-        this.notification = message;
-        this.notificationType = type;
-        setTimeout(() => this.notification = '', 3000);
-    },
-
-    advanceStatus(request) {
-        const statuses = ['submitted', 'documentation', 'verification', 'approved', 'rejected'];
-        const currentIndex = statuses.indexOf(request.status);
-        if (currentIndex >= 0 && currentIndex < statuses.length - 2) {
-            request.status = statuses[currentIndex + 1];
-            // Optional: update status on server here via PUT
-        }
-    }
-}" x-init="init()">
-
+<body class="bg-gray-100">
 <div class="flex h-screen">
     <div id="sidebar-container" class="flex-shrink-0"></div>
-    <div class="flex-1 flex flex-col overflow-hidden">
-        <div class="bg-white shadow-sm border-b border-gray-200">
-            <div class="container mx-auto px-6 py-6">
-                <div class="flex justify-between items-center">
-                    <div>
-                        <h3 class="text-gray-900 text-3xl font-bold">AWS Credits Management</h3>
-                        <p class="text-gray-600 mt-1">Request and track your AWS credit applications</p>
-                    </div>
-                    <div class="flex items-center space-x-6">
-                        <div class="text-center">
-                            <div class="text-2xl font-bold text-indigo-600" x-text="'$' + creditRequests.reduce((sum, req) => sum + parseFloat(req.expectedCredits || 0), 0).toLocaleString()"></div>
-                            <div class="text-xs text-gray-500">Total Requested</div>
-                        </div>
-                        <div class="text-center">
-                            <div class="text-2xl font-bold text-orange-600" x-text="creditRequests.filter(req => req.status !== 'approved' && req.status !== 'rejected').length"></div>
-                            <div class="text-xs text-gray-500">Pending</div>
-                        </div>
-                        <button @click="showForm = true" class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold py-3 px-6 rounded-xl hover:from-indigo-700 hover:to-purple-700 transition-all duration-300 transform hover:scale-105 shadow-lg">
-                            <i class="fas fa-plus mr-2"></i>New Request
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
 
+    <div class="flex-1 flex flex-col overflow-hidden" x-data="billingDashboard()" x-init="init()">
         <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-8">
-            <div x-show="notification" x-transition class="fixed top-6 right-6 z-50" role="alert" aria-live="polite">
-                <div :class="{
-              'bg-green-600': notificationType==='success',
-              'bg-red-500': notificationType==='error',
-              'bg-blue-600': notificationType==='info'
-            }" class="text-white px-4 py-2 rounded shadow">
-                    <span x-text="notification"></span>
+            <div class="flex items-center justify-between mb-8">
+                <h3 class="text-gray-900 text-3xl font-bold">Billing Dashboard</h3>
+                <div class="flex items-center space-x-4">
+                    <span class="text-sm text-gray-600" x-text="`Account: ${selectedAccountId || 'None selected'}`"></span>
+                    <button @click="fetchBillingData()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 transition">
+                        <i class="fas fa-sync-alt mr-1"></i>Refresh
+                    </button>
                 </div>
             </div>
 
-            <div x-show="showForm" x-cloak class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 backdrop-blur-sm">
-                <div @click.away="showForm = false" class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-3xl mx-4 max-h-[90vh] overflow-y-auto animate-slide-up">
-                    <div class="flex justify-between items-center mb-8">
-                        <div>
-                            <h4 class="text-2xl font-bold text-gray-900">Request AWS Credits</h4>
-                            <p class="text-gray-600 mt-1">Submit a new credit application for your AWS account</p>
+            <!-- Loading State -->
+            <div x-show="loading" class="loading">
+                <i class="fas fa-spinner fa-spin text-3xl mb-4"></i>
+                <p class="text-lg">Loading billing data...</p>
+            </div>
+
+            <!-- Error State -->
+            <div x-show="error" class="error">
+                <i class="fas fa-exclamation-triangle text-3xl mb-4"></i>
+                <p class="text-lg mb-4" x-text="error"></p>
+                <button @click="fetchBillingData()" class="bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-red-700 transition">
+                    Try Again
+                </button>
+            </div>
+
+            <!-- Success State - Show charts -->
+            <div x-show="!loading && !error && billingData.costHistory && billingData.serviceBreakdown" class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <!-- Cost History and Details -->
+                <div class="lg:col-span-2 space-y-8">
+                    <!-- Cost History Chart -->
+                    <div class="bg-white p-6 rounded-xl shadow-lg">
+                        <div class="flex items-center justify-between mb-6">
+                            <h4 class="font-semibold text-lg text-gray-800">Monthly Cost Trend</h4>
+                            <span class="text-sm bg-blue-100 text-blue-800 px-3 py-1 rounded-full">Last 6 Months</span>
                         </div>
-                        <button @click="showForm = false" class="text-gray-400 hover:text-gray-600 transition-colors" aria-label="Close form">
-                            <i class="fas fa-times text-xl"></i>
-                        </button>
+                        <div class="h-80">
+                            <canvas id="costHistoryChart"></canvas>
+                        </div>
                     </div>
-                    <form @submit.prevent="submitRequest">
-                        <div class="space-y-4">
-                            <input type="text" x-model="newRequest.awsAccountId" placeholder="AWS Account ID (e.g., 1234-5678-9012)"
-                                   class="w-full p-2 border rounded focus-visible" :class="{'border-red-400': newRequest.awsAccountId && newRequest.awsAccountId.length < 11}"
-                                   required aria-required="true"/>
-                            <input type="number" x-model="newRequest.expectedCredits" placeholder="Expected Credits ($)"
-                                   class="w-full p-2 border rounded focus-visible" :class="{'border-red-400': newRequest.expectedCredits && Number(newRequest.expectedCredits) <= 0}"
-                                   required aria-required="true"/>
-                            <textarea x-model="newRequest.services" placeholder="AWS Services (e.g., EC2, S3, RDS)"
-                                      class="w-full p-2 border rounded focus-visible" rows="3"
-                                      :class="{'border-red-400': newRequest.services && newRequest.services.length < 4}"
-                                      required aria-required="true"></textarea>
-                            <textarea x-model="newRequest.useCase" placeholder="Project Use Case"
-                                      class="w-full p-2 border rounded focus-visible" rows="5"
-                                      :class="{'border-red-400': newRequest.useCase && newRequest.useCase.length < 6}"
-                                      required aria-required="true"></textarea>
-                        </div>
-                        <div class="mt-8 flex justify-end space-x-4 pt-6 border-t border-gray-200">
-                            <button type="button" @click="showForm = false; resetForm()"
-                                    class="bg-white text-gray-700 font-semibold py-3 px-6 rounded-xl border-2 border-gray-300 hover:bg-gray-50 hover:border-gray-400 transition-all duration-200 transform hover:scale-105">
-                                Cancel
-                            </button>
-                            <button type="submit" :disabled="!validateForm()"
-                                    class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold py-3 px-8 rounded-xl hover:from-indigo-700 hover:to-purple-700 transition-all duration-300 transform hover:scale-105 shadow-lg disabled:opacity-50">
-                                Submit Request
-                            </button>
-                        </div>
-                    </form>
-                </div>
-            </div>
 
-            <div class="space-y-6 mt-6">
-                <div class="flex items-center space-x-4 mb-6">
-                    <select x-model="selectedFilter" class="p-2 border rounded w-48 focus-visible" aria-label="Filter credit requests by status">
-                        <option value="all">All Statuses</option>
-                        <option value="submitted">Submitted</option>
-                        <option value="documentation">Documentation</option>
-                        <option value="verification">Verification</option>
-                        <option value="approved">Approved</option>
-                        <option value="rejected">Rejected</option>
-                    </select>
-                </div>
-
-                <template x-for="request in filteredRequests" :key="request.id">
-                    <div class="bg-white rounded-lg shadow-md p-6 animate-fade-in" :aria-label="'Request ' + request.id + ' for AWS Account ' + request.awsAccountId">
-                        <div class="flex justify-between items-start mb-4">
-                            <div>
-                                <h4 class="text-lg font-semibold">
-                                    Request for <span class="font-mono text-indigo-600" x-text="request.awsAccountId"></span>
-                                </h4>
-                                <p class="text-sm text-gray-500">
-                                    ID: <span x-text="request.id"></span> |
-                                    Status:
-                                    <span class="capitalize font-semibold"
-                                          :class="{
-                        'text-gray-600': request.status === 'submitted',
-                        'text-yellow-600': request.status === 'documentation',
-                        'text-blue-600': request.status === 'verification',
-                        'text-green-600': request.status === 'approved',
-                        'text-red-600': request.status === 'rejected'
-                      }"
-                                          x-text="request.status"></span>
-                                </p>
+                    <!-- Detailed Billing Table -->
+                    <div class="bg-white p-6 rounded-xl shadow-lg">
+                        <h4 class="font-semibold text-lg text-gray-800 mb-6">Service Cost Details</h4>
+                        <div x-show="billingData.serviceBreakdown && billingData.serviceBreakdown.length > 0">
+                            <div class="overflow-x-auto">
+                                <table class="min-w-full divide-y divide-gray-200">
+                                    <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Service</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cost</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Percentage</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody class="bg-white divide-y divide-gray-200">
+                                    <template x-for="(service, index) in billingData.serviceBreakdown" :key="service.serviceName || service.name">
+                                        <tr :class="index % 2 === 0 ? 'bg-white' : 'bg-gray-50'">
+                                            <td class="px-6 py-4 whitespace-nowrap">
+                                                <div class="flex items-center">
+                                                    <div class="w-3 h-3 rounded-full mr-3" :style="`background-color: ${getServiceColor(index)}`"></div>
+                                                    <span class="text-sm font-medium text-gray-900" x-text="service.serviceName || service.name || 'Unknown Service'"></span>
+                                                </div>
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900" x-text="`$${(service.cost || 0).toFixed(2)}`"></td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" x-text="`${getServicePercentage(service.cost)}%`"></td>
+                                        </tr>
+                                    </template>
+                                    </tbody>
+                                </table>
                             </div>
-                            <button @click="advanceStatus(request)" class="bg-gray-200 text-xs font-semibold py-1 px-3 rounded-full hover:bg-gray-300 focus-visible" aria-label="Advance status of request">
-                                Advance Status
-                            </button>
                         </div>
-                        <p><strong>Expected Credits: </strong>$<span x-text="request.expectedCredits"></span></p>
-                        <p><strong>Services: </strong><span x-text="request.services"></span></p>
-                        <p><strong>Use Case: </strong><span x-text="request.useCase"></span></p>
+                        <div x-show="!billingData.serviceBreakdown || billingData.serviceBreakdown.length === 0"
+                             class="text-center py-12 text-gray-500">
+                            <i class="fas fa-chart-pie text-4xl mb-4"></i>
+                            <p>No service data available</p>
+                        </div>
                     </div>
-                </template>
-
-                <div x-show="!creditRequests.length" class="text-center py-16 text-gray-500 font-semibold">
-                    You haven't submitted any credit requests yet.
                 </div>
+
+                <!-- Service Breakdown Chart and Summary -->
+                <div class="space-y-8">
+                    <div class="bg-white p-6 rounded-xl shadow-lg">
+                        <h4 class="font-semibold text-lg text-gray-800 mb-6">Service Distribution</h4>
+                        <div class="h-80">
+                            <canvas id="serviceBreakdownChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Cost Summary Card -->
+                    <div class="bg-gradient-to-br from-blue-500 to-purple-600 p-6 rounded-xl shadow-lg text-white">
+                        <h4 class="font-semibold text-lg mb-4">Cost Summary</h4>
+                        <div class="space-y-3">
+                            <div class="flex justify-between items-center">
+                                <span>Total Monthly Cost</span>
+                                <span class="text-2xl font-bold" x-text="`$${getTotalCost().toFixed(2)}`"></span>
+                            </div>
+                            <div class="flex justify-between items-center text-blue-100">
+                                <span>Services Count</span>
+                                <span class="font-semibold" x-text="(billingData.serviceBreakdown || []).length"></span>
+                            </div>
+                            <div class="flex justify-between items-center text-blue-100">
+                                <span>Data Period</span>
+                                <span class="font-semibold">6 Months</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Debug Toggle -->
+            <button @click="debugMode = !debugMode"
+                    class="fixed bottom-4 right-4 bg-gray-600 text-white p-3 rounded-full shadow-lg hover:bg-gray-700 transition">
+                <i class="fas fa-bug"></i>
+            </button>
+
+            <!-- Debug Info -->
+            <div x-show="debugMode" class="fixed bottom-16 right-4 bg-yellow-50 p-4 rounded-lg shadow-lg border max-w-sm">
+                <h5 class="font-semibold mb-2">Debug Info</h5>
+                <div class="text-xs space-y-1">
+                    <p><span class="font-medium">Account ID:</span> <span x-text="selectedAccountId"></span></p>
+                    <p><span class="font-medium">API URL:</span> <span x-text="`/api/billing/billing/${selectedAccountId}`"></span></p>
+                    <p><span class="font-medium">Cost History:</span> <span x-text="(billingData.costHistory || []).length"></span> items</p>
+                    <p><span class="font-medium">Services:</span> <span x-text="(billingData.serviceBreakdown || []).length"></span> items</p>
+                </div>
+                <button @click="debugMode = false" class="mt-2 text-xs bg-gray-500 text-white px-2 py-1 rounded">Close</button>
             </div>
         </main>
     </div>
 </div>
 
 <script>
-    fetch('/_sidebar.html')
-      .then(response => response.text())
-      .then(html => {
-        document.getElementById('sidebar-container').innerHTML = html;
-        Alpine.initTree(document.getElementById('sidebar-container'));
-      })
-      .catch(error => console.error('Error loading sidebar:', error));
+    function billingDashboard() {
+        return {
+            billingData: { costHistory: [], serviceBreakdown: [] },
+            selectedAccountId: null,
+            loading: true,
+            error: null,
+            debugMode: false,
+            costHistoryChart: null,
+            serviceBreakdownChart: null,
+
+            init() {
+                this.loadSidebar();
+                const urlParams = new URLSearchParams(window.location.search);
+                this.selectedAccountId = urlParams.get('accountIds');
+
+                console.log('Initialized billing dashboard with account ID:', this.selectedAccountId);
+
+                if (this.selectedAccountId) {
+                    this.fetchBillingData();
+                } else {
+                    this.error = 'No AWS account selected. Please select an account from the sidebar.';
+                    this.loading = false;
+                }
+            },
+
+            async fetchBillingData() {
+                if (!this.selectedAccountId) return;
+
+                this.loading = true;
+                this.error = null;
+
+                try {
+                    console.log('Fetching billing data for account:', this.selectedAccountId);
+
+                    // Using relative URL for Vite proxy to work
+                    const response = await fetch(`/api/billing/billing/${this.selectedAccountId}`);
+
+                    console.log('API Response status:', response.status);
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: Failed to fetch billing data`);
+                    }
+
+                    const data = await response.json();
+                    console.log('Received billing data:', data);
+
+                    this.billingData = data || { costHistory: [], serviceBreakdown: [] };
+
+                    // Wait for DOM updates before initializing charts
+                    this.$nextTick(() => {
+                        this.initCharts();
+                    });
+
+                } catch (error) {
+                    console.error("Error fetching billing data:", error);
+                    this.error = `Failed to load billing data: ${error.message}`;
+                } finally {
+                    this.loading = false;
+                }
+            },
+
+            initCharts() {
+                if (this.billingData.costHistory && this.billingData.costHistory.length > 0) {
+                    this.initCostHistoryChart(this.billingData.costHistory);
+                }
+
+                if (this.billingData.serviceBreakdown && this.billingData.serviceBreakdown.length > 0) {
+                    this.initServiceBreakdownChart(this.billingData.serviceBreakdown);
+                }
+            },
+
+            initCostHistoryChart(history) {
+                const ctx = document.getElementById('costHistoryChart');
+                if (!ctx) return;
+
+                if (this.costHistoryChart) {
+                    this.costHistoryChart.destroy();
+                }
+
+                this.costHistoryChart = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: history.map(h => {
+                            try {
+                                const date = new Date(h.date);
+                                return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+                            } catch (e) {
+                                return h.date;
+                            }
+                        }),
+                        datasets: [{
+                            label: 'Monthly Cost ($)',
+                            data: history.map(h => h.cost || 0),
+                            backgroundColor: '#3b82f6',
+                            borderColor: '#1d4ed8',
+                            borderWidth: 1,
+                            borderRadius: 6,
+                            borderSkipped: false,
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                display: false
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        return 'Cost: $' + context.parsed.y.toLocaleString();
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                ticks: {
+                                    callback: function(value) {
+                                        return '$' + value.toLocaleString();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            },
+
+            initServiceBreakdownChart(services) {
+                const ctx = document.getElementById('serviceBreakdownChart');
+                if (!ctx) return;
+
+                if (this.serviceBreakdownChart) {
+                    this.serviceBreakdownChart.destroy();
+                }
+
+                const colors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#FF6384', '#C9CBCF'];
+
+                this.serviceBreakdownChart = new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: services.map(s => s.serviceName || s.name || 'Unknown Service'),
+                        datasets: [{
+                            data: services.map(s => s.cost || 0),
+                            backgroundColor: colors.slice(0, services.length),
+                            borderWidth: 2,
+                            borderColor: '#ffffff'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: {
+                                    padding: 20,
+                                    usePointStyle: true,
+                                    font: {
+                                        size: 12
+                                    }
+                                }
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        const label = context.label || '';
+                                        const value = context.parsed || 0;
+                                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                        const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                                        return `${label}: $${value.toLocaleString()} (${percentage}%)`;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            },
+
+            getTotalCost() {
+                if (!this.billingData.serviceBreakdown || this.billingData.serviceBreakdown.length === 0) {
+                    return 0;
+                }
+                return this.billingData.serviceBreakdown.reduce((total, service) => total + (service.cost || 0), 0);
+            },
+
+            getServicePercentage(cost) {
+                const total = this.getTotalCost();
+                return total > 0 ? ((cost / total) * 100).toFixed(1) : 0;
+            },
+
+            getServiceColor(index) {
+                const colors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#FF6384', '#C9CBCF'];
+                return colors[index % colors.length];
+            },
+
+            loadSidebar() {
+                fetch('/_sidebar.html')
+                    .then(response => response.text())
+                    .then(html => {
+                        document.getElementById('sidebar-container').innerHTML = html;
+                        if (window.Alpine) {
+                            Alpine.initTree(document.getElementById('sidebar-container'));
+                        }
+                    })
+                    .catch(error => console.error('Error loading sidebar:', error));
+            }
+        }
+    }
 </script>
+
 </body>
 </html>

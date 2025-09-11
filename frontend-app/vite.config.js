@@ -4,27 +4,34 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   server: {
     proxy: {
-
-      
-      // Proxy any request that starts with /api to your backend
-      '/api': {
+      // Proxy xamops service requests
+      '/api/xamops': {
         target: 'http://localhost:8080',
         changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/xamops/, '/api/xamops'),
       },
-      // Proxy the /login request to your backend
+
+      // Proxy billops service requests
+      '/api/billing': {
+        target: 'http://localhost:8082',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/billing/, '/api/billing'),
+      },
+
+      // Proxy authentication requests to xamops
       '/login': {
         target: 'http://localhost:8080',
         changeOrigin: true,
       },
-      // Proxy the /logout request to your backend
       '/logout': {
-          target: 'http://localhost:8080',
-          changeOrigin: true,
+        target: 'http://localhost:8080',
+        changeOrigin: true,
       },
-      // --- ADD THIS BLOCK FOR WEBSOCKETS ---
+
+      // WebSocket proxy for xamops
       '/ws': {
-        target: 'ws://localhost:8080', // Use 'ws://' for WebSockets
-        ws: true, // This is the crucial option that enables WebSocket proxying
+        target: 'ws://localhost:8080',
+        ws: true,
       }
     }
   }

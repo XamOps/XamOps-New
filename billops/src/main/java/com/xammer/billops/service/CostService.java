@@ -1,32 +1,103 @@
 package com.xammer.billops.service;
 
 import com.xammer.billops.domain.CloudAccount;
+import com.xammer.billops.repository.CloudAccountRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.costexplorer.CostExplorerClient;
 import software.amazon.awssdk.services.costexplorer.model.*;
 
 import java.time.LocalDate;
 import java.time.YearMonth;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
 public class CostService {
 
     private final AwsClientProvider awsClientProvider;
+    private final CloudAccountRepository cloudAccountRepository;
     private static final double ANOMALY_THRESHOLD = 1.20;
     private static final Logger logger = LoggerFactory.getLogger(CostService.class);
 
-    public CostService(AwsClientProvider awsClientProvider) {
+    public CostService(AwsClientProvider awsClientProvider, CloudAccountRepository cloudAccountRepository) {
         this.awsClientProvider = awsClientProvider;
+        this.cloudAccountRepository = cloudAccountRepository;
     }
 
+    /**
+     * Get cost and usage data from AWS Cost Explorer
+     * This method integrates with real AWS Cost Explorer API
+     */
+    public GetCostAndUsageResponse getCostAndUsage(String accountId, String startDate, String endDate, String granularity, String groupBy) {
+        try {
+            logger.info("Fetching cost and usage data from AWS for account: {} from {} to {}", accountId, startDate, endDate);
+
+            // Get CloudAccount by accountId
+            CloudAccount account = getCloudAccountById(accountId);
+            if (account == null) {
+                logger.warn("Account not found: {}, cannot fetch cost data", accountId);
+                return null;
+            }
+
+            // Get AWS Cost Explorer client
+            CostExplorerClient client = awsClientProvider.getCostExplorerClient(account);
+
+            // Build the request
+            GetCostAndUsageRequest.Builder requestBuilder = GetCostAndUsageRequest.builder()
+                    .timePeriod(DateInterval.builder().start(startDate).end(endDate).build())
+                    .metrics("UnblendedCost");
+
+            // Set granularity
+            if ("MONTHLY".equals(granularity)) {
+                requestBuilder.granularity(Granularity.MONTHLY);
+            } else if ("DAILY".equals(granularity)) {
+                requestBuilder.granularity(Granularity.DAILY);
+            }
+
+            // Add grouping if specified
+            if ("SERVICE".equals(groupBy)) {
+                requestBuilder.groupBy(GroupDefinition.builder()
+                        .type(GroupDefinitionType.DIMENSION)
+                        .key("SERVICE")
+                        .build());
+            } else if ("REGION".equals(groupBy)) {
+                requestBuilder.groupBy(GroupDefinition.builder()
+                        .type(GroupDefinitionType.DIMENSION)
+                        .key("REGION")
+                        .build());
+            }
+
+            // Filter by specific account if multi-account setup
+           /* if (account.getAccountId() != null && !account.getAccountId().isEmpty()) {
+                requestBuilder.filter(Expression.builder()
+                        .dimensions(DimensionValues.builder()
+                                .key(Dimension.LINKED_ACCOUNT)
+                                .values(account.getAccountId())
+                                .build())
+                        .build());
+            }*/
+
+            GetCostAndUsageRequest request = requestBuilder.build();
+            GetCostAndUsageResponse response = client.getCostAndUsage(request);
+
+            logger.info("Successfully retrieved cost data from AWS for account: {}", accountId);
+            return response;
+
+        } catch (CostExplorerException e) {
+            logger.error("AWS Cost Explorer API error for account {}: {}", accountId, e.getMessage());
+            return null;
+        } catch (Exception e) {
+            logger.error("Unexpected error fetching cost data for account {}: {}", accountId, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Get cost history with anomaly detection
+     */
     public List<Map<String, Object>> getCostHistory(CloudAccount account) {
         try {
             CostExplorerClient client = awsClientProvider.getCostExplorerClient(account);
@@ -58,11 +129,14 @@ public class CostService {
             }
             return costData;
         } catch (CostExplorerException e) {
-            logger.warn("Could not fetch cost history for account {}. This is expected for new accounts. Error: {}", account.getAccountName(), e.getMessage());
+            logger.warn("Could not fetch cost history for account {}. Error: {}", account.getAccountName(), e.getMessage());
             return Collections.emptyList();
         }
     }
 
+    /**
+     * Get cost breakdown by dimension (SERVICE, REGION, etc.)
+     */
     public List<Map<String, Object>> getCostByDimension(CloudAccount account, String dimension, Integer year, Integer month) {
         try {
             CostExplorerClient client = awsClientProvider.getCostExplorerClient(account);
@@ -90,11 +164,13 @@ public class CostService {
                     .groupBy(GroupDefinition.builder().type(GroupDefinitionType.DIMENSION).key(dimension).build())
                     .build();
 
-            if (client.getCostAndUsage(request).resultsByTime().isEmpty()) {
+            GetCostAndUsageResponse response = client.getCostAndUsage(request);
+
+            if (response == null || !response.hasResultsByTime() || response.resultsByTime().isEmpty()) {
                 return Collections.emptyList();
             }
 
-            return client.getCostAndUsage(request).resultsByTime().get(0).groups().stream()
+            return response.resultsByTime().get(0).groups().stream()
                     .map(group -> {
                         Map<String, Object> map = new HashMap<>();
                         map.put("name", group.keys().get(0));
@@ -103,11 +179,14 @@ public class CostService {
                     })
                     .collect(Collectors.toList());
         } catch (CostExplorerException e) {
-            logger.warn("Could not fetch cost by dimension for account {}. This is expected for new accounts. Error: {}", account.getAccountName(), e.getMessage());
+            logger.warn("Could not fetch cost by dimension for account {}. Error: {}", account.getAccountName(), e.getMessage());
             return Collections.emptyList();
         }
     }
 
+    /**
+     * Get cost for specific service in different regions
+     */
     public List<Map<String, Object>> getCostForServiceInRegion(CloudAccount account, String serviceName, Integer year, Integer month) {
         try {
             CostExplorerClient client = awsClientProvider.getCostExplorerClient(account);
@@ -140,16 +219,17 @@ public class CostService {
                     .groupBy(GroupDefinition.builder().type(GroupDefinitionType.DIMENSION).key("REGION").build())
                     .build();
 
-            if (client.getCostAndUsage(request).resultsByTime().isEmpty()) {
+            GetCostAndUsageResponse response = client.getCostAndUsage(request);
+
+            if (response == null || !response.hasResultsByTime() || response.resultsByTime().isEmpty()) {
                 return Collections.emptyList();
             }
 
-            return client.getCostAndUsage(request).resultsByTime().get(0).groups().stream()
+            return response.resultsByTime().get(0).groups().stream()
                     .map(group -> {
                         Map<String, Object> map = new HashMap<>();
                         map.put("name", group.keys().get(0));
                         map.put("cost", Double.parseDouble(group.metrics().get("UnblendedCost").amount()));
-                        map.put("instanceCount", 10); // Placeholder
                         return map;
                     })
                     .collect(Collectors.toList());
@@ -160,23 +240,28 @@ public class CostService {
         }
     }
 
-    public double getForecastedSpend(CloudAccount account) {
+    /**
+     * Helper method to get CloudAccount by accountId
+     */
+    private CloudAccount getCloudAccountById(String accountId) {
         try {
-            CostExplorerClient client = awsClientProvider.getCostExplorerClient(account);
-            LocalDate end = LocalDate.now().plusMonths(1).withDayOfMonth(1);
-            LocalDate start = LocalDate.now().withDayOfMonth(1);
+            // Try to find by account ID string first
+            Optional<CloudAccount> account = cloudAccountRepository.findByAwsAccountId(accountId);
+            if (account.isPresent()) {
+                return account.get();
+            }
 
-            GetCostForecastRequest request = GetCostForecastRequest.builder()
-                .timePeriod(DateInterval.builder().start(start.toString()).end(end.toString()).build())
-                .granularity(Granularity.MONTHLY)
-                .metric(Metric.UNBLENDED_COST)
-                .build();
-
-            GetCostForecastResponse response = client.getCostForecast(request);
-            return Double.parseDouble(response.total().amount());
-        } catch (CostExplorerException e) {
-            logger.warn("Could not get cost forecast for account {}. This is expected for new accounts. Error: {}", account.getAccountName(), e.getMessage());
-            return 0.0;
+            // If not found, try to parse as Long and find by ID
+            try {
+                Long id = Long.parseLong(accountId);
+                return cloudAccountRepository.findById(id).orElse(null);
+            } catch (NumberFormatException e) {
+                logger.warn("Could not parse accountId {} as Long", accountId);
+                return null;
+            }
+        } catch (Exception e) {
+            logger.error("Error finding account by ID {}: {}", accountId, e.getMessage());
+            return null;
         }
     }
 }
