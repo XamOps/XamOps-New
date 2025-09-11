@@ -8,7 +8,7 @@ WORKDIR /app
 # Copy the entire project context into the builder stage
 COPY . .
 
-# Build only the 'service-registry' module and its dependencies
+# Now, build the specific module as before
 RUN mvn clean package -pl service-registry -am -DskipTests
 
 
@@ -20,8 +20,7 @@ FROM eclipse-temurin:17-jre-alpine
 WORKDIR /app
 
 # Argument to define the path to the JAR file from the builder stage
-ARG JAR_FILE_PATH=.service-registry/target/service-registry-1.0.0.jar
-
+ARG JAR_FILE_PATH=service-registry/target/service-registry-1.0.0.jar
 # Copy only the built JAR file from the 'builder' stage
 COPY --from=builder /app/${JAR_FILE_PATH} app.jar
 
