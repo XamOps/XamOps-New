@@ -1,7 +1,7 @@
 package com.xammer.billops.service;
 
 import com.xammer.billops.domain.CloudAccount;
-import com.xammer.billops.domain.Customer;
+import com.xammer.billops.domain.Client;
 import com.xammer.billops.dto.GcpAccountRequestDto;
 import com.xammer.billops.repository.CloudAccountRepository;
 import org.springframework.stereotype.Service;
@@ -17,18 +17,14 @@ public class GcpDataService {
     }
 
     @Transactional
-    public CloudAccount createGcpAccount(GcpAccountRequestDto request, Customer customer) {
-        // In a real-world application, you would add logic here to validate the
-        // service account key by attempting to connect to a GCP API.
-        // For this example, we will assume the key is valid.
-
+    public CloudAccount createGcpAccount(GcpAccountRequestDto request, Client client) {
         CloudAccount account = new CloudAccount();
         account.setAccountName(request.getAccountName());
-        account.setCustomer(customer);
+        account.setClient(client);
         account.setProvider("GCP");
         account.setGcpProjectId(request.getProjectId());
         account.setGcpServiceAccountKey(request.getServiceAccountKey());
-        account.setStatus("CONNECTED"); // GCP accounts are connected directly
+        account.setStatus("CONNECTED");
 
         return cloudAccountRepository.save(account);
     }

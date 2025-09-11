@@ -1,7 +1,7 @@
 package com.xammer.billops.service;
 
 import com.xammer.billops.domain.CloudAccount;
-import com.xammer.billops.domain.Customer;
+import com.xammer.billops.domain.Client;
 import com.xammer.billops.dto.VerifyAccountRequest;
 import com.xammer.billops.repository.CloudAccountRepository;
 import org.springframework.beans.factory.annotation.Value;
@@ -25,26 +25,22 @@ public class AwsAccountService {
     }
 
     @Transactional
-    public String generateCloudFormationUrl(String accountName, Customer customer) {
-        // Create a new CloudAccount entity with a PENDING status
+    public String generateCloudFormationUrl(String accountName, Client client) {
         CloudAccount account = new CloudAccount();
         account.setAccountName(accountName);
-        account.setCustomer(customer);
+        account.setClient(client);
         account.setProvider("AWS");
         account.setStatus("PENDING");
-        account.setExternalId(UUID.randomUUID().toString()); // Generate a unique externalId
+        account.setExternalId(UUID.randomUUID().toString());
         cloudAccountRepository.save(account);
 
-        // Construct the pre-signed URL for the AWS CloudFormation console
         String stackName = "BillOps-" + accountName.replaceAll("[^a-zA-Z0-9-]", "-");
 
         try {
             String encodedStackName = URLEncoder.encode(stackName, StandardCharsets.UTF_8);
             String encodedTemplateUrl = URLEncoder.encode(cloudFormationTemplateUrl, StandardCharsets.UTF_8);
             String encodedExternalId = URLEncoder.encode(account.getExternalId(), StandardCharsets.UTF_8);
-
-            // The callback URL is not used in this simplified version but is good practice to have
-            String callbackUrl = "https://your-app.com/callback"; // Replace with your actual callback URL
+            String callbackUrl = "https://your-app.com/callback";
             String encodedCallbackUrl = URLEncoder.encode(callbackUrl, StandardCharsets.UTF_8);
 
             return String.format(
@@ -64,12 +60,6 @@ public class AwsAccountService {
         CloudAccount account = cloudAccountRepository.findByExternalId(request.getExternalId())
                 .orElseThrow(() -> new IllegalArgumentException("Invalid or expired verification request."));
 
-        // In a real application, you would use the AWS SDK here to:
-        // 1. Assume the role using the provided roleName and externalId.
-        // 2. If the assumption is successful, update the status to CONNECTED.
-        // 3. If it fails, update the status to FAILED and provide an error message.
-
-        // For now, we will simulate a successful verification.
         String roleArn = String.format("arn:aws:iam::%s:role/%s", request.getAwsAccountId(), request.getRoleName());
         account.setAwsAccountId(request.getAwsAccountId());
         account.setRoleArn(roleArn);

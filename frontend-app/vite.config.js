@@ -4,6 +4,8 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   server: {
     proxy: {
+
+      
       // Proxy any request that starts with /api to your backend
       '/api': {
         target: 'http://localhost:8080',

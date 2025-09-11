@@ -15,7 +15,7 @@ import javax.persistence.JoinColumn;
 import javax.persistence.ManyToOne;
 
 @Entity
-@Table(name = "app_user") // "user" is a reserved keyword in many SQL dialects
+@Table(name = "app_user")
 @Data
 @NoArgsConstructor
 public class User {
@@ -30,14 +30,18 @@ public class User {
     @Column(nullable = false)
     private String password;
 
+    // --- ✅ MODIFIED THIS LINE ---
+    @Column(nullable = false)
+    private String role; // e.g., "USER", "ADMIN", "BILLOPS", "XAMOPS"
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "client_id", nullable = false)
-    @JsonIgnore // Important to avoid infinite loops in serialization
+    @JsonIgnore
     private Client client;
 
     public User(String username, String password, Client client) {
         this.username = username;
         this.password = password;
         this.client = client;
+        this.role = "USER"; // Default role
     }
 }

@@ -1,25 +1,25 @@
 package com.xammer.billops.config;
 
-import com.xammer.billops.service.UserDetailsServiceImpl;
+import com.xammer.billops.domain.User;
+import com.xammer.billops.repository.UserRepository;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
-import org.springframework.security.config.annotation.method.configuration.EnableGlobalMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 
+import java.util.Collections;
+import java.util.List;
+
 @Configuration
 @EnableWebSecurity
-@EnableGlobalMethodSecurity(prePostEnabled = true) // Updated for Spring Boot 2.7.5
 public class SecurityConfig {
-
-    @Bean
-    public UserDetailsServiceImpl userDetailsService() {
-        return new UserDetailsServiceImpl();
-    }
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -27,32 +27,45 @@ public class SecurityConfig {
     }
 
     @Bean
-    public DaoAuthenticationProvider authenticationProvider() {
-        DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider();
-        authProvider.setUserDetailsService(userDetailsService());
-        authProvider.setPasswordEncoder(passwordEncoder());
-        return authProvider;
+    public UserDetailsService userDetailsService(UserRepository userRepository) {
+        return username -> {
+            User user = userRepository.findByUsername(username)
+                    .orElseThrow(() -> new UsernameNotFoundException("User not found with username: " + username));
+
+            GrantedAuthority authority = new SimpleGrantedAuthority(user.getRole());
+            List<GrantedAuthority> authorities = Collections.singletonList(authority);
+
+            return new org.springframework.security.core.userdetails.User(
+                    user.getUsername(),
+                    user.getPassword(),
+                    authorities
+            );
+        };
     }
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-            .authorizeRequests()
-                .antMatchers("/register", "/css/**", "/js/**").permitAll()
-                .antMatchers("/api/billing/data/**", "/account/**").authenticated() // Secure API and account routes
+            .cors().and()
+            .csrf().disable()
+            .authorizeRequests(authorize -> authorize
+                .antMatchers("/login", "/register", "/css/**", "/js/**").permitAll()
+                // BILLOPS and ADMIN specific endpoints
+                .antMatchers("/api/billing/**").hasAnyAuthority("ROLE_BILLOPS", "ROLE_ADMIN")
+                // Account manager accessible to all roles
+                .antMatchers("/api/accounts/**").hasAnyAuthority("ROLE_BILLOPS", "ROLE_ADMIN", "ROLE_XAMOPS")
                 .anyRequest().authenticated()
-                .and()
-            .formLogin()
+            )
+            .formLogin(form -> form
                 .loginPage("/login")
-                .defaultSuccessUrl("/dashboard", true)
+                .defaultSuccessUrl("/dashboard.html", true)
                 .permitAll()
-                .and()
-            .logout()
-                .permitAll();
-
-        // CSRF and H2 Console Configuration
-        http.csrf().ignoringAntMatchers("/h2-console/**", "/account/generate-stack-url");
-        http.headers().frameOptions().sameOrigin();
+            )
+            .logout(logout -> logout
+                .logoutUrl("/logout")
+                .logoutSuccessUrl("/login?logout")
+                .permitAll()
+            );
 
         return http.build();
     }

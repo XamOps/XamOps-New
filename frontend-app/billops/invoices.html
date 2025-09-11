@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Invoices</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100">
+<div class="flex h-screen">
+    <div id="sidebar-container" class="flex-shrink-0">
+    </div>
+
+    <div class="flex-1 flex flex-col overflow-hidden">
+        <div class="p-10">
+            <h1 class="text-3xl font-bold mb-6">Invoices</h1>
+            <p>This is the invoices page.</p>
+        </div>
+    </div>
+</div>
+<script>
+    fetch('/_sidebar.html')
+        .then(response => response.text())
+        .then(html => {
+            const parser = new DOMParser();
+            const sidebarDoc = parser.parseFromString(html, 'text/html');
+
+            // Transfer styles and links from sidebar's head to the main document's head
+            sidebarDoc.head.querySelectorAll('link[rel="stylesheet"], style').forEach(elem => {
+                document.head.appendChild(elem.cloneNode(true));
+            });
+
+            // Put the sidebar's body content into the container
+            document.getElementById('sidebar-container').innerHTML = sidebarDoc.body.innerHTML;
+
+            // Manually create and append the Alpine.js script to ensure it executes
+            const alpineScriptTag = sidebarDoc.head.querySelector('script[src*="alpinejs"]');
+            if (alpineScriptTag) {
+                 const script = document.createElement('script');
+                 script.src = alpineScriptTag.src;
+                 script.defer = true;
+                 document.body.appendChild(script);
+            }
+        })
+        .catch(error => console.error('Error loading sidebar:', error));
+</script>
+</body>
+</html>

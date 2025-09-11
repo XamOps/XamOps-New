@@ -1,6 +1,6 @@
 package com.xammer.billops.domain;
 
-import javax.persistence.*; // UPDATED
+import javax.persistence.*;
 import java.math.BigDecimal;
 
 @Entity
@@ -11,8 +11,8 @@ public class Discount {
     private Long id;
 
     @ManyToOne
-    @JoinColumn(name = "customer_id", nullable = false)
-    private Customer customer;
+    @JoinColumn(name = "client_id", nullable = false) // UPDATED: Changed from customer_id
+    private Client client; // UPDATED: Changed from Customer
 
     private String serviceName;
 
@@ -21,7 +21,7 @@ public class Discount {
 
     private String description;
 
-    // Getters and Setters can be added here if not using Lombok
+    // Getters and Setters
     public Long getId() {
         return id;
     }
@@ -30,12 +30,12 @@ public class Discount {
         this.id = id;
     }
 
-    public Customer getCustomer() {
-        return customer;
+    public Client getClient() {
+        return client;
     }
 
-    public void setCustomer(Customer customer) {
-        this.customer = customer;
+    public void setClient(Client client) {
+        this.client = client;
     }
 
     public String getServiceName() {

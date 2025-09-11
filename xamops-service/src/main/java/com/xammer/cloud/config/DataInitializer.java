@@ -27,31 +27,28 @@ public class DataInitializer implements CommandLineRunner {
 
     @Override
     public void run(String... args) throws Exception {
-        // Check if any clients already exist to prevent re-initialization
         if (clientRepository.count() == 0) {
-            logger.info("No clients found in the database. Initializing default client and user...");
+            logger.info("Initializing default client and users...");
 
-            // 1. Create the first client
             Client defaultClient = new Client("Default Client");
             clientRepository.save(defaultClient);
-            logger.info("Successfully created client: {}", defaultClient.getName());
 
-            // 2. Create the first user for this client
-            String username = "admin";
-            String password = "password"; // You can change this default password
-
-            User adminUser = new User(
-                username,
-                passwordEncoder.encode(password),
-                defaultClient
-            );
+            // Admin User (can see everything)
+            User adminUser = new User("admin", passwordEncoder.encode("password"), defaultClient);
+            adminUser.setRole("ROLE_ADMIN");
             userRepository.save(adminUser);
 
-            logger.info("========================================================================");
-            logger.info("Default admin user created. Please use these credentials to log in:");
-            logger.info("Username: {}", username);
-            logger.info("Password: {}", password);
-            logger.info("========================================================================");
+            // XamOps User
+            User xamopsUser = new User("xamopsuser", passwordEncoder.encode("password"), defaultClient);
+            xamopsUser.setRole("ROLE_XAMOPS");
+            userRepository.save(xamopsUser);
+
+            // BillOps User
+            User billopsUser = new User("billopsuser", passwordEncoder.encode("password"), defaultClient);
+            billopsUser.setRole("ROLE_BILLOPS");
+            userRepository.save(billopsUser);
+
+            logger.info("Default users created successfully.");
         } else {
             logger.info("Database already contains client data. Skipping initialization.");
         }

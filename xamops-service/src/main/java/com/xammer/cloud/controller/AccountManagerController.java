@@ -14,10 +14,14 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import com.xammer.cloud.dto.azure.AzureAccountRequestDto;
+import com.xammer.cloud.service.azure.AzureClientProvider;
+import org.springframework.http.HttpStatus;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
-// 1. Changed to @RestController for pure API functionality
-@RestController 
-// 2. Added a consistent base path for all Account Manager APIs
+
+@RestController
 @RequestMapping("/api/xamops/account-manager")
 public class AccountManagerController {
 
@@ -25,12 +29,17 @@ public class AccountManagerController {
     private final GcpDataService gcpDataService;
     private final CloudAccountRepository cloudAccountRepository;
     private final ClientRepository clientRepository;
+    private AzureClientProvider azureClientProvider;
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+
 
     public AccountManagerController(AwsAccountService awsAccountService, GcpDataService gcpDataService, CloudAccountRepository cloudAccountRepository, ClientRepository clientRepository) {
         this.awsAccountService = awsAccountService;
         this.gcpDataService = gcpDataService;
         this.cloudAccountRepository = cloudAccountRepository;
         this.clientRepository = clientRepository;
+
     }
 
     @PostMapping("/generate-stack-url")
@@ -104,5 +113,47 @@ public class AccountManagerController {
                 account.getExternalId(),
                 account.getProvider()
         );
+    }
+    @PostMapping("/accounts/azure")
+    public ResponseEntity<?> addAzureAccount(@RequestBody AzureAccountRequestDto request) {
+        try {
+            JsonNode rootNode = objectMapper.readTree(request.getAzureCredentialsJson());
+
+            String tenantId = rootNode.path("tenantId").asText();
+            String subscriptionId = rootNode.path("subscriptionId").asText();
+            String clientId = rootNode.path("clientId").asText();
+            String clientSecret = rootNode.path("clientSecret").asText();
+
+            if (tenantId.isEmpty() || subscriptionId.isEmpty() || clientId.isEmpty() || clientSecret.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("The provided JSON is missing required fields (tenantId, subscriptionId, clientId, clientSecret).");
+            }
+
+            boolean credentialsValid = azureClientProvider.verifyCredentials(
+                    tenantId,
+                    subscriptionId,
+                    clientId,
+                    clientSecret
+            );
+
+            if (!credentialsValid) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Invalid Azure credentials provided.");
+            }
+
+            CloudAccount newAccount = new CloudAccount();
+            newAccount.setAccountName(request.getAccountName());
+            newAccount.setProvider("Azure");
+            newAccount.setAzureTenantId(tenantId);
+            newAccount.setAzureSubscriptionId(subscriptionId);
+            newAccount.setAzureClientId(clientId);
+            newAccount.setAzureClientSecret(clientSecret); // Encryption is recommended
+            newAccount.setStatus("CONNECTED");
+
+            CloudAccount savedAccount = cloudAccountRepository.save(newAccount);
+            return ResponseEntity.ok(savedAccount);
+
+        } catch (Exception e) {
+            // Log the exception e
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Invalid JSON format provided.");
+        }
     }
 }

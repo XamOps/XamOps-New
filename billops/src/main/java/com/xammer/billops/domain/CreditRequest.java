@@ -1,6 +1,6 @@
 package com.xammer.billops.domain;
 
-import javax.persistence.*; // UPDATED
+import javax.persistence.*;
 import java.time.LocalDateTime;
 
 @Entity
@@ -11,8 +11,8 @@ public class CreditRequest {
     private Long id;
 
     @ManyToOne
-    @JoinColumn(name = "customer_id", nullable = false)
-    private Customer customer;
+    @JoinColumn(name = "client_id", nullable = false) // UPDATED: Changed from customer_id
+    private Client client; // UPDATED: Changed from Customer
 
     private double amount;
 
@@ -22,7 +22,7 @@ public class CreditRequest {
 
     private LocalDateTime requestedAt = LocalDateTime.now();
 
-    // Getters and Setters can be added here if not using Lombok
+    // Getters and Setters
     public Long getId() {
         return id;
     }
@@ -31,12 +31,12 @@ public class CreditRequest {
         this.id = id;
     }
 
-    public Customer getCustomer() {
-        return customer;
+    public Client getClient() {
+        return client;
     }
 
-    public void setCustomer(Customer customer) {
-        this.customer = customer;
+    public void setClient(Client client) {
+        this.client = client;
     }
 
     public double getAmount() {
