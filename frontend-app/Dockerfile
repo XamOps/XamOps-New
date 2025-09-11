@@ -1,26 +1,25 @@
+# CORRECTED VERSION FOR frontend-app/Dockerfile
+
 # --- Stage 1: The Builder ---
-# Use a specific, lightweight version of Node.js to build the application
 FROM node:20-alpine AS builder
 
-# Set the working directory
+# Set the working directory for the entire build
 WORKDIR /app
 
-# Copy package.json and package-lock.json (if it exists) first
-# This caches the 'npm install' layer for faster subsequent builds
-COPY package*.json ./
+# Copy package.json and package-lock.json from the frontend-app sub-directory first
+COPY frontend-app/package*.json ./
 
 # Install project dependencies
 RUN npm install
 
-# Copy the rest of the application source code
-COPY . .
+# Copy the rest of the application source code from the frontend-app sub-directory
+COPY frontend-app/ .
 
-# Run the production build script defined in package.json
+# Run the production build script
 RUN npm run build
 
 
 # --- Stage 2: The Final Image ---
-# Use the same lightweight Node.js image to run the production server
 FROM node:20-alpine
 
 WORKDIR /app
