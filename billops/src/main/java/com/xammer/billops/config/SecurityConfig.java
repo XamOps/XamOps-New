@@ -23,13 +23,13 @@ public class SecurityConfig {
     }
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
                 .cors().and()
                 .csrf().disable()
                 .authorizeRequests(authorize -> authorize
-                        .antMatchers("/api/billing/**").permitAll() // Allow credit endpoints
-                        .antMatchers("/billops/**").permitAll() // Allow billops pages
+                        .antMatchers("/api/user/profile").permitAll() // Allow access to profile
+                        .antMatchers("/api/billops/**").permitAll()
                         .antMatchers("/login", "/register", "/css/**", "/js/**").permitAll()
                         .anyRequest().authenticated()
                 )
@@ -52,7 +52,6 @@ public class SecurityConfig {
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowCredentials(true);
-        // IMPORTANT: Allow requests from your frontend development server
         config.setAllowedOrigins(Arrays.asList("http://localhost:5173"));
         config.addAllowedHeader("*");
         config.addAllowedMethod("*");

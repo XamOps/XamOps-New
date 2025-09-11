@@ -1,36 +1,55 @@
 package com.xammer.billops.domain;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
-import lombok.Getter;
-import lombok.Setter;
 import javax.persistence.*;
 
 @Entity
-@Getter
-@Setter
+@Table(name = "cloud_accounts")
 public class CloudAccount {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "account_name")
     private String accountName;
-    private String provider;
-    private String status;
 
-    // AWS-specific fields
+    // ADDED: AWS Account ID field
+    @Column(name = "aws_account_id")
     private String awsAccountId;
-    private String roleArn;
-    private String externalId;
 
-    // GCP-specific fields
-    @Lob
-    @Column(columnDefinition = "TEXT")
-    private String gcpServiceAccountKey;
-    private String gcpProjectId;
+    // Your other existing fields...
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "client_id") // Corrected foreign key
-    @JsonIgnore
-    private Client client; // Corrected relationship
+    // Constructors
+    public CloudAccount() {}
+
+    public CloudAccount(String accountName, String awsAccountId) {
+        this.accountName = accountName;
+        this.awsAccountId = awsAccountId;
+    }
+
+    // ADDED: Getter and Setter for AWS Account ID
+    public String getAwsAccountId() {
+        return awsAccountId;
+    }
+
+    public void setAwsAccountId(String awsAccountId) {
+        this.awsAccountId = awsAccountId;
+    }
+
+    // Your other existing getters and setters...
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public String getAccountName() {
+        return accountName;
+    }
+
+    public void setAccountName(String accountName) {
+        this.accountName = accountName;
+    }
 }
