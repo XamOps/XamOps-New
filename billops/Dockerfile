@@ -32,3 +32,4 @@ EXPOSE 8082
 
 # The command to run the application. Add JVM arguments here if needed (e.g., "-Xmx512m").
 ENTRYPOINT ["java", "-jar", "app.jar"]
+
