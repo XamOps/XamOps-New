@@ -9,7 +9,7 @@ import java.util.Map;
 
 @Getter
 @Setter
-@Builder
+@Builder // ✅ ADDED THIS ANNOTATION
 public class DashboardDataDto {
     // KPIs
     private double monthToDateSpend;

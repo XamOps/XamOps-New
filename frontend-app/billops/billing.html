@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>XamOps - Billing Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.0/dist/cdn.min.js" defer></script> -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/date-fns@2.30.0/index.min.js"></script>
+    <script type="module" src="/src/main.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+        [x-cloak] { display: none !important; }
+        .kpi-card { transition: all 0.2s ease-in-out; }
+        .kpi-card:hover { transform: translateY(-3px); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.07), 0 4px 6px -2px rgba(0,0,0,0.05); }
+        .skeleton { background-color: #e2e8f0; animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+        .table-row-hover:hover { background-color: #f9fafb; }
+        .clickable { cursor: pointer; }
+    </style>
+</head>
+<body>
+
+<div class="flex">
+    <aside class="fixed top-0 left-0 h-screen w-64 bg-white border-r border-gray-200">
+        <div data-include-sidebar></div>
+    </aside>
+
+    <div class="ml-64 flex-1">
+        <main class="flex-1 flex flex-col min-h-screen" x-data="billingDashboard()">
+            <header class="bg-white/80 backdrop-blur-sm h-20 flex items-center justify-between px-8 sticky top-0 z-10 border-b">
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-800">Billing Dashboard</h1>
+                    <p class="text-sm text-gray-500">Monitor your cloud spending and billing metrics</p>
+                </div>
+                <div class="flex items-center gap-4">
+                    <select x-model="selectedAccountId" @change="fetchDashboardData()" class="border-gray-300 rounded-md shadow-sm">
+                        <template x-for="account in accounts" :key="account.id">
+                            <option :value="account.id" x-text="account.accountName"></option>
+                        </template>
+                    </select>
+                    <select x-model="selectedMonth" @change="fetchDashboardData()" class="border-gray-300 rounded-md shadow-sm">
+                        <template x-for="month in months" :key="month.value">
+                            <option :value="month.value" x-text="month.name"></option>
+                        </template>
+                    </select>
+                    <select x-model="selectedYear" @change="fetchDashboardData()" class="border-gray-300 rounded-md shadow-sm">
+                        <template x-for="year in years" :key="year">
+                            <option :value="year" x-text="year"></option>
+                        </template>
+                    </select>
+                     <button @click="downloadReport()" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition">
+                        <i class="fas fa-download mr-2"></i>Download Report
+                    </button>
+                </div>
+            </header>
+
+            <div class="flex-1 p-8 space-y-8">
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <div class="kpi-card bg-white rounded-lg p-6 border">
+                        <h3 class="text-gray-500">Month-to-Date Spend</h3>
+                        <p class="text-3xl font-bold text-gray-800" x-text="formatCurrency(kpis.mtd)"></p>
+                    </div>
+                    <div class="kpi-card bg-white rounded-lg p-6 border">
+                        <h3 class="text-gray-500">Last Month's Spend</h3>
+                        <p class="text-3xl font-bold text-gray-800" x-text="formatCurrency(kpis.lastMonth)"></p>
+                    </div>
+                    <div class="kpi-card bg-white rounded-lg p-6 border">
+                         <h3 class="text-gray-500">Forecasted Spend</h3>
+                        <p class="text-3xl font-bold text-gray-800" x-text="formatCurrency(kpis.forecast)"></p>
+                    </div>
+                    <div class="kpi-card bg-white rounded-lg p-6 border">
+                        <h3 class="text-gray-500">Potential Savings</h3>
+                        <p class="text-3xl font-bold text-green-600" x-text="formatCurrency(kpis.savings)"></p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    <div class="lg:col-span-2 bg-white rounded-lg p-6 border">
+                        <h3 class="text-lg font-semibold text-gray-700">Last 6 Months Cost</h3>
+                        <canvas id="costHistoryChart"></canvas>
+                    </div>
+                    <div class="bg-white rounded-lg p-6 border">
+                        <h3 class="text-lg font-semibold text-gray-700">Cost by Service</h3>
+                        <canvas id="serviceBreakdownChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-lg border">
+                    <div class="p-6">
+                        <h3 class="text-lg font-semibold text-gray-700">Detailed Cost Breakdown</h3>
+                        <p class="text-sm text-gray-500">Click on a service to see a breakdown by region, then click a region to see resources.</p>
+                    </div>
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Service / Region / Resource</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
+                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Cost (USD)</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            <template x-for="service in detailedBreakdown" :key="service.name">
+                                <tr>
+                                    <td @click="toggleService(service)" class="px-6 py-4 whitespace-nowrap clickable font-medium text-blue-600">
+                                        <i class="fas" :class="{'fa-chevron-down': service.open, 'fa-chevron-right': !service.open}"></i>
+                                        <span class="ml-2" x-text="service.name"></span>
+                                    </td>
+                                    <td></td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-right font-semibold" x-text="formatCurrency(service.cost)"></td>
+                                </tr>
+                                <template x-if="service.open">
+                                    <template x-for="region in service.regions" :key="region.name">
+                                        <tr class="bg-gray-50">
+                                            <td @click="toggleRegion(service, region)" class="pl-12 pr-6 py-3 whitespace-nowrap clickable text-gray-700">
+                                                 <i class="fas" :class="{'fa-chevron-down': region.open, 'fa-chevron-right': !region.open}"></i>
+                                                <span class="ml-2" x-text="region.name"></span>
+                                            </td>
+                                            <td></td>
+                                            <td class="px-6 py-3 whitespace-nowrap text-right" x-text="formatCurrency(region.cost)"></td>
+                                        </tr>
+                                        <template x-if="region.open">
+                                             <template x-for="resource in region.resources" :key="resource.id">
+                                                <tr class="bg-gray-100">
+                                                    <td class="pl-20 pr-6 py-2 whitespace-nowrap text-sm text-gray-600" x-text="resource.name"></td>
+                                                    <td class="px-6 py-2 whitespace-nowrap text-sm text-gray-500" x-text="resource.id"></td>
+                                                    <td class="px-6 py-2 whitespace-nowrap text-right text-sm" x-text="formatCurrency(resource.cost)"></td>
+                                                </tr>
+                                            </template>
+                                        </template>
+                                    </template>
+                                </template>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+</div>
+
+<script>
+    function billingDashboard() {
+        return {
+            isLoading: true,
+            accounts: [],
+            selectedAccountId: null,
+            selectedMonth: new Date().getMonth() + 1,
+            selectedYear: new Date().getFullYear(),
+            months: Array.from({ length: 12 }, (_, i) => ({ name: new Date(0, i).toLocaleString('default', { month: 'long' }), value: i + 1 })),
+            years: Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i),
+            kpis: { mtd: 0, lastMonth: 0, forecast: 0, savings: 125.50 }, // Placeholder savings
+            costHistoryChart: null,
+            serviceBreakdownChart: null,
+            detailedBreakdown: [],
+            
+            init() {
+                this.fetchAccounts();
+            },
+
+            async fetchAccounts() {
+                try {
+                    const response = await fetch('/api/billing/accounts');
+                    this.accounts = await response.json();
+                    if (this.accounts.length > 0) {
+                        this.selectedAccountId = this.accounts[0].id;
+                        this.fetchDashboardData();
+                    } else {
+                        this.isLoading = false;
+                    }
+                } catch (error) {
+                    console.error('Error fetching accounts:', error);
+                    this.isLoading = false;
+                }
+            },
+
+            fetchDashboardData() {
+                if (!this.selectedAccountId) return;
+                this.isLoading = true;
+                const url = `/api/billing/data/${this.selectedAccountId}?year=${this.selectedYear}&month=${this.selectedMonth}`;
+                
+                fetch(url)
+                    .then(res => res.json())
+                    .then(data => {
+                        this.kpis.mtd = data.monthToDateSpend;
+                        this.kpis.lastMonth = data.lastMonthSpend;
+                        this.kpis.forecast = data.forecastedSpend;
+                        
+                        this.detailedBreakdown = data.costByService.map(s => ({ ...s, open: false, regions: [] }));
+
+                        this.initCostHistoryChart(data.costHistory);
+                        this.initServiceBreakdownChart(data.costByService);
+
+                        this.isLoading = false;
+                    })
+                    .catch(err => {
+                        console.error('Failed to load dashboard data', err);
+                        this.isLoading = false;
+                    });
+            },
+            
+            toggleService(service) {
+                service.open = !service.open;
+                if (service.open && service.regions.length === 0) {
+                    this.fetchRegionsForService(service);
+                }
+            },
+
+            fetchRegionsForService(service) {
+                const url = `/api/billing/breakdown/regions?accountId=${this.selectedAccountId}&serviceName=${encodeURIComponent(service.name)}&year=${this.selectedYear}&month=${this.selectedMonth}`;
+                fetch(url)
+                    .then(res => res.json())
+                    .then(data => {
+                        service.regions = data.map(r => ({ ...r, open: false, resources: [] }));
+                    });
+            },
+
+            toggleRegion(service, region) {
+                region.open = !region.open;
+                if (region.open && region.resources.length === 0) {
+                    this.fetchResourcesForRegion(service, region);
+                }
+            },
+
+            fetchResourcesForRegion(service, region) {
+                 const url = `/api/billing/breakdown/instances?accountId=${this.selectedAccountId}&region=${region.name}&serviceName=${encodeURIComponent(service.name)}`;
+                 fetch(url)
+                    .then(res => res.json())
+                    .then(data => {
+                        region.resources = data;
+                    });
+            },
+
+            downloadReport() {
+                if (!this.selectedAccountId) return;
+                const url = `/api/billing/export?accountId=${this.selectedAccountId}&year=${this.selectedYear}&month=${this.selectedMonth}`;
+                window.location.href = url;
+            },
+
+            formatCurrency(value) {
+                return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value || 0);
+            },
+            
+            initCostHistoryChart(history) {
+                const ctx = document.getElementById('costHistoryChart').getContext('2d');
+                if (this.costHistoryChart) this.costHistoryChart.destroy();
+                this.costHistoryChart = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: history.map(h => dateFns.format(new Date(h.date), 'MMM yyyy')),
+                        datasets: [{
+                            label: 'Monthly Cost',
+                            data: history.map(h => h.cost),
+                            backgroundColor: history.map(h => h.isAnomaly ? '#ef4444' : '#3b82f6'),
+                        }]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false }
+                });
+            },
+
+            initServiceBreakdownChart(services) {
+                const ctx = document.getElementById('serviceBreakdownChart').getContext('2d');
+                if (this.serviceBreakdownChart) this.serviceBreakdownChart.destroy();
+                this.serviceBreakdownChart = new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: services.map(s => s.name),
+                        datasets: [{
+                            data: services.map(s => s.cost),
+                        }]
+                    },
+                     options: { responsive: true, maintainAspectRatio: false }
+                });
+            }
+        }
+    }
+</script>
+
+</body>
+</html>

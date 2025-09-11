@@ -1,8 +1,9 @@
 package com.xammer.billops.domain;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Getter;
 import lombok.Setter;
-import javax.persistence.*; // Changed from jakarta.persistence
+import javax.persistence.*;
 
 @Entity
 @Getter
@@ -29,6 +30,7 @@ public class CloudAccount {
     private String gcpProjectId;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "customer_id")
-    private Customer customer;
+    @JoinColumn(name = "client_id") // Corrected foreign key
+    @JsonIgnore
+    private Client client; // Corrected relationship
 }

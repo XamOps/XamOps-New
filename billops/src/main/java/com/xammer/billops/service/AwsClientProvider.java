@@ -4,7 +4,6 @@ import com.xammer.billops.domain.CloudAccount;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider;
-
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.costexplorer.CostExplorerClient;
 import software.amazon.awssdk.services.ec2.Ec2Client;
@@ -36,7 +35,7 @@ public class AwsClientProvider {
 
     public CostExplorerClient getCostExplorerClient(CloudAccount account) {
         return CostExplorerClient.builder()
-                .region(Region.US_EAST_1) // Cost Explorer is primarily a global service accessed via us-east-1
+                .region(Region.US_EAST_1)
                 .credentialsProvider(getCredentialsProvider(account, "us-east-1"))
                 .build();
     }
@@ -63,7 +62,6 @@ public class AwsClientProvider {
     }
 
     public S3Client getS3Client(CloudAccount account) {
-        // S3 is a global service, but the client needs a region for the API endpoint.
         return S3Client.builder()
                 .region(Region.US_EAST_1)
                 .credentialsProvider(getCredentialsProvider(account, "us-east-1"))

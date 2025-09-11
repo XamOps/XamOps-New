@@ -58,12 +58,11 @@ public class CostService {
             }
             return costData;
         } catch (CostExplorerException e) {
-            logger.warn("Could not fetch cost history for account {}. This is expected for new accounts. Error: {}", account.getAwsAccountId(), e.getMessage());
+            logger.warn("Could not fetch cost history for account {}. This is expected for new accounts. Error: {}", account.getAccountName(), e.getMessage());
             return Collections.emptyList();
         }
     }
 
-    // --- METHOD UPDATED to accept year and month ---
     public List<Map<String, Object>> getCostByDimension(CloudAccount account, String dimension, Integer year, Integer month) {
         try {
             CostExplorerClient client = awsClientProvider.getCostExplorerClient(account);
@@ -71,19 +70,17 @@ public class CostService {
             LocalDate endDate;
 
             if (year != null && month != null) {
-                // Use the specified month
                 YearMonth yearMonth = YearMonth.of(year, month);
                 startDate = yearMonth.atDay(1);
                 endDate = yearMonth.atEndOfMonth();
             } else {
-                // Default to the current month-to-date
                 endDate = LocalDate.now();
                 startDate = endDate.withDayOfMonth(1);
             }
 
             DateInterval dateInterval = DateInterval.builder()
                     .start(startDate.toString())
-                    .end(endDate.plusDays(1).toString()) // API is exclusive of end date
+                    .end(endDate.plusDays(1).toString())
                     .build();
 
             GetCostAndUsageRequest request = GetCostAndUsageRequest.builder()
@@ -106,12 +103,11 @@ public class CostService {
                     })
                     .collect(Collectors.toList());
         } catch (CostExplorerException e) {
-            logger.warn("Could not fetch cost by dimension for account {}. This is expected for new accounts. Error: {}", account.getAwsAccountId(), e.getMessage());
+            logger.warn("Could not fetch cost by dimension for account {}. This is expected for new accounts. Error: {}", account.getAccountName(), e.getMessage());
             return Collections.emptyList();
         }
     }
 
-    // --- NEW METHOD ADDED for the drill-down ---
     public List<Map<String, Object>> getCostForServiceInRegion(CloudAccount account, String serviceName, Integer year, Integer month) {
         try {
             CostExplorerClient client = awsClientProvider.getCostExplorerClient(account);
@@ -132,7 +128,6 @@ public class CostService {
                     .end(endDate.plusDays(1).toString())
                     .build();
 
-            // Filter by service, group by region
             Expression filter = Expression.builder()
                     .dimensions(DimensionValues.builder().key(Dimension.SERVICE).values(serviceName).build())
                     .build();
@@ -154,14 +149,13 @@ public class CostService {
                         Map<String, Object> map = new HashMap<>();
                         map.put("name", group.keys().get(0));
                         map.put("cost", Double.parseDouble(group.metrics().get("UnblendedCost").amount()));
-                        // You could add instance count here if needed by another service call
                         map.put("instanceCount", 10); // Placeholder
                         return map;
                     })
                     .collect(Collectors.toList());
 
         } catch (CostExplorerException e) {
-            logger.warn("Could not fetch cost for service '{}' in account {}. Error: {}", serviceName, account.getAwsAccountId(), e.getMessage());
+            logger.warn("Could not fetch cost for service '{}' in account {}. Error: {}", serviceName, account.getAccountName(), e.getMessage());
             return Collections.emptyList();
         }
     }
@@ -181,8 +175,8 @@ public class CostService {
             GetCostForecastResponse response = client.getCostForecast(request);
             return Double.parseDouble(response.total().amount());
         } catch (CostExplorerException e) {
-            logger.warn("Could not get cost forecast for account {}. This is expected for new accounts. Error: {}", account.getAwsAccountId(), e.getMessage());
-            return 0.0; // Return 0 if forecast fails
+            logger.warn("Could not get cost forecast for account {}. This is expected for new accounts. Error: {}", account.getAccountName(), e.getMessage());
+            return 0.0;
         }
     }
 }

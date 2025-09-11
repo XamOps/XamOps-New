@@ -1,11 +1,21 @@
 package com.xammer.billops.domain;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import javax.persistence.*; // Changed from jakarta.persistence
+
+import javax.persistence.Entity;
+import javax.persistence.GeneratedValue;
+import javax.persistence.GenerationType;
+import javax.persistence.Id;
+import javax.persistence.Table;
+import javax.persistence.Column;
+import javax.persistence.FetchType;
+import javax.persistence.JoinColumn;
+import javax.persistence.ManyToOne;
 
 @Entity
-@Table(name = "app_users") // Renamed table to avoid conflict with 'user' keyword
+@Table(name = "app_user") // Match the table name from xamops-service
 @Data
 @NoArgsConstructor
 public class User {
@@ -21,5 +31,17 @@ public class User {
     private String password;
 
     @Column(nullable = false)
-    private String role;
+    private String role; // e.g., "ROLE_USER", "ROLE_ADMIN", "ROLE_BILLOPS", "ROLE_XAMOPS"
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "client_id", nullable = false)
+    @JsonIgnore
+    private Client client;
+
+    public User(String username, String password, Client client) {
+        this.username = username;
+        this.password = password;
+        this.client = client;
+        this.role = "ROLE_USER"; // Default role
+    }
 }

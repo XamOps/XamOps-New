@@ -25,6 +25,8 @@
     <modules>
         <module>service-registry</module>
         <module>xamops-service</module>
+            <module>billops</module>
+
     </modules>
 
     <dependencyManagement>

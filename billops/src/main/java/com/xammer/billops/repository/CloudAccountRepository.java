@@ -6,6 +6,6 @@ import java.util.List;
 import java.util.Optional;
 
 public interface CloudAccountRepository extends JpaRepository<CloudAccount, Long> {
-    List<CloudAccount> findByCustomerId(Long customerId);
+    List<CloudAccount> findByClientId(Long clientId); // UPDATED: Changed from findByCustomerId
     Optional<CloudAccount> findByExternalId(String externalId);
 }

@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Credits</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    animation: {
+                        'fade-in': 'fadeIn 0.5s ease-in-out',
+                        'slide-up': 'slideUp 0.3s ease-out',
+                        'pulse-slow': 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                    },
+                    keyframes: {
+                        fadeIn: {
+                            '0%': { opacity: '0', transform: 'translateY(10px)' },
+                            '100%': { opacity: '1', transform: 'translateY(0)' },
+                        },
+                        slideUp: {
+                            '0%': { opacity: '0', transform: 'translateY(20px)' },
+                            '100%': { opacity: '1', transform: 'translateY(0)' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-gradient-to-br from-gray-50 to-gray-100 min-h-screen">
+<div class="flex h-screen">
+    <div id="sidebar-container" class="flex-shrink-0"></div>
+    <div class="flex-1 flex flex-col overflow-hidden" x-data="{
+        showForm: false,
+        creditRequests: [],
+        selectedFilter: 'all',
+        newRequest: {
+            id: null,
+            awsAccountId: '',
+            expectedCredits: '',
+            services: '',
+            useCase: '',
+            status: 'submitted',
+            submittedDate: new Date().toLocaleDateString(),
+            priority: 'medium'
+        },
+        get filteredRequests() {
+            return this.selectedFilter === 'all'
+                ? this.creditRequests
+                : this.creditRequests.filter(req => req.status === this.selectedFilter);
+        },
+        submitRequest() {
+            this.newRequest.id = 'CR' + (this.creditRequests.length + 1).toString().padStart(4, '0');
+            this.newRequest.submittedDate = new Date().toLocaleDateString();
+            this.creditRequests.unshift(JSON.parse(JSON.stringify(this.newRequest)));
+            this.resetForm();
+            this.showForm = false;
+            this.showNotification('Request submitted successfully!', 'success');
+        },
+        resetForm() {
+            this.newRequest = {
+                id: null,
+                awsAccountId: '',
+                expectedCredits: '',
+                services: '',
+                useCase: '',
+                status: 'submitted',
+                submittedDate: new Date().toLocaleDateString(),
+                priority: 'medium'
+            };
+        },
+        getStatusColor(status) {
+            const colors = {
+                'submitted': 'bg-blue-100 text-blue-800',
+                'under-review': 'bg-yellow-100 text-yellow-800',
+                'approved': 'bg-green-100 text-green-800',
+                'rejected': 'bg-red-100 text-red-800'
+            };
+            return colors[status] || 'bg-gray-100 text-gray-800';
+        },
+        getPriorityColor(priority) {
+            const colors = {
+                'low': 'text-gray-500',
+                'medium': 'text-yellow-500',
+                'high': 'text-red-500'
+            };
+            return colors[priority] || 'text-gray-500';
+        },
+        showNotification(message, type) {
+            const notification = document.createElement('div');
+            notification.className = `fixed top-4 right-4 px-6 py-3 rounded-lg text-white z-50 animate-slide-up ${type === 'success' ? 'bg-green-600' : 'bg-red-600'}`;
+            notification.textContent = message;
+            document.body.appendChild(notification);
+            setTimeout(() => notification.remove(), 3000);
+        }
+    }">
+        <div class="bg-white shadow-sm border-b border-gray-200">
+            <div class="container mx-auto px-6 py-6">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <h3 class="text-gray-900 text-3xl font-bold">AWS Credits Management</h3>
+                        <p class="text-gray-600 mt-1">Request and track your AWS credit applications</p>
+                    </div>
+                    <div class="flex items-center space-x-6">
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-indigo-600" x-text="'$' + creditRequests.reduce((sum, req) => sum + parseFloat(req.expectedCredits || 0), 0).toLocaleString()"></div>
+                            <div class="text-xs text-gray-500">Total Requested</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-orange-600" x-text="creditRequests.filter(req => req.status !== 'completed').length"></div>
+                            <div class="text-xs text-gray-500">Pending</div>
+                        </div>
+                        <button @click="showForm = true" class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold py-3 px-6 rounded-xl hover:from-indigo-700 hover:to-purple-700 transition-all duration-300 transform hover:scale-105 shadow-lg">
+                            <i class="fas fa-plus mr-2"></i>New Request
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gradient-to-br from-gray-50 to-gray-100">
+            <div class="container mx-auto px-6 py-8">
+                <div class="bg-white rounded-xl shadow-sm p-6 mb-8">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-4 sm:space-y-0">
+                        <div class="flex flex-wrap gap-2">
+                            <button @click="selectedFilter = 'all'" :class="selectedFilter === 'all' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'" class="px-4 py-2 rounded-lg font-medium transition-colors">
+                                All Requests
+                            </button>
+                            <button @click="selectedFilter = 'submitted'" :class="selectedFilter === 'submitted' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'" class="px-4 py-2 rounded-lg font-medium transition-colors">
+                                <i class="fas fa-clock mr-1"></i>Submitted
+                            </button>
+                            <button @click="selectedFilter = 'under-review'" :class="selectedFilter === 'under-review' ? 'bg-yellow-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'" class="px-4 py-2 rounded-lg font-medium transition-colors">
+                                <i class="fas fa-search mr-1"></i>Under Review
+                            </button>
+                            <button @click="selectedFilter = 'approved'" :class="selectedFilter === 'approved' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'" class="px-4 py-2 rounded-lg font-medium transition-colors">
+                                <i class="fas fa-check-circle mr-1"></i>Approved
+                            </button>
+                        </div>
+                        <div class="text-sm text-gray-600">
+                            <span x-text="filteredRequests.length"></span> requests found
+                        </div>
+                    </div>
+                </div>
+
+                <div x-show="showForm" x-cloak class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 backdrop-blur-sm">
+                    <div @click.away="showForm = false" class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-3xl mx-4 max-h-[90vh] overflow-y-auto animate-slide-up">
+                        <div class="flex justify-between items-center mb-8">
+                            <div>
+                                <h4 class="text-2xl font-bold text-gray-900">Request AWS Credits</h4>
+                                <p class="text-gray-600 mt-1">Submit a new credit application for your AWS account</p>
+                            </div>
+                            <button @click="showForm = false" class="text-gray-400 hover:text-gray-600 transition-colors">
+                                <i class="fas fa-times text-xl"></i>
+                            </button>
+                        </div>
+
+                        <form @submit.prevent="submitRequest">
+                            <div class="space-y-8">
+                                <div class="bg-gray-50 rounded-xl p-6">
+                                    <h5 class="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                                        <i class="fab fa-aws text-orange-500 mr-2"></i>Account Information
+                                    </h5>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <div>
+                                            <label for="aws-account-id" class="block text-sm font-semibold text-gray-700 mb-2">AWS Account ID *</label>
+                                            <input type="text" id="aws-account-id" x-model="newRequest.awsAccountId"
+                                                   class="block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 focus:ring-2 sm:text-sm transition-all duration-200"
+                                                   placeholder="123456789012" required>
+                                        </div>
+                                        <div>
+                                            <label for="expected-credits" class="block text-sm font-semibold text-gray-700 mb-2">Expected Credits (USD) *</label>
+                                            <div class="relative">
+                                                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                                    <span class="text-gray-500 sm:text-sm">$</span>
+                                                </div>
+                                                <input type="number" id="expected-credits" x-model="newRequest.expectedCredits"
+                                                       class="block w-full pl-7 rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 focus:ring-2 sm:text-sm transition-all duration-200"
+                                                       placeholder="5,000" required>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="bg-indigo-50 rounded-xl p-6">
+                                    <h5 class="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                                        <i class="fas fa-cogs text-indigo-600 mr-2"></i>Project Details
+                                    </h5>
+                                    <div class="space-y-6">
+                                        <div>
+                                            <label for="priority" class="block text-sm font-semibold text-gray-700 mb-2">Priority Level</label>
+                                            <select id="priority" x-model="newRequest.priority" class="block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 focus:ring-2 sm:text-sm transition-all duration-200">
+                                                <option value="low">Low - Development/Testing</option>
+                                                <option value="medium">Medium - Staging/Pre-production</option>
+                                                <option value="high">High - Production/Critical</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label for="services" class="block text-sm font-semibold text-gray-700 mb-2">AWS Services *</label>
+                                            <textarea id="services" x-model="newRequest.services" rows="4"
+                                                      class="block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 focus:ring-2 sm:text-sm transition-all duration-200"
+                                                      placeholder="EC2, S3, RDS, Lambda, CloudFront, etc." required></textarea>
+                                        </div>
+                                        <div>
+                                            <label for="use-case" class="block text-sm font-semibold text-gray-700 mb-2">Project Description & Use Case *</label>
+                                            <textarea id="use-case" x-model="newRequest.useCase" rows="6"
+                                                      class="block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 focus:ring-2 sm:text-sm transition-all duration-200"
+                                                      placeholder="Describe your project, expected usage patterns, and business justification for the credit request..." required></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="mt-8 flex justify-end space-x-4 pt-6 border-t border-gray-200">
+                                <button type="button" @click="showForm = false; resetForm()"
+                                        class="bg-white text-gray-700 font-semibold py-3 px-6 rounded-xl border-2 border-gray-300 hover:bg-gray-50 hover:border-gray-400 transition-all duration-200 transform hover:scale-105">
+                                    <i class="fas fa-times mr-2"></i>Cancel
+                                </button>
+                                <button type="submit"
+                                        class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold py-3 px-8 rounded-xl hover:from-indigo-700 hover:to-purple-700 transition-all duration-300 transform hover:scale-105 shadow-lg">
+                                    <i class="fas fa-paper-plane mr-2"></i>Submit Request
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="space-y-6">
+                    <template x-for="request in filteredRequests" :key="request.id">
+                        <div class="bg-white rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden animate-fade-in">
+                            <div class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-6">
+                                <div class="flex justify-between items-start">
+                                    <div class="flex-1">
+                                        <div class="flex items-center space-x-3">
+                                            <h4 class="text-xl font-bold">AWS Account</h4>
+                                            <span class="font-mono text-lg bg-white bg-opacity-20 px-3 py-1 rounded-lg" x-text="request.awsAccountId"></span>
+                                        </div>
+                                        <div class="flex items-center space-x-4 mt-2">
+                                            <span class="text-indigo-100 text-sm">Request ID: <span class="font-mono" x-text="request.id"></span></span>
+                                            <span class="text-indigo-100 text-sm">Submitted: <span x-text="request.submittedDate"></span></span>
+                                        </div>
+                                    </div>
+                                    <div class="text-right">
+                                        <div class="text-2xl font-bold" x-text="'$' + parseFloat(request.expectedCredits).toLocaleString()"></div>
+                                        <div class="flex items-center space-x-2">
+                                            <i class="fas fa-flag" :class="getPriorityColor(request.priority)"></i>
+                                            <span class="text-indigo-100 text-sm capitalize" x-text="request.priority + ' Priority'"></span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="p-8">
+                                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                                    <div class="space-y-6">
+                                        <div>
+                                            <h6 class="text-sm font-bold text-gray-900 uppercase tracking-wide mb-2">AWS Services</h6>
+                                            <div class="bg-gray-50 rounded-lg p-4">
+                                                <p class="text-gray-700" x-text="request.services"></p>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <h6 class="text-sm font-bold text-gray-900 uppercase tracking-wide mb-2">Use Case</h6>
+                                            <div class="bg-gray-50 rounded-lg p-4">
+                                                <p class="text-gray-700" x-text="request.useCase"></p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <h6 class="text-sm font-bold text-gray-900 uppercase tracking-wide mb-6">Application Progress</h6>
+                                        <div class="relative">
+                                            <div class="border-l-4 border-indigo-200 absolute h-full left-6"></div>
+                                            <div class="space-y-8">
+                                                <div class="flex items-center">
+                                                    <div class="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-full h-12 w-12 flex items-center justify-center text-white z-10 shadow-lg">
+                                                        <i class="fas fa-check text-sm"></i>
+                                                    </div>
+                                                    <div class="ml-6">
+                                                        <h5 class="font-bold text-gray-900">Request Submitted</h5>
+                                                        <p class="text-sm text-gray-600">Credit request has been successfully submitted</p>
+                                                        <span class="text-xs text-green-600 font-medium">✓ Completed</span>
+                                                    </div>
+                                                </div>
+
+                                                <div class="flex items-center">
+                                                    <div class="bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full h-12 w-12 flex items-center justify-center text-white z-10 shadow-lg">
+                                                        <i class="fas fa-file-alt text-sm"></i>
+                                                    </div>
+                                                    <div class="ml-6">
+                                                        <h5 class="font-bold text-gray-900">Documentation Review</h5>
+                                                        <p class="text-sm text-gray-600">Xammer has uploaded your documentation</p>
+                                                        <span class="text-xs text-green-600 font-medium">✓ Completed</span>
+                                                    </div>
+                                                </div>
+
+                                                <div class="flex items-center">
+                                                    <div class="bg-gradient-to-r from-yellow-500 to-orange-500 rounded-full h-12 w-12 flex items-center justify-center text-white z-10 shadow-lg animate-pulse-slow">
+                                                        <i class="fas fa-search text-sm"></i>
+                                                    </div>
+                                                    <div class="ml-6">
+                                                        <h5 class="font-bold text-gray-900">Technical Verification</h5>
+                                                        <p class="text-sm text-gray-600">AWS is verifying your use case and technical requirements</p>
+                                                        <span class="text-xs text-yellow-600 font-medium animate-pulse">⏳ In Progress</span>
+                                                    </div>
+                                                </div>
+
+                                                <div class="flex items-center opacity-40">
+                                                    <div class="bg-gray-300 rounded-full h-12 w-12 flex items-center justify-center z-10">
+                                                        <i class="fas fa-check-circle text-gray-500 text-sm"></i>
+                                                    </div>
+                                                    <div class="ml-6">
+                                                        <h5 class="font-bold text-gray-500">Credits Approved</h5>
+                                                        <p class="text-sm text-gray-400">Credits will be applied to your account</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+
+                    <div x-show="filteredRequests.length === 0" class="text-center py-16 animate-fade-in">
+                        <div class="bg-white rounded-2xl shadow-lg p-12 max-w-md mx-auto">
+                            <div class="bg-gradient-to-r from-indigo-100 to-purple-100 rounded-full h-24 w-24 flex items-center justify-center mx-auto mb-6">
+                                <i class="fas fa-file-invoice-dollar text-4xl text-indigo-600"></i>
+                            </div>
+                            <h4 class="text-xl font-bold text-gray-900 mb-2">No Credit Requests</h4>
+                            <p class="text-gray-600 mb-6">
+                                <span x-show="selectedFilter === 'all'">You haven't submitted any credit requests yet.</span>
+                                <span x-show="selectedFilter !== 'all'">No requests found with the selected filter.</span>
+                            </p>
+                            <button @click="showForm = true" x-show="selectedFilter === 'all'"
+                                    class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold py-3 px-6 rounded-xl hover:from-indigo-700 hover:to-purple-700 transition-all duration-300 transform hover:scale-105 shadow-lg">
+                                <i class="fas fa-plus mr-2"></i>Create Your First Request
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-12 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl p-8 border border-indigo-100">
+                    <h5 class="text-lg font-bold text-gray-900 mb-4 flex items-center">
+                        <i class="fas fa-lightbulb text-yellow-500 mr-2"></i>Credit Optimization Tips
+                    </h5>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div class="flex items-start space-x-3">
+                            <div class="bg-green-100 rounded-lg p-2">
+                                <i class="fas fa-chart-line text-green-600"></i>
+                            </div>
+                            <div>
+                                <h6 class="font-semibold text-gray-900">Monitor Usage</h6>
+                                <p class="text-sm text-gray-600">Set up CloudWatch alerts to track your credit consumption</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start space-x-3">
+                            <div class="bg-blue-100 rounded-lg p-2">
+                                <i class="fas fa-power-off text-blue-600"></i>
+                            </div>
+                            <div>
+                                <h6 class="font-semibold text-gray-900">Right-size Resources</h6>
+                                <p class="text-sm text-gray-600">Use appropriate instance types to maximize credit efficiency</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start space-x-3">
+                            <div class="bg-purple-100 rounded-lg p-2">
+                                <i class="fas fa-clock text-purple-600"></i>
+                            </div>
+                            <div>
+                                <h6 class="font-semibold text-gray-900">Schedule Workloads</h6>
+                                <p class="text-sm text-gray-600">Use spot instances and scheduled scaling for cost optimization</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+</div>
+
+<script>
+    fetch('/_sidebar.html')
+        .then(response => response.text())
+        .then(html => {
+            const parser = new DOMParser();
+            const sidebarDoc = parser.parseFromString(html, 'text/html');
+            sidebarDoc.head.querySelectorAll('link[rel="stylesheet"], style').forEach(elem => {
+                document.head.appendChild(elem.cloneNode(true));
+            });
+            document.getElementById('sidebar-container').innerHTML = sidebarDoc.body.innerHTML;
+            const alpineScriptTag = sidebarDoc.head.querySelector('script[src*="alpinejs"]');
+            if (alpineScriptTag) {
+                 const script = document.createElement('script');
+                 script.src = alpineScriptTag.src;
+                 script.defer = true;
+                 document.body.appendChild(script);
+            }
+        })
+        .catch(error => console.error('Error loading sidebar:', error));
+</script>
+
+<style>
+    [x-cloak] { display: none !important; }
+
+    .animate-fade-in {
+        animation: fadeIn 0.5s ease-in-out;
+    }
+
+    .animate-slide-up {
+        animation: slideUp 0.3s ease-out;
+    }
+
+    @keyframes fadeIn {
+        0% { opacity: 0; transform: translateY(10px); }
+        100% { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes slideUp {
+        0% { opacity: 0; transform: translateY(20px); }
+        100% { opacity: 1; transform: translateY(0); }
+    }
+</style>
+</body>
+</html>

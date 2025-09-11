@@ -1,6 +1,7 @@
-// File: src/main/java/com/xammer/cloud/config/SecurityConfig.java
 package com.xammer.cloud.config;
 
+import com.xammer.cloud.domain.Client;
+import com.xammer.cloud.domain.User;
 import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.security.CustomAuthenticationSuccessHandler;
@@ -8,6 +9,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -16,7 +19,9 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.firewall.HttpFirewall;
 import org.springframework.security.web.firewall.StrictHttpFirewall;
 
-import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
 
 import static org.springframework.security.config.Customizer.withDefaults;
 
@@ -30,35 +35,43 @@ public class SecurityConfig {
         this.authenticationSuccessHandler = authenticationSuccessHandler;
     }
 
-@Bean
-public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-    http
-        .cors(withDefaults())
-        .csrf(csrf -> csrf
-            .ignoringAntMatchers("/api/**", "/ws/**", "/login", "/logout")
-        )
-        .headers(headers -> headers.frameOptions().disable())
-        .authorizeHttpRequests((requests) -> requests
-            .antMatchers("/ws/**").permitAll()
-            // ADD "/gcp_*.html" TO THIS LIST
-            .antMatchers("/login", "/*.html", "/gcp_*.html", "/css/**", "/js/**", "/images/**", "/icons/**", "/webjars/**").permitAll()
-            .anyRequest().authenticated()
-        )
-        .formLogin((form) -> form
-            .loginPage("/login")
-            .successHandler(authenticationSuccessHandler)
-            .permitAll()
-        )
-        .logout((logout) -> logout
-            .logoutUrl("/logout")
-            .logoutSuccessUrl("/login?logout")
-            .invalidateHttpSession(true)
-            .deleteCookies("JSESSIONID")
-            .permitAll()
-        );
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        http
+                .cors(withDefaults())
+                .csrf(csrf -> csrf.disable())
+                .authorizeHttpRequests((requests) -> requests
+                        .antMatchers("/login", "/*.html", "/gcp_*.html", "/css/**", "/js/**", "/images/**", "/icons/**", "/webjars/**").permitAll()
+                        .antMatchers("/ws/**").permitAll()
+                                .antMatchers("/api/user/profile").authenticated() 
 
-    return http.build();
-}
+                        // ALL authenticated users can manage accounts
+                        .antMatchers("/api/xamops/account-manager/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_XAMOPS", "ROLE_BILLOPS")
+                        // XAMOPS and ADMIN specific endpoints
+                        .antMatchers("/api/xamops/**").hasAnyAuthority("ROLE_XAMOPS", "ROLE_ADMIN")
+                        .antMatchers("/api/cloudlist/**").hasAnyAuthority("ROLE_XAMOPS", "ROLE_ADMIN")
+                        .antMatchers("/api/cloudmap/**").hasAnyAuthority("ROLE_XAMOPS", "ROLE_ADMIN")
+                        .antMatchers("/api/costing/**").hasAnyAuthority("ROLE_XAMOPS", "ROLE_ADMIN")
+                        .antMatchers("/api/finops/**").hasAnyAuthority("ROLE_XAMOPS", "ROLE_ADMIN")
+                        .antMatchers("/api/metrics/**").hasAnyAuthority("ROLE_XAMOPS", "ROLE_ADMIN")
+                        .antMatchers("/api/security/**").hasAnyAuthority("ROLE_XAMOPS", "ROLE_ADMIN")
+                        .anyRequest().authenticated()
+                )
+                .formLogin((form) -> form
+                        .loginPage("/login")
+                        .successHandler(authenticationSuccessHandler)
+                        .permitAll()
+                )
+                .logout((logout) -> logout
+                        .logoutUrl("/logout")
+                        .logoutSuccessUrl("/login?logout")
+                        .invalidateHttpSession(true)
+                        .deleteCookies("JSESSIONID")
+                        .permitAll()
+                );
+
+        return http.build();
+    }
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -68,12 +81,21 @@ public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Excepti
     @Bean
     public UserDetailsService userDetailsService(UserRepository userRepository) {
         return username -> userRepository.findByUsername(username)
-                .map(user -> new ClientUserDetails(
-                        user.getUsername(),
-                        user.getPassword(),
-                        new ArrayList<>(),
-                        user.getClient().getId()
-                ))
+                .map(user -> {
+                    Long clientId = Optional.ofNullable(user.getClient())
+                            .map(Client::getId)
+                            .orElse(null);
+                    
+                    GrantedAuthority authority = new SimpleGrantedAuthority(user.getRole());
+                    List<GrantedAuthority> authorities = Collections.singletonList(authority);
+
+                    return new ClientUserDetails(
+                            user.getUsername(),
+                            user.getPassword(),
+                            authorities,
+                            clientId
+                    );
+                })
                 .orElseThrow(() -> new UsernameNotFoundException("User not found: " + username));
     }
 
