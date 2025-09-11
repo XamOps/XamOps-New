@@ -1,55 +1,81 @@
 package com.xammer.billops.domain;
 
-import javax.persistence.*;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import jakarta.persistence.*;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
 
 @Entity
-@Table(name = "cloud_accounts")
+@Data
+@NoArgsConstructor
 public class CloudAccount {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "account_name")
+    @Column(nullable = false)
     private String accountName;
 
-    // ADDED: AWS Account ID field
-    @Column(name = "aws_account_id")
+    @Column(unique = true)
     private String awsAccountId;
 
-    // Your other existing fields...
+    @Column
+    private String externalId;
 
-    // Constructors
-    public CloudAccount() {}
+    @Column
+    private String accessType;
 
-    public CloudAccount(String accountName, String awsAccountId) {
+    @Column(unique = true)
+    private String roleArn;
+
+    @Column(columnDefinition = "TEXT")
+    private String gcpServiceAccountKey;
+
+    @Column
+    private String gcpWorkloadIdentityPoolId;
+
+    @Column
+    private String gcpWorkloadIdentityProviderId;
+
+    @Column
+    private String gcpServiceAccountEmail;
+
+    @Column
+    private String gcpProjectId;
+
+    @Column(nullable = false)
+    private String status = "PENDING"; // PENDING, CONNECTED, FAILED
+
+    @Column(nullable = false)
+    private String provider; // AWS or GCP
+
+    // ✅ ADD THIS FIELD FOR GCP BILLING
+    @Column
+    private String billingExportTable;
+
+    @Column(name = "azure_tenant_id")
+    private String azureTenantId;
+
+    @Column(name = "azure_subscription_id")
+    private String azureSubscriptionId;
+
+    @Column(name = "azure_client_id")
+    private String azureClientId;
+
+    @Column(name = "azure_client_secret")
+    private String azureClientSecret;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "client_id", nullable = false)
+    @JsonIgnore
+    private Client client;
+
+    public CloudAccount(String accountName, String externalId, String accessType, Client client) {
         this.accountName = accountName;
-        this.awsAccountId = awsAccountId;
-    }
-
-    // ADDED: Getter and Setter for AWS Account ID
-    public String getAwsAccountId() {
-        return awsAccountId;
-    }
-
-    public void setAwsAccountId(String awsAccountId) {
-        this.awsAccountId = awsAccountId;
-    }
-
-    // Your other existing getters and setters...
-    public Long getId() {
-        return id;
-    }
-
-    public void setId(Long id) {
-        this.id = id;
-    }
-
-    public String getAccountName() {
-        return accountName;
-    }
-
-    public void setAccountName(String accountName) {
-        this.accountName = accountName;
+        this.externalId = externalId;
+        this.accessType = accessType;
+        this.client = client;
     }
 }

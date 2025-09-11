@@ -32,13 +32,11 @@
                 </div>
             </div>
 
-            <!-- Loading State -->
             <div x-show="loading" class="loading">
                 <i class="fas fa-spinner fa-spin text-3xl mb-4"></i>
                 <p class="text-lg">Loading billing data...</p>
             </div>
 
-            <!-- Error State -->
             <div x-show="error" class="error">
                 <i class="fas fa-exclamation-triangle text-3xl mb-4"></i>
                 <p class="text-lg mb-4" x-text="error"></p>
@@ -47,11 +45,8 @@
                 </button>
             </div>
 
-            <!-- Success State - Show charts -->
             <div x-show="!loading && !error && billingData.costHistory && billingData.serviceBreakdown" class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                <!-- Cost History and Details -->
                 <div class="lg:col-span-2 space-y-8">
-                    <!-- Cost History Chart -->
                     <div class="bg-white p-6 rounded-xl shadow-lg">
                         <div class="flex items-center justify-between mb-6">
                             <h4 class="font-semibold text-lg text-gray-800">Monthly Cost Trend</h4>
@@ -62,7 +57,6 @@
                         </div>
                     </div>
 
-                    <!-- Detailed Billing Table -->
                     <div class="bg-white p-6 rounded-xl shadow-lg">
                         <h4 class="font-semibold text-lg text-gray-800 mb-6">Service Cost Details</h4>
                         <div x-show="billingData.serviceBreakdown && billingData.serviceBreakdown.length > 0">
@@ -100,7 +94,6 @@
                     </div>
                 </div>
 
-                <!-- Service Breakdown Chart and Summary -->
                 <div class="space-y-8">
                     <div class="bg-white p-6 rounded-xl shadow-lg">
                         <h4 class="font-semibold text-lg text-gray-800 mb-6">Service Distribution</h4>
@@ -109,7 +102,6 @@
                         </div>
                     </div>
 
-                    <!-- Cost Summary Card -->
                     <div class="bg-gradient-to-br from-blue-500 to-purple-600 p-6 rounded-xl shadow-lg text-white">
                         <h4 class="font-semibold text-lg mb-4">Cost Summary</h4>
                         <div class="space-y-3">
@@ -130,18 +122,16 @@
                 </div>
             </div>
 
-            <!-- Debug Toggle -->
             <button @click="debugMode = !debugMode"
                     class="fixed bottom-4 right-4 bg-gray-600 text-white p-3 rounded-full shadow-lg hover:bg-gray-700 transition">
                 <i class="fas fa-bug"></i>
             </button>
 
-            <!-- Debug Info -->
             <div x-show="debugMode" class="fixed bottom-16 right-4 bg-yellow-50 p-4 rounded-lg shadow-lg border max-w-sm">
                 <h5 class="font-semibold mb-2">Debug Info</h5>
                 <div class="text-xs space-y-1">
                     <p><span class="font-medium">Account ID:</span> <span x-text="selectedAccountId"></span></p>
-                    <p><span class="font-medium">API URL:</span> <span x-text="`/api/billing/billing/${selectedAccountId}`"></span></p>
+                    <p><span class="font-medium">API URL:</span> <span x-text="`/api/billops/${selectedAccountId}`"></span></p>
                     <p><span class="font-medium">Cost History:</span> <span x-text="(billingData.costHistory || []).length"></span> items</p>
                     <p><span class="font-medium">Services:</span> <span x-text="(billingData.serviceBreakdown || []).length"></span> items</p>
                 </div>
@@ -186,8 +176,10 @@
                 try {
                     console.log('Fetching billing data for account:', this.selectedAccountId);
 
-                    // Using relative URL for Vite proxy to work
-                    const response = await fetch(`/api/billing/billing/${this.selectedAccountId}`);
+                    // Corrected URL
+const response = await fetch(`/api/billops/${this.selectedAccountId}`, {
+    credentials: 'include'
+});
 
                     console.log('API Response status:', response.status);
 

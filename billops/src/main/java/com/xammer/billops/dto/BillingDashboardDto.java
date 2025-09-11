@@ -37,6 +37,24 @@ public class BillingDashboardDto {
     }
 
     public static class ServiceBreakdown {
-        private String serviceName; // Changed from 'name' to match
+        private String serviceName;
+
+        // Default constructor
+        public ServiceBreakdown() {}
+
+        // Constructor with arguments
+        public ServiceBreakdown(String serviceName) {
+            this.serviceName = serviceName;
+        }
+
+        // Getter for serviceName
+        public String getServiceName() {
+            return serviceName;
+        }
+
+        // Setter for serviceName
+        public void setServiceName(String serviceName) {
+            this.serviceName = serviceName;
+        }
     }
 }

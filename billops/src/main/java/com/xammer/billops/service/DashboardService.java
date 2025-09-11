@@ -23,11 +23,11 @@ public class DashboardService {
     // --- METHOD UPDATED to accept and pass year/month ---
     public DashboardDataDto getDashboardData(CloudAccount account, Integer year, Integer month) {
         CompletableFuture<List<Map<String, Object>>> costHistoryFuture = CompletableFuture.supplyAsync(() -> costService.getCostHistory(account), executor);
-        CompletableFuture<Double> forecastFuture = CompletableFuture.supplyAsync(() -> costService.getForecastedSpend(account), executor);
+        //CompletableFuture<Double> forecastFuture = CompletableFuture.supplyAsync(() -> costService.getForecastedSpend(account), executor);
         CompletableFuture<List<Map<String, Object>>> costByServiceFuture = CompletableFuture.supplyAsync(() -> costService.getCostByDimension(account, "SERVICE", year, month), executor);
         CompletableFuture<List<Map<String, Object>>> costByRegionFuture = CompletableFuture.supplyAsync(() -> costService.getCostByDimension(account, "REGION", year, month), executor);
 
-        CompletableFuture.allOf(costHistoryFuture, costByServiceFuture, costByRegionFuture, forecastFuture).join();
+        //CompletableFuture.allOf(costHistoryFuture, costByServiceFuture, costByRegionFuture, forecastFuture).join();
 
         try {
             List<Map<String, Object>> costHistory = costHistoryFuture.get();
@@ -39,7 +39,7 @@ public class DashboardService {
             return DashboardDataDto.builder()
                     .monthToDateSpend(mtdSpend)
                     .lastMonthSpend(lastMonthSpend)
-                    .forecastedSpend(forecastFuture.get())
+                    //forecastedSpend(forecastFuture.get())
                     .costHistory(costHistory)
                     .costByService(costByService)
                     .costByRegion(costByRegionFuture.get())
