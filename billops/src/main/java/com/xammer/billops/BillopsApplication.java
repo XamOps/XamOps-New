@@ -6,7 +6,7 @@ import org.springframework.cloud.client.discovery.EnableDiscoveryClient; // 1. I
 
 @SpringBootApplication
 @EnableDiscoveryClient // 2. ADD THIS ANNOTATION
-public class BillopsApplication {
+public class froBillopsApplication {
 
     public static void main(String[] args) {
         SpringApplication.run(BillopsApplication.class, args);
