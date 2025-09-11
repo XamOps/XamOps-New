@@ -6,9 +6,7 @@ WORKDIR /app
 # Copy the entire project context into the builder stage
 # This is necessary for a multi-module Maven project to resolve dependencies
 COPY . .
-# Build only the 'xamops-service' module and its dependencies
-# -pl selects the project, -am builds its dependencies too
-# -DskipTests skips running tests during the image build
+
 RUN mvn clean package -pl xamops-service -am -DskipTests
 # --- Stage 2: The Final Image ---
 # Use a lightweight JRE-only image for a smaller, more secure final container
