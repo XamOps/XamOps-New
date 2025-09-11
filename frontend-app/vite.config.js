@@ -1,4 +1,3 @@
-// File: frontend-app/vite.config.js
 import { defineConfig } from 'vite';
 
 export default defineConfig({
@@ -16,6 +15,15 @@ export default defineConfig({
         target: 'http://localhost:8082',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/billing/, '/api/billing'),
+      },
+
+      // ✅ Proxy billops API requests
+      '/api/billops': {
+        target: 'http://localhost:8082', // or the correct backend port
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/billops/, '/api/billops'),
+        cookieDomainRewrite: {
+                '*': 'localhost
       },
 
       // Proxy authentication requests to xamops

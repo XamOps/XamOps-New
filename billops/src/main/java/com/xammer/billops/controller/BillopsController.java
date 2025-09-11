@@ -8,6 +8,7 @@ import com.xammer.billops.dto.DashboardDataDto;
 import com.xammer.billops.repository.CloudAccountRepository;
 import com.xammer.billops.repository.UserRepository;
 import com.xammer.billops.service.*;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -22,8 +23,8 @@ import java.util.Map;
 import java.util.Optional;
 
 @RestController
-@RequestMapping("/api/billing")
-@CrossOrigin(origins = "http://localhost:5173") // Allow frontend access
+@RequestMapping("/api/billops")
+@CrossOrigin(origins = "http://localhost:5173", allowCredentials = "true")
 public class BillopsController {
     private final DashboardService dashboardService;
     private final CostService costService;
@@ -58,13 +59,24 @@ public class BillopsController {
         return ResponseEntity.ok("Billops service is running successfully!");
     }
 
-    // Main billing dashboard endpoint - THIS IS THE KEY ONE FOR YOUR FRONTEND
-    @GetMapping("/billing/{accountId}")
-    public ResponseEntity<BillingDashboardDto> getBillingData(@PathVariable String accountId) {
+    // Main billing dashboard endpoint
+    @GetMapping("/{accountId}")
+    public ResponseEntity<BillingDashboardDto> getBillingData(@PathVariable Long accountId,
+                                                              HttpServletRequest request,
+                                                              Authentication authentication) {
+        System.out.println("=== DEBUG INFO ===");
+        System.out.println("Request URI: " + request.getRequestURI());
+        System.out.println("Accept Header: " + request.getHeader("Accept"));
+        System.out.println("Account ID: " + accountId);
+        System.out.println("Authentication: " + (authentication != null ? authentication.getName() : "null"));
+
         try {
-            BillingDashboardDto data = billingService.getBillingData(accountId);
+            BillingDashboardDto data = billingService.getBillingData(String.valueOf(accountId));
+            System.out.println("Data retrieved successfully: " + (data != null));
             return ResponseEntity.ok(data);
         } catch (Exception e) {
+            System.err.println("Error occurred: " + e.getMessage());
+            e.printStackTrace();
             return ResponseEntity.internalServerError().build();
         }
     }

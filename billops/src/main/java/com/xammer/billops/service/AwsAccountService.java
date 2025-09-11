@@ -56,15 +56,12 @@ public class AwsAccountService {
     }
 
     @Transactional
-    public CloudAccount verifyAccount(VerifyAccountRequest request) {
-        CloudAccount account = cloudAccountRepository.findByExternalId(request.getExternalId())
-                .orElseThrow(() -> new IllegalArgumentException("Invalid or expired verification request."));
-
-        String roleArn = String.format("arn:aws:iam::%s:role/%s", request.getAwsAccountId(), request.getRoleName());
-        account.setAwsAccountId(request.getAwsAccountId());
-        account.setRoleArn(roleArn);
-        account.setStatus("CONNECTED");
-
-        return cloudAccountRepository.save(account);
+    public void verifyAccount(VerifyAccountRequest request) {
+        Long accountId = request.getAccountId();
+        CloudAccount account = cloudAccountRepository.findById(accountId)
+                .orElseThrow(() -> new IllegalArgumentException("Cloud account not found with id: " + accountId));
+        account.setStatus("VERIFIED");
+        cloudAccountRepository.save(account);
     }
+
 }
