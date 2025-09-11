@@ -36,6 +36,7 @@ public class ResourceService {
     }
 
     public List<Map<String, Object>> getResourcesInRegion(CloudAccount account, String region, String serviceName) {
+        logger.debug("getResourcesInRegion called with accountId={}, region={}, serviceName={}", account != null ? account.getId() : null, region, serviceName);
         logger.info("Attempting to fetch resources in region '{}' for service name: '{}'", region, serviceName);
         String lowerServiceName = serviceName.toLowerCase();
 

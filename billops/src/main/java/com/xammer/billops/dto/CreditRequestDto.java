@@ -1,41 +1,20 @@
-package com.xammer.billops.domain;
+package com.xammer.billops.dto;
 
-import javax.persistence.*;
 import java.math.BigDecimal;
 import java.util.Date;
 
-@Entity
-@Table(name = "credit_requests")
-public class CreditRequest {
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+public class CreditRequestDto {
     private Long id;
-
-    @Column(name = "aws_account_id", nullable = false)
     private String awsAccountId;
-
-    @Column(name = "expected_credits", nullable = false)
     private BigDecimal expectedCredits;
-
-    @Column(name = "services", columnDefinition = "TEXT")
     private String services;
-
-    @Column(name = "use_case", columnDefinition = "TEXT")
     private String useCase;
-
-    @Column(name = "status", nullable = false)
-    private String status = "submitted";
-
-    @Column(name = "submitted_date")
-    @Temporal(TemporalType.TIMESTAMP)
+    private String status;
     private Date submittedDate;
-
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id", nullable = false)
-    private User user;
+    private Long userId;
 
     // Default constructor
-    public CreditRequest() {}
+    public CreditRequestDto() {}
 
     // Getters and setters
     public Long getId() { return id; }
@@ -59,6 +38,6 @@ public class CreditRequest {
     public Date getSubmittedDate() { return submittedDate; }
     public void setSubmittedDate(Date submittedDate) { this.submittedDate = submittedDate; }
 
-    public User getUser() { return user; }
-    public void setUser(User user) { this.user = user; }
+    public Long getUserId() { return userId; }
+    public void setUserId(Long userId) { this.userId = userId; }
 }
