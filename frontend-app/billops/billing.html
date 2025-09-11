@@ -1,141 +1,243 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" >
 <head>
-    <meta charset="UTF-8">
-    <title>XamOps - Billing Dashboard</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.0/dist/cdn.min.js" defer></script> -->
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Credits - XamOps</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/date-fns@2.30.0/index.min.js"></script>
-    <script type="module" src="/src/main.js"></script>
+    <link
+            rel="stylesheet"
+            href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css"
+    />
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
         [x-cloak] { display: none !important; }
-        .kpi-card { transition: all 0.2s ease-in-out; }
-        .kpi-card:hover { transform: translateY(-3px); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.07), 0 4px 6px -2px rgba(0,0,0,0.05); }
-        .skeleton { background-color: #e2e8f0; animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
-        .table-row-hover:hover { background-color: #f9fafb; }
-        .clickable { cursor: pointer; }
+        .focus-visible { outline: 2px solid #4f46e5; outline-offset: 2px; }
+        .animate-fade-in { animation: fadeIn 0.5s ease-in-out; }
+        .animate-slide-up { animation: slideUp 0.3s ease-out; }
+        @keyframes fadeIn {
+            0% { opacity: 0; transform: translateY(10px); }
+            100% { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes slideUp {
+            0% { opacity: 0; transform: translateY(20px); }
+            100% { opacity: 1; transform: translateY(0); }
+        }
     </style>
 </head>
-<body>
 
-<div class="flex">
-    <aside class="fixed top-0 left-0 h-screen w-64 bg-white border-r border-gray-200">
-        <div data-include-sidebar></div>
-    </aside>
+<body class="bg-gradient-to-br from-gray-50 to-gray-100 min-h-screen" x-data="{
+    showForm: false,
+    creditRequests: [],
+    selectedFilter: 'all',
+    userId: 1, // Set the logged-in user ID here as per your auth system
+    newRequest: {
+        awsAccountId: '',
+        expectedCredits: '',
+        services: '',
+        useCase: '',
+        priority: 'medium'
+    },
+    notification: '',
+    notificationType: '',
 
-    <div class="ml-64 flex-1">
-        <main class="flex-1 flex flex-col min-h-screen" x-data="billingDashboard()">
-            <header class="bg-white/80 backdrop-blur-sm h-20 flex items-center justify-between px-8 sticky top-0 z-10 border-b">
-                <div>
-                    <h1 class="text-2xl font-bold text-gray-800">Billing Dashboard</h1>
-                    <p class="text-sm text-gray-500">Monitor your cloud spending and billing metrics</p>
+    init() {
+        this.fetchRequests();
+    },
+
+    async fetchRequests() {
+        try {
+            const response = await fetch(`http://localhost:8082/api/billing/credits/user/${this.userId}`);
+            if (!response.ok) throw new Error('Network response was not ok');
+            this.creditRequests = await response.json();
+        } catch (error) {
+            console.error('Error fetching credit requests:', error);
+            this.showNotification('Could not fetch credit requests from the server.', 'error');
+        }
+    },
+
+    async submitRequest() {
+        if (!this.validateForm()) {
+            this.showNotification('Please fill all fields correctly.', 'error');
+            return;
+        }
+        try {
+            const payload = {...this.newRequest, userId: this.userId};
+            const response = await fetch('http://localhost:8082/api/billing/credits', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!response.ok)
+                throw new Error('Submission failed with status ' + response.status);
+
+            await this.fetchRequests();
+            this.resetForm();
+            this.showForm = false;
+            this.showNotification('Request submitted successfully!', 'success');
+        } catch (error) {
+            console.error('Error submitting credit request:', error);
+            this.showNotification('Failed to submit request. Please check the console.', 'error');
+        }
+    },
+
+    validateForm() {
+        return this.newRequest.awsAccountId.length > 10 &&
+               Number(this.newRequest.expectedCredits) > 0 &&
+               this.newRequest.services.length > 3 &&
+               this.newRequest.useCase.length > 5;
+    },
+
+    resetForm() {
+        this.newRequest = { awsAccountId: '', expectedCredits: '', services: '', useCase: '', priority: 'medium' };
+    },
+
+    get filteredRequests() {
+        if (this.selectedFilter === 'all') return this.creditRequests;
+        return this.creditRequests.filter(req => req.status === this.selectedFilter);
+    },
+
+    showNotification(message, type) {
+        this.notification = message;
+        this.notificationType = type;
+        setTimeout(() => this.notification = '', 3000);
+    },
+
+    advanceStatus(request) {
+        const statuses = ['submitted', 'documentation', 'verification', 'approved', 'rejected'];
+        const currentIndex = statuses.indexOf(request.status);
+        if (currentIndex >= 0 && currentIndex < statuses.length - 2) {
+            request.status = statuses[currentIndex + 1];
+            // Optional: update status on server here via PUT
+        }
+    }
+}" x-init="init()">
+
+<div class="flex h-screen">
+    <div id="sidebar-container" class="flex-shrink-0"></div>
+    <div class="flex-1 flex flex-col overflow-hidden">
+        <div class="bg-white shadow-sm border-b border-gray-200">
+            <div class="container mx-auto px-6 py-6">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <h3 class="text-gray-900 text-3xl font-bold">AWS Credits Management</h3>
+                        <p class="text-gray-600 mt-1">Request and track your AWS credit applications</p>
+                    </div>
+                    <div class="flex items-center space-x-6">
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-indigo-600" x-text="'$' + creditRequests.reduce((sum, req) => sum + parseFloat(req.expectedCredits || 0), 0).toLocaleString()"></div>
+                            <div class="text-xs text-gray-500">Total Requested</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-orange-600" x-text="creditRequests.filter(req => req.status !== 'approved' && req.status !== 'rejected').length"></div>
+                            <div class="text-xs text-gray-500">Pending</div>
+                        </div>
+                        <button @click="showForm = true" class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold py-3 px-6 rounded-xl hover:from-indigo-700 hover:to-purple-700 transition-all duration-300 transform hover:scale-105 shadow-lg">
+                            <i class="fas fa-plus mr-2"></i>New Request
+                        </button>
+                    </div>
                 </div>
-                <div class="flex items-center gap-4">
-                    <select x-model="selectedAccountId" @change="fetchDashboardData()" class="border-gray-300 rounded-md shadow-sm">
-                        <template x-for="account in accounts" :key="account.id">
-                            <option :value="account.id" x-text="account.accountName"></option>
-                        </template>
+            </div>
+        </div>
+
+        <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-8">
+            <div x-show="notification" x-transition class="fixed top-6 right-6 z-50" role="alert" aria-live="polite">
+                <div :class="{
+              'bg-green-600': notificationType==='success',
+              'bg-red-500': notificationType==='error',
+              'bg-blue-600': notificationType==='info'
+            }" class="text-white px-4 py-2 rounded shadow">
+                    <span x-text="notification"></span>
+                </div>
+            </div>
+
+            <div x-show="showForm" x-cloak class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 backdrop-blur-sm">
+                <div @click.away="showForm = false" class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-3xl mx-4 max-h-[90vh] overflow-y-auto animate-slide-up">
+                    <div class="flex justify-between items-center mb-8">
+                        <div>
+                            <h4 class="text-2xl font-bold text-gray-900">Request AWS Credits</h4>
+                            <p class="text-gray-600 mt-1">Submit a new credit application for your AWS account</p>
+                        </div>
+                        <button @click="showForm = false" class="text-gray-400 hover:text-gray-600 transition-colors" aria-label="Close form">
+                            <i class="fas fa-times text-xl"></i>
+                        </button>
+                    </div>
+                    <form @submit.prevent="submitRequest">
+                        <div class="space-y-4">
+                            <input type="text" x-model="newRequest.awsAccountId" placeholder="AWS Account ID (e.g., 1234-5678-9012)"
+                                   class="w-full p-2 border rounded focus-visible" :class="{'border-red-400': newRequest.awsAccountId && newRequest.awsAccountId.length < 11}"
+                                   required aria-required="true"/>
+                            <input type="number" x-model="newRequest.expectedCredits" placeholder="Expected Credits ($)"
+                                   class="w-full p-2 border rounded focus-visible" :class="{'border-red-400': newRequest.expectedCredits && Number(newRequest.expectedCredits) <= 0}"
+                                   required aria-required="true"/>
+                            <textarea x-model="newRequest.services" placeholder="AWS Services (e.g., EC2, S3, RDS)"
+                                      class="w-full p-2 border rounded focus-visible" rows="3"
+                                      :class="{'border-red-400': newRequest.services && newRequest.services.length < 4}"
+                                      required aria-required="true"></textarea>
+                            <textarea x-model="newRequest.useCase" placeholder="Project Use Case"
+                                      class="w-full p-2 border rounded focus-visible" rows="5"
+                                      :class="{'border-red-400': newRequest.useCase && newRequest.useCase.length < 6}"
+                                      required aria-required="true"></textarea>
+                        </div>
+                        <div class="mt-8 flex justify-end space-x-4 pt-6 border-t border-gray-200">
+                            <button type="button" @click="showForm = false; resetForm()"
+                                    class="bg-white text-gray-700 font-semibold py-3 px-6 rounded-xl border-2 border-gray-300 hover:bg-gray-50 hover:border-gray-400 transition-all duration-200 transform hover:scale-105">
+                                Cancel
+                            </button>
+                            <button type="submit" :disabled="!validateForm()"
+                                    class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold py-3 px-8 rounded-xl hover:from-indigo-700 hover:to-purple-700 transition-all duration-300 transform hover:scale-105 shadow-lg disabled:opacity-50">
+                                Submit Request
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <div class="space-y-6 mt-6">
+                <div class="flex items-center space-x-4 mb-6">
+                    <select x-model="selectedFilter" class="p-2 border rounded w-48 focus-visible" aria-label="Filter credit requests by status">
+                        <option value="all">All Statuses</option>
+                        <option value="submitted">Submitted</option>
+                        <option value="documentation">Documentation</option>
+                        <option value="verification">Verification</option>
+                        <option value="approved">Approved</option>
+                        <option value="rejected">Rejected</option>
                     </select>
-                    <select x-model="selectedMonth" @change="fetchDashboardData()" class="border-gray-300 rounded-md shadow-sm">
-                        <template x-for="month in months" :key="month.value">
-                            <option :value="month.value" x-text="month.name"></option>
-                        </template>
-                    </select>
-                    <select x-model="selectedYear" @change="fetchDashboardData()" class="border-gray-300 rounded-md shadow-sm">
-                        <template x-for="year in years" :key="year">
-                            <option :value="year" x-text="year"></option>
-                        </template>
-                    </select>
-                     <button @click="downloadReport()" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition">
-                        <i class="fas fa-download mr-2"></i>Download Report
-                    </button>
-                </div>
-            </header>
-
-            <div class="flex-1 p-8 space-y-8">
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                    <div class="kpi-card bg-white rounded-lg p-6 border">
-                        <h3 class="text-gray-500">Month-to-Date Spend</h3>
-                        <p class="text-3xl font-bold text-gray-800" x-text="formatCurrency(kpis.mtd)"></p>
-                    </div>
-                    <div class="kpi-card bg-white rounded-lg p-6 border">
-                        <h3 class="text-gray-500">Last Month's Spend</h3>
-                        <p class="text-3xl font-bold text-gray-800" x-text="formatCurrency(kpis.lastMonth)"></p>
-                    </div>
-                    <div class="kpi-card bg-white rounded-lg p-6 border">
-                         <h3 class="text-gray-500">Forecasted Spend</h3>
-                        <p class="text-3xl font-bold text-gray-800" x-text="formatCurrency(kpis.forecast)"></p>
-                    </div>
-                    <div class="kpi-card bg-white rounded-lg p-6 border">
-                        <h3 class="text-gray-500">Potential Savings</h3>
-                        <p class="text-3xl font-bold text-green-600" x-text="formatCurrency(kpis.savings)"></p>
-                    </div>
                 </div>
 
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                    <div class="lg:col-span-2 bg-white rounded-lg p-6 border">
-                        <h3 class="text-lg font-semibold text-gray-700">Last 6 Months Cost</h3>
-                        <canvas id="costHistoryChart"></canvas>
+                <template x-for="request in filteredRequests" :key="request.id">
+                    <div class="bg-white rounded-lg shadow-md p-6 animate-fade-in" :aria-label="'Request ' + request.id + ' for AWS Account ' + request.awsAccountId">
+                        <div class="flex justify-between items-start mb-4">
+                            <div>
+                                <h4 class="text-lg font-semibold">
+                                    Request for <span class="font-mono text-indigo-600" x-text="request.awsAccountId"></span>
+                                </h4>
+                                <p class="text-sm text-gray-500">
+                                    ID: <span x-text="request.id"></span> |
+                                    Status:
+                                    <span class="capitalize font-semibold"
+                                          :class="{
+                        'text-gray-600': request.status === 'submitted',
+                        'text-yellow-600': request.status === 'documentation',
+                        'text-blue-600': request.status === 'verification',
+                        'text-green-600': request.status === 'approved',
+                        'text-red-600': request.status === 'rejected'
+                      }"
+                                          x-text="request.status"></span>
+                                </p>
+                            </div>
+                            <button @click="advanceStatus(request)" class="bg-gray-200 text-xs font-semibold py-1 px-3 rounded-full hover:bg-gray-300 focus-visible" aria-label="Advance status of request">
+                                Advance Status
+                            </button>
+                        </div>
+                        <p><strong>Expected Credits: </strong>$<span x-text="request.expectedCredits"></span></p>
+                        <p><strong>Services: </strong><span x-text="request.services"></span></p>
+                        <p><strong>Use Case: </strong><span x-text="request.useCase"></span></p>
                     </div>
-                    <div class="bg-white rounded-lg p-6 border">
-                        <h3 class="text-lg font-semibold text-gray-700">Cost by Service</h3>
-                        <canvas id="serviceBreakdownChart"></canvas>
-                    </div>
-                </div>
+                </template>
 
-                <div class="bg-white rounded-lg border">
-                    <div class="p-6">
-                        <h3 class="text-lg font-semibold text-gray-700">Detailed Cost Breakdown</h3>
-                        <p class="text-sm text-gray-500">Click on a service to see a breakdown by region, then click a region to see resources.</p>
-                    </div>
-                    <table class="min-w-full divide-y divide-gray-200">
-                        <thead class="bg-gray-50">
-                            <tr>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Service / Region / Resource</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
-                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Cost (USD)</th>
-                            </tr>
-                        </thead>
-                        <tbody class="bg-white divide-y divide-gray-200">
-                            <template x-for="service in detailedBreakdown" :key="service.name">
-                                <tr>
-                                    <td @click="toggleService(service)" class="px-6 py-4 whitespace-nowrap clickable font-medium text-blue-600">
-                                        <i class="fas" :class="{'fa-chevron-down': service.open, 'fa-chevron-right': !service.open}"></i>
-                                        <span class="ml-2" x-text="service.name"></span>
-                                    </td>
-                                    <td></td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-right font-semibold" x-text="formatCurrency(service.cost)"></td>
-                                </tr>
-                                <template x-if="service.open">
-                                    <template x-for="region in service.regions" :key="region.name">
-                                        <tr class="bg-gray-50">
-                                            <td @click="toggleRegion(service, region)" class="pl-12 pr-6 py-3 whitespace-nowrap clickable text-gray-700">
-                                                 <i class="fas" :class="{'fa-chevron-down': region.open, 'fa-chevron-right': !region.open}"></i>
-                                                <span class="ml-2" x-text="region.name"></span>
-                                            </td>
-                                            <td></td>
-                                            <td class="px-6 py-3 whitespace-nowrap text-right" x-text="formatCurrency(region.cost)"></td>
-                                        </tr>
-                                        <template x-if="region.open">
-                                             <template x-for="resource in region.resources" :key="resource.id">
-                                                <tr class="bg-gray-100">
-                                                    <td class="pl-20 pr-6 py-2 whitespace-nowrap text-sm text-gray-600" x-text="resource.name"></td>
-                                                    <td class="px-6 py-2 whitespace-nowrap text-sm text-gray-500" x-text="resource.id"></td>
-                                                    <td class="px-6 py-2 whitespace-nowrap text-right text-sm" x-text="formatCurrency(resource.cost)"></td>
-                                                </tr>
-                                            </template>
-                                        </template>
-                                    </template>
-                                </template>
-                            </template>
-                        </tbody>
-                    </table>
+                <div x-show="!creditRequests.length" class="text-center py-16 text-gray-500 font-semibold">
+                    You haven't submitted any credit requests yet.
                 </div>
             </div>
         </main>
@@ -143,141 +245,13 @@
 </div>
 
 <script>
-    function billingDashboard() {
-        return {
-            isLoading: true,
-            accounts: [],
-            selectedAccountId: null,
-            selectedMonth: new Date().getMonth() + 1,
-            selectedYear: new Date().getFullYear(),
-            months: Array.from({ length: 12 }, (_, i) => ({ name: new Date(0, i).toLocaleString('default', { month: 'long' }), value: i + 1 })),
-            years: Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i),
-            kpis: { mtd: 0, lastMonth: 0, forecast: 0, savings: 125.50 }, // Placeholder savings
-            costHistoryChart: null,
-            serviceBreakdownChart: null,
-            detailedBreakdown: [],
-            
-            init() {
-                this.fetchAccounts();
-            },
-
-            async fetchAccounts() {
-                try {
-                    const response = await fetch('/api/billing/accounts');
-                    this.accounts = await response.json();
-                    if (this.accounts.length > 0) {
-                        this.selectedAccountId = this.accounts[0].id;
-                        this.fetchDashboardData();
-                    } else {
-                        this.isLoading = false;
-                    }
-                } catch (error) {
-                    console.error('Error fetching accounts:', error);
-                    this.isLoading = false;
-                }
-            },
-
-            fetchDashboardData() {
-                if (!this.selectedAccountId) return;
-                this.isLoading = true;
-                const url = `/api/billing/data/${this.selectedAccountId}?year=${this.selectedYear}&month=${this.selectedMonth}`;
-                
-                fetch(url)
-                    .then(res => res.json())
-                    .then(data => {
-                        this.kpis.mtd = data.monthToDateSpend;
-                        this.kpis.lastMonth = data.lastMonthSpend;
-                        this.kpis.forecast = data.forecastedSpend;
-                        
-                        this.detailedBreakdown = data.costByService.map(s => ({ ...s, open: false, regions: [] }));
-
-                        this.initCostHistoryChart(data.costHistory);
-                        this.initServiceBreakdownChart(data.costByService);
-
-                        this.isLoading = false;
-                    })
-                    .catch(err => {
-                        console.error('Failed to load dashboard data', err);
-                        this.isLoading = false;
-                    });
-            },
-            
-            toggleService(service) {
-                service.open = !service.open;
-                if (service.open && service.regions.length === 0) {
-                    this.fetchRegionsForService(service);
-                }
-            },
-
-            fetchRegionsForService(service) {
-                const url = `/api/billing/breakdown/regions?accountId=${this.selectedAccountId}&serviceName=${encodeURIComponent(service.name)}&year=${this.selectedYear}&month=${this.selectedMonth}`;
-                fetch(url)
-                    .then(res => res.json())
-                    .then(data => {
-                        service.regions = data.map(r => ({ ...r, open: false, resources: [] }));
-                    });
-            },
-
-            toggleRegion(service, region) {
-                region.open = !region.open;
-                if (region.open && region.resources.length === 0) {
-                    this.fetchResourcesForRegion(service, region);
-                }
-            },
-
-            fetchResourcesForRegion(service, region) {
-                 const url = `/api/billing/breakdown/instances?accountId=${this.selectedAccountId}&region=${region.name}&serviceName=${encodeURIComponent(service.name)}`;
-                 fetch(url)
-                    .then(res => res.json())
-                    .then(data => {
-                        region.resources = data;
-                    });
-            },
-
-            downloadReport() {
-                if (!this.selectedAccountId) return;
-                const url = `/api/billing/export?accountId=${this.selectedAccountId}&year=${this.selectedYear}&month=${this.selectedMonth}`;
-                window.location.href = url;
-            },
-
-            formatCurrency(value) {
-                return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value || 0);
-            },
-            
-            initCostHistoryChart(history) {
-                const ctx = document.getElementById('costHistoryChart').getContext('2d');
-                if (this.costHistoryChart) this.costHistoryChart.destroy();
-                this.costHistoryChart = new Chart(ctx, {
-                    type: 'bar',
-                    data: {
-                        labels: history.map(h => dateFns.format(new Date(h.date), 'MMM yyyy')),
-                        datasets: [{
-                            label: 'Monthly Cost',
-                            data: history.map(h => h.cost),
-                            backgroundColor: history.map(h => h.isAnomaly ? '#ef4444' : '#3b82f6'),
-                        }]
-                    },
-                    options: { responsive: true, maintainAspectRatio: false }
-                });
-            },
-
-            initServiceBreakdownChart(services) {
-                const ctx = document.getElementById('serviceBreakdownChart').getContext('2d');
-                if (this.serviceBreakdownChart) this.serviceBreakdownChart.destroy();
-                this.serviceBreakdownChart = new Chart(ctx, {
-                    type: 'doughnut',
-                    data: {
-                        labels: services.map(s => s.name),
-                        datasets: [{
-                            data: services.map(s => s.cost),
-                        }]
-                    },
-                     options: { responsive: true, maintainAspectRatio: false }
-                });
-            }
-        }
-    }
+    fetch('/_sidebar.html')
+      .then(response => response.text())
+      .then(html => {
+        document.getElementById('sidebar-container').innerHTML = html;
+        Alpine.initTree(document.getElementById('sidebar-container'));
+      })
+      .catch(error => console.error('Error loading sidebar:', error));
 </script>
-
 </body>
 </html>

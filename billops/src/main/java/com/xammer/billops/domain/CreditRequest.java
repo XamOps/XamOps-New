@@ -1,73 +1,64 @@
 package com.xammer.billops.domain;
 
 import javax.persistence.*;
-import java.time.LocalDateTime;
+import java.math.BigDecimal;
+import java.util.Date;
 
 @Entity
+@Table(name = "credit_requests")
 public class CreditRequest {
-
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne
-    @JoinColumn(name = "client_id", nullable = false) // UPDATED: Changed from customer_id
-    private Client client; // UPDATED: Changed from Customer
+    @Column(name = "aws_account_id", nullable = false)
+    private String awsAccountId;
 
-    private double amount;
+    @Column(name = "expected_credits", nullable = false)
+    private BigDecimal expectedCredits;
 
-    private String reason;
+    @Column(name = "services", columnDefinition = "TEXT")
+    private String services;
 
-    private String status; // e.g., "PENDING", "APPROVED", "REJECTED"
+    @Column(name = "use_case", columnDefinition = "TEXT")
+    private String useCase;
 
-    private LocalDateTime requestedAt = LocalDateTime.now();
+    @Column(name = "status", nullable = false)
+    private String status = "submitted";
 
-    // Getters and Setters
-    public Long getId() {
-        return id;
-    }
+    @Column(name = "submitted_date")
+    @Temporal(TemporalType.TIMESTAMP)
+    private Date submittedDate;
 
-    public void setId(Long id) {
-        this.id = id;
-    }
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id", nullable = false)
+    private User user;
 
-    public Client getClient() {
-        return client;
-    }
+    // Default constructor
+    public CreditRequest() {}
 
-    public void setClient(Client client) {
-        this.client = client;
-    }
+    // Getters and setters
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
 
-    public double getAmount() {
-        return amount;
-    }
+    public String getAwsAccountId() { return awsAccountId; }
+    public void setAwsAccountId(String awsAccountId) { this.awsAccountId = awsAccountId; }
 
-    public void setAmount(double amount) {
-        this.amount = amount;
-    }
+    public BigDecimal getExpectedCredits() { return expectedCredits; }
+    public void setExpectedCredits(BigDecimal expectedCredits) { this.expectedCredits = expectedCredits; }
 
-    public String getReason() {
-        return reason;
-    }
+    public String getServices() { return services; }
+    public void setServices(String services) { this.services = services; }
 
-    public void setReason(String reason) {
-        this.reason = reason;
-    }
+    public String getUseCase() { return useCase; }
+    public void setUseCase(String useCase) { this.useCase = useCase; }
 
-    public String getStatus() {
-        return status;
-    }
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
 
-    public void setStatus(String status) {
-        this.status = status;
-    }
+    public Date getSubmittedDate() { return submittedDate; }
+    public void setSubmittedDate(Date submittedDate) { this.submittedDate = submittedDate; }
 
-    public LocalDateTime getRequestedAt() {
-        return requestedAt;
-    }
-
-    public void setRequestedAt(LocalDateTime requestedAt) {
-        this.requestedAt = requestedAt;
-    }
+    public User getUser() { return user; }
+    public void setUser(User user) { this.user = user; }
 }
