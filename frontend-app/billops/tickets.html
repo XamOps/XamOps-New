@@ -13,7 +13,8 @@
 <body class="bg-gray-100">
 <div class="flex h-screen">
     <div id="sidebar-container" class="flex-shrink-0"></div>
-    <div class="flex-1 flex flex-col overflow-hidden" x-data="supportCaseApp()" x-init="init()">
+
+    <div class="flex-1 flex flex-col overflow-y-auto" x-data="supportCaseApp()" x-init="init()">
 
         <div class="p-10">
             <div class="flex items-center justify-between mb-8">
@@ -218,8 +219,6 @@
         .then(html => {
             document.getElementById('sidebar-container').innerHTML = html;
 
-            // Check if Alpine is already loaded on the page. If it is,
-            // we just need to initialize the new components in the sidebar.
             if (window.Alpine) {
                 window.Alpine.initTree(document.getElementById('sidebar-container'));
             }
