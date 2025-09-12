@@ -16,6 +16,7 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
                 .authorizeHttpRequests(authz -> authz
+                        .requestMatchers("/admin_dashboard.html").hasRole("BILLOPS_ADMIN")
                         .anyRequest().permitAll()   // Allow all requests without authentication
                 )
                 .csrf(csrf -> csrf.disable());  // Disable CSRF (for development only)

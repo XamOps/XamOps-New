@@ -24,7 +24,7 @@ public class User {
     private String password;
 
     @Column(nullable = false)
-    private String role; // e.g., "ROLE_USER", "ROLE_ADMIN", "ROLE_BILLOPS", "ROLE_XAMOPS"
+    private String role; // e.g., "ROLE_USER", "ROLE_ADMIN", "ROLE_BILLOPS", "ROLE_XAMOPS", "ROLE_BILLOPS_ADMIN"
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "client_id", nullable = false)
