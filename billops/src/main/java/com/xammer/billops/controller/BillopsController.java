@@ -5,6 +5,7 @@ import com.xammer.billops.domain.User;
 import com.xammer.billops.dto.BillingDashboardDto;
 import com.xammer.billops.dto.CreditRequestDto;
 import com.xammer.billops.dto.DashboardDataDto;
+import com.xammer.billops.dto.TicketDto;
 import com.xammer.billops.repository.CloudAccountRepository;
 import com.xammer.billops.repository.UserRepository;
 import com.xammer.billops.service.*;
@@ -34,6 +35,8 @@ public class BillopsController {
     private final ExcelExportService excelExportService;
     private final CreditRequestService creditRequestService;
     private final BillingService billingService;
+    private final TicketService ticketService;
+
 
     public BillopsController(DashboardService dashboardService,
                              CostService costService,
@@ -42,7 +45,8 @@ public class BillopsController {
                              CloudAccountRepository cloudAccountRepository,
                              ExcelExportService excelExportService,
                              CreditRequestService creditRequestService,
-                             BillingService billingService) {
+                             BillingService billingService,
+                             TicketService ticketService) {
         this.dashboardService = dashboardService;
         this.costService = costService;
         this.resourceService = resourceService;
@@ -51,6 +55,7 @@ public class BillopsController {
         this.excelExportService = excelExportService;
         this.creditRequestService = creditRequestService;
         this.billingService = billingService;
+        this.ticketService = ticketService;
     }
 
     // Health check endpoint
@@ -184,5 +189,16 @@ public class BillopsController {
     public ResponseEntity<CreditRequestDto> updateRequestStatus(@PathVariable Long id, @RequestBody Map<String, String> statusUpdate) {
         String status = statusUpdate.get("status");
         return ResponseEntity.ok(creditRequestService.updateRequestStatus(id, status));
+    }
+
+    // Ticket Endpoints
+    @PostMapping("/tickets")
+    public ResponseEntity<TicketDto> createTicket(@RequestBody TicketDto ticketDto) {
+        return ResponseEntity.ok(ticketService.createTicket(ticketDto));
+    }
+
+    @GetMapping("/tickets")
+    public ResponseEntity<List<TicketDto>> getAllTickets() {
+        return ResponseEntity.ok(ticketService.getAllTickets());
     }
 }

@@ -33,7 +33,7 @@
 
         async fetchRequests() {
             try {
-                const response = await fetch(`/api/billops/credits/user/${this.userId}`);
+                const response = await fetch(`/api/billops/credits/admin/all`);
                 if (!response.ok) throw new Error('Network response was not ok');
                 this.creditRequests = await response.json();
             } catch (error) {

@@ -7,7 +7,7 @@
     <title>Support Tickets</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="//unpkg.com/alpinejs" defer></script>
-    <script src="https://kit.fontawesome.com/a076d05399.js" crossorigin="anonymous"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
 </head>
 
 <body class="bg-gray-100">
@@ -34,45 +34,24 @@
                         <div class="flex justify-between mb-4">
                             <div>
                                 <h2 class="font-bold text-lg" x-text="ticket.subject"></h2>
-                                <p class="text-sm text-gray-600" x-text="ticket.category + ' - ' + ticket.service"></p>
+                                <p class="text-sm text-gray-600" x-text="`${ticket.category} | ${ticket.service} | Severity: ${ticket.severity}`"></p>
                             </div>
                             <div>
-                                    <span class="text-xs font-medium px-3 py-1 rounded-full"
-                                          :class="statusColors[ticket.status]">
-                                        <span x-text="ticket.status"></span>
-                                    </span>
+                                <span class="text-xs font-medium px-3 py-1 rounded-full capitalize"
+                                      :class="statusColors[ticket.status.toLowerCase()] || 'bg-gray-200 text-gray-800'">
+                                    <span x-text="ticket.status"></span>
+                                </span>
                             </div>
                         </div>
                         <p class="mb-4 text-gray-700 whitespace-pre-wrap" x-text="ticket.description"></p>
-
-                        <!-- Ticket stages trail: rendered ONCE per ticket -->
-                        <div class="flex items-center space-x-6 text-sm font-medium select-none">
-                            <template x-for="(stage, idx) in stages" :key="stage">
-                                <div class="flex items-center space-x-2">
-                                    <div class="relative flex items-center justify-center w-7 h-7 rounded-full border-2"
-                                         :class="ticket.stageIndex >= idx ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-300 text-gray-400'">
-                                        <template x-if="ticket.stageIndex > idx">
-                                            <i class="fas fa-check absolute inset-0 m-auto"></i>
-                                        </template>
-                                        <template x-if="ticket.stageIndex === idx">
-                                            <i class="fas fa-spinner fa-spin absolute inset-0 m-auto"></i>
-                                        </template>
-                                        <template x-if="ticket.stageIndex < idx">
-                                            <span x-text="idx + 1"></span>
-                                        </template>
-                                    </div>
-                                    <div :class="ticket.stageIndex >= idx ? 'text-indigo-700' : 'text-gray-400'" x-text="stage"></div>
-                                </div>
-                            </template>
-                        </div>
+                        <div class="text-xs text-gray-400" x-text="'Created on: ' + new Date(ticket.createdAt).toLocaleString()"></div>
                     </div>
                 </template>
             </div>
         </div>
 
-        <!-- Modal -->
         <div x-show="showModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60">
-            <div @click.away="showModal = false"
+            <div @click.away="!isSubmitting && (showModal = false)"
                  class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-xl mx-4 max-h-[90vh] overflow-y-auto">
                 <div class="flex justify-between items-center mb-6">
                     <h2 class="text-xl font-bold text-gray-900">Create Support Case</h2>
@@ -81,34 +60,28 @@
                     </button>
                 </div>
 
-                <div class="flex space-x-4 mb-8">
-                    <button
-                            :class="category === 'Account and Billing' ? 'bg-indigo-600 text-white' : 'bg-white text-indigo-600 border border-indigo-600'"
-                            class="px-4 py-2 rounded-lg font-medium transition" @click="category = 'Account and Billing'">Account and Billing</button>
-                    <button
-                            :class="category === 'Technical' ? 'bg-indigo-600 text-white' : 'bg-white text-indigo-600 border border-indigo-600'"
-                            class="px-4 py-2 rounded-lg font-medium transition" @click="category = 'Technical'">Technical</button>
-                </div>
-
                 <form @submit.prevent="submitCase()">
                     <div class="space-y-6">
                         <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">Category</label>
+                            <select x-model="form.category" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                                <option>Account and Billing</option>
+                                <option>Technical</option>
+                            </select>
+                        </div>
+                        <div>
                             <label class="block text-sm font-semibold text-gray-700 mb-2">Service</label>
-                            <select x-model="service"
-                                    class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                                    required>
+                            <select x-model="form.service" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" required>
                                 <option disabled value="">Select Service</option>
-                                <template x-for="option in serviceOptions[category]" :key="option">
+                                <template x-for="option in serviceOptions[form.category]" :key="option">
                                     <option x-text="option"></option>
                                 </template>
                             </select>
                         </div>
                         <div>
-                            <label class="block text-sm font-semibold text-gray-700 mb-2">Category (Severity)</label>
-                            <select x-model="severity"
-                                    class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                                    required>
-                                <option disabled value="">Select Category</option>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">Severity</label>
+                            <select x-model="form.severity" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" required>
+                                <option disabled value="">Select Severity</option>
                                 <option>Info</option>
                                 <option>Low</option>
                                 <option>Normal</option>
@@ -118,44 +91,39 @@
                         </div>
                         <div>
                             <label class="block text-sm font-semibold text-gray-700 mb-2">Subject</label>
-                            <input type="text" x-model="subject" maxlength="250"
-                                   class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                                   placeholder="Briefly summarize your question or issue" required />
+                            <input type="text" x-model="form.subject" maxlength="250" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" placeholder="Briefly summarize your question or issue" required />
                         </div>
                         <div>
                             <label class="block text-sm font-semibold text-gray-700 mb-2">Description</label>
-                            <textarea x-model="description" maxlength="8000" rows="4"
-                                      class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                                      placeholder="Describe your question or issue in detail" required></textarea>
+                            <textarea x-model="form.description" maxlength="8000" rows="4" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" placeholder="Describe your question or issue in detail" required></textarea>
                         </div>
-                        <template x-if="category === 'Account and Billing'">
+                        <template x-if="form.category === 'Account and Billing'">
                             <div class="grid grid-cols-2 gap-6">
                                 <div>
                                     <label class="block text-sm font-semibold text-gray-700 mb-2">AWS Account ID</label>
-                                    <input type="text" x-model="accountId"
-                                           class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                                           placeholder="e.g. 1234-5678-9012" />
+                                    <input type="text" x-model="form.accountId" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" placeholder="e.g. 1234-5678-9012" />
                                 </div>
                                 <div>
                                     <label class="block text-sm font-semibold text-gray-700 mb-2">Region</label>
-                                    <input type="text" x-model="region"
-                                           class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                                           placeholder="e.g. us-east-1" />
+                                    <input type="text" x-model="form.region" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" placeholder="e.g. us-east-1" />
                                 </div>
                             </div>
                         </template>
                     </div>
+
                     <div class="mt-8 flex justify-end">
-                        <button type="button" @click="showModal = false"
-                                class="bg-gray-200 text-gray-800 font-semibold px-6 py-2 rounded-lg hover:bg-gray-300 transition mr-4">Cancel</button>
+                        <button type="button" @click="showModal = false" class="bg-gray-200 text-gray-800 font-semibold px-6 py-2 rounded-lg hover:bg-gray-300 transition mr-4" :disabled="isSubmitting">Cancel</button>
                         <button type="submit"
-                                class="bg-indigo-600 text-white font-bold px-8 py-2 rounded-lg hover:bg-indigo-700 transition">Submit
-                            Case</button>
+                                class="bg-indigo-600 text-white font-bold px-8 py-2 rounded-lg hover:bg-indigo-700 transition flex items-center"
+                                :disabled="isSubmitting"
+                                :class="{ 'opacity-50 cursor-not-allowed': isSubmitting }">
+                            <span x-show="!isSubmitting">Submit Case</span>
+                            <span x-show="isSubmitting">Submitting...</span>
+                        </button>
                     </div>
                 </form>
             </div>
         </div>
-
     </div>
 </div>
 
@@ -163,89 +131,97 @@
     function supportCaseApp() {
         return {
             showModal: false,
-            category: 'Account and Billing',
-            service: '',
-            severity: '',
-            subject: '',
-            description: '',
-            accountId: '',
-            region: '',
             tickets: [],
-            statusColors: {
-                'Submitted': 'bg-blue-100 text-blue-800',
-                'In Review': 'bg-yellow-100 text-yellow-800',
-                'Verified': 'bg-green-100 text-green-800',
-                'Completed': 'bg-gray-200 text-gray-600'
+            isSubmitting: false,
+            form: {
+                category: 'Account and Billing',
+                service: '',
+                severity: '',
+                subject: '',
+                description: '',
+                accountId: '',
+                region: '',
             },
-            stages: ['Submitted', 'In Review', 'Verified', 'Completed'],
+            statusColors: {
+                'open': 'bg-blue-100 text-blue-800',
+                'in_progress': 'bg-yellow-100 text-yellow-800',
+                'closed': 'bg-gray-200 text-gray-800'
+            },
             serviceOptions: {
                 'Account and Billing': ['Billing', 'Pricing', 'Reserved Instances', 'Detailed Billing Report (DBR)'],
                 'Technical': ['EC2', 'S3', 'RDS', 'Lambda', 'Other Technical']
             },
             init() {
-                // Set initial service based on default category
-                this.service = this.serviceOptions[this.category][0];
-
-                // Update service on category change
-                this.$watch('category', (value) => {
-                    this.service = this.serviceOptions[value][0]
-                })
+                this.fetchTickets();
+                this.form.service = this.serviceOptions[this.form.category][0];
+                this.$watch('form.category', (newCategory) => {
+                    this.form.service = this.serviceOptions[newCategory][0];
+                });
             },
-            submitCase() {
-                if (!this.service || !this.subject.trim() || !this.description.trim() || !this.severity) {
-                    alert('Please fill in all required fields: Service, Category, Subject, and Description.');
+            async fetchTickets() {
+                try {
+                    const response = await fetch('/api/billops/tickets');
+                    if (!response.ok) throw new Error('Failed to fetch tickets');
+                    this.tickets = await response.json();
+                } catch (error) {
+                    console.error('Error fetching tickets:', error);
+                    alert('Could not load support tickets.');
+                }
+            },
+            async submitCase() {
+                if (!this.form.service || !this.form.subject.trim() || !this.form.description.trim() || !this.form.severity) {
+                    alert('Please fill in all required fields.');
                     return;
                 }
 
-                const newTicket = {
-                    id: 'TKT' + (this.tickets.length + 1).toString().padStart(4, '0'),
-                    category: this.category,
-                    service: this.service,
-                    severity: this.severity,
-                    subject: this.subject.trim(),
-                    description: this.description.trim(),
-                    accountId: this.accountId.trim(),
-                    region: this.region.trim(),
-                    status: this.stages[0],
-                    stageIndex: 0
+                this.isSubmitting = true;
+                const payload = { ...this.form, clientId: 1 };
+
+                try {
+                    const response = await fetch('/api/billops/tickets', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    if (!response.ok) throw new Error('Failed to submit ticket');
+
+                    await this.fetchTickets();
+                    this.resetForm();
+                    this.showModal = false;
+                    alert('Case submitted successfully!');
+
+                } catch (error) {
+                    console.error('Error submitting ticket:', error);
+                    alert('There was an error submitting your case. Please try again.');
+                } finally {
+                    this.isSubmitting = false;
+                }
+            },
+            resetForm() {
+                this.form = {
+                    category: 'Account and Billing',
+                    service: this.serviceOptions['Account and Billing'][0],
+                    severity: '',
+                    subject: '',
+                    description: '',
+                    accountId: '',
+                    region: '',
                 };
-
-                this.tickets.push(newTicket);
-
-                // Reset form fields and close modal
-                this.category = 'Account and Billing';
-                this.service = this.serviceOptions['Account and Billing'][0];
-                this.severity = '';
-                this.subject = '';
-                this.description = '';
-                this.accountId = '';
-                this.region = '';
-                this.showModal = false;
-
-                // Only ONE alert, removed any duplicacy
-                alert('Case submitted successfully!');
             }
         }
     }
 </script>
 
-<!-- Sidebar loader script -->
 <script>
     fetch('/_sidebar.html')
         .then(response => response.text())
         .then(html => {
-            const parser = new DOMParser();
-            const sidebarDoc = parser.parseFromString(html, 'text/html');
-            sidebarDoc.head.querySelectorAll('link[rel="stylesheet"], style').forEach(elem => {
-                document.head.appendChild(elem.cloneNode(true));
-            });
-            document.getElementById('sidebar-container').innerHTML = sidebarDoc.body.innerHTML;
-            const alpineScriptTag = sidebarDoc.head.querySelector('script[src*="alpinejs"]');
-            if (alpineScriptTag) {
-                const script = document.createElement('script');
-                script.src = alpineScriptTag.src;
-                script.defer = true;
-                document.body.appendChild(script);
+            document.getElementById('sidebar-container').innerHTML = html;
+
+            // Check if Alpine is already loaded on the page. If it is,
+            // we just need to initialize the new components in the sidebar.
+            if (window.Alpine) {
+                window.Alpine.initTree(document.getElementById('sidebar-container'));
             }
         })
         .catch(error => console.error('Error loading sidebar:', error));
