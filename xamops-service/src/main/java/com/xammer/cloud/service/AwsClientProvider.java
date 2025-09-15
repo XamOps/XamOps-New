@@ -6,6 +6,7 @@ import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.acm.AcmClient;
+import software.amazon.awssdk.services.amplify.AmplifyClient;
 import software.amazon.awssdk.services.autoscaling.AutoScalingClient;
 import software.amazon.awssdk.services.budgets.BudgetsClient;
 import software.amazon.awssdk.services.cloudtrail.CloudTrailClient;
@@ -22,6 +23,7 @@ import software.amazon.awssdk.services.elasticache.ElastiCacheClient;
 import software.amazon.awssdk.services.elasticloadbalancingv2.ElasticLoadBalancingV2Client;
 import software.amazon.awssdk.services.iam.IamClient;
 import software.amazon.awssdk.services.lambda.LambdaClient;
+import software.amazon.awssdk.services.lightsail.LightsailClient;
 import software.amazon.awssdk.services.pricing.PricingClient;
 import software.amazon.awssdk.services.rds.RdsClient;
 import software.amazon.awssdk.services.route53.Route53Client;
@@ -45,20 +47,20 @@ public class AwsClientProvider {
         this.stsClient = stsClient;
     }
 
- public AwsCredentialsProvider getCredentialsProvider(CloudAccount account) {
-    String roleArn = account.getRoleArn();
-    String externalId = account.getExternalId();
-    String roleSessionName = "xamops-session-" + account.getAwsAccountId();
+    public AwsCredentialsProvider getCredentialsProvider(CloudAccount account) {
+        String roleArn = account.getRoleArn();
+        String externalId = account.getExternalId();
+        String roleSessionName = "xamops-session-" + account.getAwsAccountId();
 
-    return StsAssumeRoleCredentialsProvider.builder()
-            .stsClient(stsClient)
-            .refreshRequest(req -> req
-                .roleArn(roleArn)
-                .externalId(externalId)
-                .roleSessionName(roleSessionName)
-            )
-            .build();
-}
+        return StsAssumeRoleCredentialsProvider.builder()
+                .stsClient(stsClient)
+                .refreshRequest(req -> req
+                        .roleArn(roleArn)
+                        .externalId(externalId)
+                        .roleSessionName(roleSessionName)
+                )
+                .build();
+    }
 
     public EksClient getEksClientForTokenGeneration(CloudAccount account) {
         // This client uses the application's host credentials to generate a token
@@ -111,7 +113,7 @@ public class AwsClientProvider {
                 .region(Region.of(region))
                 .build();
     }
-    
+
     public CloudWatchClient getCloudWatchClient(CloudAccount account, String region) {
         return CloudWatchClient.builder()
                 .credentialsProvider(getCredentialsProvider(account))
@@ -125,7 +127,7 @@ public class AwsClientProvider {
                 .region(Region.of(region))
                 .build();
     }
-    
+
     public BudgetsClient getBudgetsClient(CloudAccount account) {
         return BudgetsClient.builder()
                 .credentialsProvider(getCredentialsProvider(account))
@@ -193,14 +195,14 @@ public class AwsClientProvider {
         return SqsClient.builder().credentialsProvider(getCredentialsProvider(account)).region(Region.of(region)).build();
     }
 
-    public PricingClient getPricingClient() { 
+    public PricingClient getPricingClient() {
         return PricingClient.builder()
-            .credentialsProvider(DefaultCredentialsProvider.create()) // Use default credentials for Pricing service
-            .region(Region.US_EAST_1) // Pricing service is a global service accessible via us-east-1
-            .build();
+                .credentialsProvider(DefaultCredentialsProvider.create()) // Use default credentials for Pricing service
+                .region(Region.US_EAST_1) // Pricing service is a global service accessible via us-east-1
+                .build();
     }
 
-   
+
 
     public StsClient getStsClient(CloudAccount account, String region) {
         return StsClient.builder()
@@ -211,9 +213,22 @@ public class AwsClientProvider {
 
     public KmsClient getKmsClient(CloudAccount account, String region) {
         return KmsClient.builder()
-            .credentialsProvider(getCredentialsProvider(account))
-            .region(software.amazon.awssdk.regions.Region.of(region))
-            .build();
+                .credentialsProvider(getCredentialsProvider(account))
+                .region(software.amazon.awssdk.regions.Region.of(region))
+                .build();
     }
-    
+
+    public LightsailClient getLightsailClient(CloudAccount account, String region) {
+        return LightsailClient.builder()
+                .credentialsProvider(getCredentialsProvider(account))
+                .region(Region.of(region))
+                .build();
+    }
+
+    public AmplifyClient getAmplifyClient(CloudAccount account, String region) {
+        return AmplifyClient.builder()
+                .credentialsProvider(getCredentialsProvider(account))
+                .region(Region.of(region))
+                .build();
+    }
 }

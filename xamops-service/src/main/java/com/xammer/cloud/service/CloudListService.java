@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.services.acm.AcmClient;
+import software.amazon.awssdk.services.amplify.AmplifyClient;
 import software.amazon.awssdk.services.autoscaling.AutoScalingClient;
 import software.amazon.awssdk.services.cloudtrail.CloudTrailClient;
 import software.amazon.awssdk.services.cloudwatchlogs.CloudWatchLogsClient;
@@ -28,6 +29,7 @@ import software.amazon.awssdk.services.eks.EksClient;
 import software.amazon.awssdk.services.elasticache.ElastiCacheClient;
 import software.amazon.awssdk.services.elasticloadbalancingv2.ElasticLoadBalancingV2Client;
 import software.amazon.awssdk.services.lambda.LambdaClient;
+import software.amazon.awssdk.services.lightsail.LightsailClient;
 import software.amazon.awssdk.services.rds.RdsClient;
 import software.amazon.awssdk.services.route53.Route53Client;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -113,7 +115,7 @@ public class CloudListService {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
         }
-        
+
         CloudAccount account = getAccount(accountId);
         return getAllResources(account, forceRefresh).thenApply(flatList -> {
             List<DashboardData.ServiceGroupDto> groupedList = flatList.stream()
@@ -153,7 +155,9 @@ public class CloudListService {
                     fetchCloudTrailsForCloudlist(account, activeRegions),
                     fetchAcmCertificatesForCloudlist(account, activeRegions), fetchCloudWatchLogGroupsForCloudlist(account, activeRegions),
                     fetchSnsTopicsForCloudlist(account, activeRegions), fetchSqsQueuesForCloudlist(account, activeRegions),
-                    fetchEksClustersForCloudlist(account, activeRegions)
+                    fetchEksClustersForCloudlist(account, activeRegions),
+                    fetchLightsailInstancesForCloudlist(account, activeRegions),
+                    fetchAmplifyAppsForCloudlist(account, activeRegions)
             );
 
             return CompletableFuture.allOf(resourceFutures.toArray(new CompletableFuture[0]))
@@ -522,6 +526,24 @@ public class CloudListService {
                     })
                     .collect(Collectors.toList());
         }, "EKS Clusters");
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchLightsailInstancesForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            LightsailClient lightsail = awsClientProvider.getLightsailClient(account, regionId);
+            return lightsail.getInstances().instances().stream()
+                    .map(i -> new ResourceDto(i.arn(), i.name(), "Lightsail Instance", i.location().regionName().toString(), i.state().name(), i.createdAt(), Map.of("BlueprintId", i.blueprintId(), "BundleId", i.bundleId())))
+                    .collect(Collectors.toList());
+        }, "Lightsail Instances");
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchAmplifyAppsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            AmplifyClient amplify = awsClientProvider.getAmplifyClient(account, regionId);
+            return amplify.listApps().apps().stream()
+                    .map(a -> new ResourceDto(a.appArn(), a.name(), "Amplify App", getRegionFromArn(a.appArn()), "Available", a.createTime(), Map.of("Platform", a.platform().toString(), "DefaultDomain", a.defaultDomain())))
+                    .collect(Collectors.toList());
+        }, "Amplify Apps");
     }
 
     private String getRegionFromArn(String arn) {
