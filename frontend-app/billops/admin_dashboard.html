@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body class="bg-gray-100">
+<div class="flex h-screen">
+    <div id="sidebar-container" class="flex-shrink-0"></div>
+    <div class="flex-1 flex flex-col overflow-hidden" x-data="adminDashboard()">
+        <div class="bg-white shadow-sm border-b border-gray-200">
+            <div class="container mx-auto px-6 py-6">
+                <h3 class="text-gray-900 text-3xl font-bold">Admin Dashboard</h3>
+            </div>
+        </div>
+
+        <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-8">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div>
+                    <h4 class="text-xl font-bold mb-4">All Credit Requests</h4>
+                    <div class="bg-white rounded-xl shadow-sm p-6">
+                        <div class="space-y-4">
+                            <template x-for="request in creditRequests" :key="request.id">
+                                <div class="border-b pb-4">
+                                    <p><strong>Request ID:</strong> <span x-text="request.id"></span></p>
+                                    <p><strong>AWS Account ID:</strong> <span x-text="request.awsAccountId"></span></p>
+                                    <p><strong>Expected Credits:</strong> <span x-text="request.expectedCredits"></span></p>
+                                    <p><strong>Status:</strong> <span x-text="request.status"></span></p>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <h4 class="text-xl font-bold mb-4">All Tickets</h4>
+                    <div class="bg-white rounded-xl shadow-sm p-6">
+                        <div class="space-y-4">
+                            <template x-for="ticket in tickets" :key="ticket.id">
+                                <div class="border-b pb-4">
+                                    <p><strong>Ticket ID:</strong> <span x-text="ticket.id"></span></p>
+                                    <p><strong>Subject:</strong> <span x-text="ticket.subject"></span></p>
+                                    <p><strong>Status:</strong> <span x-text="ticket.status"></span></p>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+</div>
+
+<script>
+    function adminDashboard() {
+        return {
+            creditRequests: [],
+            tickets: [],
+            init() {
+                this.fetchAllCreditRequests();
+                this.fetchAllTickets();
+            },
+            async fetchAllCreditRequests() {
+                try {
+                    const response = await fetch('/api/billops/credits/admin/all');
+                    if (response.ok) {
+                        this.creditRequests = await response.json();
+                    }
+                } catch (error) {
+                    console.error('Error fetching all credit requests:', error);
+                }
+            },
+            async fetchAllTickets() {
+                try {
+                    const response = await fetch('/api/billops/tickets');
+                    if (response.ok) {
+                        this.tickets = await response.json();
+                    }
+                } catch (error) {
+                    console.error('Error fetching all tickets:', error);
+                }
+            }
+        }
+    }
+    fetch('/_sidebar.html')
+        .then(response => response.text())
+        .then(html => {
+            document.getElementById('sidebar-container').innerHTML = html;
+        });
+</script>
+</body>
+</html>

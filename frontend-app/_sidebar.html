@@ -181,7 +181,7 @@
                 .catch(err => {
                     console.error('Could not fetch user profile:', err);
                     // Fallback for local testing if the API doesn't exist yet
-                    this.userRoles = ['ROLE_BILLOPS', 'ROLE_ADMIN', 'ROLE_XAMOPS'];
+                    this.userRoles = ['ROLE_BILLOPS', 'ROLE_ADMIN', 'ROLE_XAMOPS', 'ROLE_BILLOPS_ADMIN'];
                 });
         },
         hasAnyRole(requiredRoles) {
@@ -283,6 +283,15 @@
                         <a :href="getLink('/billops/tickets.html')" :class="{'text-cyan-600 font-bold bg-cyan-50': isActive('/billops/tickets')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-cyan-600">Tickets</a>
                     </div>
                 </div>
+            </div>
+        </div>
+
+        <div x-show="hasAnyRole(['ROLE_BILLOPS_ADMIN'])" x-cloak>
+            <div class="sidebar-section" :class="{'active': isActive('/admin_dashboard.html')}">
+                <a href="/admin_dashboard.html" class="nav-item flex items-center gap-3 rounded-xl px-4 py-3 font-semibold" :class="isActive('/admin_dashboard.html') ? 'bg-gradient-to-r from-green-500 to-teal-600 text-white shadow-lg' : 'text-gray-600 hover:bg-green-50'">
+                    <i class="fas fa-user-shield fa-fw w-5 text-center"></i>
+                    <span>Admin Dashboard</span>
+                </a>
             </div>
         </div>
 

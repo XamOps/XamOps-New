@@ -218,7 +218,8 @@
 
             async fetchRequests() {
                 try {
-                    const response = await fetch(`http://localhost:8082/api/billing/credits/user/${this.userId}`);
+                    // ✅ FIXED: Changed from /api/billing to /api/billops and removed absolute URL
+                    const response = await fetch(`/api/billops/credits/user/${this.userId}`);
                     if (!response.ok) throw new Error('Network response was not ok');
                     this.creditRequests = await response.json();
                 } catch (error) {
@@ -234,7 +235,8 @@
                 }
                 try {
                     const payload = {...this.newRequest, userId: this.userId};
-                    const response = await fetch('http://localhost:8082/api/billing/credits', {
+                    // ✅ FIXED: Changed from /api/billing to /api/billops and removed absolute URL
+                    const response = await fetch('/api/billops/credits', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(payload)
@@ -280,12 +282,29 @@
                 setTimeout(() => this.notification = '', 3000);
             },
 
-            advanceStatus(request) {
+            async advanceStatus(request) {
                 const statuses = ['submitted', 'documentation', 'verification', 'approved', 'rejected'];
                 const currentIndex = statuses.indexOf(request.status);
                 if (currentIndex >= 0 && currentIndex < statuses.length - 2) {
-                    request.status = statuses[currentIndex + 1];
-                    // Optional: update status on server here via PUT
+                    const newStatus = statuses[currentIndex + 1];
+                    try {
+                        // ✅ ADDED: Update status on server
+                        const response = await fetch(`/api/billops/credits/${request.id}/status`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ status: newStatus })
+                        });
+
+                        if (response.ok) {
+                            request.status = newStatus;
+                            this.showNotification(`Status updated to ${newStatus}`, 'success');
+                        } else {
+                            throw new Error('Failed to update status');
+                        }
+                    } catch (error) {
+                        console.error('Error updating status:', error);
+                        this.showNotification('Failed to update status', 'error');
+                    }
                 }
             },
 

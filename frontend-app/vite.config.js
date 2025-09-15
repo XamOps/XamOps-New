@@ -22,7 +22,6 @@ export default defineConfig({
         target: 'http://localhost:8082', // or the correct backend port
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/billops/, '/api/billops'),
-    
       },
 
       // Proxy authentication requests to xamops

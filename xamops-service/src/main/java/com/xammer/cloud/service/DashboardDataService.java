@@ -275,6 +275,8 @@ public class DashboardDataService {
             inventory.setRdsInstances(counts.getOrDefault("RDS Instance", 0));
             inventory.setRoute53Zones(counts.getOrDefault("Route 53 Zone", 0));
             inventory.setLoadBalancers(counts.getOrDefault("Load Balancer", 0));
+            inventory.setLightsail(counts.getOrDefault("Lightsail Instance", 0));
+            inventory.setAmplify(counts.getOrDefault("Amplify App", 0));
             return inventory;
         });
     }
