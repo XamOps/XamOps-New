@@ -13,7 +13,8 @@
         [x-cloak] { display: none !important; }
         .loading { text-align: center; padding: 2rem; color: #6b7280; }
         .error { text-align: center; padding: 2rem; color: #dc2626; }
-        .success-msg { background-color: #ecfdf5; border-color: #10b981; color: #065f46; }
+        .expand-icon { transition: transform 0.2s ease-in-out; }
+        .rotate-90 { transform: rotate(90deg); }
     </style>
 </head>
 <body class="bg-gray-100">
@@ -26,116 +27,120 @@
                 <h3 class="text-gray-900 text-3xl font-bold">Billing Dashboard</h3>
                 <div class="flex items-center space-x-4">
                     <span class="text-sm text-gray-600" x-text="`Account: ${selectedAccountId || 'None selected'}`"></span>
-                    <button @click="fetchBillingData()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 transition">
-                        <i class="fas fa-sync-alt mr-1"></i>Refresh
+                    <button @click="fetchBillingData(true)" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 transition" :disabled="loading || detailedLoading">
+                        <i class="fas fa-sync-alt mr-1" :class="{'fa-spin': loading || detailedLoading}"></i>Refresh
                     </button>
                 </div>
             </div>
 
-            <div x-show="loading" class="loading">
+            <div x-show="loading" class="loading" x-cloak>
                 <i class="fas fa-spinner fa-spin text-3xl mb-4"></i>
                 <p class="text-lg">Loading billing data...</p>
             </div>
 
-            <div x-show="error" class="error">
+            <div x-show="error" class="error" x-cloak>
                 <i class="fas fa-exclamation-triangle text-3xl mb-4"></i>
                 <p class="text-lg mb-4" x-text="error"></p>
-                <button @click="fetchBillingData()" class="bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-red-700 transition">
+                <button @click="fetchBillingData(true)" class="bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-red-700 transition">
                     Try Again
                 </button>
             </div>
 
-            <div x-show="!loading && !error && billingData.costHistory && billingData.serviceBreakdown" class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                <div class="lg:col-span-2 space-y-8">
-                    <div class="bg-white p-6 rounded-xl shadow-lg">
-                        <div class="flex items-center justify-between mb-6">
-                            <h4 class="font-semibold text-lg text-gray-800">Monthly Cost Trend</h4>
-                            <span class="text-sm bg-blue-100 text-blue-800 px-3 py-1 rounded-full">Last 6 Months</span>
+            <div x-show="!loading && !error" class="space-y-8" x-cloak>
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    <div class="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div class="bg-white p-6 rounded-xl shadow-lg">
+                            <h4 class="font-semibold text-gray-500">Month-to-Date Spend</h4>
+                            <p class="text-3xl font-bold text-gray-800 mt-2" x-text="formatCurrency(billingData.monthToDateSpend)"></p>
                         </div>
-                        <div class="h-80">
-                            <canvas id="costHistoryChart"></canvas>
+                        <div class="bg-white p-6 rounded-xl shadow-lg">
+                            <h4 class="font-semibold text-gray-500">Last Month Spend</h4>
+                            <p class="text-3xl font-bold text-gray-800 mt-2" x-text="formatCurrency(billingData.lastMonthSpend)"></p>
                         </div>
-                    </div>
-
-                    <div class="bg-white p-6 rounded-xl shadow-lg">
-                        <h4 class="font-semibold text-lg text-gray-800 mb-6">Service Cost Details</h4>
-                        <div x-show="billingData.serviceBreakdown && billingData.serviceBreakdown.length > 0">
-                            <div class="overflow-x-auto">
-                                <table class="min-w-full divide-y divide-gray-200">
-                                    <thead class="bg-gray-50">
-                                    <tr>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Service</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cost</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Percentage</th>
-                                    </tr>
-                                    </thead>
-                                    <tbody class="bg-white divide-y divide-gray-200">
-                                    <template x-for="(service, index) in billingData.serviceBreakdown" :key="service.serviceName || service.name">
-                                        <tr :class="index % 2 === 0 ? 'bg-white' : 'bg-gray-50'">
-                                            <td class="px-6 py-4 whitespace-nowrap">
-                                                <div class="flex items-center">
-                                                    <div class="w-3 h-3 rounded-full mr-3" :style="`background-color: ${getServiceColor(index)}`"></div>
-                                                    <span class="text-sm font-medium text-gray-900" x-text="service.serviceName || service.name || 'Unknown Service'"></span>
-                                                </div>
-                                            </td>
-                                            <td class="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900" x-text="`$${(service.cost || 0).toFixed(2)}`"></td>
-                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" x-text="`${getServicePercentage(service.cost)}%`"></td>
-                                        </tr>
-                                    </template>
-                                    </tbody>
-                                </table>
+                        <div class="md:col-span-2 bg-white p-6 rounded-xl shadow-lg">
+                             <div class="flex items-center justify-between mb-6">
+                                <h4 class="font-semibold text-lg text-gray-800">Monthly Cost Trend</h4>
+                                <span class="text-sm bg-blue-100 text-blue-800 px-3 py-1 rounded-full">Last 6 Months</span>
                             </div>
-                        </div>
-                        <div x-show="!billingData.serviceBreakdown || billingData.serviceBreakdown.length === 0"
-                             class="text-center py-12 text-gray-500">
-                            <i class="fas fa-chart-pie text-4xl mb-4"></i>
-                            <p>No service data available</p>
+                            <div class="h-64"><canvas id="costHistoryChart"></canvas></div>
                         </div>
                     </div>
-                </div>
-
-                <div class="space-y-8">
                     <div class="bg-white p-6 rounded-xl shadow-lg">
                         <h4 class="font-semibold text-lg text-gray-800 mb-6">Service Distribution</h4>
-                        <div class="h-80">
-                            <canvas id="serviceBreakdownChart"></canvas>
-                        </div>
-                    </div>
-
-                    <div class="bg-gradient-to-br from-blue-500 to-purple-600 p-6 rounded-xl shadow-lg text-white">
-                        <h4 class="font-semibold text-lg mb-4">Cost Summary</h4>
-                        <div class="space-y-3">
-                            <div class="flex justify-between items-center">
-                                <span>Total Monthly Cost</span>
-                                <span class="text-2xl font-bold" x-text="`$${getTotalCost().toFixed(2)}`"></span>
-                            </div>
-                            <div class="flex justify-between items-center text-blue-100">
-                                <span>Services Count</span>
-                                <span class="font-semibold" x-text="(billingData.serviceBreakdown || []).length"></span>
-                            </div>
-                            <div class="flex justify-between items-center text-blue-100">
-                                <span>Data Period</span>
-                                <span class="font-semibold">6 Months</span>
-                            </div>
-                        </div>
+                        <div class="h-96"><canvas id="serviceBreakdownChart"></canvas></div>
                     </div>
                 </div>
-            </div>
 
-            <button @click="debugMode = !debugMode"
-                    class="fixed bottom-4 right-4 bg-gray-600 text-white p-3 rounded-full shadow-lg hover:bg-gray-700 transition">
-                <i class="fas fa-bug"></i>
-            </button>
+                <div class="bg-white p-6 rounded-xl shadow-lg">
+                    <h4 class="font-semibold text-lg text-gray-800 mb-6">Detailed Cost Breakdown</h4>
+                     <div x-show="detailedLoading" class="loading" x-cloak>
+                        <i class="fas fa-spinner fa-spin text-2xl"></i>
+                        <p>Loading detailed breakdown...</p>
+                    </div>
+                    <div x-show="!detailedLoading && detailedBreakdown.length === 0" class="text-center py-12 text-gray-500" x-cloak>
+                        <i class="fas fa-file-invoice-dollar text-4xl mb-4"></i>
+                        <p>No detailed cost data available for this period.</p>
+                    </div>
 
-            <div x-show="debugMode" class="fixed bottom-16 right-4 bg-yellow-50 p-4 rounded-lg shadow-lg border max-w-sm">
-                <h5 class="font-semibold mb-2">Debug Info</h5>
-                <div class="text-xs space-y-1">
-                    <p><span class="font-medium">Account ID:</span> <span x-text="selectedAccountId"></span></p>
-                    <p><span class="font-medium">API URL:</span> <span x-text="`/api/billops/${selectedAccountId}`"></span></p>
-                    <p><span class="font-medium">Cost History:</span> <span x-text="(billingData.costHistory || []).length"></span> items</p>
-                    <p><span class="font-medium">Services:</span> <span x-text="(billingData.serviceBreakdown || []).length"></span> items</p>
+                    <div x-show="!detailedLoading && detailedBreakdown.length > 0" class="overflow-x-auto" x-cloak>
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                                    <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Cost (USD)</th>
+                                </tr>
+                            </thead>
+<tbody class="bg-white divide-y divide-gray-200">
+    <template x-for="service in detailedBreakdown" :key="service.serviceName">
+        <template>
+            <tr @click="toggleService(service.serviceName)" class="cursor-pointer hover:bg-gray-50">
+                <td class="px-6 py-4 whitespace-nowrap">
+                    <div class="flex items-center">
+                        <i class="fas fa-chevron-right fa-fw text-gray-400 mr-2 expand-icon"
+                           :class="{'rotate-90': expandedServices[service.serviceName]}"></i>
+                        <span class="text-sm font-bold text-gray-900" x-text="service.serviceName"></span>
+                    </div>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-bold text-gray-900"
+                    x-text="formatCurrency(service.totalCost)"></td>
+            </tr>
+
+            <template x-for="region in service.regionCosts" :key="region.regionName">
+                <template>
+                    <tr x-show="expandedServices[service.serviceName]"
+                        @click="toggleRegion(service.serviceName, region.regionName)"
+                        class="cursor-pointer hover:bg-gray-100">
+                        <td class="pl-12 pr-6 py-3 whitespace-nowrap">
+                            <div class="flex items-center">
+                                <i class="fas fa-chevron-right fa-fw text-gray-400 mr-2 expand-icon"
+                                   :class="{'rotate-90': expandedRegions[service.serviceName + '-' + region.regionName]}"></i>
+                                <span class="text-sm font-medium text-gray-700" x-text="region.regionName"></span>
+                            </div>
+                        </td>
+                        <td class="px-6 py-3 whitespace-nowrap text-right text-sm font-medium text-gray-700"
+                            x-text="formatCurrency(region.cost)"></td>
+                    </tr>
+
+                    <template x-for="resource in region.resources" :key="resource.resourceId">
+                        <tr x-show="expandedServices[service.serviceName] && expandedRegions[service.serviceName + '-' + region.regionName]">
+                            <td class="pl-20 pr-6 py-2 whitespace-nowrap">
+                                <div class="text-sm text-gray-500 truncate"
+                                     x-text="resource.resourceName"
+                                     :title="resource.resourceId"></div>
+                            </td>
+                            <td class="px-6 py-2 whitespace-nowrap text-right text-sm text-gray-500"
+                                x-text="formatCurrency(resource.cost)"></td>
+                        </tr>
+                    </template>
+                </template>
+            </template>
+        </template>
+    </template>
+</tbody>
+
+                        </table>
+                    </div>
                 </div>
-                <button @click="debugMode = false" class="mt-2 text-xs bg-gray-500 text-white px-2 py-1 rounded">Close</button>
             </div>
         </main>
     </div>
@@ -144,72 +149,84 @@
 <script>
     function billingDashboard() {
         return {
-            billingData: { costHistory: [], serviceBreakdown: [] },
+            billingData: { costHistory: [], serviceBreakdown: [], monthToDateSpend: 0, lastMonthSpend: 0 },
+            detailedBreakdown: [],
             selectedAccountId: null,
             loading: true,
+            detailedLoading: true,
             error: null,
-            debugMode: false,
             costHistoryChart: null,
             serviceBreakdownChart: null,
+            expandedServices: {},
+            expandedRegions: {},
 
             init() {
                 this.loadSidebar();
                 const urlParams = new URLSearchParams(window.location.search);
-                this.selectedAccountId = urlParams.get('accountIds');
-
-                console.log('Initialized billing dashboard with account ID:', this.selectedAccountId);
+                this.selectedAccountId = urlParams.get('accountIds')?.split(',')[0]; // Use the first account for this page
 
                 if (this.selectedAccountId) {
                     this.fetchBillingData();
                 } else {
                     this.error = 'No AWS account selected. Please select an account from the sidebar.';
                     this.loading = false;
+                    this.detailedLoading = false;
                 }
             },
 
-            async fetchBillingData() {
+            fetchBillingData(forceRefresh = false) {
                 if (!this.selectedAccountId) return;
-
                 this.loading = true;
+                this.detailedLoading = true;
                 this.error = null;
 
-                try {
-                    console.log('Fetching billing data for account:', this.selectedAccountId);
+                const summaryUrl = `/api/billops/billing/${this.selectedAccountId}`;
+                const detailUrl = `/api/billops/detailed-breakdown/${this.selectedAccountId}`;
 
-                    // Corrected URL
-const response = await fetch(`/api/billops/${this.selectedAccountId}`, {
-    credentials: 'include'
-});
+                Promise.all([fetch(summaryUrl), fetch(detailUrl)])
+                    .then(async ([summaryRes, detailRes]) => {
+                        if (!summaryRes.ok) throw new Error(`Summary API Error: ${summaryRes.statusText}`);
+                        if (!detailRes.ok) throw new Error(`Detail API Error: ${detailRes.statusText}`);
 
-                    console.log('API Response status:', response.status);
+                        const summaryData = await summaryRes.json();
+                        const detailData = await detailRes.json();
 
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}: Failed to fetch billing data`);
-                    }
+                        // ### THIS IS THE NEW LINE ###
+                        console.log("Data received for Detailed Breakdown:", detailData);
 
-                    const data = await response.json();
-                    console.log('Received billing data:', data);
+                        this.billingData = this.processSummaryData(summaryData);
+                        this.detailedBreakdown = detailData.sort((a,b) => b.totalCost - a.totalCost) || [];
 
-                    this.billingData = data || { costHistory: [], serviceBreakdown: [] };
-
-                    // Wait for DOM updates before initializing charts
-                    this.$nextTick(() => {
-                        this.initCharts();
+                        this.$nextTick(() => {
+                            this.initCharts();
+                        });
+                    })
+                    .catch(error => {
+                        console.error("Error fetching billing data:", error);
+                        this.error = `Failed to load billing data: ${error.message}`;
+                    })
+                    .finally(() => {
+                        this.loading = false;
+                        this.detailedLoading = false;
                     });
+            },
 
-                } catch (error) {
-                    console.error("Error fetching billing data:", error);
-                    this.error = `Failed to load billing data: ${error.message}`;
-                } finally {
-                    this.loading = false;
+            processSummaryData(data) {
+                const processed = { ...data };
+                if (data.costHistory && data.costHistory.length > 0) {
+                    processed.monthToDateSpend = data.costHistory[data.costHistory.length - 1]?.cost || 0;
+                    processed.lastMonthSpend = data.costHistory[data.costHistory.length - 2]?.cost || 0;
+                } else {
+                    processed.monthToDateSpend = 0;
+                    processed.lastMonthSpend = 0;
                 }
+                return processed;
             },
 
             initCharts() {
                 if (this.billingData.costHistory && this.billingData.costHistory.length > 0) {
                     this.initCostHistoryChart(this.billingData.costHistory);
                 }
-
                 if (this.billingData.serviceBreakdown && this.billingData.serviceBreakdown.length > 0) {
                     this.initServiceBreakdownChart(this.billingData.serviceBreakdown);
                 }
@@ -218,22 +235,11 @@ const response = await fetch(`/api/billops/${this.selectedAccountId}`, {
             initCostHistoryChart(history) {
                 const ctx = document.getElementById('costHistoryChart');
                 if (!ctx) return;
-
-                if (this.costHistoryChart) {
-                    this.costHistoryChart.destroy();
-                }
-
+                if (this.costHistoryChart) this.costHistoryChart.destroy();
                 this.costHistoryChart = new Chart(ctx, {
                     type: 'bar',
                     data: {
-                        labels: history.map(h => {
-                            try {
-                                const date = new Date(h.date);
-                                return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-                            } catch (e) {
-                                return h.date;
-                            }
-                        }),
+                        labels: history.map(h => new Date(h.date).toLocaleDateString('en-US', { month: 'short', year: '2-digit' })),
                         datasets: [{
                             label: 'Monthly Cost ($)',
                             data: history.map(h => h.cost || 0),
@@ -241,104 +247,43 @@ const response = await fetch(`/api/billops/${this.selectedAccountId}`, {
                             borderColor: '#1d4ed8',
                             borderWidth: 1,
                             borderRadius: 6,
-                            borderSkipped: false,
                         }]
                     },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            legend: {
-                                display: false
-                            },
-                            tooltip: {
-                                callbacks: {
-                                    label: function(context) {
-                                        return 'Cost: $' + context.parsed.y.toLocaleString();
-                                    }
-                                }
-                            }
-                        },
-                        scales: {
-                            y: {
-                                beginAtZero: true,
-                                ticks: {
-                                    callback: function(value) {
-                                        return '$' + value.toLocaleString();
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
                 });
             },
 
             initServiceBreakdownChart(services) {
                 const ctx = document.getElementById('serviceBreakdownChart');
                 if (!ctx) return;
-
-                if (this.serviceBreakdownChart) {
-                    this.serviceBreakdownChart.destroy();
-                }
-
-                const colors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#FF6384', '#C9CBCF'];
-
+                if (this.serviceBreakdownChart) this.serviceBreakdownChart.destroy();
                 this.serviceBreakdownChart = new Chart(ctx, {
                     type: 'doughnut',
                     data: {
-                        labels: services.map(s => s.serviceName || s.name || 'Unknown Service'),
+                        labels: services.map(s => s.name || 'Unknown'),
                         datasets: [{
                             data: services.map(s => s.cost || 0),
-                            backgroundColor: colors.slice(0, services.length),
+                            backgroundColor: ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#6366f1', '#ec4899'],
                             borderWidth: 2,
                             borderColor: '#ffffff'
                         }]
                     },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            legend: {
-                                position: 'bottom',
-                                labels: {
-                                    padding: 20,
-                                    usePointStyle: true,
-                                    font: {
-                                        size: 12
-                                    }
-                                }
-                            },
-                            tooltip: {
-                                callbacks: {
-                                    label: function(context) {
-                                        const label = context.label || '';
-                                        const value = context.parsed || 0;
-                                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                                        const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
-                                        return `${label}: $${value.toLocaleString()} (${percentage}%)`;
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
                 });
             },
 
-            getTotalCost() {
-                if (!this.billingData.serviceBreakdown || this.billingData.serviceBreakdown.length === 0) {
-                    return 0;
-                }
-                return this.billingData.serviceBreakdown.reduce((total, service) => total + (service.cost || 0), 0);
+            formatCurrency(value) {
+                if (typeof value !== 'number') return '$0.00';
+                return value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
             },
 
-            getServicePercentage(cost) {
-                const total = this.getTotalCost();
-                return total > 0 ? ((cost / total) * 100).toFixed(1) : 0;
+            toggleService(serviceName) {
+                this.expandedServices[serviceName] = !this.expandedServices[serviceName];
             },
 
-            getServiceColor(index) {
-                const colors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#FF6384', '#C9CBCF'];
-                return colors[index % colors.length];
+            toggleRegion(serviceName, regionName) {
+                const key = `${serviceName}-${regionName}`;
+                this.expandedRegions[key] = !this.expandedRegions[key];
             },
 
             loadSidebar() {
@@ -346,11 +291,8 @@ const response = await fetch(`/api/billops/${this.selectedAccountId}`, {
                     .then(response => response.text())
                     .then(html => {
                         document.getElementById('sidebar-container').innerHTML = html;
-                        if (window.Alpine) {
-                            Alpine.initTree(document.getElementById('sidebar-container'));
-                        }
-                    })
-                    .catch(error => console.error('Error loading sidebar:', error));
+                        if (window.Alpine) Alpine.initTree(document.getElementById('sidebar-container'));
+                    });
             }
         }
     }

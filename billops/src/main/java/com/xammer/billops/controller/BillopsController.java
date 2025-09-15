@@ -4,11 +4,10 @@ import com.xammer.billops.domain.CloudAccount;
 import com.xammer.billops.domain.User;
 import com.xammer.billops.dto.BillingDashboardDto;
 import com.xammer.billops.dto.CreditRequestDto;
-import com.xammer.billops.dto.DashboardDataDto;
+import com.xammer.billops.dto.ServiceCostDetailDto;
 import com.xammer.billops.repository.CloudAccountRepository;
 import com.xammer.billops.repository.UserRepository;
 import com.xammer.billops.service.*;
-import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -24,104 +23,70 @@ import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/billops")
-@CrossOrigin(origins = "http://localhost:5173", allowCredentials = "true")
+@CrossOrigin(origins = {"http://localhost:5173", "http://127.0.0.1:5500"}, allowCredentials = "true")
 public class BillopsController {
-    private final DashboardService dashboardService;
+    private final BillingService billingService;
     private final CostService costService;
     private final ResourceService resourceService;
     private final UserRepository userRepository;
     private final CloudAccountRepository cloudAccountRepository;
     private final ExcelExportService excelExportService;
     private final CreditRequestService creditRequestService;
-    private final BillingService billingService;
 
-    public BillopsController(DashboardService dashboardService,
+    public BillopsController(BillingService billingService,
                              CostService costService,
                              ResourceService resourceService,
                              UserRepository userRepository,
                              CloudAccountRepository cloudAccountRepository,
                              ExcelExportService excelExportService,
-                             CreditRequestService creditRequestService,
-                             BillingService billingService) {
-        this.dashboardService = dashboardService;
+                             CreditRequestService creditRequestService) {
+        this.billingService = billingService;
         this.costService = costService;
         this.resourceService = resourceService;
         this.userRepository = userRepository;
         this.cloudAccountRepository = cloudAccountRepository;
         this.excelExportService = excelExportService;
         this.creditRequestService = creditRequestService;
-        this.billingService = billingService;
     }
 
-    // Health check endpoint
     @GetMapping("/health")
     public ResponseEntity<String> health() {
         return ResponseEntity.ok("Billops service is running successfully!");
     }
 
-    // Main billing dashboard endpoint
-    @GetMapping("/{accountId}")
-    public ResponseEntity<BillingDashboardDto> getBillingData(@PathVariable Long accountId,
-                                                              HttpServletRequest request,
-                                                              Authentication authentication) {
-        System.out.println("=== DEBUG INFO ===");
-        System.out.println("Request URI: " + request.getRequestURI());
-        System.out.println("Accept Header: " + request.getHeader("Accept"));
-        System.out.println("Account ID: " + accountId);
-        System.out.println("Authentication: " + (authentication != null ? authentication.getName() : "null"));
-
+    @GetMapping("/billing/{accountId}")
+    public ResponseEntity<BillingDashboardDto> getBillingData(
+            @PathVariable String accountId,
+            @RequestParam(required = false) Integer year,
+            @RequestParam(required = false) Integer month) {
         try {
-            BillingDashboardDto data = billingService.getBillingData(String.valueOf(accountId));
-            System.out.println("Data retrieved successfully: " + (data != null));
+            BillingDashboardDto data = billingService.getBillingData(accountId, year, month);
             return ResponseEntity.ok(data);
         } catch (Exception e) {
-            System.err.println("Error occurred: " + e.getMessage());
             e.printStackTrace();
             return ResponseEntity.internalServerError().build();
         }
     }
 
-    // Your existing endpoints remain the same
+    @GetMapping("/detailed-breakdown/{accountId}")
+    public ResponseEntity<List<ServiceCostDetailDto>> getDetailedBillingReport(
+            @PathVariable String accountId,
+            @RequestParam(required = false) Integer year,
+            @RequestParam(required = false) Integer month) {
+        try {
+            List<ServiceCostDetailDto> data = billingService.getDetailedBillingReport(accountId, year, month);
+            return ResponseEntity.ok(data);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
     @GetMapping("/accounts")
     public ResponseEntity<List<CloudAccount>> getCloudAccounts(Authentication authentication) {
         User user = userRepository.findByUsername(authentication.getName())
                 .orElseThrow(() -> new UsernameNotFoundException("User not found"));
         return ResponseEntity.ok(cloudAccountRepository.findByClientId(user.getClient().getId()));
-    }
-
-    @GetMapping("/data/{accountId}")
-    public ResponseEntity<DashboardDataDto> getBillingData(@PathVariable Long accountId,
-                                                           @RequestParam(required = false) Integer year,
-                                                           @RequestParam(required = false) Integer month,
-                                                           Authentication authentication) {
-        User user = userRepository.findByUsername(authentication.getName())
-                .orElseThrow(() -> new UsernameNotFoundException("User not found"));
-
-        Optional<CloudAccount> accountOpt = cloudAccountRepository.findById(accountId);
-
-        if (accountOpt.isEmpty() || !accountOpt.get().getClient().getId().equals(user.getClient().getId())) {
-            return ResponseEntity.notFound().build();
-        }
-
-        DashboardDataDto data = dashboardService.getDashboardData(accountOpt.get(), year, month);
-        return ResponseEntity.ok(data);
-    }
-
-    @GetMapping("/breakdown/regions")
-    public ResponseEntity<List<Map<String, Object>>> getRegionBreakdown(@RequestParam Long accountId,
-                                                                        @RequestParam String serviceName,
-                                                                        @RequestParam(required = false) Integer year,
-                                                                        @RequestParam(required = false) Integer month,
-                                                                        Authentication authentication) {
-        User user = userRepository.findByUsername(authentication.getName())
-                .orElseThrow(() -> new UsernameNotFoundException("User not found"));
-
-        CloudAccount account = cloudAccountRepository.findById(accountId)
-                .filter(acc -> acc.getClient().getId().equals(user.getClient().getId()))
-                .orElseThrow(() -> new RuntimeException("Account not found or access denied"));
-
-        List<Map<String, Object>> data = costService.getCostForServiceInRegion(account, serviceName, year, month);
-        return ResponseEntity.ok(data);
     }
 
     @GetMapping("/breakdown/instances")
@@ -164,7 +129,6 @@ public class BillopsController {
                 .body(in.readAllBytes());
     }
 
-    // Credit Request Endpoints
     @PostMapping("/credits")
     public ResponseEntity<CreditRequestDto> createCreditRequest(@RequestBody CreditRequestDto creditRequestDto) {
         return ResponseEntity.ok(creditRequestService.createCreditRequest(creditRequestDto));

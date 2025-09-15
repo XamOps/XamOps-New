@@ -5,12 +5,10 @@ import jakarta.persistence.*;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-
-
 @Entity
-@Table(name = "app_user") // Match the table name from xamops-service
-@Data
-@NoArgsConstructor
+@Table(name = "app_user")
+@Data // <-- ADDED THIS
+@NoArgsConstructor // <-- ADDED THIS
 public class User {
 
     @Id
@@ -24,7 +22,7 @@ public class User {
     private String password;
 
     @Column(nullable = false)
-    private String role; // e.g., "ROLE_USER", "ROLE_ADMIN", "ROLE_BILLOPS", "ROLE_XAMOPS"
+    private String role;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "client_id", nullable = false)
@@ -35,6 +33,6 @@ public class User {
         this.username = username;
         this.password = password;
         this.client = client;
-        this.role = "ROLE_USER"; // Default role
+        this.role = "ROLE_USER";
     }
 }

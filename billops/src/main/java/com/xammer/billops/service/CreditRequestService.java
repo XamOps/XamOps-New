@@ -33,7 +33,7 @@ public class CreditRequestService {
         creditRequest.setServices(creditRequestDto.getServices());
         creditRequest.setUseCase(creditRequestDto.getUseCase());
         creditRequest.setUser(user);
-        creditRequest.setStatus("submitted"); // Initial status
+        creditRequest.setStatus("submitted");
         creditRequest.setSubmittedDate(new Date());
 
         CreditRequest savedRequest = creditRequestRepository.save(creditRequest);

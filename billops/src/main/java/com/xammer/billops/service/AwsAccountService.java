@@ -26,12 +26,10 @@ public class AwsAccountService {
 
     @Transactional
     public String generateCloudFormationUrl(String accountName, Client client) {
-        CloudAccount account = new CloudAccount();
-        account.setAccountName(accountName);
-        account.setClient(client);
+        String externalId = UUID.randomUUID().toString();
+        CloudAccount account = new CloudAccount(accountName, externalId, "read-only", client);
         account.setProvider("AWS");
         account.setStatus("PENDING");
-        account.setExternalId(UUID.randomUUID().toString());
         cloudAccountRepository.save(account);
 
         String stackName = "BillOps-" + accountName.replaceAll("[^a-zA-Z0-9-]", "-");
@@ -40,15 +38,12 @@ public class AwsAccountService {
             String encodedStackName = URLEncoder.encode(stackName, StandardCharsets.UTF_8);
             String encodedTemplateUrl = URLEncoder.encode(cloudFormationTemplateUrl, StandardCharsets.UTF_8);
             String encodedExternalId = URLEncoder.encode(account.getExternalId(), StandardCharsets.UTF_8);
-            String callbackUrl = "https://your-app.com/callback";
-            String encodedCallbackUrl = URLEncoder.encode(callbackUrl, StandardCharsets.UTF_8);
 
             return String.format(
-                    "https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?templateURL=%s&stackName=%s&param_ExternalId=%s&param_CallbackUrl=%s",
+                    "https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?templateURL=%s&stackName=%s&param_ExternalId=%s",
                     encodedTemplateUrl,
                     encodedStackName,
-                    encodedExternalId,
-                    encodedCallbackUrl
+                    encodedExternalId
             );
         } catch (Exception e) {
             throw new RuntimeException("Error generating CloudFormation URL", e);
@@ -57,11 +52,12 @@ public class AwsAccountService {
 
     @Transactional
     public void verifyAccount(VerifyAccountRequest request) {
-        Long accountId = request.getAccountId();
-        CloudAccount account = cloudAccountRepository.findById(accountId)
-                .orElseThrow(() -> new IllegalArgumentException("Cloud account not found with id: " + accountId));
+        CloudAccount account = cloudAccountRepository.findById(request.getAccountId())
+                .orElseThrow(() -> new IllegalArgumentException("Cloud account not found with id: " + request.getAccountId()));
         account.setStatus("VERIFIED");
+        account.setAwsAccountId(request.getAwsAccountId());
+        account.setRoleArn(String.format("arn:aws:iam::%s:role/%s", request.getAwsAccountId(), request.getRoleName()));
+        account.setExternalId(request.getExternalId());
         cloudAccountRepository.save(account);
     }
-
 }
