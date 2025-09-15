@@ -12,7 +12,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 @RestController
-@RequestMapping("/api/user")
+@RequestMapping("/api/xamops/user")
 public class UserProfileController {
 
     @GetMapping("/profile")

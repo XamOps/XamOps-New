@@ -43,12 +43,12 @@ public class SecurityConfig {
                 .authorizeHttpRequests((requests) -> requests
                         .antMatchers("/login", "/*.html", "/gcp_*.html", "/css/**", "/js/**", "/images/**", "/icons/**", "/webjars/**").permitAll()
                         .antMatchers("/ws/**").permitAll()
-                                .antMatchers("/api/user/profile").authenticated() 
+                                .antMatchers("/api/user/profile").authenticated()
 
                         // ALL authenticated users can manage accounts
                         .antMatchers("/api/xamops/account-manager/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_XAMOPS", "ROLE_BILLOPS")
-                        // XAMOPS and ADMIN specific endpoints
-                        .antMatchers("/api/xamops/**").hasAnyAuthority("ROLE_XAMOPS", "ROLE_ADMIN")
+                        // XAMOPS, BILLOPS, and ADMIN specific endpoints
+                        .antMatchers("/api/xamops/**").hasAnyAuthority("ROLE_XAMOPS", "ROLE_ADMIN", "ROLE_BILLOPS")
                         .antMatchers("/api/cloudlist/**").hasAnyAuthority("ROLE_XAMOPS", "ROLE_ADMIN")
                         .antMatchers("/api/cloudmap/**").hasAnyAuthority("ROLE_XAMOPS", "ROLE_ADMIN")
                         .antMatchers("/api/costing/**").hasAnyAuthority("ROLE_XAMOPS", "ROLE_ADMIN")
@@ -85,7 +85,7 @@ public class SecurityConfig {
                     Long clientId = Optional.ofNullable(user.getClient())
                             .map(Client::getId)
                             .orElse(null);
-                    
+
                     GrantedAuthority authority = new SimpleGrantedAuthority(user.getRole());
                     List<GrantedAuthority> authorities = Collections.singletonList(authority);
 

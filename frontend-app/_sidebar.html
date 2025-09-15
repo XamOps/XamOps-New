@@ -169,7 +169,7 @@
         },
         fetchUserRoles() {
             // This endpoint needs to be created on the backend to return user roles
-            fetch('/api/user/profile')
+            fetch('/api/xamops/user/profile')
                 .then(res => {
                     if (!res.ok) return Promise.reject('Not authenticated');
                     return res.json();
@@ -180,8 +180,6 @@
                 })
                 .catch(err => {
                     console.error('Could not fetch user profile:', err);
-                    // Fallback for local testing if the API doesn't exist yet
-                    this.userRoles = ['ROLE_BILLOPS', 'ROLE_ADMIN', 'ROLE_XAMOPS', 'ROLE_BILLOPS_ADMIN'];
                 });
         },
         hasAnyRole(requiredRoles) {
