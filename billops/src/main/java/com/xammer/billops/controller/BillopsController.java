@@ -4,7 +4,9 @@ import com.xammer.billops.domain.CloudAccount;
 import com.xammer.billops.domain.User;
 import com.xammer.billops.dto.BillingDashboardDto;
 import com.xammer.billops.dto.CreditRequestDto;
+import com.xammer.billops.dto.DashboardDataDto;
 import com.xammer.billops.dto.ServiceCostDetailDto;
+import com.xammer.billops.dto.TicketDto;
 import com.xammer.billops.repository.CloudAccountRepository;
 import com.xammer.billops.repository.UserRepository;
 import com.xammer.billops.service.*;
@@ -32,6 +34,9 @@ public class BillopsController {
     private final CloudAccountRepository cloudAccountRepository;
     private final ExcelExportService excelExportService;
     private final CreditRequestService creditRequestService;
+    // private final BillingService billingService;
+    private final TicketService ticketService;
+
 
     public BillopsController(BillingService billingService,
                              CostService costService,
@@ -39,14 +44,18 @@ public class BillopsController {
                              UserRepository userRepository,
                              CloudAccountRepository cloudAccountRepository,
                              ExcelExportService excelExportService,
-                             CreditRequestService creditRequestService) {
-        this.billingService = billingService;
+                             CreditRequestService creditRequestService,
+                            //  BillingService billingService,
+                             TicketService ticketService) {
+        // this.dashboardService = dashboardService;
         this.costService = costService;
         this.resourceService = resourceService;
         this.userRepository = userRepository;
         this.cloudAccountRepository = cloudAccountRepository;
         this.excelExportService = excelExportService;
         this.creditRequestService = creditRequestService;
+        this.billingService = billingService;
+        this.ticketService = ticketService;
     }
 
     @GetMapping("/health")
@@ -148,5 +157,16 @@ public class BillopsController {
     public ResponseEntity<CreditRequestDto> updateRequestStatus(@PathVariable Long id, @RequestBody Map<String, String> statusUpdate) {
         String status = statusUpdate.get("status");
         return ResponseEntity.ok(creditRequestService.updateRequestStatus(id, status));
+    }
+
+    // Ticket Endpoints
+    @PostMapping("/tickets")
+    public ResponseEntity<TicketDto> createTicket(@RequestBody TicketDto ticketDto) {
+        return ResponseEntity.ok(ticketService.createTicket(ticketDto));
+    }
+
+    @GetMapping("/tickets")
+    public ResponseEntity<List<TicketDto>> getAllTickets() {
+        return ResponseEntity.ok(ticketService.getAllTickets());
     }
 }

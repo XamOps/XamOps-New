@@ -16,12 +16,12 @@
     <script src="https://code.highcharts.com/maps/highmaps.js"></script>
     <script src="https://code.highcharts.com/maps/modules/exporting.js"></script>
     <script src="https://code.highcharts.com/mapdata/custom/world.js"></script>
-        <script type="module" src="/src/main.js"></script>
+    <script type="module" src="/src/main.js"></script>
 
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-        
+
         :root {
             --primary-color: #4f46e5;
             --primary-dark: #4338ca;
@@ -39,37 +39,37 @@
             --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
         }
 
-        body { 
-            font-family: 'Inter', sans-serif; 
+        body {
+            font-family: 'Inter', sans-serif;
             background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
             min-height: 100vh;
         }
-        
+
         [x-cloak] { display: none !important; }
-        
-        .skeleton { 
-            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; 
+
+        .skeleton {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
             background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
             background-size: 200% 100%;
             animation: shimmer 1.5s infinite;
         }
-        
+
         @keyframes shimmer {
             0% { background-position: -200% 0; }
             100% { background-position: 200% 0; }
         }
-        
+
         .glass-card {
             background: rgba(255, 255, 255, 0.95);
             backdrop-filter: blur(10px);
             border: 1px solid rgba(255, 255, 255, 0.2);
             box-shadow: var(--shadow-lg);
         }
-        
+
         .gradient-bg {
             background: var(--gradient-primary);
         }
-        
+
         .kpi-card {
             position: relative;
             overflow: hidden;
@@ -79,13 +79,13 @@
             border: 1px solid rgba(255, 255, 255, 0.2);
             box-shadow: var(--shadow-md);
         }
-        
-        .kpi-card:hover { 
-            transform: translateY(-6px) scale(1.02); 
+
+        .kpi-card:hover {
+            transform: translateY(-6px) scale(1.02);
             box-shadow: var(--shadow-xl);
             border-color: rgba(79, 70, 229, 0.3);
         }
-        
+
         .kpi-card::before {
             content: '';
             position: absolute;
@@ -97,19 +97,19 @@
             transform: scaleX(0);
             transition: transform 0.3s ease;
         }
-        
+
         .kpi-card:hover::before {
             transform: scaleX(1);
         }
-        
+
         .kpi-card .main-content {
             transition: opacity 0.3s ease-in-out;
         }
-        
+
         .kpi-card:hover .main-content {
             opacity: 0;
         }
-        
+
         .kpi-card .sparkline-container {
             position: absolute;
             top: 0; left: 0; right: 0; bottom: 0;
@@ -117,7 +117,7 @@
             transition: opacity 0.3s ease-in-out;
             pointer-events: none;
         }
-        
+
         .kpi-card:hover .sparkline-container {
             opacity: 1;
         }
@@ -128,51 +128,51 @@
             backdrop-filter: blur(10px);
             border: 1px solid rgba(255, 255, 255, 0.2);
         }
-        
+
         .resource-card:hover {
             transform: translateY(-2px);
             box-shadow: var(--shadow-lg);
             border-color: rgba(79, 70, 229, 0.3);
         }
-        
+
         .resource-card:hover .resource-icon {
             transform: scale(1.1) rotate(5deg);
         }
-        
+
         .resource-icon {
             transition: transform 0.3s ease;
         }
 
-        .sortable-ghost { 
-            background: linear-gradient(45deg, #eef2ff 25%, transparent 25%), 
-                        linear-gradient(-45deg, #eef2ff 25%, transparent 25%), 
-                        linear-gradient(45deg, transparent 75%, #eef2ff 75%), 
+        .sortable-ghost {
+            background: linear-gradient(45deg, #eef2ff 25%, transparent 25%),
+                        linear-gradient(-45deg, #eef2ff 25%, transparent 25%),
+                        linear-gradient(45deg, transparent 75%, #eef2ff 75%),
                         linear-gradient(-45deg, transparent 75%, #eef2ff 75%);
             background-size: 20px 20px;
-            border: 2px dashed #818cf8; 
+            border: 2px dashed #818cf8;
             opacity: 0.7;
             transform: rotate(5deg);
         }
-        
-        .sortable-chosen { 
-            cursor: grabbing; 
+
+        .sortable-chosen {
+            cursor: grabbing;
             transform: scale(1.05);
             box-shadow: var(--shadow-xl);
         }
-        
-        .widget-handle { 
-            cursor: grab; 
-            opacity: 0; 
+
+        .widget-handle {
+            cursor: grab;
+            opacity: 0;
             transition: all 0.2s ease;
             color: #9ca3af;
         }
-        
-        .widget:hover .widget-handle { 
-            opacity: 0.6; 
+
+        .widget:hover .widget-handle {
+            opacity: 0.6;
         }
-        
-        .widget-handle:hover { 
-            opacity: 1; 
+
+        .widget-handle:hover {
+            opacity: 1;
             color: var(--primary-color);
             transform: scale(1.1);
         }
@@ -372,219 +372,219 @@
 </head>
 <body x-data="dashboardApp()">
 
-    <div id="errorState" class="hidden fixed inset-0 flex items-center justify-center bg-red-50 text-red-700 z-50">
-        <div class="bg-white p-8 rounded-lg shadow-xl max-w-md w-full mx-4">
-            <div class="flex items-center justify-center w-16 h-16 mx-auto mb-4 bg-red-100 rounded-full">
-                <i class="fas fa-exclamation-triangle text-red-600 text-2xl"></i>
-            </div>
-            <h2 class="text-2xl font-bold text-center mb-4 text-gray-800">Connection Error</h2>
-            <p id="errorMessage" class="text-center text-gray-600 mb-6"></p>
-            <button onclick="location.reload()" class="w-full bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 transition-colors">
-                Try Again
-            </button>
+<div id="errorState" class="hidden fixed inset-0 flex items-center justify-center bg-red-50 text-red-700 z-50">
+    <div class="bg-white p-8 rounded-lg shadow-xl max-w-md w-full mx-4">
+        <div class="flex items-center justify-center w-16 h-16 mx-auto mb-4 bg-red-100 rounded-full">
+            <i class="fas fa-exclamation-triangle text-red-600 text-2xl"></i>
         </div>
+        <h2 class="text-2xl font-bold text-center mb-4 text-gray-800">Connection Error</h2>
+        <p id="errorMessage" class="text-center text-gray-600 mb-6"></p>
+        <button onclick="location.reload()" class="w-full bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 transition-colors">
+            Try Again
+        </button>
     </div>
+</div>
 
-    <div id="loadingNotification" class="notification bg-white border border-gray-200 shadow-lg rounded-lg p-4 flex items-center space-x-3">
-        <div class="loading-spinner"></div>
-        <span class="text-sm text-gray-600">Updating dashboard...</span>
+<div id="loadingNotification" class="notification bg-white border border-gray-200 shadow-lg rounded-lg p-4 flex items-center space-x-3">
+    <div class="loading-spinner"></div>
+    <span class="text-sm text-gray-600">Updating dashboard...</span>
+</div>
+
+<div id="successNotification" class="notification bg-green-50 border border-green-200 shadow-lg rounded-lg p-4 flex items-center space-x-3">
+    <div class="w-5 h-5 bg-green-500 rounded-full flex items-center justify-center">
+        <i class="fas fa-check text-white text-xs"></i>
     </div>
+    <span class="text-sm text-green-800">Dashboard updated successfully!</span>
+</div>
 
-    <div id="successNotification" class="notification bg-green-50 border border-green-200 shadow-lg rounded-lg p-4 flex items-center space-x-3">
-        <div class="w-5 h-5 bg-green-500 rounded-full flex items-center justify-center">
-            <i class="fas fa-check text-white text-xs"></i>
-        </div>
-        <span class="text-sm text-green-800">Dashboard updated successfully!</span>
-    </div>
+<div id="appBody" class="flex">
+    <aside class="fixed top-0 left-0 h-screen w-64 bg-white border-r border-gray-200 z-20 slide-in">
+        <div data-include-sidebar></div>
+    </aside>
 
-    <div id="appBody" class="flex">
-        <aside class="fixed top-0 left-0 h-screen w-64 bg-white border-r border-gray-200 z-20 slide-in">
-            <div data-include-sidebar></div>
-        </aside>
-
-        <div class="ml-64 flex-1">
-            <main class="flex-1 p-6 bg-transparent space-y-6">
-                <header class="h-20 flex items-center justify-between glass-card px-6 -mx-6 -mt-6 mb-6 border-b sticky top-0 z-10 fade-in">
-                    <div class="flex items-center space-x-4">
-                        <div class="flex items-center space-x-2">
-                            <div class="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center">
-                                <i class="fas fa-cloud text-white text-lg"></i>
-                            </div>
-                            <div>
-                                <h1 class="text-xl font-bold text-gray-800">Live Dashboard</h1>
-                                <div class="flex items-center space-x-2">
-                                    <div class="w-2 h-2 bg-green-500 rounded-full pulse-dot"></div>
-                                    <p id="updateTime" class="text-xs text-gray-500">Connected</p>
-                                </div>
+    <div class="ml-64 flex-1">
+        <main class="flex-1 p-6 bg-transparent space-y-6">
+            <header class="h-20 flex items-center justify-between glass-card px-6 -mx-6 -mt-6 mb-6 border-b sticky top-0 z-10 fade-in">
+                <div class="flex items-center space-x-4">
+                    <div class="flex items-center space-x-2">
+                        <div class="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center">
+                            <i class="fas fa-cloud text-white text-lg"></i>
+                        </div>
+                        <div>
+                            <h1 class="text-xl font-bold text-gray-800">Live Dashboard</h1>
+                            <div class="flex items-center space-x-2">
+                                <div class="w-2 h-2 bg-green-500 rounded-full pulse-dot"></div>
+                                <p id="updateTime" class="text-xs text-gray-500">Connected</p>
                             </div>
                         </div>
                     </div>
-                    <div class="flex items-center space-x-4">
-                        <button 
-                            @click="saveLayout()" 
-                            x-show="layoutChanged" 
-                            x-cloak 
+                </div>
+                <div class="flex items-center space-x-4">
+                    <button
+                            @click="saveLayout()"
+                            x-show="layoutChanged"
+                            x-cloak
                             class="flex items-center text-sm font-semibold text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 px-6 py-2.5 rounded-lg shadow-md transition-all transform hover:scale-105 hover:shadow-lg">
-                            <i class="fas fa-save mr-2"></i> Save Layout
-                        </button>
-                        <button 
-                            id="refreshButton" 
-                            @click="fetchDashboardData(true)" 
-                            class="flex items-center text-sm text-indigo-600 hover:text-indigo-800 px-4 py-2 rounded-lg hover:bg-indigo-50 transition-all" 
+                        <i class="fas fa-save mr-2"></i> Save Layout
+                    </button>
+                    <button
+                            id="refreshButton"
+                            @click="fetchDashboardData(true)"
+                            class="flex items-center text-sm text-indigo-600 hover:text-indigo-800 px-4 py-2 rounded-lg hover:bg-indigo-50 transition-all"
                             :disabled="isRefreshing">
-                            <i class="fas fa-sync-alt mr-2" :class="{'fa-spin': isRefreshing}"></i>
-                            <span x-text="isRefreshing ? 'Refreshing...' : 'Refresh'"></span>
-                        </button>
-                    </div>
-                </header>
-
-                <div x-show="selectedAccountIds.length === 0 && !isLoading" id="noAccountState" class="text-center py-32 fade-in" x-cloak>
-                    <div class="max-w-md mx-auto">
-                        <div class="w-24 h-24 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-6">
-                            <i class="fas fa-plus-circle text-white text-3xl"></i>
-                        </div>
-                        <h3 class="text-2xl font-bold text-gray-800 mb-4">Get Started with XamOps</h3>
-                        <p class="text-gray-600 mb-8">It looks like you don't have any cloud accounts connected yet. Add your first account to begin monitoring your infrastructure.</p>
-                        <a href="/account-manager.html" class="inline-block bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold py-3 px-8 rounded-xl shadow-lg hover:shadow-xl transition-all transform hover:scale-105">
-                            <i class="fas fa-users-cog mr-2"></i> Go to Account Manager
-                        </a>
-                    </div>
+                        <i class="fas fa-sync-alt mr-2" :class="{'fa-spin': isRefreshing}"></i>
+                        <span x-text="isRefreshing ? 'Refreshing...' : 'Refresh'"></span>
+                    </button>
                 </div>
+            </header>
 
-                <div x-show="isLoading" id="dashboardSkeleton" class="space-y-6 fade-in">
-                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                        <div class="glass-card p-6 rounded-xl h-32 skeleton"></div>
-                        <div class="glass-card p-6 rounded-xl h-32 skeleton"></div>
-                        <div class="glass-card p-6 rounded-xl h-32 skeleton"></div>
-                        <div class="glass-card p-6 rounded-xl h-32 skeleton"></div>
+            <div x-show="selectedAccountIds.length === 0 && !isLoading" id="noAccountState" class="text-center py-32 fade-in" x-cloak>
+                <div class="max-w-md mx-auto">
+                    <div class="w-24 h-24 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <i class="fas fa-plus-circle text-white text-3xl"></i>
                     </div>
-                    <div class="glass-card p-6 rounded-xl h-96 skeleton"></div>
-                    <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                        <div class="lg:col-span-2 glass-card p-6 rounded-xl h-48 skeleton"></div>
-                        <div class="glass-card p-6 rounded-xl h-48 skeleton"></div>
-                    </div>
-                    <div class="glass-card p-6 rounded-xl h-64 skeleton"></div>
+                    <h3 class="text-2xl font-bold text-gray-800 mb-4">Get Started with XamOps</h3>
+                    <p class="text-gray-600 mb-8">It looks like you don't have any cloud accounts connected yet. Add your first account to begin monitoring your infrastructure.</p>
+                    <a href="/account-manager.html" class="inline-block bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold py-3 px-8 rounded-xl shadow-lg hover:shadow-xl transition-all transform hover:scale-105">
+                        <i class="fas fa-users-cog mr-2"></i> Go to Account Manager
+                    </a>
                 </div>
+            </div>
 
-                <div x-show="!isLoading && selectedAccountIds.length > 0" id="dashboardContent" x-cloak>
-                    <div id="widgets-container" class="space-y-8">
-                        
-                        <div id="widget-kpi" class="widget fade-in">
-                            <div class="flex items-center justify-between mb-6">
-                                <div class="flex items-center text-gray-600">
-                                    <i class="fas fa-arrows-alt widget-handle mr-3 text-lg"></i>
-                                    <h2 class="text-lg font-bold">Key Performance Indicators</h2>
-                                </div>
-                                <div class="flex items-center space-x-2 text-sm text-gray-500">
-                                    <i class="fas fa-chart-line"></i>
-                                    <span>Live metrics</span>
-                                </div>
-                            </div>
-                            <div id="kpi-cards" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"></div>
-                        </div>
+            <div x-show="isLoading" id="dashboardSkeleton" class="space-y-6 fade-in">
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <div class="glass-card p-6 rounded-xl h-32 skeleton"></div>
+                    <div class="glass-card p-6 rounded-xl h-32 skeleton"></div>
+                    <div class="glass-card p-6 rounded-xl h-32 skeleton"></div>
+                    <div class="glass-card p-6 rounded-xl h-32 skeleton"></div>
+                </div>
+                <div class="glass-card p-6 rounded-xl h-96 skeleton"></div>
+                <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                    <div class="lg:col-span-2 glass-card p-6 rounded-xl h-48 skeleton"></div>
+                    <div class="glass-card p-6 rounded-xl h-48 skeleton"></div>
+                </div>
+                <div class="glass-card p-6 rounded-xl h-64 skeleton"></div>
+            </div>
 
-                        <div id="widget-map" class="widget grid gap-6 lg:grid-cols-5 fade-in">
-                            <div class="lg:col-span-3 chart-container p-6 rounded-xl">
-                                <div class="flex items-center justify-between mb-6">
-                                    <h3 class="text-lg font-bold text-gray-800 flex items-center">
-                                        <i class="fas fa-arrows-alt widget-handle mr-3 text-gray-400"></i> 
-                                        <i class="fas fa-globe-americas mr-2 text-blue-500"></i>
-                                        Active Regions
-                                    </h3>
-                                    <div class="flex items-center space-x-4 text-sm">
-                                        <div class="flex items-center space-x-1">
-                                            <div class="w-3 h-3 bg-blue-500 rounded-full"></div>
-                                            <span class="text-gray-600">Active</span>
-                                        </div>
-                                        <div class="flex items-center space-x-1">
-                                            <div class="w-3 h-3 bg-green-500 rounded-full"></div>
-                                            <span class="text-gray-600">Sustainable</span>
-                                        </div>
-                                        <div class="flex items-center space-x-1">
-                                            <div class="w-3 h-3 bg-red-500 rounded-full"></div>
-                                            <span class="text-gray-600">Issues</span>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div id="highcharts-map-container" style="height: 400px;" class="rounded-lg overflow-hidden"></div>
+            <div x-show="!isLoading && selectedAccountIds.length > 0" id="dashboardContent" x-cloak>
+                <div id="widgets-container" class="space-y-8">
+
+                    <div id="widget-kpi" class="widget fade-in">
+                        <div class="flex items-center justify-between mb-6">
+                            <div class="flex items-center text-gray-600">
+                                <i class="fas fa-arrows-alt widget-handle mr-3 text-lg"></i>
+                                <h2 class="text-lg font-bold">Key Performance Indicators</h2>
                             </div>
-                            <div class="lg:col-span-2 chart-container p-6 rounded-xl">
-                                <div class="flex items-center justify-between mb-6">
-                                    <h3 class="text-lg font-bold text-gray-800 flex items-center">
-                                        <i class="fas fa-arrows-alt widget-handle mr-3 text-gray-400"></i>
-                                        <i class="fas fa-server mr-2 text-purple-500"></i>
-                                        Resource Inventory
-                                    </h3>
-                                    <div class="text-sm text-gray-500">
-                                        <i class="fas fa-sync-alt"></i>
-                                    </div>
-                                </div>
-                                <div id="resourceInventory" class="grid grid-cols-1 gap-3 custom-scrollbar" style="max-height: 400px; overflow-y: auto;"></div>
+                            <div class="flex items-center space-x-2 text-sm text-gray-500">
+                                <i class="fas fa-chart-line"></i>
+                                <span>Live metrics</span>
                             </div>
                         </div>
+                        <div id="kpi-cards" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"></div>
+                    </div>
 
-                        <div id="widget-optimization" class="widget chart-container p-6 rounded-xl fade-in">
+                    <div id="widget-map" class="widget grid gap-6 lg:grid-cols-5 fade-in">
+                        <div class="lg:col-span-3 chart-container p-6 rounded-xl">
                             <div class="flex items-center justify-between mb-6">
                                 <h3 class="text-lg font-bold text-gray-800 flex items-center">
                                     <i class="fas fa-arrows-alt widget-handle mr-3 text-gray-400"></i>
-                                    <i class="fas fa-lightbulb mr-2 text-yellow-500"></i>
-                                    Optimization Hub
+                                    <i class="fas fa-globe-americas mr-2 text-blue-500"></i>
+                                    Active Regions
                                 </h3>
-                                </div>
-                            <div id="optimizationHub"></div>
-                        </div>
-                        
-                        <div id="widget-costs" class="widget grid gap-6 lg:grid-cols-3 fade-in">
-                            <div class="lg:col-span-2 chart-container p-6 rounded-xl">
-                                <div class="flex items-center justify-between mb-6">
-                                    <h3 class="text-lg font-bold text-gray-800 flex items-center">
-                                        <i class="fas fa-arrows-alt widget-handle mr-3 text-gray-400"></i>
-                                        <i class="fas fa-chart-bar mr-2 text-green-500"></i>
-                                        Cost History (Last 6 Months)
-                                    </h3>
-                                    <div class="flex items-center space-x-2 text-sm text-gray-500">
-                                        <i class="fas fa-exclamation-triangle text-orange-500"></i>
-                                        <span>Anomaly detection</span>
+                                <div class="flex items-center space-x-4 text-sm">
+                                    <div class="flex items-center space-x-1">
+                                        <div class="w-3 h-3 bg-blue-500 rounded-full"></div>
+                                        <span class="text-gray-600">Active</span>
+                                    </div>
+                                    <div class="flex items-center space-x-1">
+                                        <div class="w-3 h-3 bg-green-500 rounded-full"></div>
+                                        <span class="text-gray-600">Sustainable</span>
+                                    </div>
+                                    <div class="flex items-center space-x-1">
+                                        <div class="w-3 h-3 bg-red-500 rounded-full"></div>
+                                        <span class="text-gray-600">Issues</span>
                                     </div>
                                 </div>
-                                <div class="h-80 p-4 bg-gray-50 rounded-lg">
-                                    <canvas id="costHistoryChart"></canvas>
+                            </div>
+                            <div id="highcharts-map-container" style="height: 400px;" class="rounded-lg overflow-hidden"></div>
+                        </div>
+                        <div class="lg:col-span-2 chart-container p-6 rounded-xl">
+                            <div class="flex items-center justify-between mb-6">
+                                <h3 class="text-lg font-bold text-gray-800 flex items-center">
+                                    <i class="fas fa-arrows-alt widget-handle mr-3 text-gray-400"></i>
+                                    <i class="fas fa-server mr-2 text-purple-500"></i>
+                                    Resource Inventory
+                                </h3>
+                                <div class="text-sm text-gray-500">
+                                    <i class="fas fa-sync-alt"></i>
                                 </div>
                             </div>
-                            <div class="chart-container p-6 rounded-xl">
-                                <div class="flex items-center justify-between mb-6">
-                                    <h3 class="text-lg font-bold text-gray-800 flex items-center">
-                                        <i class="fas fa-arrows-alt widget-handle mr-3 text-gray-400"></i>
-                                        <i class="fas fa-receipt mr-2 text-blue-500"></i>
-                                        Billing Summary
-                                    </h3>
-                                    <div class="text-sm text-gray-500">MTD</div>
+                            <div id="resourceInventory" class="grid grid-cols-1 gap-3 custom-scrollbar" style="max-height: 400px; overflow-y: auto;"></div>
+                        </div>
+                    </div>
+
+                    <div id="widget-optimization" class="widget chart-container p-6 rounded-xl fade-in">
+                        <div class="flex items-center justify-between mb-6">
+                            <h3 class="text-lg font-bold text-gray-800 flex items-center">
+                                <i class="fas fa-arrows-alt widget-handle mr-3 text-gray-400"></i>
+                                <i class="fas fa-lightbulb mr-2 text-yellow-500"></i>
+                                Optimization Hub
+                            </h3>
+                        </div>
+                        <div id="optimizationHub"></div>
+                    </div>
+
+                    <div id="widget-costs" class="widget grid gap-6 lg:grid-cols-3 fade-in">
+                        <div class="lg:col-span-2 chart-container p-6 rounded-xl">
+                            <div class="flex items-center justify-between mb-6">
+                                <h3 class="text-lg font-bold text-gray-800 flex items-center">
+                                    <i class="fas fa-arrows-alt widget-handle mr-3 text-gray-400"></i>
+                                    <i class="fas fa-chart-bar mr-2 text-green-500"></i>
+                                    Cost History (Last 6 Months)
+                                </h3>
+                                <div class="flex items-center space-x-2 text-sm text-gray-500">
+                                    <i class="fas fa-exclamation-triangle text-orange-500"></i>
+                                    <span>Anomaly detection</span>
                                 </div>
-                                <div class="overflow-y-auto max-h-80 custom-scrollbar">
-                                    <table class="w-full text-sm text-left text-gray-500">
-                                        <thead class="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0 rounded-lg">
-                                            <tr>
-                                                <th class="px-4 py-3 rounded-l-lg">Service</th>
-                                                <th class="px-4 py-3 text-right rounded-r-lg">Cost (USD)</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="billingSummary"></tbody>
-                                    </table>
-                                </div>
+                            </div>
+                            <div class="h-80 p-4 bg-gray-50 rounded-lg">
+                                <canvas id="costHistoryChart"></canvas>
+                            </div>
+                        </div>
+                        <div class="chart-container p-6 rounded-xl">
+                            <div class="flex items-center justify-between mb-6">
+                                <h3 class="text-lg font-bold text-gray-800 flex items-center">
+                                    <i class="fas fa-arrows-alt widget-handle mr-3 text-gray-400"></i>
+                                    <i class="fas fa-receipt mr-2 text-blue-500"></i>
+                                    Billing Summary
+                                </h3>
+                                <div class="text-sm text-gray-500">MTD</div>
+                            </div>
+                            <div class="overflow-y-auto max-h-80 custom-scrollbar">
+                                <table class="w-full text-sm text-left text-gray-500">
+                                    <thead class="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0 rounded-lg">
+                                    <tr>
+                                        <th class="px-4 py-3 rounded-l-lg">Service</th>
+                                        <th class="px-4 py-3 text-right rounded-r-lg">Cost (USD)</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody id="billingSummary"></tbody>
+                                </table>
                             </div>
                         </div>
                     </div>
                 </div>
-            </main>
-        </div>
+            </div>
+        </main>
     </div>
+</div>
 
-    <button class="floating-action tooltip" data-tooltip="Quick Actions" @click="showQuickActions = !showQuickActions">
-        <i class="fas fa-bolt"></i>
-    </button>
+<button class="floating-action tooltip" data-tooltip="Quick Actions" @click="showQuickActions = !showQuickActions">
+    <i class="fas fa-bolt"></i>
+</button>
 
 
-  <script>
+<script>
     function dashboardApp() {
         return {
             isLoading: true,
@@ -592,19 +592,19 @@
             stompClient: null,
             layoutChanged: false,
             showQuickActions: false,
-            selectedAccountIds: [], 
-            
+            selectedAccountIds: [],
+
            init() {
                 const urlParams = new URLSearchParams(window.location.search);
                 const accountIdsParam = urlParams.get('accountId') || urlParams.get('accountIds');
-                
+
                 if (accountIdsParam) {
                     this.selectedAccountIds = accountIdsParam.split(',');
                     sessionStorage.setItem('selectedAccountIds', JSON.stringify(this.selectedAccountIds));
                 } else {
                     this.selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
                 }
-                
+
                 window.addEventListener('storage', (event) => {
                     if (event.key === 'selectedAccountIds') {
                         window.location.reload();
@@ -619,7 +619,7 @@
             },
 
             connectWebSocket() {
-                if (this.selectedAccountIds.length === 0) return; 
+                if (this.selectedAccountIds.length === 0) return;
 
                 const socket = new SockJS('/ws');
                 this.stompClient = Stomp.over(socket);
@@ -670,7 +670,7 @@
                     this.isLoading = false;
                     return;
                 }
-                
+
                 this.connectWebSocket();
                 this.initializeDashboardLayout();
 
@@ -682,7 +682,7 @@
                     this.populatePage(JSON.parse(cachedData));
                     return;
                 }
-                
+
                 if (!cachedData) {
                     this.isLoading = true;
                 }
@@ -691,7 +691,7 @@
                     this.isRefreshing = true;
                     this.showNotification('loading', 'Updating dashboard...');
                 }
-                
+
                 let endpoint = `/api/xamops/dashboard-data?accountId=${this.selectedAccountIds[0]}`;
                 if (forceRefresh) {
                     endpoint += '&force=true';
@@ -718,7 +718,7 @@
                         this.isRefreshing = false;
                     });
             },
-            
+
             showNotification(type, message) {
                 const notification = document.getElementById(type + 'Notification');
                 if (notification) {
@@ -744,7 +744,7 @@
                 }
             });
         },
-        
+
         populatePage(data) {
                 const account = data.selectedAccount;
                 if (!account) return;
@@ -765,44 +765,44 @@
             const forecastedSpend = (mtdSpend / new Date().getDate()) * new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
 
             const kpis = [
-                { 
-                    id: 'mtdSpend', 
-                    title: 'Month-to-Date Spend', 
-                    value: this.formatCurrency(mtdSpend), 
-                    icon: 'fa-dollar-sign', 
-                    color: { iconClass: 'text-blue-500', chartColor: '#3b82f6', gradientClass: 'from-blue-500 to-blue-600' }, 
+                {
+                    id: 'mtdSpend',
+                    title: 'Month-to-Date Spend',
+                    value: this.formatCurrency(mtdSpend),
+                    icon: 'fa-dollar-sign',
+                    color: { iconClass: 'text-blue-500', chartColor: '#3b82f6', gradientClass: 'from-blue-500 to-blue-600' },
                     trendData: costHistory.costs,
                     change: lastMonthSpend > 0 ? ((mtdSpend - lastMonthSpend) / lastMonthSpend * 100).toFixed(1) : 0
                 },
-                { 
-                    id: 'forecastedSpend', 
-                    title: 'Forecasted Spend', 
-                    value: this.formatCurrency(forecastedSpend), 
-                    icon: 'fa-chart-line', 
-                    color: { iconClass: 'text-yellow-500', chartColor: '#f59e0b', gradientClass: 'from-yellow-500 to-yellow-600' }, 
+                {
+                    id: 'forecastedSpend',
+                    title: 'Forecasted Spend',
+                    value: this.formatCurrency(forecastedSpend),
+                    icon: 'fa-chart-line',
+                    color: { iconClass: 'text-yellow-500', chartColor: '#f59e0b', gradientClass: 'from-yellow-500 to-yellow-600' },
                     trendData: costHistory.costs,
                     change: '+' + ((forecastedSpend - mtdSpend) / mtdSpend * 100).toFixed(1)
                 },
-                { 
-                    id: 'lastMonthSpend', 
-                    title: 'Last Month Spend', 
-                    value: this.formatCurrency(lastMonthSpend), 
-                    icon: 'fa-calendar-alt', 
-                    color: { iconClass: 'text-gray-500', chartColor: '#6b7280', gradientClass: 'from-gray-500 to-gray-600' }, 
+                {
+                    id: 'lastMonthSpend',
+                    title: 'Last Month Spend',
+                    value: this.formatCurrency(lastMonthSpend),
+                    icon: 'fa-calendar-alt',
+                    color: { iconClass: 'text-gray-500', chartColor: '#6b7280', gradientClass: 'from-gray-500 to-gray-600' },
                     trendData: costHistory.costs.slice(0, -1),
                     change: costHistory.costs.length > 2 ? ((lastMonthSpend - costHistory.costs[costHistory.costs.length - 3]) / costHistory.costs[costHistory.costs.length - 3] * 100).toFixed(1) : 0
                 },
-                { 
-                    id: 'potentialSavings', 
-                    title: 'Potential Savings', 
-                    value: this.formatCurrency(account.optimizationSummary.totalPotentialSavings), 
-                    icon: 'fa-piggy-bank', 
-                    color: { iconClass: 'text-green-500', chartColor: '#22c55e', gradientClass: 'from-green-500 to-green-600' }, 
+                {
+                    id: 'potentialSavings',
+                    title: 'Potential Savings',
+                    value: this.formatCurrency(account.optimizationSummary.totalPotentialSavings),
+                    icon: 'fa-piggy-bank',
+                    color: { iconClass: 'text-green-500', chartColor: '#22c55e', gradientClass: 'from-green-500 to-green-600' },
                     trendData: [account.optimizationSummary.totalPotentialSavings],
                     change: '+100.0'
                 }
             ];
-            
+
             kpiContainer.innerHTML = kpis.map(kpi => `
                 <div class="kpi-card rounded-xl p-6 group" @mouseenter="renderSparkline('sparkline-${kpi.id}', [${kpi.trendData.join(',')}], '${kpi.color.chartColor}')">
                     <div class="main-content">
@@ -845,8 +845,10 @@
                 { name: 'Load Balancers', count: inv.loadBalancers, type: 'Load Balancer', icon: 'load-balancer.png' },
                 { name: 'ECS Clusters', count: inv.ecs, type: 'ECS', icon: 'aws-ecs.png' },
                 { name: 'EKS Clusters', count: inv.kubernetes, type: 'EKS', icon: 'aws-eks.png' },
+                { name: 'Lightsail Instances', count: inv.lightsail, type: 'Lightsail Instance', icon: 'lightsail.png' },
+                { name: 'Amplify Apps', count: inv.amplify, type: 'Amplify App', icon: 'amplify.png' }
             ];
-            
+
             container.innerHTML = resources.map(res => `
                 <a href="/cloudlist?service=${encodeURIComponent(res.type)}" class="resource-card flex items-center gap-4 p-4 rounded-xl hover:shadow-md transition-all group">
                     <div class="resource-icon w-10 h-10 flex-shrink-0">
@@ -867,7 +869,7 @@
         populateOptimizationHub(summary, anomalies, ec2Recs, ebsRecs, lambdaRecs) {
             const container = document.getElementById('optimizationHub');
             if(!summary || !container) return;
-            
+
             const recsHtml = (title, recs, icon, color, gradientClass) => {
                 if (!recs || recs.length === 0) return '';
                 return `
@@ -984,11 +986,11 @@
                 ${anomaliesHtml(anomalies)}
             `;
         },
-        
-        populateBillingSummary(summary) { 
-            const container = document.getElementById('billingSummary'); 
-            if (!container || !summary) return; 
-            if (summary.length > 0) { 
+
+        populateBillingSummary(summary) {
+            const container = document.getElementById('billingSummary');
+            if (!container || !summary) return;
+            if (summary.length > 0) {
                 container.innerHTML = summary.sort((a,b) => b.monthToDateCost - a.monthToDateCost).map((item, index) => `
                     <tr class="border-b hover:bg-gray-50 transition-colors">
                         <th class="px-4 py-4 font-semibold text-gray-800 text-left">
@@ -1001,8 +1003,8 @@
                             <span class="font-bold text-gray-900">${this.formatCurrency(item.monthToDateCost)}</span>
                         </td>
                     </tr>
-                `).join(''); 
-            } else { 
+                `).join('');
+            } else {
                 container.innerHTML = `
                     <tr>
                         <td colspan="2" class="px-4 py-8 text-center text-gray-500">
@@ -1010,59 +1012,59 @@
                             <p>No billing data available</p>
                         </td>
                     </tr>
-                `; 
-            } 
+                `;
+            }
         },
-        
-        renderCostHistoryChart(costHistory) { 
+
+        renderCostHistoryChart(costHistory) {
             if (!costHistory || !costHistory.labels) return;
             const ctx = document.getElementById('costHistoryChart');
             if(!ctx) return;
             if (window.costHistoryChartInstance) window.costHistoryChartInstance.destroy();
-            
-            const backgroundColors = costHistory.anomalies.map(isAnomaly => 
+
+            const backgroundColors = costHistory.anomalies.map(isAnomaly =>
                 isAnomaly ? 'rgba(239, 68, 68, 0.8)' : 'rgba(79, 70, 229, 0.8)'
             );
-            const borderColors = costHistory.anomalies.map(isAnomaly => 
+            const borderColors = costHistory.anomalies.map(isAnomaly =>
                 isAnomaly ? 'rgba(220, 38, 38, 1)' : 'rgba(79, 70, 229, 1)'
             );
 
-            window.costHistoryChartInstance = new Chart(ctx, { 
-                type: 'bar', 
-                data: { 
-                    labels: costHistory.labels, 
-                    datasets: [{ 
-                        label: 'Monthly Cost', 
-                        data: costHistory.costs, 
+            window.costHistoryChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: costHistory.labels,
+                    datasets: [{
+                        label: 'Monthly Cost',
+                        data: costHistory.costs,
                         backgroundColor: backgroundColors,
                         borderColor: borderColors,
                         borderWidth: 2,
                         borderRadius: 8,
                         borderSkipped: false
-                    }] 
-                }, 
-                options: { 
-                    responsive: true, 
+                    }]
+                },
+                options: {
+                    responsive: true,
                     maintainAspectRatio: false,
-                    plugins: { 
+                    plugins: {
                         legend: { display: false },
-                        tooltip: { 
+                        tooltip: {
                             backgroundColor: 'rgba(0, 0, 0, 0.8)',
                             titleColor: 'white',
                             bodyColor: 'white',
                             borderColor: 'rgba(79, 70, 229, 0.8)',
                             borderWidth: 1,
                             cornerRadius: 8,
-                            callbacks: { 
+                            callbacks: {
                                 label: (c) => `Cost: ${this.formatCurrency(c.parsed.y)}`,
                                 afterLabel: (c) => costHistory.anomalies[c.dataIndex] ? 'Anomaly detected!' : ''
                             }
                         }
-                    }, 
-                    scales: { 
-                        y: { 
-                            beginAtZero: true, 
-                            ticks: { 
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
                                 callback: v => this.formatCurrency(v),
                                 color: '#6b7280'
                             },
@@ -1087,41 +1089,41 @@
                             }
                         }
                     }
-                } 
-            }); 
+                }
+            });
         },
-        
+
 renderHighchartMap(regionStatus) {
             if (!regionStatus || !document.getElementById('highcharts-map-container')) return;
-            const statusColors = { 
-                'ACTIVE': '#3b82f6', 
-                'SEMI_ACTIVE': '#ef4444', 
-                'SUSTAINABLE': '#22c55e', 
-                'NON_ACTIVE': '#6b7280' 
+            const statusColors = {
+                'ACTIVE': '#3b82f6',
+                'SEMI_ACTIVE': '#ef4444',
+                'SUSTAINABLE': '#22c55e',
+                'NON_ACTIVE': '#6b7280'
             };
-            const regionPoints = regionStatus.map(r => ({ 
-                name: `${r.regionId}`, 
+            const regionPoints = regionStatus.map(r => ({
+                name: `${r.regionId}`,
                 fullName: `${r.regionId} (${r.status})`,
-                lat: r.latitude, 
-                lon: r.longitude, 
-                color: statusColors[r.status] || '#6b7280', 
+                lat: r.latitude,
+                lon: r.longitude,
+                color: statusColors[r.status] || '#6b7280',
                 id: r.regionId,
                 status: r.status
             }));
-            
+
             Highcharts.mapChart('highcharts-map-container', {
-                chart: { 
-                    map: 'custom/world', 
+                chart: {
+                    map: 'custom/world',
                     backgroundColor: 'transparent',
                     style: {
                         fontFamily: 'Inter, sans-serif'
                     }
                 },
-                title: { text: null }, 
+                title: { text: null },
                 credits: { enabled: false },
-                mapNavigation: { 
-                    enabled: true, 
-                    buttonOptions: { 
+                mapNavigation: {
+                    enabled: true,
+                    buttonOptions: {
                         verticalAlign: 'bottom',
                         theme: {
                             'stroke-width': 1,
@@ -1130,7 +1132,7 @@ renderHighchartMap(regionStatus) {
                         }
                     }
                 },
-                tooltip: { 
+                tooltip: {
                     useHTML: true,
                     backgroundColor: 'rgba(0, 0, 0, 0.8)',
                     borderColor: 'rgba(79, 70, 229, 0.8)',
@@ -1152,23 +1154,23 @@ renderHighchartMap(regionStatus) {
                     }
                 },
                 series: [
-                    { 
-                        name: 'World', 
-                        color: '#f1f5f9', 
-                        states: { 
-                            hover: { 
-                                color: '#e2e8f0' 
-                            } 
+                    {
+                        name: 'World',
+                        color: '#f1f5f9',
+                        states: {
+                            hover: {
+                                color: '#e2e8f0'
+                            }
                         },
                         borderColor: '#e2e8f0',
                         borderWidth: 1
-                    }, 
-                    { 
-                        type: 'mappoint', 
-                        name: 'AWS Regions', 
-                        data: regionPoints, 
-                        marker: { 
-                            lineWidth: 2, 
+                    },
+                    {
+                        type: 'mappoint',
+                        name: 'AWS Regions',
+                        data: regionPoints,
+                        marker: {
+                            lineWidth: 2,
                             lineColor: '#ffffff',
                             radius: 8,
                             states: {
@@ -1195,7 +1197,7 @@ renderHighchartMap(regionStatus) {
             const ctx = document.getElementById(canvasId);
             if (!ctx || !data) return;
             if (window[canvasId+'_instance']) window[canvasId+'_instance'].destroy();
-            
+
             window[canvasId+'_instance'] = new Chart(ctx, {
                 type: 'line',
                 data: {
@@ -1215,15 +1217,15 @@ renderHighchartMap(regionStatus) {
                     }]
                 },
                 options: {
-                    responsive: true, 
+                    responsive: true,
                     maintainAspectRatio: false,
-                    scales: { 
-                        x: { display: false }, 
-                        y: { display: false } 
+                    scales: {
+                        x: { display: false },
+                        y: { display: false }
                     },
-                    plugins: { 
-                        legend: { display: false }, 
-                        tooltip: { 
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
                             enabled: true,
                             backgroundColor: 'rgba(0, 0, 0, 0.8)',
                             titleColor: 'white',
@@ -1257,22 +1259,22 @@ renderHighchartMap(regionStatus) {
                 </div>
             `;
             document.body.appendChild(notification);
-            
+
             setTimeout(() => {
                 notification.remove();
             }, 4000);
         },
 
 
-            formatCurrency(num) { 
+            formatCurrency(num) {
                 return '$' + (num != null ? num.toLocaleString('en-US', {
-                    minimumFractionDigits: 2, 
+                    minimumFractionDigits: 2,
                     maximumFractionDigits: 2
-                }) : '0.00'); 
+                }) : '0.00');
             },
         }
     }
-    
-    </script>
+
+</script>
 </body>
 </html>

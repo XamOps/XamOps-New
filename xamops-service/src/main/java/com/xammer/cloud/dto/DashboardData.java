@@ -39,6 +39,8 @@ public class DashboardData {
         private int cloudBuildTriggers;
         private int secretManagerSecrets;
         private int cloudArmorPolicies;
+        private int lightsail;
+        private int amplify;
     }
 
     @Data
@@ -61,7 +63,7 @@ public class DashboardData {
             this.status = "Active";
             this.regionId = regionId; // MODIFIED: Assigned the regionId to the new field
         }
-        
+
         // ADDED: New constructor to match the call in CloudGuardService
         public ServiceQuotaInfo(String serviceName, String quotaName, double limit, double usage, String regionId) {
             this.serviceName = serviceName;

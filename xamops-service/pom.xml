@@ -93,6 +93,18 @@
         <dependency><groupId>software.amazon.awssdk</groupId><artifactId>sts</artifactId></dependency>
         <dependency><groupId>software.amazon.awssdk</groupId><artifactId>cloudformation</artifactId></dependency>
         <dependency><groupId>software.amazon.awssdk</groupId><artifactId>kms</artifactId></dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>lightsail</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>amplify</artifactId>
+        </dependency>
+
+
+
+
 
         <dependency><groupId>com.google.cloud</groupId><artifactId>google-cloud-storage</artifactId></dependency>
         <dependency><groupId>com.google.auth</groupId><artifactId>google-auth-library-oauth2-http</artifactId></dependency>

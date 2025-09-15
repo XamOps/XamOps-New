@@ -12,8 +12,8 @@ public class Ticket {
     private Long id;
 
     @ManyToOne
-    @JoinColumn(name = "client_id", nullable = false) // UPDATED: Changed from customer_id
-    private Client client; // UPDATED: Changed from Customer
+    @JoinColumn(name = "client_id", nullable = false)
+    private Client client;
 
     @Column(nullable = false)
     private String subject;
@@ -24,6 +24,14 @@ public class Ticket {
     private String status; // e.g., "OPEN", "IN_PROGRESS", "CLOSED"
 
     private LocalDateTime createdAt = LocalDateTime.now();
+
+    // NEW FIELDS TO MATCH THE FORM
+    private String category;
+    private String service;
+    private String severity;
+    private String accountId;
+    private String region;
+
 
     // Getters and Setters
     public Long getId() {
@@ -72,5 +80,45 @@ public class Ticket {
 
     public void setCreatedAt(LocalDateTime createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public String getCategory() {
+        return category;
+    }
+
+    public void setCategory(String category) {
+        this.category = category;
+    }
+
+    public String getService() {
+        return service;
+    }
+
+    public void setService(String service) {
+        this.service = service;
+    }
+
+    public String getSeverity() {
+        return severity;
+    }
+
+    public void setSeverity(String severity) {
+        this.severity = severity;
+    }
+
+    public String getAccountId() {
+        return accountId;
+    }
+
+    public void setAccountId(String accountId) {
+        this.accountId = accountId;
+    }
+
+    public String getRegion() {
+        return region;
+    }
+
+    public void setRegion(String region) {
+        this.region = region;
     }
 }

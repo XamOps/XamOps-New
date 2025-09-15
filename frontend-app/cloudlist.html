@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-        <script type="module" src="/src/main.js"></script>
+    <script type="module" src="/src/main.js"></script>
 
     <style>
         /* Add x-cloak hiding rule at the top */
@@ -345,334 +345,350 @@
 </div>
 
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    const app = {
-        allGroups: [],
-        isRefreshing: false,
-        selectedAccountId: null, // <-- ADD THIS
-        dom: {
-            searchInput: document.getElementById('search-input'),
-            regionFilter: document.getElementById('region-filter'),
-            listContainer: document.getElementById('resource-list-container'),
-            loadingState: document.getElementById('loading-state'),
-            emptyState: document.getElementById('empty-state'),
-            refreshButton: document.getElementById('refresh-button'),
-            refreshButtonText: document.getElementById('refresh-button-text'),
-            refreshButtonIcon: document.getElementById('refresh-button').querySelector('i'),
-            updateStatus: document.getElementById('update-status'),
-        },
+    document.addEventListener('DOMContentLoaded', function() {
+        const app = {
+            allGroups: [],
+            isRefreshing: false,
+            selectedAccountId: null, // <-- ADD THIS
+            dom: {
+                searchInput: document.getElementById('search-input'),
+                regionFilter: document.getElementById('region-filter'),
+                listContainer: document.getElementById('resource-list-container'),
+                loadingState: document.getElementById('loading-state'),
+                emptyState: document.getElementById('empty-state'),
+                refreshButton: document.getElementById('refresh-button'),
+                refreshButtonText: document.getElementById('refresh-button-text'),
+                refreshButtonIcon: document.getElementById('refresh-button').querySelector('i'),
+                updateStatus: document.getElementById('update-status'),
+            },
 
-        init() {
-            // This is the new logic to get the account ID
-            const urlParams = new URLSearchParams(window.location.search);
-            this.selectedAccountId = urlParams.get('accountIds'); // Use 'accountIds' to be consistent with sidebar
+            init() {
+                // This is the new logic to get the account ID
+                const urlParams = new URLSearchParams(window.location.search);
+                this.selectedAccountId = urlParams.get('accountIds'); // Use 'accountIds' to be consistent with sidebar
 
-            // If it's not in the URL, try session storage
-            if (!this.selectedAccountId) {
-                const storedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-                if (storedIds.length > 0) {
-                    this.selectedAccountId = storedIds.join(',');
+                // If it's not in the URL, try session storage
+                if (!this.selectedAccountId) {
+                    const storedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                    if (storedIds.length > 0) {
+                        this.selectedAccountId = storedIds.join(',');
+                    }
                 }
-            }
 
-            this.setupEventListeners();
-            this.loadResources(false);
-        },
+                this.setupEventListeners();
+                this.loadResources(false);
+            },
 
-        setupEventListeners() {
-            this.dom.searchInput.addEventListener('input', () => this.debounce(this.render, 300)());
-            this.dom.regionFilter.addEventListener('change', () => this.render());
-            this.dom.refreshButton.addEventListener('click', () => {
-                this.loadResources(true);
-            });
-            window.addEventListener('storage', (e) => {
-                if (e.key === 'selectedAccountIds') {
-                    // Update the account ID and reload data
-                    const storedIds = JSON.parse(e.target.sessionStorage.getItem('selectedAccountIds') || '[]');
-                    this.selectedAccountId = storedIds.join(',');
+            setupEventListeners() {
+                this.dom.searchInput.addEventListener('input', () => this.debounce(this.render, 300)());
+                this.dom.regionFilter.addEventListener('change', () => this.render());
+                this.dom.refreshButton.addEventListener('click', () => {
                     this.loadResources(true);
+                });
+                window.addEventListener('storage', (e) => {
+                    if (e.key === 'selectedAccountIds') {
+                        // Update the account ID and reload data
+                        const storedIds = JSON.parse(e.target.sessionStorage.getItem('selectedAccountIds') || '[]');
+                        this.selectedAccountId = storedIds.join(',');
+                        this.loadResources(true);
+                    }
+                });
+                document.querySelector('.btn-primary').addEventListener('click', () => app.exportData());
+            },
+
+            exportData() {
+                const headers = ["ID", "Name", "Type", "Region", "State", "Launch Time", "Details"];
+                const rows = this.getFilteredData().flatMap(group =>
+                    group.resources.map(res => [
+                        `"${res.id || ''}"`,
+                        `"${res.name || ''}"`,
+                        `"${res.type || ''}"`,
+                        `"${res.region || ''}"`,
+                        `"${res.state || ''}"`,
+                        `"${res.launchTime ? new Date(res.launchTime).toLocaleString() : 'N/A'}"`,
+                        `"${JSON.stringify(res.details || {}).replace(/"/g, '""')}"`
+                    ])
+                );
+
+                let csvContent = "data:text/csv;charset=utf-8,"
+                    + headers.join(",") + "\n"
+                    + rows.map(e => e.join(",")).join("\n");
+
+                var encodedUri = encodeURI(csvContent);
+                var link = document.createElement("a");
+                link.setAttribute("href", encodedUri);
+                link.setAttribute("download", "cloudlist_export.csv");
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            },
+
+            debounce(func, delay) {
+                let timeout;
+                return function(...args) {
+                    const context = this;
+                    clearTimeout(timeout);
+                    timeout = setTimeout(() => func.apply(context, args), delay);
+                };
+            },
+
+            loadResources(forceRefresh = false) {
+                if (!this.selectedAccountId) { // <-- CHECK IF AN ACCOUNT IS SELECTED
+                    this.dom.loadingState.style.display = 'none';
+                    this.dom.emptyState.classList.remove('hidden');
+                    this.dom.emptyState.innerHTML = `
+                        <div class="w-16 h-16 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <i class="fas fa-mouse-pointer text-white text-2xl"></i>
+                        </div>
+                        <h3 class="text-xl font-bold text-gray-800 mb-2">No Account Selected</h3>
+                        <p class="text-gray-600">Please use the sidebar to select a cloud account to view its resources.</p>
+                    `;
+                    this.dom.updateStatus.textContent = 'Please select an account.';
+                    return;
                 }
-            });
-            document.querySelector('.btn-primary').addEventListener('click', () => app.exportData());
-        },
 
-        exportData() {
-            const headers = ["ID", "Name", "Type", "Region", "State", "Launch Time", "Details"];
-            const rows = this.getFilteredData().flatMap(group =>
-                group.resources.map(res => [
-                    `"${res.id || ''}"`,
-                    `"${res.name || ''}"`,
-                    `"${res.type || ''}"`,
-                    `"${res.region || ''}"`,
-                    `"${res.state || ''}"`,
-                    `"${res.launchTime ? new Date(res.launchTime).toLocaleString() : 'N/A'}"`,
-                    `"${JSON.stringify(res.details || {}).replace(/"/g, '""')}"`
-                ])
-            );
+                const cacheKey = `cloudlistData-${this.selectedAccountId}`;
+                const cachedData = sessionStorage.getItem(cacheKey);
 
-            let csvContent = "data:text/csv;charset=utf-8,"
-                + headers.join(",") + "\n"
-                + rows.map(e => e.join(",")).join("\n");
-
-            var encodedUri = encodeURI(csvContent);
-            var link = document.createElement("a");
-            link.setAttribute("href", encodedUri);
-            link.setAttribute("download", "cloudlist_export.csv");
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        },
-
-        debounce(func, delay) {
-            let timeout;
-            return function(...args) {
-                const context = this;
-                clearTimeout(timeout);
-                timeout = setTimeout(() => func.apply(context, args), delay);
-            };
-        },
-
-        loadResources(forceRefresh = false) {
-            if (!this.selectedAccountId) { // <-- CHECK IF AN ACCOUNT IS SELECTED
-                this.dom.loadingState.style.display = 'none';
-                this.dom.emptyState.classList.remove('hidden');
-                this.dom.emptyState.innerHTML = `
-                    <div class="w-16 h-16 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <i class="fas fa-mouse-pointer text-white text-2xl"></i>
-                    </div>
-                    <h3 class="text-xl font-bold text-gray-800 mb-2">No Account Selected</h3>
-                    <p class="text-gray-600">Please use the sidebar to select a cloud account to view its resources.</p>
-                `;
-                this.dom.updateStatus.textContent = 'Please select an account.';
-                return;
-            }
-
-            const cacheKey = `cloudlistData-${this.selectedAccountId}`;
-            const cachedData = sessionStorage.getItem(cacheKey);
-
-            if (cachedData && !forceRefresh) {
-                this.allGroups = JSON.parse(cachedData);
-                this.dom.updateStatus.textContent = `Updated: ${new Date().toLocaleTimeString()}`;
-                this.render();
-                return;
-            }
-
-            if (!cachedData) {
-                this.dom.listContainer.innerHTML = '';
-                this.dom.listContainer.appendChild(this.dom.loadingState);
-                this.dom.loadingState.style.display = 'block';
-            }
-
-            this.isRefreshing = true;
-            this.dom.updateStatus.innerHTML = '<div class="loading-spinner inline-block mr-2"></div>Updating...';
-            this.dom.refreshButton.disabled = true;
-            this.dom.refreshButtonText.textContent = 'Refreshing...';
-            this.dom.refreshButtonIcon.classList.add('fa-spin');
-
-            if (forceRefresh) {
-                sessionStorage.removeItem(cacheKey);
-            }
-
-            fetch(`/api/cloudlist/resources?accountIds=${this.selectedAccountId}&forceRefresh=${forceRefresh}`)
-                .then(res => res.json())
-                .then(data => {
-                    this.allGroups = Array.isArray(data) ? data : [];
-                    sessionStorage.setItem(cacheKey, JSON.stringify(this.allGroups));
+                if (cachedData && !forceRefresh) {
+                    this.allGroups = JSON.parse(cachedData);
                     this.dom.updateStatus.textContent = `Updated: ${new Date().toLocaleTimeString()}`;
                     this.render();
-                })
-                .catch(error => {
-                    console.error('Error fetching resources:', error);
-                    this.allGroups = [];
-                    this.dom.updateStatus.textContent = 'Update failed';
-                    this.render();
-                })
-                .finally(() => {
-                    this.isRefreshing = false;
-                    this.dom.refreshButton.disabled = false;
-                    this.dom.refreshButtonText.textContent = 'Refresh';
-                    this.dom.refreshButtonIcon.classList.remove('fa-spin');
-                });
-        },
-
-        render() {
-            this.dom.loadingState.style.display = 'none';
-            this.dom.listContainer.innerHTML = '';
-
-            this.populateRegionFilter(this.allGroups);
-            const filteredGroups = this.getFilteredData();
-
-            if (filteredGroups.length === 0) {
-                this.dom.emptyState.classList.remove('hidden');
-                this.dom.listContainer.appendChild(this.dom.emptyState);
-            } else {
-                this.dom.emptyState.classList.add('hidden');
-                filteredGroups.forEach(group => {
-                    const groupElement = this.createGroupElement(group);
-                    this.dom.listContainer.appendChild(groupElement);
-                });
-            }
-
-            this.addEventListenersForToggles();
-        },
-
-        populateRegionFilter(groups) {
-            const regions = [...new Set(groups.flatMap(g => g.resources.map(r => r.region)))].filter(Boolean);
-            regions.sort();
-
-            const currentSelection = this.dom.regionFilter.value;
-            this.dom.regionFilter.innerHTML = '<option value="">All Regions</option>';
-
-            if (regions.includes('Global')) {
-                 this.dom.regionFilter.innerHTML += '<option value="Global">Global</option>';
-            }
-             if (regions.includes('Regional')) {
-                 this.dom.regionFilter.innerHTML += '<option value="Regional">Regional</option>';
-            }
-
-            regions.forEach(region => {
-                if(region !== 'Global' && region !== 'Regional') {
-                    const option = document.createElement('option');
-                    option.value = region;
-                    option.textContent = region;
-                    this.dom.regionFilter.appendChild(option);
+                    return;
                 }
-            });
-            this.dom.regionFilter.value = currentSelection;
-        },
 
+                if (!cachedData) {
+                    this.dom.listContainer.innerHTML = '';
+                    this.dom.listContainer.appendChild(this.dom.loadingState);
+                    this.dom.loadingState.style.display = 'block';
+                }
 
-        getFilteredData() {
-            const searchTerm = this.dom.searchInput.value.toLowerCase();
-            const region = this.dom.regionFilter.value;
+                this.isRefreshing = true;
+                this.dom.updateStatus.innerHTML = '<div class="loading-spinner inline-block mr-2"></div>Updating...';
+                this.dom.refreshButton.disabled = true;
+                this.dom.refreshButtonText.textContent = 'Refreshing...';
+                this.dom.refreshButtonIcon.classList.add('fa-spin');
 
-            return this.allGroups.map(group => {
-                const matchingResources = group.resources.filter(res => {
-                    const regionMatch = (region === "") || (res.region === region);
-                    const searchMatch = (searchTerm === "") ||
-                        (res.name && res.name.toLowerCase().includes(searchTerm)) ||
-                        (res.id && res.id.toLowerCase().includes(searchTerm));
-                    return regionMatch && searchMatch;
-                });
-                return { ...group, resources: matchingResources };
-            }).filter(group => group.resources.length > 0);
-        },
+                if (forceRefresh) {
+                    sessionStorage.removeItem(cacheKey);
+                }
 
-            createGroupElement(group) {
-                const container = document.createElement('div');
-                container.className = 'service-group rounded-2xl shadow-lg overflow-hidden border border-gray-200/50 transition-all';
-                const groupId = `group-content-${group.serviceType.replace(/[^a-zA-Z0-9]/g, '')}`;
-
-                container.innerHTML = `
-                    <div class="flex items-center justify-between p-6 cursor-pointer toggle-button" data-target="#${groupId}">
-                        <div class="flex items-center space-x-4 flex-1">
-                            <i class="fas fa-chevron-right text-gray-400 w-5 text-center transition-all duration-200"></i>
-                            <div class="service-icon w-12 h-12 flex items-center justify-center rounded-xl">
-                                <img src="/icons/${this.getServiceIcon(group.serviceType)}" alt="${group.serviceType}" class="w-full h-full rounded-xl object-cover">
-                            </div>
-                            <div class="flex-1">
-                                <h3 class="font-bold text-gray-800 text-lg">${group.serviceType}</h3>
-                                <p class="text-sm text-gray-600">AWS Service</p>
-                            </div>
-                            <div class="resource-counter text-sm font-bold px-4 py-2 rounded-full">
-                                ${group.resources.length}
-                            </div>
-                        </div>
-
-                    </div>
-                    <div id="${groupId}" class="resource-content hidden bg-gradient-to-r from-gray-50/30 to-gray-100/30 backdrop-blur-sm">
-                        ${group.resources.map(res => this.createResourceRow(res, group.serviceType)).join('')}
-                    </div>
-                `;
-                return container;
+                fetch(`/api/cloudlist/resources?accountIds=${this.selectedAccountId}&forceRefresh=${forceRefresh}`)
+                    .then(res => res.json())
+                    .then(data => {
+                        this.allGroups = Array.isArray(data) ? data : [];
+                        sessionStorage.setItem(cacheKey, JSON.stringify(this.allGroups));
+                        this.dom.updateStatus.textContent = `Updated: ${new Date().toLocaleTimeString()}`;
+                        this.render();
+                    })
+                    .catch(error => {
+                        console.error('Error fetching resources:', error);
+                        this.allGroups = [];
+                        this.dom.updateStatus.textContent = 'Update failed';
+                        this.render();
+                    })
+                    .finally(() => {
+                        this.isRefreshing = false;
+                        this.dom.refreshButton.disabled = false;
+                        this.dom.refreshButtonText.textContent = 'Refresh';
+                        this.dom.refreshButtonIcon.classList.remove('fa-spin');
+                    });
             },
 
-            createResourceRow(resource, serviceType) {
-                const detailsId = `details-${resource.id.replace(/[^a-zA-Z0-9]/g, '')}`;
-                const hasDetails = resource.details && Object.keys(resource.details).length > 0;
+            render() {
+                this.dom.loadingState.style.display = 'none';
+                this.dom.listContainer.innerHTML = '';
 
-                let detailsHtml = '';
-                if (hasDetails) {
-                    detailsHtml = `
-                        <div id="${detailsId}" class="resource-details hidden p-6 pl-24 text-sm text-gray-700 bg-gray-50/50 border-t border-gray-200">
-                            <h4 class="font-semibold text-base mb-3">Resource Details:</h4>
-                            <div class="grid grid-cols-2 gap-2">
-                    `;
-                    for (const key in resource.details) {
-                        detailsHtml += `
-                                <div class="flex items-center">
-                                    <span class="font-medium text-gray-600 mr-2">${key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}:</span>
-                                    <span>${resource.details[key] || 'N/A'}</span>
+                this.populateRegionFilter(this.allGroups);
+                const filteredGroups = this.getFilteredData();
+
+                if (filteredGroups.length === 0) {
+                    this.dom.emptyState.classList.remove('hidden');
+                    this.dom.listContainer.appendChild(this.dom.emptyState);
+                } else {
+                    this.dom.emptyState.classList.add('hidden');
+                    filteredGroups.forEach(group => {
+                        const groupElement = this.createGroupElement(group);
+                        this.dom.listContainer.appendChild(groupElement);
+                    });
+                }
+
+                this.addEventListenersForToggles();
+            },
+
+            populateRegionFilter(groups) {
+                const regions = [...new Set(groups.flatMap(g => g.resources.map(r => r.region)))].filter(Boolean);
+                regions.sort();
+
+                const currentSelection = this.dom.regionFilter.value;
+                this.dom.regionFilter.innerHTML = '<option value="">All Regions</option>';
+
+                if (regions.includes('Global')) {
+                     this.dom.regionFilter.innerHTML += '<option value="Global">Global</option>';
+                }
+                 if (regions.includes('Regional')) {
+                     this.dom.regionFilter.innerHTML += '<option value="Regional">Regional</option>';
+                }
+
+                regions.forEach(region => {
+                    if(region !== 'Global' && region !== 'Regional') {
+                        const option = document.createElement('option');
+                        option.value = region;
+                        option.textContent = region;
+                        this.dom.regionFilter.appendChild(option);
+                    }
+                });
+                this.dom.regionFilter.value = currentSelection;
+            },
+
+
+            getFilteredData() {
+                const searchTerm = this.dom.searchInput.value.toLowerCase();
+                const region = this.dom.regionFilter.value;
+
+                return this.allGroups.map(group => {
+                    const matchingResources = group.resources.filter(res => {
+                        const regionMatch = (region === "") || (res.region === region);
+                        const searchMatch = (searchTerm === "") ||
+                            (res.name && res.name.toLowerCase().includes(searchTerm)) ||
+                            (res.id && res.id.toLowerCase().includes(searchTerm));
+                        return regionMatch && searchMatch;
+                    });
+                    return { ...group, resources: matchingResources };
+                }).filter(group => group.resources.length > 0);
+            },
+
+                createGroupElement(group) {
+                    const container = document.createElement('div');
+                    container.className = 'service-group rounded-2xl shadow-lg overflow-hidden border border-gray-200/50 transition-all';
+                    const groupId = `group-content-${group.serviceType.replace(/[^a-zA-Z0-9]/g, '')}`;
+
+                    container.innerHTML = `
+                        <div class="flex items-center justify-between p-6 cursor-pointer toggle-button" data-target="#${groupId}">
+                            <div class="flex items-center space-x-4 flex-1">
+                                <i class="fas fa-chevron-right text-gray-400 w-5 text-center transition-all duration-200"></i>
+                                <div class="service-icon w-12 h-12 flex items-center justify-center rounded-xl">
+                                    <img src="/icons/${this.getServiceIcon(group.serviceType)}" alt="${group.serviceType}" class="w-full h-full rounded-xl object-cover">
                                 </div>
+                                <div class="flex-1">
+                                    <h3 class="font-bold text-gray-800 text-lg">${group.serviceType}</h3>
+                                    <p class="text-sm text-gray-600">AWS Service</p>
+                                </div>
+                                <div class="resource-counter text-sm font-bold px-4 py-2 rounded-full">
+                                    ${group.resources.length}
+                                </div>
+                            </div>
+
+                        </div>
+                        <div id="${groupId}" class="resource-content hidden bg-gradient-to-r from-gray-50/30 to-gray-100/30 backdrop-blur-sm">
+                            ${group.resources.map(res => this.createResourceRow(res, group.serviceType)).join('')}
+                        </div>
+                    `;
+                    return container;
+                },
+
+                createResourceRow(resource, serviceType) {
+                    const detailsId = `details-${resource.id.replace(/[^a-zA-Z0-9]/g, '')}`;
+                    const hasDetails = resource.details && Object.keys(resource.details).length > 0;
+
+                    let detailsHtml = '';
+                    if (hasDetails) {
+                        detailsHtml = `
+                            <div id="${detailsId}" class="resource-details hidden p-6 pl-24 text-sm text-gray-700 bg-gray-50/50 border-t border-gray-200">
+                                <h4 class="font-semibold text-base mb-3">Resource Details:</h4>
+                                <div class="grid grid-cols-2 gap-2">
+                        `;
+                        for (const key in resource.details) {
+                            detailsHtml += `
+                                    <div class="flex items-center">
+                                        <span class="font-medium text-gray-600 mr-2">${key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}:</span>
+                                        <span>${resource.details[key] || 'N/A'}</span>
+                                    </div>
+                            `;
+                        }
+                        detailsHtml += `
+                                </div>
+                            </div>
                         `;
                     }
-                    detailsHtml += `
-                            </div>
-                        </div>
-                    `;
-                }
 
-                return `
-                    <div class="resource-row border-t border-gray-200/50" data-service="${serviceType}" data-id="${resource.id}">
-                        <div class="grid grid-cols-12 items-center p-6 pl-16 text-sm hover:bg-white/50 transition-all duration-200 toggle-resource-details" data-target="#${detailsId}" data-has-details="${hasDetails}">
-                            <div class="col-span-6 flex items-center space-x-4">
-                                <i class="fas fa-chevron-right text-gray-400 w-5 text-center transition-all duration-200 ${hasDetails ? '' : 'invisible'}"></i>
-                                <div class="flex-1">
-                                    <div class="flex items-center space-x-2">
-                                        <p class="font-bold text-gray-800">${resource.name || 'N/A'}</p>
-                                        <div class="w-1 h-1 bg-gray-400 rounded-full"></div>
-                                        <p class="font-mono text-xs text-gray-500">${resource.id || 'N/A'}</p>
+                    return `
+                        <div class="resource-row border-t border-gray-200/50" data-service="${serviceType}" data-id="${resource.id}">
+                            <div class="grid grid-cols-12 items-center p-6 pl-16 text-sm hover:bg-white/50 transition-all duration-200 toggle-resource-details" data-target="#${detailsId}" data-has-details="${hasDetails}">
+                                <div class="col-span-6 flex items-center space-x-4">
+                                    <i class="fas fa-chevron-right text-gray-400 w-5 text-center transition-all duration-200 ${hasDetails ? '' : 'invisible'}"></i>
+                                    <div class="flex-1">
+                                        <div class="flex items-center space-x-2">
+                                            <p class="font-bold text-gray-800">${resource.name || 'N/A'}</p>
+                                            <div class="w-1 h-1 bg-gray-400 rounded-full"></div>
+                                            <p class="font-mono text-xs text-gray-500">${resource.id || 'N/A'}</p>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                            <div class="col-span-2 flex items-center space-x-2">
-                                <i class="fas fa-map-marker-alt text-gray-400 text-xs"></i>
-                                <span class="font-semibold text-gray-600">${resource.region || 'Global'}</span>
-                            </div>
-                            <div class="col-span-2">
-                                <span class="state-badge px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-full capitalize ${this.getStateClass(resource.state)}">
-                                    ${resource.state || 'Unknown'}
-                                </span>
-                            </div>
-                            <div class="col-span-2 text-right pr-4">
-                                ${hasDetails ? `
-                                <button class="btn-secondary px-4 py-2 text-sm font-semibold rounded-lg hover:bg-gray-100 transition-all view-details-button">
-                                    <i class="fas fa-info-circle mr-2"></i>Details
-                                </button>
-                                ` : `
-                                <div class="flex items-center justify-end space-x-2">
-                                     <i class="fas fa-external-link-alt text-gray-400 text-xs"></i>
-                                     <span class="text-xs text-gray-500">No Extra Details</span>
+                                <div class="col-span-2 flex items-center space-x-2">
+                                    <i class="fas fa-map-marker-alt text-gray-400 text-xs"></i>
+                                    <span class="font-semibold text-gray-600">${resource.region || 'Global'}</span>
                                 </div>
-                                `}
+                                <div class="col-span-2">
+                                    <span class="state-badge px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-full capitalize ${this.getStateClass(resource.state)}">
+                                        ${resource.state || 'Unknown'}
+                                    </span>
+                                </div>
+                                <div class="col-span-2 text-right pr-4">
+                                    ${hasDetails ? `
+                                    <button class="btn-secondary px-4 py-2 text-sm font-semibold rounded-lg hover:bg-gray-100 transition-all view-details-button">
+                                        <i class="fas fa-info-circle mr-2"></i>Details
+                                    </button>
+                                    ` : `
+                                    <div class="flex items-center justify-end space-x-2">
+                                         <i class="fas fa-external-link-alt text-gray-400 text-xs"></i>
+                                         <span class="text-xs text-gray-500">No Extra Details</span>
+                                    </div>
+                                    `}
+                                </div>
                             </div>
+                            ${detailsHtml}
                         </div>
-                        ${detailsHtml}
-                    </div>
-                `;
-            },
+                    `;
+                },
 
-            addEventListenersForToggles() {
-                this.dom.listContainer.querySelectorAll('.toggle-button').forEach(button => {
-                    button.addEventListener('click', (e) => {
-                        if (e.target.closest('.btn-secondary')) return;
-                        const targetSelector = button.getAttribute('data-target');
-                        const content = this.dom.listContainer.querySelector(targetSelector);
-                        const icon = button.querySelector('.fa-chevron-right');
+                addEventListenersForToggles() {
+                    this.dom.listContainer.querySelectorAll('.toggle-button').forEach(button => {
+                        button.addEventListener('click', (e) => {
+                            if (e.target.closest('.btn-secondary')) return;
+                            const targetSelector = button.getAttribute('data-target');
+                            const content = this.dom.listContainer.querySelector(targetSelector);
+                            const icon = button.querySelector('.fa-chevron-right');
 
-                        if (content) {
-                            content.classList.toggle('hidden');
-                            icon.classList.toggle('rotate-90');
-                        }
+                            if (content) {
+                                content.classList.toggle('hidden');
+                                icon.classList.toggle('rotate-90');
+                            }
+                        });
                     });
-                });
 
-                this.dom.listContainer.querySelectorAll('.toggle-resource-details').forEach(rowHeader => {
-                    rowHeader.addEventListener('click', (e) => {
-                        if (e.target.closest('.view-details-button') || e.target.closest('.fa-external-link-alt')) return;
-                        const hasDetails = rowHeader.getAttribute('data-has-details') === 'true';
+                    this.dom.listContainer.querySelectorAll('.toggle-resource-details').forEach(rowHeader => {
+                        rowHeader.addEventListener('click', (e) => {
+                            if (e.target.closest('.view-details-button') || e.target.closest('.fa-external-link-alt')) return;
+                            const hasDetails = rowHeader.getAttribute('data-has-details') === 'true';
 
-                        if (hasDetails) {
+                            if (hasDetails) {
+                                const targetSelector = rowHeader.getAttribute('data-target');
+                                const content = this.dom.listContainer.querySelector(targetSelector);
+                                const icon = rowHeader.querySelector('.fa-chevron-right');
+
+                                if (content) {
+                                    content.classList.toggle('hidden');
+                                    icon.classList.toggle('rotate-90');
+                                }
+                            }
+                        });
+                    });
+
+                    this.dom.listContainer.querySelectorAll('.view-details-button').forEach(button => {
+                        button.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            const rowHeader = button.closest('.toggle-resource-details');
                             const targetSelector = rowHeader.getAttribute('data-target');
                             const content = this.dom.listContainer.querySelector(targetSelector);
                             const icon = rowHeader.querySelector('.fa-chevron-right');
@@ -681,61 +697,47 @@ document.addEventListener('DOMContentLoaded', function() {
                                 content.classList.toggle('hidden');
                                 icon.classList.toggle('rotate-90');
                             }
-                        }
+                        });
                     });
-                });
+                },
 
-                this.dom.listContainer.querySelectorAll('.view-details-button').forEach(button => {
-                    button.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        const rowHeader = button.closest('.toggle-resource-details');
-                        const targetSelector = rowHeader.getAttribute('data-target');
-                        const content = this.dom.listContainer.querySelector(targetSelector);
-                        const icon = rowHeader.querySelector('.fa-chevron-right');
+                getStateClass(state) {
+                    const s = (state || '').toLowerCase();
+                    if (['running', 'available', 'active', 'in-use', 'issued'].includes(s)) return 'bg-green-100 text-green-800 border-green-200';
+                    if (['stopped', 'terminated', 'deleting', 'inactive', 'expired'].includes(s)) return 'bg-red-100 text-red-800 border-red-200';
+                    if (['pending', 'stopping', 'pending_validation'].includes(s)) return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+                    return 'bg-gray-100 text-gray-800 border-gray-200';
+                },
 
-                        if (content) {
-                            content.classList.toggle('hidden');
-                            icon.classList.toggle('rotate-90');
-                        }
-                    });
-                });
-            },
+                getServiceIcon(serviceType) {
+                    const iconMap = {
+                        'EC2 Instance': 'ec2-instances.png',
+                        'EBS Volume': 'aws-ebs.png',
+                        'RDS Instance': 'rds-instance.png',
+                        'Lambda Function': 'aws-lambda.png',
+                        'S3 Bucket': 's3-bucket.png',
+                        'Load Balancer': 'load-balancer.png',
+                        'Auto Scaling Group': 'autoscaling.png',
+                        'VPC': 'vpc.png',
+                        'Security Group': 'security-group.png',
+                        'Route 53 Zone': 'aws-route53.png',
+                        'EKS Cluster': 'aws-eks.png',
+                        'ECS Cluster': 'aws-ecs.png',
+                        'Certificate Manager': 'certificate-manager.png',
+                        'CloudTrail': 'cloudtrail.png',
+                        'CloudWatch Log Group': 'cloudwatch-log-group.png',
+                        'ECR Repository': 'ecr-repository.png',
+                        'SNS Topic': 'sns-topic.png',
+                        'SQS Queue': 'sqs-queue.png',
+                        'Lightsail Instance': 'lightsail.png',
+                        'Amplify App': 'amplify.png'
+                    };
+                    return iconMap[serviceType] || 'default-icon.png';
+                },
+        };
 
-            getStateClass(state) {
-                const s = (state || '').toLowerCase();
-                if (['running', 'available', 'active', 'in-use', 'issued'].includes(s)) return 'bg-green-100 text-green-800 border-green-200';
-                if (['stopped', 'terminated', 'deleting', 'inactive', 'expired'].includes(s)) return 'bg-red-100 text-red-800 border-red-200';
-                if (['pending', 'stopping', 'pending_validation'].includes(s)) return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-                return 'bg-gray-100 text-gray-800 border-gray-200';
-            },
-
-            getServiceIcon(serviceType) {
-                const iconMap = {
-                    'EC2 Instance': 'ec2-instances.png',
-                    'EBS Volume': 'aws-ebs.png',
-                    'RDS Instance': 'rds-instance.png',
-                    'Lambda Function': 'aws-lambda.png',
-                    'S3 Bucket': 's3-bucket.png',
-                    'Load Balancer': 'load-balancer.png',
-                    'Auto Scaling Group': 'autoscaling.png',
-                    'VPC': 'vpc.png',
-                    'Security Group': 'security-group.png',
-                    'Route 53 Zone': 'aws-route53.png',
-                    'EKS Cluster': 'aws-eks.png',
-                    'ECS Cluster': 'aws-ecs.png',
-                    'Certificate Manager': 'certificate-manager.png',
-                    'CloudTrail': 'cloudtrail.png',
-                    'CloudWatch Log Group': 'cloudwatch-log-group.png',
-                    'ECR Repository': 'ecr-repository.png',
-                    'SNS Topic': 'sns-topic.png',
-                    'SQS Queue': 'sqs-queue.png'
-                };
-                return iconMap[serviceType] || 'default-icon.png';
-            },
-    };
-
-    app.init();
-});
+        app.init();
+    });
 </script>
 
 </body>
