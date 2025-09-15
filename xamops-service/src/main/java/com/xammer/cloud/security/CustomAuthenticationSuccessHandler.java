@@ -35,30 +35,28 @@ public class CustomAuthenticationSuccessHandler extends SimpleUrlAuthenticationS
                 .orElse("");
 
         String targetUrl;
+        Long clientId = userDetails.getClientId();
+        List<CloudAccount> accounts = cloudAccountRepository.findByClientId(clientId);
 
-        // Redirect BILLOPS users directly to their specific page
-        if ("ROLE_BILLOPS".equals(role)) {
-            targetUrl = frontendUrl + "/billops/billing";
-        } else { // Handle ADMIN and XAMOPS users
-            Long clientId = userDetails.getClientId();
-            List<CloudAccount> accounts = cloudAccountRepository.findByClientId(clientId);
+        if (accounts.isEmpty()) {
+            // Default to account manager if no accounts are connected
+            targetUrl = frontendUrl + "/account-manager.html";
+        } else {
+            // All roles with accounts get redirected with the first account ID
+            CloudAccount defaultAccount = accounts.get(0);
+            String firstAccountId = "AWS".equals(defaultAccount.getProvider())
+                    ? defaultAccount.getAwsAccountId()
+                    : defaultAccount.getGcpProjectId();
 
-            if (accounts.isEmpty()) {
-                // Default to the main dashboard if no accounts are connected
-                targetUrl = frontendUrl + "/dashboard.html";
+            String page;
+            if ("ROLE_BILLOPS".equals(role)) {
+                page = "/billops/billing.html";
             } else {
-                // Redirect to the dashboard corresponding to the first connected account
-                CloudAccount defaultAccount = accounts.get(0);
-                String firstAccountId = "AWS".equals(defaultAccount.getProvider())
-                        ? defaultAccount.getAwsAccountId()
-                        : defaultAccount.getGcpProjectId();
-
-                String dashboardPage = "GCP".equals(defaultAccount.getProvider())
+                page = "GCP".equals(defaultAccount.getProvider())
                         ? "/gcp_dashboard.html"
                         : "/dashboard.html";
-
-                targetUrl = frontendUrl + dashboardPage + "?accountId=" + firstAccountId;
             }
+            targetUrl = frontendUrl + page + "?accountId=" + firstAccountId;
         }
 
         getRedirectStrategy().sendRedirect(request, response, targetUrl);
