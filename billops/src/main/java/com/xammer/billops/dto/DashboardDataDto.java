@@ -1,6 +1,5 @@
 package com.xammer.billops.dto;
 
-import lombok.Builder;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -9,7 +8,6 @@ import java.util.Map;
 
 @Getter
 @Setter
-@Builder // ✅ ADDED THIS ANNOTATION
 public class DashboardDataDto {
     // KPIs
     private double monthToDateSpend;

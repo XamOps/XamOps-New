@@ -1,18 +1,18 @@
 package com.xammer.billops.service;
 
+import com.xammer.billops.domain.CloudAccount;
 import com.xammer.billops.dto.BillingDashboardDto;
-import com.xammer.billops.dto.BillingDashboardDto.ServiceBreakdown;
+import com.xammer.billops.dto.RegionCostDto;
+import com.xammer.billops.dto.ResourceCostDto;
+import com.xammer.billops.dto.ServiceCostDetailDto;
+import com.xammer.billops.repository.CloudAccountRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import software.amazon.awssdk.services.costexplorer.model.GetCostAndUsageResponse;
-import software.amazon.awssdk.services.costexplorer.model.ResultByTime;
 
-import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -20,111 +20,83 @@ public class BillingService {
 
     private static final Logger logger = LoggerFactory.getLogger(BillingService.class);
     private final CostService costService;
+    private final CloudAccountRepository cloudAccountRepository;
 
-    public BillingService(CostService costService) {
+    public BillingService(CostService costService, CloudAccountRepository cloudAccountRepository) {
         this.costService = costService;
+        this.cloudAccountRepository = cloudAccountRepository;
     }
 
-    public BillingDashboardDto getBillingData(String accountId) {
-        logger.info("Fetching billing data for account: {}", accountId);
+    public BillingDashboardDto getBillingData(String accountId, Integer year, Integer month) {
+        logger.info("Fetching summary billing data for account: {}", accountId);
+        CloudAccount account = cloudAccountRepository.findByAwsAccountId(accountId)
+            .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
+
         BillingDashboardDto data = new BillingDashboardDto();
 
-        try {
-            // Get data for the last 6 months
-            LocalDate endDate = LocalDate.now();
-            LocalDate startDate = endDate.minusMonths(6).withDayOfMonth(1);
-            String start = startDate.format(DateTimeFormatter.ISO_DATE);
-            String end = endDate.format(DateTimeFormatter.ISO_DATE);
+        List<Map<String, Object>> costHistoryRaw = costService.getCostHistory(account, year, month);
+        List<BillingDashboardDto.CostHistory> costHistory = costHistoryRaw.stream()
+            .map(item -> new BillingDashboardDto.CostHistory((String) item.get("date"), (double) item.get("cost")))
+            .collect(Collectors.toList());
+        data.setCostHistory(costHistory);
 
-            // Fetch cost history (monthly granularity) from AWS Cost Explorer
-            GetCostAndUsageResponse monthlyResponse = costService.getCostAndUsage(accountId, start, end, "MONTHLY", null);
-            data.setCostHistory(mapCostHistory(monthlyResponse));
-
-            // Fetch service breakdown for the entire period from AWS Cost Explorer
-            GetCostAndUsageResponse serviceResponse = costService.getCostAndUsage(accountId, start, end, "MONTHLY", "SERVICE");
-            data.setServiceBreakdown(mapServiceBreakdown(serviceResponse));
-
-            logger.info("Successfully fetched billing data for account: {}", accountId);
-        } catch (Exception e) {
-            logger.error("Error fetching billing data for account {}: {}", accountId, e.getMessage());
-            // Fallback to mock data if AWS API fails
-            logger.warn("Using fallback mock data due to AWS API error");
-            data.setCostHistory(generateMockCostHistory());
-            data.setServiceBreakdown(generateMockServiceBreakdown());
-        }
+        List<Map<String, Object>> serviceBreakdownRaw = costService.getCostByDimension(account, "SERVICE", year, month);
+        List<BillingDashboardDto.ServiceBreakdown> serviceBreakdown = serviceBreakdownRaw.stream()
+            .map(item -> new BillingDashboardDto.ServiceBreakdown((String) item.get("name"), (double) item.get("cost")))
+            .collect(Collectors.toList());
+        data.setServiceBreakdown(serviceBreakdown);
 
         return data;
     }
 
-    private List<BillingDashboardDto.CostHistory> mapCostHistory(GetCostAndUsageResponse response) {
-        if (response == null || !response.hasResultsByTime() || response.resultsByTime().isEmpty()) {
-            logger.warn("No cost history data from AWS, using mock data");
-            return generateMockCostHistory();
+    // ### MODIFIED THIS METHOD WITH LOGGING ###
+    public List<ServiceCostDetailDto> getDetailedBillingReport(String accountId, Integer year, Integer month) {
+        logger.info("--- Starting Detailed Billing Report Generation ---");
+        CloudAccount account = cloudAccountRepository.findByAwsAccountId(accountId)
+                .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
+
+        List<ServiceCostDetailDto> detailedReport = new ArrayList<>();
+
+        // 1. Get top-level services
+        List<Map<String, Object>> services = costService.getCostByDimension(account, "SERVICE", year, month);
+        logger.info("STEP 1: Found {} services in total.", services.size());
+
+        // 2. Loop through each service sequentially
+        for (Map<String, Object> serviceMap : services) {
+            String serviceName = (String) serviceMap.get("name");
+            double totalServiceCost = (double) serviceMap.get("cost");
+            logger.info("--> STEP 2: Processing Service '{}' with cost ${}", serviceName, totalServiceCost);
+
+            List<RegionCostDto> regionCosts = new ArrayList<>();
+
+            // 3. For the current service, get its breakdown by region
+            List<Map<String, Object>> regions = costService.getCostForServiceInRegion(account, serviceName, year, month);
+            logger.info("    STEP 3: Found {} regions for service '{}'.", regions.size(), serviceName);
+
+            // 4. Loop through each region
+            for (Map<String, Object> regionMap : regions) {
+                String regionName = (String) regionMap.get("name");
+                double totalRegionCost = (double) regionMap.get("cost");
+                logger.info("    ----> STEP 4: Processing Region '{}' with cost ${}", regionName, totalRegionCost);
+
+                // 5. For the current service and region, get its resources (usage types)
+                List<Map<String, Object>> resources = costService.getCostByResource(account, serviceName, regionName, year, month);
+                logger.info("        STEP 5: Found {} resources/usage types for service '{}' in region '{}'.", resources.size(), serviceName, regionName);
+                
+                List<ResourceCostDto> resourceCosts = resources.stream()
+                        .map(resourceMap -> new ResourceCostDto(
+                                (String) resourceMap.get("id"),
+                                (String) resourceMap.get("name"),
+                                (double) resourceMap.get("cost")))
+                        .collect(Collectors.toList());
+                
+                regionCosts.add(new RegionCostDto(regionName, totalRegionCost, resourceCosts));
+            }
+            
+            detailedReport.add(new ServiceCostDetailDto(serviceName, totalServiceCost, regionCosts));
         }
 
-        return response.resultsByTime().stream()
-                .map(this::createCostHistoryFromTimeResult)
-                .collect(Collectors.toList());
-    }
-
-    private BillingDashboardDto.CostHistory createCostHistoryFromTimeResult(ResultByTime result) {
-        String date = result.timePeriod().start();
-        double cost = Double.parseDouble(result.total().get("UnblendedCost").amount());
-        return new BillingDashboardDto.CostHistory(date, cost);
-    }
-
-    private List<ServiceBreakdown> mapServiceBreakdown(GetCostAndUsageResponse response) {
-        if (response == null || !response.hasResultsByTime() || response.resultsByTime().isEmpty()) {
-            logger.warn("No service breakdown data from AWS, using mock data");
-            return generateMockServiceBreakdown();
-        }
-
-        // Check if first result has groups
-        if (!response.resultsByTime().get(0).hasGroups() || response.resultsByTime().get(0).groups().isEmpty()) {
-            logger.warn("No service breakdown groups from AWS, using mock data");
-            return generateMockServiceBreakdown();
-        }
-
-        // Map AWS response to ServiceBreakdown objects
-        return response.resultsByTime().get(0).groups().stream()
-                .map(group -> {
-                    String serviceName = group.keys().get(0);
-                    double cost = Double.parseDouble(group.metrics().get("UnblendedCost").amount());
-                    return new ServiceBreakdown();
-                })
-                .collect(Collectors.toList());
-    }
-
-    // FIXED: Mock data generators with proper constructor calls
-    private List<BillingDashboardDto.CostHistory> generateMockCostHistory() {
-        List<BillingDashboardDto.CostHistory> mockData = new ArrayList<>();
-        LocalDate startDate = LocalDate.now().minusMonths(6);
-
-        for (int i = 0; i < 6; i++) {
-            LocalDate date = startDate.plusMonths(i);
-            double cost = 1000 + (Math.random() * 2000);
-            mockData.add(new BillingDashboardDto.CostHistory(
-                    date.format(DateTimeFormatter.ofPattern("yyyy-MM")),
-                    Math.round(cost * 100.0) / 100.0
-            ));
-        }
-
-        logger.info("Generated {} mock cost history entries", mockData.size());
-        return mockData;
-    }
-
-    // FIXED: Mock service breakdown with proper constructor parameters
-    private List<ServiceBreakdown> generateMockServiceBreakdown() {
-        List<ServiceBreakdown> mockData = Arrays.asList(
-                new ServiceBreakdown(),
-                new ServiceBreakdown(),
-                new ServiceBreakdown(),
-                new ServiceBreakdown(),
-                new ServiceBreakdown(),
-                new ServiceBreakdown()
-        );
-
-        logger.info("Generated {} mock service breakdown entries", mockData.size());
-        return mockData;
+        logger.info("--- Finished Detailed Billing Report Generation. Returning {} top-level service entries. ---", detailedReport.size());
+        return detailedReport;
     }
 }

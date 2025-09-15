@@ -5,10 +5,9 @@ import jakarta.persistence.*;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-
 @Entity
-@Data
-@NoArgsConstructor
+@Data // <-- ADDED THIS
+@NoArgsConstructor // <-- ADDED THIS
 public class CloudAccount {
 
     @Id
@@ -46,12 +45,11 @@ public class CloudAccount {
     private String gcpProjectId;
 
     @Column(nullable = false)
-    private String status = "PENDING"; // PENDING, CONNECTED, FAILED
+    private String status = "PENDING";
 
     @Column(nullable = false)
-    private String provider; // AWS or GCP
+    private String provider;
 
-    // ✅ ADD THIS FIELD FOR GCP BILLING
     @Column
     private String billingExportTable;
 
