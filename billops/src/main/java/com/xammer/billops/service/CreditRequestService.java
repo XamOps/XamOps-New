@@ -6,6 +6,8 @@ import com.xammer.billops.dto.CreditRequestDto;
 import com.xammer.billops.repository.CreditRequestRepository;
 import com.xammer.billops.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,6 +25,7 @@ public class CreditRequestService {
     private UserRepository userRepository;
 
     @Transactional
+    @CacheEvict(value = {"allCreditRequests", "creditRequestsByUser"}, allEntries = true)
     public CreditRequestDto createCreditRequest(CreditRequestDto creditRequestDto) {
         User user = userRepository.findById(creditRequestDto.getUserId())
                 .orElseThrow(() -> new RuntimeException("User not found"));
@@ -41,6 +44,7 @@ public class CreditRequestService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable("allCreditRequests")
     public List<CreditRequestDto> getAllCreditRequests() {
         return creditRequestRepository.findAll().stream()
                 .map(this::convertToDto)
@@ -48,6 +52,7 @@ public class CreditRequestService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(value = "creditRequestsByUser", key = "#userId")
     public List<CreditRequestDto> getCreditRequestsByUserId(Long userId) {
         return creditRequestRepository.findByUserId(userId).stream()
                 .map(this::convertToDto)
@@ -55,6 +60,7 @@ public class CreditRequestService {
     }
 
     @Transactional
+    @CacheEvict(value = {"allCreditRequests", "creditRequestsByUser"}, allEntries = true)
     public CreditRequestDto updateRequestStatus(Long id, String status) {
         CreditRequest creditRequest = creditRequestRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Credit Request not found"));

@@ -1,13 +1,17 @@
 package com.xammer.billops.service;
 
 import com.xammer.billops.domain.CloudAccount;
+import com.xammer.billops.dto.AwsCreditDto;
+import com.xammer.billops.dto.CreditDetailDto;
 import com.xammer.billops.repository.CloudAccountRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.costexplorer.CostExplorerClient;
 import software.amazon.awssdk.services.costexplorer.model.*;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.*;
@@ -25,6 +29,31 @@ public class CostService {
         this.cloudAccountRepository = cloudAccountRepository;
     }
 
+    /**
+     * NOTE: This method currently returns MOCK DATA.
+     * The actual implementation requires integrating with the AWS Cost Explorer API
+     * to fetch real-time credit information, which is a more complex task.
+     */
+    public AwsCreditDto getAwsCredits(CloudAccount account) {
+        logger.info("Fetching mock AWS credit data for account: {}", account.getAwsAccountId());
+
+        // Mock data inspired by the user's screenshot
+        List<CreditDetailDto> mockCredits = List.of(
+                new CreditDetailDto(
+                        "Xammer_PvC_Credits",
+                        LocalDate.of(2025, 10, 31),
+                        new BigDecimal("94.27"),
+                        new BigDecimal("4900.73")
+                )
+        );
+
+        BigDecimal totalUsed = mockCredits.stream().map(CreditDetailDto::getAmountUsed).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalRemaining = mockCredits.stream().map(CreditDetailDto::getAmountRemaining).reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        return new AwsCreditDto(totalRemaining, totalUsed, mockCredits);
+    }
+
+    @Cacheable(value = "costHistory", key = "#account.id + '-' + #year + '-' + #month")
     public List<Map<String, Object>> getCostHistory(CloudAccount account, Integer year, Integer month) {
         try {
             CostExplorerClient client = awsClientProvider.getCostExplorerClient(account);
@@ -51,6 +80,7 @@ public class CostService {
         }
     }
 
+    @Cacheable(value = "costByDimension", key = "#account.id + '-' + #dimension + '-' + #year + '-' + #month")
     public List<Map<String, Object>> getCostByDimension(CloudAccount account, String dimension, Integer year, Integer month) {
         try {
             CostExplorerClient client = awsClientProvider.getCostExplorerClient(account);
@@ -99,6 +129,7 @@ public class CostService {
         }
     }
 
+    @Cacheable(value = "costForServiceInRegion", key = "#account.id + '-' + #serviceName + '-' + #year + '-' + #month")
     public List<Map<String, Object>> getCostForServiceInRegion(CloudAccount account, String serviceName, Integer year, Integer month) {
         try {
             CostExplorerClient client = awsClientProvider.getCostExplorerClient(account);
@@ -153,6 +184,7 @@ public class CostService {
         }
     }
 
+    @Cacheable(value = "costByResource", key = "#account.id + '-' + #serviceName + '-' + #region + '-' + #year + '-' + #month")
     public List<Map<String, Object>> getCostByResource(CloudAccount account, String serviceName, String region, Integer year, Integer month) {
         logger.info("Fetching resource costs for service '{}' in region '{}'", serviceName, region);
         try {

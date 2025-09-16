@@ -3,6 +3,7 @@ package com.xammer.billops.service;
 import com.xammer.billops.domain.CloudAccount;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ec2.model.Instance;
@@ -35,6 +36,7 @@ public class ResourceService {
         this.awsClientProvider = awsClientProvider;
     }
 
+    @Cacheable(value = "resources", key = "#account.id + '-' + #region + '-' + #serviceName")
     public List<Map<String, Object>> getResourcesInRegion(CloudAccount account, String region, String serviceName) {
         logger.debug("getResourcesInRegion called with accountId={}, region={}, serviceName={}", account != null ? account.getId() : null, region, serviceName);
         logger.info("Attempting to fetch resources in region '{}' for service name: '{}'", region, serviceName);
@@ -79,9 +81,9 @@ public class ResourceService {
             for (Reservation reservation : ec2Client.describeInstances().reservations()) {
                 for (Instance instance : reservation.instances()) {
                     resources.add(createResourceMap(
-                        getTagValue(instance.tags(), "Name", instance.instanceId()),
-                        instance.instanceId(),
-                        15.50 // Placeholder cost
+                            getTagValue(instance.tags(), "Name", instance.instanceId()),
+                            instance.instanceId(),
+                            15.50 // Placeholder cost
                     ));
                 }
             }
@@ -97,9 +99,9 @@ public class ResourceService {
             Ec2Client ec2Client = awsClientProvider.getEc2Client(account, region);
             for (Vpc vpc : ec2Client.describeVpcs().vpcs()) {
                 resources.add(createResourceMap(
-                    getTagValue(vpc.tags(), "Name", vpc.vpcId()),
-                    vpc.vpcId(),
-                    5.25 // Placeholder cost
+                        getTagValue(vpc.tags(), "Name", vpc.vpcId()),
+                        vpc.vpcId(),
+                        5.25 // Placeholder cost
                 ));
             }
         } catch (Exception e) {
@@ -146,7 +148,7 @@ public class ResourceService {
         }
         return resources;
     }
-    
+
     private List<Map<String, Object>> getLightsailInstances(CloudAccount account, String region) {
         List<Map<String, Object>> resources = new ArrayList<>();
         try {

@@ -1,9 +1,13 @@
 package com.xammer.billops.service;
 
 import com.xammer.billops.domain.CloudAccount;
+import com.xammer.billops.dto.DashboardCardDto;
 import com.xammer.billops.dto.DashboardDataDto;
+import com.xammer.billops.repository.CreditRequestRepository;
+import com.xammer.billops.repository.TicketRepository;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -14,10 +18,27 @@ import java.util.concurrent.Executors;
 public class DashboardService {
 
     private final CostService costService;
+    private final TicketRepository ticketRepository;
+    private final CreditRequestRepository creditRequestRepository;
     private final ExecutorService executor = Executors.newFixedThreadPool(5);
 
-    public DashboardService(CostService costService) {
+    public DashboardService(CostService costService, TicketRepository ticketRepository, CreditRequestRepository creditRequestRepository) {
         this.costService = costService;
+        this.ticketRepository = ticketRepository;
+        this.creditRequestRepository = creditRequestRepository;
+    }
+
+    public DashboardCardDto getDashboardCards() {
+        long ticketsRaised = ticketRepository.count();
+        long creditRequests = creditRequestRepository.count();
+        // Placeholder values for spending
+        return new DashboardCardDto(
+                new BigDecimal("1234.56"),
+                new BigDecimal("1100.00"),
+                new BigDecimal("1350.00"),
+                ticketsRaised,
+                creditRequests
+        );
     }
 
     public DashboardDataDto getDashboardData(CloudAccount account, Integer year, Integer month) {

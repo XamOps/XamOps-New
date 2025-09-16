@@ -13,7 +13,8 @@ public interface CloudAccountRepository extends JpaRepository<CloudAccount, Long
     List<CloudAccount> findByClientId(Long clientId);
 
     // ADDED: Method to find by AWS Account ID
-    Optional<CloudAccount> findByAwsAccountId(String awsAccountId);
+    //Optional<CloudAccount> findByAwsAccountId(String awsAccountId);
+    List<CloudAccount> findByAwsAccountIdIn(List<String> awsAccountIds);
 
     // Alternative methods depending on your CloudAccount field names:
     // Optional<CloudAccount> findByAccountNumber(String accountNumber);

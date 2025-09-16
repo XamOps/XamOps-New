@@ -29,70 +29,59 @@ public class BillingService {
         this.resourceService = resourceService;
     }
 
-    public BillingDashboardDto getBillingData(String accountId, Integer year, Integer month) {
-        logger.info("Fetching summary billing data for account: {}", accountId);
-        CloudAccount account = cloudAccountRepository.findByAwsAccountId(accountId)
-                .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
+    public BillingDashboardDto getBillingData(List<String> accountIds, Integer year, Integer month) {
+        logger.info("Fetching summary billing data for accounts: {}", accountIds);
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountIdIn(accountIds);
+        if (accounts.isEmpty()) {
+            throw new RuntimeException("Accounts not found: " + accountIds);
+        }
 
         BillingDashboardDto data = new BillingDashboardDto();
+        List<BillingDashboardDto.CostHistory> combinedCostHistory = new ArrayList<>();
+        List<BillingDashboardDto.ServiceBreakdown> combinedServiceBreakdown = new ArrayList<>();
 
-        List<Map<String, Object>> costHistoryRaw = costService.getCostHistory(account, year, month);
-        List<BillingDashboardDto.CostHistory> costHistory = costHistoryRaw.stream()
-                .map(item -> new BillingDashboardDto.CostHistory((String) item.get("date"), (double) item.get("cost")))
-                .collect(Collectors.toList());
-        data.setCostHistory(costHistory);
+        for (CloudAccount account : accounts) {
+            List<Map<String, Object>> costHistoryRaw = costService.getCostHistory(account, year, month);
+            combinedCostHistory.addAll(costHistoryRaw.stream()
+                    .map(item -> new BillingDashboardDto.CostHistory((String) item.get("date"), (double) item.get("cost")))
+                    .collect(Collectors.toList()));
 
-        List<Map<String, Object>> serviceBreakdownRaw = costService.getCostByDimension(account, "SERVICE", year, month);
-        List<BillingDashboardDto.ServiceBreakdown> serviceBreakdown = serviceBreakdownRaw.stream()
-                .map(item -> new BillingDashboardDto.ServiceBreakdown((String) item.get("name"), (double) item.get("cost")))
-                .collect(Collectors.toList());
-        data.setServiceBreakdown(serviceBreakdown);
+            List<Map<String, Object>> serviceBreakdownRaw = costService.getCostByDimension(account, "SERVICE", year, month);
+            combinedServiceBreakdown.addAll(serviceBreakdownRaw.stream()
+                    .map(item -> new BillingDashboardDto.ServiceBreakdown((String) item.get("name"), (double) item.get("cost")))
+                    .collect(Collectors.toList()));
+        }
+
+        data.setCostHistory(combinedCostHistory);
+        data.setServiceBreakdown(combinedServiceBreakdown);
 
         return data;
     }
 
-    public List<ServiceCostDetailDto> getDetailedBillingReport(String accountId, Integer year, Integer month) {
+    public List<ServiceCostDetailDto> getDetailedBillingReport(List<String> accountIds, Integer year, Integer month) {
         logger.info("--- Starting Detailed Billing Report Generation (Cost-Only Method) ---");
-        CloudAccount account = cloudAccountRepository.findByAwsAccountId(accountId)
-                .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountIdIn(accountIds);
+        if (accounts.isEmpty()) {
+            throw new RuntimeException("Accounts not found: " + accountIds);
+        }
 
         List<ServiceCostDetailDto> detailedReport = new ArrayList<>();
-        List<Map<String, Object>> services = costService.getCostByDimension(account, "SERVICE", year, month);
-        logger.info("STEP 1: Found {} services in total.", services.size());
+        for (CloudAccount account : accounts) {
+            List<Map<String, Object>> services = costService.getCostByDimension(account, "SERVICE", year, month);
+            logger.info("STEP 1: Found {} services in total for account {}.", services.size(), account.getAwsAccountId());
 
-        for (Map<String, Object> serviceMap : services) {
-            String serviceName = (String) serviceMap.get("name");
-            double totalServiceCost = (double) serviceMap.get("cost");
-            logger.info("--> STEP 2: Processing Service '{}' with cost ${}", serviceName, totalServiceCost);
+            for (Map<String, Object> serviceMap : services) {
+                String serviceName = (String) serviceMap.get("name");
+                double totalServiceCost = (double) serviceMap.get("cost");
+                logger.info("--> STEP 2: Processing Service '{}' with cost ${}", serviceName, totalServiceCost);
 
-            List<RegionCostDto> allRegionCosts = new ArrayList<>();
-            List<Map<String, Object>> regions = costService.getCostForServiceInRegion(account, serviceName, year, month);
-            logger.info("    STEP 3: Found {} regions for service '{}'.", regions.size(), serviceName);
+                List<RegionCostDto> allRegionCosts = new ArrayList<>();
+                List<Map<String, Object>> regions = costService.getCostForServiceInRegion(account, serviceName, year, month);
+                logger.info("    STEP 3: Found {} regions for service '{}'.", regions.size(), serviceName);
 
-            if (regions.isEmpty()) {
-                logger.info("    No regional data for '{}'. Fetching usage types directly.", serviceName);
-                List<Map<String, Object>> resources = costService.getCostByResource(account, serviceName, null, year, month);
-                List<ResourceCostDto> resourceCosts = resources.stream()
-                        .map(resourceMap -> {
-                            String rawUsageType = (String) resourceMap.get("name");
-                            return new ResourceCostDto(
-                                    rawUsageType,
-                                    formatUsageType(rawUsageType),
-                                    (double) resourceMap.get("cost"),
-                                    (double) resourceMap.get("quantity"),
-                                    (String) resourceMap.get("unit")
-                            );
-                        })
-                        .collect(Collectors.toList());
-                if (!resourceCosts.isEmpty()) {
-                    allRegionCosts.add(new RegionCostDto("Global", totalServiceCost, resourceCosts));
-                }
-            } else {
-                for (Map<String, Object> regionMap : regions) {
-                    String regionName = (String) regionMap.get("name");
-                    double totalRegionCost = (double) regionMap.get("cost");
-                    logger.info("    ----> STEP 4: Processing Region '{}' with cost ${}", regionName, totalRegionCost);
-                    List<Map<String, Object>> resources = costService.getCostByResource(account, serviceName, regionName, year, month);
+                if (regions.isEmpty()) {
+                    logger.info("    No regional data for '{}'. Fetching usage types directly.", serviceName);
+                    List<Map<String, Object>> resources = costService.getCostByResource(account, serviceName, null, year, month);
                     List<ResourceCostDto> resourceCosts = resources.stream()
                             .map(resourceMap -> {
                                 String rawUsageType = (String) resourceMap.get("name");
@@ -105,11 +94,33 @@ public class BillingService {
                                 );
                             })
                             .collect(Collectors.toList());
-                    logger.info("        --> Found {} resource details for '{}' in '{}'", resourceCosts.size(), serviceName, regionName);
-                    allRegionCosts.add(new RegionCostDto(regionName, totalRegionCost, resourceCosts));
+                    if (!resourceCosts.isEmpty()) {
+                        allRegionCosts.add(new RegionCostDto("Global", totalServiceCost, resourceCosts));
+                    }
+                } else {
+                    for (Map<String, Object> regionMap : regions) {
+                        String regionName = (String) regionMap.get("name");
+                        double totalRegionCost = (double) regionMap.get("cost");
+                        logger.info("    ----> STEP 4: Processing Region '{}' with cost ${}", regionName, totalRegionCost);
+                        List<Map<String, Object>> resources = costService.getCostByResource(account, serviceName, regionName, year, month);
+                        List<ResourceCostDto> resourceCosts = resources.stream()
+                                .map(resourceMap -> {
+                                    String rawUsageType = (String) resourceMap.get("name");
+                                    return new ResourceCostDto(
+                                            rawUsageType,
+                                            formatUsageType(rawUsageType),
+                                            (double) resourceMap.get("cost"),
+                                            (double) resourceMap.get("quantity"),
+                                            (String) resourceMap.get("unit")
+                                    );
+                                })
+                                .collect(Collectors.toList());
+                        logger.info("        --> Found {} resource details for '{}' in '{}'", resourceCosts.size(), serviceName, regionName);
+                        allRegionCosts.add(new RegionCostDto(regionName, totalRegionCost, resourceCosts));
+                    }
                 }
+                detailedReport.add(new ServiceCostDetailDto(serviceName, totalServiceCost, allRegionCosts));
             }
-            detailedReport.add(new ServiceCostDetailDto(serviceName, totalServiceCost, allRegionCosts));
         }
         logger.info("--- Finished Detailed Billing Report Generation. Returning {} top-level service entries. ---", detailedReport.size());
         return detailedReport;
@@ -145,7 +156,7 @@ public class BillingService {
             if (usageType.endsWith("-Bytes")) return "Data Processed by NAT Gateways";
             if (usageType.endsWith("-Hours")) return "NAT Gateway Hour";
         }
-        
+
         // Load Balancer
         if (usageType.equals("LoadBalancerUsage")) return "Application LoadBalancer-hour";
         if (usageType.equals("LCUUsage")) return "Application load balancer capacity unit-hour";
@@ -156,7 +167,7 @@ public class BillingService {
         // Other known types
         if (usageType.equals("APIRequest")) return "API Request";
         if (usageType.equals("PaidComplianceCheck")) return "Security Hub Compliance Check";
-        
+
         // Fallback for anything not specifically matched
         return usageType.replace('-', ' ');
     }
