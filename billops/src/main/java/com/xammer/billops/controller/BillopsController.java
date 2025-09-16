@@ -2,8 +2,10 @@ package com.xammer.billops.controller;
 
 import com.xammer.billops.domain.CloudAccount;
 import com.xammer.billops.domain.User;
+import com.xammer.billops.dto.AwsCreditDto;
 import com.xammer.billops.dto.BillingDashboardDto;
 import com.xammer.billops.dto.CreditRequestDto;
+import com.xammer.billops.dto.DashboardCardDto;
 import com.xammer.billops.dto.DashboardDataDto;
 import com.xammer.billops.dto.ServiceCostDetailDto;
 import com.xammer.billops.dto.TicketDto;
@@ -19,6 +21,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -35,6 +38,7 @@ public class BillopsController {
     private final ExcelExportService excelExportService;
     private final CreditRequestService creditRequestService;
     private final TicketService ticketService;
+    private final DashboardService dashboardService;
 
 
     public BillopsController(BillingService billingService,
@@ -44,7 +48,8 @@ public class BillopsController {
                              CloudAccountRepository cloudAccountRepository,
                              ExcelExportService excelExportService,
                              CreditRequestService creditRequestService,
-                             TicketService ticketService) {
+                             TicketService ticketService,
+                             DashboardService dashboardService) {
         this.billingService = billingService;
         this.costService = costService;
         this.resourceService = resourceService;
@@ -53,6 +58,7 @@ public class BillopsController {
         this.excelExportService = excelExportService;
         this.creditRequestService = creditRequestService;
         this.ticketService = ticketService;
+        this.dashboardService = dashboardService;
     }
 
     @GetMapping("/health")
@@ -60,13 +66,26 @@ public class BillopsController {
         return ResponseEntity.ok("Billops service is running successfully!");
     }
 
-    @GetMapping("/billing/{accountId}")
+    @GetMapping("/dashboard/cards")
+    public ResponseEntity<DashboardCardDto> getDashboardCards() {
+        return ResponseEntity.ok(dashboardService.getDashboardCards());
+    }
+
+    @GetMapping("/aws-credits")
+    public ResponseEntity<AwsCreditDto> getAwsCredits(@RequestParam String accountId) {
+        CloudAccount account = cloudAccountRepository.findByAwsAccountIdIn(Collections.singletonList(accountId))
+                .stream().findFirst()
+                .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
+        return ResponseEntity.ok(costService.getAwsCredits(account));
+    }
+
+    @GetMapping("/billing")
     public ResponseEntity<BillingDashboardDto> getBillingData(
-            @PathVariable String accountId,
+            @RequestParam List<String> accountIds,
             @RequestParam(required = false) Integer year,
             @RequestParam(required = false) Integer month) {
         try {
-            BillingDashboardDto data = billingService.getBillingData(accountId, year, month);
+            BillingDashboardDto data = billingService.getBillingData(accountIds, year, month);
             return ResponseEntity.ok(data);
         } catch (Exception e) {
             e.printStackTrace();
@@ -74,19 +93,50 @@ public class BillopsController {
         }
     }
 
-    @GetMapping("/detailed-breakdown/{accountId}")
-    public ResponseEntity<List<ServiceCostDetailDto>> getDetailedBillingReport(
+    // Added for backward compatibility
+    @GetMapping("/billing/{accountId}")
+    public ResponseEntity<BillingDashboardDto> getBillingData(
             @PathVariable String accountId,
             @RequestParam(required = false) Integer year,
             @RequestParam(required = false) Integer month) {
         try {
-            List<ServiceCostDetailDto> data = billingService.getDetailedBillingReport(accountId, year, month);
+            BillingDashboardDto data = billingService.getBillingData(Collections.singletonList(accountId), year, month);
             return ResponseEntity.ok(data);
         } catch (Exception e) {
             e.printStackTrace();
             return ResponseEntity.internalServerError().build();
         }
     }
+
+    @GetMapping("/detailed-breakdown")
+    public ResponseEntity<List<ServiceCostDetailDto>> getDetailedBillingReport(
+            @RequestParam List<String> accountIds,
+            @RequestParam(required = false) Integer year,
+            @RequestParam(required = false) Integer month) {
+        try {
+            List<ServiceCostDetailDto> data = billingService.getDetailedBillingReport(accountIds, year, month);
+            return ResponseEntity.ok(data);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    // Added for backward compatibility
+    @GetMapping("/detailed-breakdown/{accountId}")
+    public ResponseEntity<List<ServiceCostDetailDto>> getDetailedBillingReport(
+            @PathVariable String accountId,
+            @RequestParam(required = false) Integer year,
+            @RequestParam(required = false) Integer month) {
+        try {
+            List<ServiceCostDetailDto> data = billingService.getDetailedBillingReport(Collections.singletonList(accountId), year, month);
+            return ResponseEntity.ok(data);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
 
     @GetMapping("/accounts")
     public ResponseEntity<List<CloudAccount>> getCloudAccounts(Authentication authentication) {

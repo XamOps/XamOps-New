@@ -76,4 +76,5 @@ public class CloudAccount {
         this.accessType = accessType;
         this.client = client;
     }
+
 }
