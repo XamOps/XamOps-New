@@ -1,12 +1,9 @@
 package com.xammer.billops.controller;
 
 import com.xammer.billops.domain.CloudAccount;
+import com.xammer.billops.domain.Invoice;
 import com.xammer.billops.domain.User;
-import com.xammer.billops.dto.BillingDashboardDto;
-import com.xammer.billops.dto.CreditRequestDto;
-import com.xammer.billops.dto.DashboardDataDto;
-import com.xammer.billops.dto.ServiceCostDetailDto;
-import com.xammer.billops.dto.TicketDto;
+import com.xammer.billops.dto.*;
 import com.xammer.billops.repository.CloudAccountRepository;
 import com.xammer.billops.repository.UserRepository;
 import com.xammer.billops.service.*;
@@ -21,7 +18,6 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/billops")
@@ -35,6 +31,7 @@ public class BillopsController {
     private final ExcelExportService excelExportService;
     private final CreditRequestService creditRequestService;
     private final TicketService ticketService;
+    private final InvoiceManagementService invoiceManagementService;
 
 
     public BillopsController(BillingService billingService,
@@ -44,7 +41,8 @@ public class BillopsController {
                              CloudAccountRepository cloudAccountRepository,
                              ExcelExportService excelExportService,
                              CreditRequestService creditRequestService,
-                             TicketService ticketService) {
+                             TicketService ticketService,
+                             InvoiceManagementService invoiceManagementService) {
         this.billingService = billingService;
         this.costService = costService;
         this.resourceService = resourceService;
@@ -53,6 +51,7 @@ public class BillopsController {
         this.excelExportService = excelExportService;
         this.creditRequestService = creditRequestService;
         this.ticketService = ticketService;
+        this.invoiceManagementService = invoiceManagementService;
     }
 
     @GetMapping("/health")
@@ -87,6 +86,72 @@ public class BillopsController {
             return ResponseEntity.internalServerError().build();
         }
     }
+
+    @GetMapping("/invoices/view")
+    public ResponseEntity<InvoiceDto> getFinalizedInvoice(
+            @RequestParam String accountId,
+            @RequestParam int year,
+            @RequestParam int month) {
+        Invoice invoice = invoiceManagementService.generateTemporaryInvoiceForUser(accountId, year, month);
+        if (invoice == null || invoice.getLineItems().isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(InvoiceDto.fromEntity(invoice));
+    }
+
+    /**
+     * MODIFIED: This endpoint now uses a dedicated request object for reliability.
+     */
+    @PostMapping("/invoices/apply-discount-preview")
+    public ResponseEntity<InvoiceDto> applyDiscountPreview(@RequestBody ApplyDiscountPreviewRequest payload) {
+        InvoiceDto updatedInvoice = invoiceManagementService.applyDiscountToTemporaryInvoice(
+            payload.getInvoice(),
+            payload.getDiscount()
+        );
+        return ResponseEntity.ok(updatedInvoice);
+    }
+
+    @PostMapping("/invoices/download-preview")
+    public ResponseEntity<byte[]> downloadInvoicePreview(@RequestBody InvoiceDto invoiceDto) {
+         try {
+            ByteArrayInputStream pdfStream = invoiceManagementService.generatePdfFromDto(invoiceDto);
+
+            HttpHeaders headers = new HttpHeaders();
+            String filename = String.format("invoice-preview-%s-%s.pdf", invoiceDto.getAwsAccountId(), invoiceDto.getBillingPeriod());
+            headers.add("Content-Disposition", "attachment; filename=" + filename);
+
+            return ResponseEntity
+                    .ok()
+                    .headers(headers)
+                    .contentType(MediaType.APPLICATION_PDF)
+                    .body(pdfStream.readAllBytes());
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    @GetMapping("/invoices/{id}/download")
+    public ResponseEntity<byte[]> downloadFinalizedInvoice(@PathVariable Long id) {
+        try {
+            ByteArrayInputStream pdfStream = invoiceManagementService.generatePdfForInvoice(id);
+            Invoice invoice = invoiceManagementService.getInvoiceForAdmin(id);
+
+            HttpHeaders headers = new HttpHeaders();
+            String filename = String.format("invoice-%s-%s.pdf", invoice.getCloudAccount().getAwsAccountId(), invoice.getBillingPeriod());
+            headers.add("Content-Disposition", "attachment; filename=" + filename);
+
+            return ResponseEntity
+                    .ok()
+                    .headers(headers)
+                    .contentType(MediaType.APPLICATION_PDF)
+                    .body(pdfStream.readAllBytes());
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
 
     @GetMapping("/accounts")
     public ResponseEntity<List<CloudAccount>> getCloudAccounts(Authentication authentication) {
@@ -156,7 +221,6 @@ public class BillopsController {
         return ResponseEntity.ok(creditRequestService.updateRequestStatus(id, status));
     }
 
-    // Ticket Endpoints
     @PostMapping("/tickets")
     public ResponseEntity<TicketDto> createTicket(@RequestBody TicketDto ticketDto) {
         return ResponseEntity.ok(ticketService.createTicket(ticketDto));

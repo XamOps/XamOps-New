@@ -1,7 +1,6 @@
 package com.xammer.billops.domain;
 
 import jakarta.persistence.*;
-
 import java.math.BigDecimal;
 
 @Entity
@@ -11,16 +10,16 @@ public class Discount {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne
-    @JoinColumn(name = "client_id", nullable = false) // UPDATED: Changed from customer_id
-    private Client client; // UPDATED: Changed from Customer
-
     private String serviceName;
 
     @Column(precision = 5, scale = 2)
     private BigDecimal percentage;
 
     private String description;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "invoice_id", nullable = false)
+    private Invoice invoice;
 
     // Getters and Setters
     public Long getId() {
@@ -29,14 +28,6 @@ public class Discount {
 
     public void setId(Long id) {
         this.id = id;
-    }
-
-    public Client getClient() {
-        return client;
-    }
-
-    public void setClient(Client client) {
-        this.client = client;
     }
 
     public String getServiceName() {
@@ -61,5 +52,13 @@ public class Discount {
 
     public void setDescription(String description) {
         this.description = description;
+    }
+
+    public Invoice getInvoice() {
+        return invoice;
+    }
+
+    public void setInvoice(Invoice invoice) {
+        this.invoice = invoice;
     }
 }

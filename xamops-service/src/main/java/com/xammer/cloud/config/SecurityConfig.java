@@ -41,20 +41,16 @@ public class SecurityConfig {
                 .cors(withDefaults())
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests((requests) -> requests
-                        .antMatchers("/login", "/*.html", "/gcp_*.html", "/css/**", "/js/**", "/images/**", "/icons/**", "/webjars/**").permitAll()
-                        .antMatchers("/ws/**").permitAll()
-                                .antMatchers("/api/user/profile").authenticated()
-
-                        // ALL authenticated users can manage accounts
-                        .antMatchers("/api/xamops/account-manager/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_XAMOPS", "ROLE_BILLOPS")
-                        // XAMOPS, BILLOPS, and ADMIN specific endpoints
-                        .antMatchers("/api/xamops/**").hasAnyAuthority("ROLE_XAMOPS", "ROLE_ADMIN", "ROLE_BILLOPS")
-                        .antMatchers("/api/cloudlist/**").hasAnyAuthority("ROLE_XAMOPS", "ROLE_ADMIN")
-                        .antMatchers("/api/cloudmap/**").hasAnyAuthority("ROLE_XAMOPS", "ROLE_ADMIN")
-                        .antMatchers("/api/costing/**").hasAnyAuthority("ROLE_XAMOPS", "ROLE_ADMIN")
-                        .antMatchers("/api/finops/**").hasAnyAuthority("ROLE_XAMOPS", "ROLE_ADMIN")
-                        .antMatchers("/api/metrics/**").hasAnyAuthority("ROLE_XAMOPS", "ROLE_ADMIN")
-                        .antMatchers("/api/security/**").hasAnyAuthority("ROLE_XAMOPS", "ROLE_ADMIN")
+                        // Allow all frontend assets and page routes to pass through the auth service
+                        .antMatchers(
+                            "/", "/*.html", "/gcp_*.html", "/billops/**", "/admin/**", 
+                            "/css/**", "/js/**", "/images/**", "/icons/**", "/webjars/**", "/ws/**"
+                        ).permitAll()
+                        
+                        // Secure all API endpoints that this service is responsible for
+                        .antMatchers("/api/xamops/**").hasAnyAuthority("ROLE_XAMOPS", "ROLE_ADMIN", "ROLE_BILLOPS", "ROLE_BILLOPS_ADMIN")
+                        
+                        // Any other request must be authenticated
                         .anyRequest().authenticated()
                 )
                 .formLogin((form) -> form

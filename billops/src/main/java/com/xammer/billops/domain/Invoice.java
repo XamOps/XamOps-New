@@ -1,8 +1,9 @@
 package com.xammer.billops.domain;
 
 import jakarta.persistence.*;
-
+import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 
 @Entity
 public class Invoice {
@@ -13,12 +14,34 @@ public class Invoice {
 
     private String invoiceNumber;
     private LocalDate invoiceDate;
-    private double amount;
-    private String status; // e.g., "PAID", "UNPAID"
+    private String billingPeriod; // e.g., "2025-09"
 
-    @ManyToOne
-    @JoinColumn(name = "client_id", nullable = false) // UPDATED: Changed from customer_id
-    private Client client; // UPDATED: Changed from Customer
+    @Enumerated(EnumType.STRING)
+    private InvoiceStatus status;
+
+    @Column(precision = 19, scale = 4)
+    private BigDecimal preDiscountTotal;
+
+    @Column(precision = 19, scale = 4)
+    private BigDecimal discountAmount;
+
+    @Column(precision = 19, scale = 4)
+    private BigDecimal finalTotal;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "cloud_account_id", nullable = false)
+    private CloudAccount cloudAccount;
+
+    @OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<InvoiceLineItem> lineItems;
+
+    @OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<Discount> discounts;
+
+    public enum InvoiceStatus {
+        DRAFT,
+        FINALIZED
+    }
 
     // Getters and Setters
     public Long getId() {
@@ -45,27 +68,67 @@ public class Invoice {
         this.invoiceDate = invoiceDate;
     }
 
-    public double getAmount() {
-        return amount;
+    public String getBillingPeriod() {
+        return billingPeriod;
     }
 
-    public void setAmount(double amount) {
-        this.amount = amount;
+    public void setBillingPeriod(String billingPeriod) {
+        this.billingPeriod = billingPeriod;
     }
 
-    public String getStatus() {
+    public InvoiceStatus getStatus() {
         return status;
     }
 
-    public void setStatus(String status) {
+    public void setStatus(InvoiceStatus status) {
         this.status = status;
     }
 
-    public Client getClient() {
-        return client;
+    public BigDecimal getPreDiscountTotal() {
+        return preDiscountTotal;
     }
 
-    public void setClient(Client client) {
-        this.client = client;
+    public void setPreDiscountTotal(BigDecimal preDiscountTotal) {
+        this.preDiscountTotal = preDiscountTotal;
+    }
+
+    public BigDecimal getDiscountAmount() {
+        return discountAmount;
+    }
+
+    public void setDiscountAmount(BigDecimal discountAmount) {
+        this.discountAmount = discountAmount;
+    }
+
+    public BigDecimal getFinalTotal() {
+        return finalTotal;
+    }
+
+    public void setFinalTotal(BigDecimal finalTotal) {
+        this.finalTotal = finalTotal;
+    }
+
+    public CloudAccount getCloudAccount() {
+        return cloudAccount;
+    }
+
+    public void setCloudAccount(CloudAccount cloudAccount) {
+        this.cloudAccount = cloudAccount;
+    }
+
+    public List<InvoiceLineItem> getLineItems() {
+        return lineItems;
+    }
+
+    public void setLineItems(List<InvoiceLineItem> lineItems) {
+        this.lineItems = lineItems;
+    }
+
+    public List<Discount> getDiscounts() {
+        return discounts;
+    }
+
+    public void setDiscounts(List<Discount> discounts) {
+        this.discounts = discounts;
     }
 }

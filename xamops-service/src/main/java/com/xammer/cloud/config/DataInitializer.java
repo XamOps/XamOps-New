@@ -35,7 +35,7 @@ public class DataInitializer implements CommandLineRunner {
 
             // Admin User (can see everything)
             User adminUser = new User("admin", passwordEncoder.encode("password"), defaultClient);
-            adminUser.setRole("ROLE_ADMIN");
+            adminUser.setRole("ROLE_BILLOPS_ADMIN"); // This role is essential
             userRepository.save(adminUser);
 
             // XamOps User
