@@ -33,6 +33,7 @@ public class AwsClientProvider {
         AssumeRoleRequest assumeRoleRequest = AssumeRoleRequest.builder()
                 .roleArn(account.getRoleArn())
                 .roleSessionName("xamops-session-" + System.currentTimeMillis())
+                .externalId(account.getExternalId()) // <-- THIS LINE IS THE FIX
                 .build();
 
         AssumeRoleResponse assumeRoleResponse = stsClient.assumeRole(assumeRoleRequest);

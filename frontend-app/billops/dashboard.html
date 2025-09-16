@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>XamOps - Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <style>
+        [x-cloak] { display: none !important; }
+    </style>
+</head>
+<body class="bg-gray-50">
+<div class="flex h-screen">
+    <div id="sidebar-container" class="flex-shrink-0"></div>
+
+    <main class="flex-1 p-6 md:p-8 overflow-y-auto">
+        <div x-data="dashboard()" x-init="init()" x-cloak>
+            <div class="max-w-7xl mx-auto">
+                <h1 class="text-3xl font-bold text-gray-800 mb-6">Dashboard</h1>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
+                    <div class="bg-white p-6 rounded-lg shadow-md">
+                        <h2 class="text-sm font-medium text-gray-500">Current Month Spending</h2>
+                        <p class="text-3xl font-bold text-gray-800" x-text="formatCurrency(cards.currentMonthSpending)"></p>
+                    </div>
+                    <div class="bg-white p-6 rounded-lg shadow-md">
+                        <h2 class="text-sm font-medium text-gray-500">Last Month Spending</h2>
+                        <p class="text-3xl font-bold text-gray-800" x-text="formatCurrency(cards.lastMonthSpending)"></p>
+                    </div>
+                    <div class="bg-white p-6 rounded-lg shadow-md">
+                        <h2 class="text-sm font-medium text-gray-500">Forecasted spending</h2>
+                        <p class="text-3xl font-bold text-gray-800" x-text="formatCurrency(cards.forecastedSpending)"></p>
+                    </div>
+                    <div class="bg-white p-6 rounded-lg shadow-md">
+                        <h2 class="text-sm font-medium text-gray-500">Tickets Raised</h2>
+                        <p class="text-3xl font-bold text-gray-800" x-text="cards.ticketsRaised"></p>
+                    </div>
+                    <div class="bg-white p-6 rounded-lg shadow-md">
+                        <h2 class="text-sm font-medium text-gray-500">Credit Requests</h2>
+                        <p class="text-3xl font-bold text-gray-800" x-text="cards.creditRequests"></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<script>
+    function dashboard() {
+        return {
+            cards: {
+                currentMonthSpending: 0,
+                lastMonthSpending: 0,
+                forecastedSpending: 0,
+                ticketsRaised: 0,
+                creditRequests: 0,
+            },
+            init() {
+                this.loadSidebar();
+                this.fetchDashboardCards();
+            },
+            async fetchDashboardCards() {
+                try {
+                    const response = await fetch('/api/billops/dashboard/cards');
+                    if (!response.ok) throw new Error('Failed to fetch dashboard cards');
+                    this.cards = await response.json();
+                } catch (error) {
+                    console.error("Error fetching dashboard cards:", error);
+                }
+            },
+            formatCurrency(value) {
+                if (typeof value !== 'number') return '$0.00';
+                return value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+            },
+            loadSidebar() {
+                fetch('/_sidebar.html')
+                    .then(response => response.text())
+                    .then(html => {
+                        document.getElementById('sidebar-container').innerHTML = html;
+                        if (window.Alpine) Alpine.initTree(document.getElementById('sidebar-container'));
+                    });
+            }
+        }
+    }
+</script>
+</body>
+</html>

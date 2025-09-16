@@ -298,7 +298,7 @@
     </div>
 
     <div class="glass-container">
-        
+
         <div class="text-center mb-6">
             <div class="logo-container mb-3">
                 <div class="logo-glow"></div>
@@ -327,27 +327,27 @@
                 <label for="username" class="block text-xs font-semibold text-gray-200 mb-1">
                     <i class="fas fa-user mr-1"></i>Username
                 </label>
-                <input type="text" 
-                       id="username" 
-                       name="username" 
-                       class="form-input w-full px-3 py-2 rounded-lg text-white placeholder-gray-400 focus:outline-none text-sm" 
-                       placeholder="Enter your username" 
-                       required 
+                <input type="text"
+                       id="username"
+                       name="username"
+                       class="form-input w-full px-3 py-2 rounded-lg text-white placeholder-gray-400 focus:outline-none text-sm"
+                       placeholder="Enter your username"
+                       required
                        autofocus>
             </div>
-            
+
             <div>
                 <label for="password" class="block text-xs font-semibold text-gray-200 mb-1">
                     <i class="fas fa-lock mr-1"></i>Password
                 </label>
-                <input type="password" 
-                       id="password" 
-                       name="password" 
-                       class="form-input w-full px-3 py-2 rounded-lg text-white placeholder-gray-400 focus:outline-none text-sm" 
-                       placeholder="Enter your password" 
+                <input type="password"
+                       id="password"
+                       name="password"
+                       class="form-input w-full px-3 py-2 rounded-lg text-white placeholder-gray-400 focus:outline-none text-sm"
+                       placeholder="Enter your password"
                        required>
             </div>
-            
+
             <div class="flex items-center justify-between">
                 <label class="flex items-center">
                     <input type="checkbox" class="rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500 focus:ring-offset-0 w-3 h-3">
@@ -357,8 +357,8 @@
                     Forgot password?
                 </a>
             </div>
-            
-            <button type="submit" 
+
+            <button type="submit"
                     class="btn-primary w-full py-2.5 px-4 rounded-lg text-white font-semibold text-sm relative overflow-hidden group"
                     id="loginButton">
                 <span class="flex items-center justify-center">
@@ -397,35 +397,35 @@
                     speed: 0.5,
                     ...options
                 };
-                
+
                 this.startTime = Date.now();
                 this.animationId = null;
-                
+
                 this.init();
             }
-            
+
             init() {
                 if (!this.gl) {
                     console.error('WebGL not supported');
                     return;
                 }
-                
+
                 this.setupGL();
                 this.createShaders();
                 this.createGeometry();
                 this.resize();
                 this.animate();
-                
+
                 window.addEventListener('resize', () => this.resize());
             }
-            
+
             setupGL() {
                 const gl = this.gl;
                 gl.clearColor(0, 0, 0, 0);
                 gl.enable(gl.BLEND);
                 gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
             }
-            
+
             createShaders() {
                 const vertexShader = this.compileShader(this.gl.VERTEX_SHADER, `
                     attribute vec2 position;
@@ -433,20 +433,20 @@
                         gl_Position = vec4(position, 0.0, 1.0);
                     }
                 `);
-                
+
                 const fragmentShader = this.compileShader(this.gl.FRAGMENT_SHADER, `
                     precision mediump float;
-                    
+
                     uniform float uTime;
                     uniform float uAmplitude;
                     uniform vec3 uColorStops[3];
                     uniform vec2 uResolution;
                     uniform float uBlend;
-                    
+
                     vec3 permute(vec3 x) {
                         return mod(((x * 34.0) + 1.0) * x, 289.0);
                     }
-                    
+
                     float snoise(vec2 v) {
                         const vec4 C = vec4(0.211324865405187, 0.366025403784439, -0.577350269189626, 0.024390243902439);
                         vec2 i = floor(v + dot(v, C.yy));
@@ -455,60 +455,60 @@
                         vec4 x12 = x0.xyxy + C.xxzz;
                         x12.xy -= i1;
                         i = mod(i, 289.0);
-                        
+
                         vec3 p = permute(permute(i.y + vec3(0.0, i1.y, 1.0)) + i.x + vec3(0.0, i1.x, 1.0));
                         vec3 m = max(0.5 - vec3(dot(x0, x0), dot(x12.xy, x12.xy), dot(x12.zw, x12.zw)), 0.0);
                         m = m * m;
                         m = m * m;
-                        
+
                         vec3 x = 2.0 * fract(p * C.www) - 1.0;
                         vec3 h = abs(x) - 0.5;
                         vec3 ox = floor(x + 0.5);
                         vec3 a0 = x - ox;
                         m *= 1.79284291400159 - 0.85373472095314 * (a0 * a0 + h * h);
-                        
+
                         vec3 g;
                         g.x = a0.x * x0.x + h.x * x0.y;
                         g.yz = a0.yz * x12.xz + h.yz * x12.yw;
                         return 130.0 * dot(m, g);
                     }
-                    
+
                     void main() {
                         vec2 uv = gl_FragCoord.xy / uResolution;
-                        
+
                         vec3 rampColor;
                         if (uv.x < 0.5) {
                             rampColor = mix(uColorStops[0], uColorStops[1], uv.x * 2.0);
                         } else {
                             rampColor = mix(uColorStops[1], uColorStops[2], (uv.x - 0.5) * 2.0);
                         }
-                        
+
                         float height = snoise(vec2(uv.x * 2.0 + uTime * 0.1, uTime * 0.25)) * 0.5 * uAmplitude;
                         height = exp(height);
                         height = (uv.y * 2.0 - height + 0.2);
                         float intensity = 0.6 * height;
-                        
+
                         float midPoint = 0.20;
                         float auroraAlpha = smoothstep(midPoint - uBlend * 0.5, midPoint + uBlend * 0.5, intensity);
-                        
+
                         vec3 auroraColor = intensity * rampColor;
-                        
+
                         gl_FragColor = vec4(auroraColor * auroraAlpha, auroraAlpha);
                     }
                 `);
-                
+
                 this.program = this.gl.createProgram();
                 this.gl.attachShader(this.program, vertexShader);
                 this.gl.attachShader(this.program, fragmentShader);
                 this.gl.linkProgram(this.program);
-                
+
                 if (!this.gl.getProgramParameter(this.program, this.gl.LINK_STATUS)) {
                     console.error('Program linking failed:', this.gl.getProgramInfoLog(this.program));
                     return;
                 }
-                
+
                 this.gl.useProgram(this.program);
-                
+
                 this.uniforms = {
                     uTime: this.gl.getUniformLocation(this.program, 'uTime'),
                     uAmplitude: this.gl.getUniformLocation(this.program, 'uAmplitude'),
@@ -517,33 +517,33 @@
                     uBlend: this.gl.getUniformLocation(this.program, 'uBlend')
                 };
             }
-            
+
             compileShader(type, source) {
                 const shader = this.gl.createShader(type);
                 this.gl.shaderSource(shader, source);
                 this.gl.compileShader(shader);
-                
+
                 if (!this.gl.getShaderParameter(shader, this.gl.COMPILE_STATUS)) {
                     console.error('Shader compilation failed:', this.gl.getShaderInfoLog(shader));
                     this.gl.deleteShader(shader);
                     return null;
                 }
-                
+
                 return shader;
             }
-            
+
             createGeometry() {
                 const vertices = new Float32Array([-1, -1, 3, -1, -1, 3]);
-                
+
                 this.buffer = this.gl.createBuffer();
                 this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffer);
                 this.gl.bufferData(this.gl.ARRAY_BUFFER, vertices, this.gl.STATIC_DRAW);
-                
+
                 const positionLocation = this.gl.getAttribLocation(this.program, 'position');
                 this.gl.enableVertexAttribArray(positionLocation);
                 this.gl.vertexAttribPointer(positionLocation, 2, this.gl.FLOAT, false, 0, 0);
             }
-            
+
             hexToRgb(hex) {
                 const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
                 return result ? [
@@ -552,43 +552,43 @@
                     parseInt(result[3], 16) / 255
                 ] : [0, 0, 0];
             }
-            
+
             resize() {
                 const displayWidth = this.canvas.clientWidth;
                 const displayHeight = this.canvas.clientHeight;
-                
+
                 if (this.canvas.width !== displayWidth || this.canvas.height !== displayHeight) {
                     this.canvas.width = displayWidth;
                     this.canvas.height = displayHeight;
-                    
+
                     this.gl.viewport(0, 0, displayWidth, displayHeight);
                     this.gl.uniform2f(this.uniforms.uResolution, displayWidth, displayHeight);
                 }
             }
-            
+
             animate() {
                 const currentTime = Date.now();
                 const time = (currentTime - this.startTime) * 0.001;
-                
+
                 this.gl.clear(this.gl.COLOR_BUFFER_BIT);
-                
+
                 this.gl.uniform1f(this.uniforms.uTime, time * this.options.speed);
                 this.gl.uniform1f(this.uniforms.uAmplitude, this.options.amplitude);
                 this.gl.uniform1f(this.uniforms.uBlend, this.options.blend);
-                
+
                 const colorStops = this.options.colorStops.map(hex => this.hexToRgb(hex));
                 this.gl.uniform3fv(this.uniforms.uColorStops, colorStops.flat());
-                
+
                 this.gl.drawArrays(this.gl.TRIANGLES, 0, 3);
-                
+
                 this.animationId = requestAnimationFrame(() => this.animate());
             }
-            
+
             destroy() {
                 if (this.animationId) {
                     cancelAnimationFrame(this.animationId);
                 }
-                
+
                 if (this.gl) {
                     this.gl.deleteProgram(this.program);
                     this.gl.deleteBuffer(this.buffer);
@@ -622,7 +622,7 @@
                 buttonText.textContent = 'Authenticating';
                 buttonLoading.style.display = 'inline-block';
                 button.style.transform = 'scale(0.98)';
-                
+
                 const formData = new FormData(loginForm);
 
                 try {
@@ -660,7 +660,7 @@
                 input.addEventListener('focus', function() {
                     this.parentElement.style.transform = 'translateY(-2px)';
                 });
-                
+
                 input.addEventListener('blur', function() {
                     this.parentElement.style.transform = 'translateY(0)';
                 });

@@ -1,9 +1,13 @@
 package com.xammer.billops.controller;
 
 import com.xammer.billops.domain.CloudAccount;
-import com.xammer.billops.domain.Invoice;
 import com.xammer.billops.domain.User;
-import com.xammer.billops.dto.*;
+import com.xammer.billops.dto.AwsCreditDto;
+import com.xammer.billops.dto.BillingDashboardDto;
+import com.xammer.billops.dto.CreditRequestDto;
+import com.xammer.billops.dto.DashboardCardDto;
+import com.xammer.billops.dto.ServiceCostDetailDto;
+import com.xammer.billops.dto.TicketDto;
 import com.xammer.billops.repository.CloudAccountRepository;
 import com.xammer.billops.repository.UserRepository;
 import com.xammer.billops.service.*;
@@ -16,6 +20,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -31,7 +36,7 @@ public class BillopsController {
     private final ExcelExportService excelExportService;
     private final CreditRequestService creditRequestService;
     private final TicketService ticketService;
-    private final InvoiceManagementService invoiceManagementService;
+    private final DashboardService dashboardService;
 
 
     public BillopsController(BillingService billingService,
@@ -42,7 +47,7 @@ public class BillopsController {
                              ExcelExportService excelExportService,
                              CreditRequestService creditRequestService,
                              TicketService ticketService,
-                             InvoiceManagementService invoiceManagementService) {
+                             DashboardService dashboardService) {
         this.billingService = billingService;
         this.costService = costService;
         this.resourceService = resourceService;
@@ -51,7 +56,7 @@ public class BillopsController {
         this.excelExportService = excelExportService;
         this.creditRequestService = creditRequestService;
         this.ticketService = ticketService;
-        this.invoiceManagementService = invoiceManagementService;
+        this.dashboardService = dashboardService;
     }
 
     @GetMapping("/health")
@@ -59,13 +64,41 @@ public class BillopsController {
         return ResponseEntity.ok("Billops service is running successfully!");
     }
 
+    @GetMapping("/dashboard/cards")
+    public ResponseEntity<DashboardCardDto> getDashboardCards() {
+        return ResponseEntity.ok(dashboardService.getDashboardCards());
+    }
+
+    @GetMapping("/aws-credits")
+    public ResponseEntity<AwsCreditDto> getAwsCredits(@RequestParam String accountId) {
+        CloudAccount account = cloudAccountRepository.findByAwsAccountIdIn(Collections.singletonList(accountId))
+                .stream().findFirst()
+                .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
+        return ResponseEntity.ok(costService.getAwsCredits(account));
+    }
+
+    @GetMapping("/billing")
+    public ResponseEntity<BillingDashboardDto> getBillingData(
+            @RequestParam List<String> accountIds,
+            @RequestParam(required = false) Integer year,
+            @RequestParam(required = false) Integer month) {
+        try {
+            BillingDashboardDto data = billingService.getBillingData(accountIds, year, month);
+            return ResponseEntity.ok(data);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    // Added for backward compatibility
     @GetMapping("/billing/{accountId}")
     public ResponseEntity<BillingDashboardDto> getBillingData(
             @PathVariable String accountId,
             @RequestParam(required = false) Integer year,
             @RequestParam(required = false) Integer month) {
         try {
-            BillingDashboardDto data = billingService.getBillingData(accountId, year, month);
+            BillingDashboardDto data = billingService.getBillingData(Collections.singletonList(accountId), year, month);
             return ResponseEntity.ok(data);
         } catch (Exception e) {
             e.printStackTrace();
@@ -73,85 +106,34 @@ public class BillopsController {
         }
     }
 
+    @GetMapping("/detailed-breakdown")
+    public ResponseEntity<List<ServiceCostDetailDto>> getDetailedBillingReport(
+            @RequestParam List<String> accountIds,
+            @RequestParam(required = false) Integer year,
+            @RequestParam(required = false) Integer month) {
+        try {
+            List<ServiceCostDetailDto> data = billingService.getDetailedBillingReport(accountIds, year, month);
+            return ResponseEntity.ok(data);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    // Added for backward compatibility
     @GetMapping("/detailed-breakdown/{accountId}")
     public ResponseEntity<List<ServiceCostDetailDto>> getDetailedBillingReport(
             @PathVariable String accountId,
             @RequestParam(required = false) Integer year,
             @RequestParam(required = false) Integer month) {
         try {
-            List<ServiceCostDetailDto> data = billingService.getDetailedBillingReport(accountId, year, month);
+            List<ServiceCostDetailDto> data = billingService.getDetailedBillingReport(Collections.singletonList(accountId), year, month);
             return ResponseEntity.ok(data);
         } catch (Exception e) {
             e.printStackTrace();
             return ResponseEntity.internalServerError().build();
         }
     }
-
-    @GetMapping("/invoices/view")
-    public ResponseEntity<InvoiceDto> getFinalizedInvoice(
-            @RequestParam String accountId,
-            @RequestParam int year,
-            @RequestParam int month) {
-        Invoice invoice = invoiceManagementService.generateTemporaryInvoiceForUser(accountId, year, month);
-        if (invoice == null || invoice.getLineItems().isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-        return ResponseEntity.ok(InvoiceDto.fromEntity(invoice));
-    }
-
-    /**
-     * MODIFIED: This endpoint now uses a dedicated request object for reliability.
-     */
-    @PostMapping("/invoices/apply-discount-preview")
-    public ResponseEntity<InvoiceDto> applyDiscountPreview(@RequestBody ApplyDiscountPreviewRequest payload) {
-        InvoiceDto updatedInvoice = invoiceManagementService.applyDiscountToTemporaryInvoice(
-            payload.getInvoice(),
-            payload.getDiscount()
-        );
-        return ResponseEntity.ok(updatedInvoice);
-    }
-
-    @PostMapping("/invoices/download-preview")
-    public ResponseEntity<byte[]> downloadInvoicePreview(@RequestBody InvoiceDto invoiceDto) {
-         try {
-            ByteArrayInputStream pdfStream = invoiceManagementService.generatePdfFromDto(invoiceDto);
-
-            HttpHeaders headers = new HttpHeaders();
-            String filename = String.format("invoice-preview-%s-%s.pdf", invoiceDto.getAwsAccountId(), invoiceDto.getBillingPeriod());
-            headers.add("Content-Disposition", "attachment; filename=" + filename);
-
-            return ResponseEntity
-                    .ok()
-                    .headers(headers)
-                    .contentType(MediaType.APPLICATION_PDF)
-                    .body(pdfStream.readAllBytes());
-        } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.internalServerError().build();
-        }
-    }
-
-    @GetMapping("/invoices/{id}/download")
-    public ResponseEntity<byte[]> downloadFinalizedInvoice(@PathVariable Long id) {
-        try {
-            ByteArrayInputStream pdfStream = invoiceManagementService.generatePdfForInvoice(id);
-            Invoice invoice = invoiceManagementService.getInvoiceForAdmin(id);
-
-            HttpHeaders headers = new HttpHeaders();
-            String filename = String.format("invoice-%s-%s.pdf", invoice.getCloudAccount().getAwsAccountId(), invoice.getBillingPeriod());
-            headers.add("Content-Disposition", "attachment; filename=" + filename);
-
-            return ResponseEntity
-                    .ok()
-                    .headers(headers)
-                    .contentType(MediaType.APPLICATION_PDF)
-                    .body(pdfStream.readAllBytes());
-        } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.internalServerError().build();
-        }
-    }
-
 
     @GetMapping("/accounts")
     public ResponseEntity<List<CloudAccount>> getCloudAccounts(Authentication authentication) {
