@@ -21,252 +21,211 @@
 <div class="flex h-screen">
     <div id="sidebar-container" class="flex-shrink-0"></div>
 
-    <div class="flex-1 flex flex-col overflow-hidden" x-data="billingDashboard()" x-init="init()">
-        <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-8">
-            <div class="flex items-center justify-between mb-8">
-                <h3 class="text-gray-900 text-3xl font-bold">Billing Dashboard</h3>
-                <div class="flex items-center space-x-4">
-                    <span class="text-sm text-gray-600" x-text="`Account: ${selectedAccountId || 'None selected'}`"></span>
-                    <button @click="fetchBillingData(true)" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 transition" :disabled="loading || detailedLoading">
-                        <i class="fas fa-sync-alt mr-1" :class="{'fa-spin': loading || detailedLoading}"></i>Refresh
-                    </button>
+    <main class="flex-1 p-6 md:p-8 overflow-y-auto">
+        <div x-data="billingDashboard()" x-init="init()" x-cloak>
+            <div class="max-w-7xl mx-auto">
+                <div class="flex justify-between items-center mb-6">
+                    <h1 class="text-3xl font-bold text-gray-800">Billing Dashboard</h1>
+                    <div class="flex items-center space-x-2">
+                        <select x-model="selectedYear" @change="fetchAllData()" class="bg-white border border-gray-300 text-gray-700 py-2 px-3 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            <template x-for="year in availableYears" :key="year">
+                                <option :value="year" x-text="year"></option>
+                            </template>
+                        </select>
+                        <select x-model="selectedMonth" @change="fetchAllData()" class="bg-white border border-gray-300 text-gray-700 py-2 px-3 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            <template x-for="month in availableMonths" :key="month.value">
+                                <option :value="month.value" x-text="month.name"></option>
+                            </template>
+                        </select>
+                    </div>
                 </div>
-            </div>
 
-            <div x-show="loading" class="loading" x-cloak>
-                <i class="fas fa-spinner fa-spin text-3xl mb-4"></i>
-                <p class="text-lg">Loading billing data...</p>
-            </div>
+                <div x-show="loading" class="loading">
+                    <i class="fas fa-spinner fa-spin fa-2x"></i>
+                    <p class="mt-2">Loading billing data...</p>
+                </div>
+                <div x-show="error" class="error" x-text="error"></div>
 
-            <div x-show="error" class="error" x-cloak>
-                <i class="fas fa-exclamation-triangle text-3xl mb-4"></i>
-                <p class="text-lg mb-4" x-text="error"></p>
-                <button @click="fetchBillingData(true)" class="bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-red-700 transition">
-                    Try Again
-                </button>
-            </div>
-
-            <div x-show="!loading && !error" class="space-y-8" x-cloak>
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                    <div class="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-8">
-                        <div class="bg-white p-6 rounded-xl shadow-lg">
-                            <h4 class="font-semibold text-gray-500">Month-to-Date Spend</h4>
-                            <p class="text-3xl font-bold text-gray-800 mt-2" x-text="formatCurrency(billingData.monthToDateSpend)"></p>
-                        </div>
-                        <div class="bg-white p-6 rounded-xl shadow-lg">
-                            <h4 class="font-semibold text-gray-500">Last Month Spend</h4>
-                            <p class="text-3xl font-bold text-gray-800 mt-2" x-text="formatCurrency(billingData.lastMonthSpend)"></p>
-                        </div>
-                        <div class="md:col-span-2 bg-white p-6 rounded-xl shadow-lg">
-                             <div class="flex items-center justify-between mb-6">
-                                <h4 class="font-semibold text-lg text-gray-800">Monthly Cost Trend</h4>
-                                <span class="text-sm bg-blue-100 text-blue-800 px-3 py-1 rounded-full">Last 6 Months</span>
-                            </div>
+                <div x-show="!loading && !error">
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                        <div class="bg-white p-6 rounded-lg shadow-md">
+                            <h2 class="text-xl font-semibold text-gray-700 mb-4">Cost Over Time</h2>
                             <div class="h-64"><canvas id="costHistoryChart"></canvas></div>
                         </div>
-                    </div>
-                    <div class="bg-white p-6 rounded-xl shadow-lg">
-                        <h4 class="font-semibold text-lg text-gray-800 mb-6">Service Distribution</h4>
-                        <div class="h-96"><canvas id="serviceBreakdownChart"></canvas></div>
-                    </div>
-                </div>
-
-                <div class="bg-white p-6 rounded-xl shadow-lg">
-                    <h4 class="font-semibold text-lg text-gray-800 mb-6">Detailed Cost Breakdown</h4>
-                     <div x-show="detailedLoading" class="loading" x-cloak>
-                        <i class="fas fa-spinner fa-spin text-2xl"></i>
-                        <p>Loading detailed breakdown...</p>
-                    </div>
-                    <div x-show="!detailedLoading && detailedBreakdown.length === 0" class="text-center py-12 text-gray-500" x-cloak>
-                        <i class="fas fa-file-invoice-dollar text-4xl mb-4"></i>
-                        <p>No detailed cost data available for this period.</p>
+                        <div class="bg-white p-6 rounded-lg shadow-md">
+                            <h2 class="text-xl font-semibold text-gray-700 mb-4">Service Breakdown</h2>
+                            <div class="h-64"><canvas id="serviceBreakdownChart"></canvas></div>
+                        </div>
                     </div>
 
-                    <div x-show="!detailedLoading && detailedBreakdown.length > 0" class="overflow-x-auto" x-cloak>
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
-                                    <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Cost (USD)</th>
-                                </tr>
-                            </thead>
-<tbody class="bg-white divide-y divide-gray-200">
-    <template x-for="service in detailedBreakdown" :key="service.serviceName">
-        <template>
-            <tr @click="toggleService(service.serviceName)" class="cursor-pointer hover:bg-gray-50">
-                <td class="px-6 py-4 whitespace-nowrap">
-                    <div class="flex items-center">
-                        <i class="fas fa-chevron-right fa-fw text-gray-400 mr-2 expand-icon"
-                           :class="{'rotate-90': expandedServices[service.serviceName]}"></i>
-                        <span class="text-sm font-bold text-gray-900" x-text="service.serviceName"></span>
-                    </div>
-                </td>
-                <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-bold text-gray-900"
-                    x-text="formatCurrency(service.totalCost)"></td>
-            </tr>
-
-            <template x-for="region in service.regionCosts" :key="region.regionName">
-                <template>
-                    <tr x-show="expandedServices[service.serviceName]"
-                        @click="toggleRegion(service.serviceName, region.regionName)"
-                        class="cursor-pointer hover:bg-gray-100">
-                        <td class="pl-12 pr-6 py-3 whitespace-nowrap">
-                            <div class="flex items-center">
-                                <i class="fas fa-chevron-right fa-fw text-gray-400 mr-2 expand-icon"
-                                   :class="{'rotate-90': expandedRegions[service.serviceName + '-' + region.regionName]}"></i>
-                                <span class="text-sm font-medium text-gray-700" x-text="region.regionName"></span>
-                            </div>
-                        </td>
-                        <td class="px-6 py-3 whitespace-nowrap text-right text-sm font-medium text-gray-700"
-                            x-text="formatCurrency(region.cost)"></td>
-                    </tr>
-
-                    <template x-for="resource in region.resources" :key="resource.resourceId">
-                        <tr x-show="expandedServices[service.serviceName] && expandedRegions[service.serviceName + '-' + region.regionName]">
-                            <td class="pl-20 pr-6 py-2 whitespace-nowrap">
-                                <div class="text-sm text-gray-500 truncate"
-                                     x-text="resource.resourceName"
-                                     :title="resource.resourceId"></div>
-                            </td>
-                            <td class="px-6 py-2 whitespace-nowrap text-right text-sm text-gray-500"
-                                x-text="formatCurrency(resource.cost)"></td>
-                        </tr>
-                    </template>
-                </template>
-            </template>
-        </template>
-    </template>
-</tbody>
-
-                        </table>
+                    <div class="bg-white rounded-lg shadow-md overflow-hidden">
+                        <h2 class="text-xl font-semibold text-gray-700 p-6">Detailed Cost Breakdown</h2>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th colspan="2" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Usage Quantity</th>
+                                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Amount in USD</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    <template x-for="service in detailedBreakdown" :key="service.serviceName">
+                                        <tbody>
+                                            <tr @click="toggleService(service.serviceName)" class="cursor-pointer hover:bg-gray-50">
+                                                <td class="pl-4 pr-3 py-3 w-8">
+                                                    <i class="fas fa-chevron-right text-gray-400 expand-icon" :class="{ 'rotate-90': expandedServices[service.serviceName] }"></i>
+                                                </td>
+                                                <td class="px-3 py-3 whitespace-nowrap">
+                                                    <div class="text-sm font-semibold text-gray-900" x-text="service.serviceName"></div>
+                                                </td>
+                                                <td class="px-6 py-3"></td>
+                                                <td class="px-6 py-3 whitespace-nowrap text-right">
+                                                    <div class="text-sm text-gray-800 font-bold" x-text="formatCurrency(service.totalCost)"></div>
+                                                </td>
+                                            </tr>
+                                            <tr x-show="expandedServices[service.serviceName]" style="display: none;">
+                                                <td colspan="4" class="p-0 bg-gray-50/50">
+                                                    <div class="p-2">
+                                                        <table class="min-w-full">
+                                                            <tbody>
+                                                                <template x-for="region in service.regionCosts" :key="region.regionName">
+                                                                    <tbody>
+                                                                        <tr @click="toggleRegion(service.serviceName, region.regionName)" class="cursor-pointer hover:bg-gray-100">
+                                                                            <td class="pl-8 pr-3 py-2 w-8">
+                                                                                <i class="fas fa-chevron-right text-gray-400 expand-icon text-xs" :class="{ 'rotate-90': expandedRegions[`${service.serviceName}-${region.regionName}`] }"></i>
+                                                                            </td>
+                                                                            <td class="px-3 py-2 whitespace-nowrap">
+                                                                                <div class="text-sm text-gray-700" x-text="region.regionName"></div>
+                                                                            </td>
+                                                                            <td class="px-6 py-2"></td>
+                                                                            <td class="px-6 py-2 whitespace-nowrap text-right">
+                                                                                <div class="text-sm text-gray-600 font-medium" x-text="formatCurrency(region.cost)"></div>
+                                                                            </td>
+                                                                        </tr>
+                                                                        <tr x-show="expandedRegions[`${service.serviceName}-${region.regionName}`]" style="display: none;">
+                                                                            <td colspan="4" class="p-0">
+                                                                                <div class="pl-16 pr-4 py-1">
+                                                                                    <table class="min-w-full">
+                                                                                        <tbody class="divide-y divide-gray-200/50">
+                                                                                            <template x-for="resource in region.resources" :key="resource.resourceId">
+                                                                                                <tr class="text-sm">
+                                                                                                    <td class="w-8"></td>
+                                                                                                    <td class="py-2 pr-3 whitespace-nowrap text-gray-600">
+                                                                                                        <div x-text="resource.resourceName"></div>
+                                                                                                    </td>
+                                                                                                    <td class="py-2 px-6 whitespace-nowrap text-right text-gray-500" x-text="`${formatNumber(resource.quantity)} ${resource.unit}`"></td>
+                                                                                                    <td class="py-2 px-6 whitespace-nowrap text-right text-gray-700" x-text="formatCurrency(resource.cost)"></td>
+                                                                                                </tr>
+                                                                                            </template>
+                                                                                        </tbody>
+                                                                                    </table>
+                                                                                </div>
+                                                                            </td>
+                                                                        </tr>
+                                                                    </tbody>
+                                                                </template>
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </template>
+                                </tbody>
+                                <tbody x-show="detailedBreakdown.length === 0">
+                                    <tr>
+                                        <td colspan="4" class="text-center py-10 text-gray-500">No detailed cost data available for the selected period.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </div>
-        </main>
-    </div>
+        </div>
+    </main>
 </div>
 
 <script>
     function billingDashboard() {
         return {
-            billingData: { costHistory: [], serviceBreakdown: [], monthToDateSpend: 0, lastMonthSpend: 0 },
-            detailedBreakdown: [],
-            selectedAccountId: null,
             loading: true,
-            detailedLoading: true,
             error: null,
-            costHistoryChart: null,
-            serviceBreakdownChart: null,
+            accountId: null,
+            selectedYear: new Date().getFullYear(),
+            selectedMonth: new Date().getMonth() + 1,
+            availableYears: [new Date().getFullYear(), new Date().getFullYear() - 1],
+            availableMonths: [
+                { value: 1, name: 'Jan' }, { value: 2, name: 'Feb' }, { value: 3, name: 'Mar' },
+                { value: 4, name: 'Apr' }, { value: 5, name: 'May' }, { value: 6, name: 'Jun' },
+                { value: 7, name: 'Jul' }, { value: 8, name: 'Aug' }, { value: 9, name: 'Sep' },
+                { value: 10, name: 'Oct' }, { value: 11, name: 'Nov' }, { value: 12, name: 'Dec' }
+            ],
+            billingData: { costHistory: [], serviceBreakdown: [] },
+            detailedBreakdown: [],
             expandedServices: {},
             expandedRegions: {},
+            costHistoryChart: null,
+            serviceBreakdownChart: null,
 
             init() {
                 this.loadSidebar();
                 const urlParams = new URLSearchParams(window.location.search);
-                this.selectedAccountId = urlParams.get('accountIds')?.split(',')[0]; // Use the first account for this page
+                this.accountId = urlParams.get('accountId');
 
-                if (this.selectedAccountId) {
-                    this.fetchBillingData();
-                } else {
-                    this.error = 'No AWS account selected. Please select an account from the sidebar.';
+                if (!this.accountId) {
+                    this.error = "No AWS Account ID specified in the URL.";
                     this.loading = false;
-                    this.detailedLoading = false;
+                    return;
                 }
+                this.fetchAllData();
             },
 
-            fetchBillingData(forceRefresh = false) {
-                if (!this.selectedAccountId) return;
+            fetchAllData() {
                 this.loading = true;
-                this.detailedLoading = true;
                 this.error = null;
 
-                const summaryUrl = `/api/billops/billing/${this.selectedAccountId}`;
-                const detailUrl = `/api/billops/detailed-breakdown/${this.selectedAccountId}`;
+                const summaryUrl = `/api/billops/billing/${this.accountId}?year=${this.selectedYear}&month=${this.selectedMonth}`;
+                const detailedUrl = `/api/billops/detailed-breakdown/${this.accountId}?year=${this.selectedYear}&month=${this.selectedMonth}`;
 
-                Promise.all([fetch(summaryUrl), fetch(detailUrl)])
-                    .then(async ([summaryRes, detailRes]) => {
-                        if (!summaryRes.ok) throw new Error(`Summary API Error: ${summaryRes.statusText}`);
-                        if (!detailRes.ok) throw new Error(`Detail API Error: ${detailRes.statusText}`);
-
-                        const summaryData = await summaryRes.json();
-                        const detailData = await detailRes.json();
-
-                        // ### THIS IS THE NEW LINE ###
-                        console.log("Data received for Detailed Breakdown:", detailData);
-
-                        this.billingData = this.processSummaryData(summaryData);
-                        this.detailedBreakdown = detailData.sort((a,b) => b.totalCost - a.totalCost) || [];
-
-                        this.$nextTick(() => {
-                            this.initCharts();
-                        });
-                    })
-                    .catch(error => {
-                        console.error("Error fetching billing data:", error);
-                        this.error = `Failed to load billing data: ${error.message}`;
-                    })
-                    .finally(() => {
-                        this.loading = false;
-                        this.detailedLoading = false;
-                    });
-            },
-
-            processSummaryData(data) {
-                const processed = { ...data };
-                if (data.costHistory && data.costHistory.length > 0) {
-                    processed.monthToDateSpend = data.costHistory[data.costHistory.length - 1]?.cost || 0;
-                    processed.lastMonthSpend = data.costHistory[data.costHistory.length - 2]?.cost || 0;
-                } else {
-                    processed.monthToDateSpend = 0;
-                    processed.lastMonthSpend = 0;
-                }
-                return processed;
-            },
-
-            initCharts() {
-                if (this.billingData.costHistory && this.billingData.costHistory.length > 0) {
-                    this.initCostHistoryChart(this.billingData.costHistory);
-                }
-                if (this.billingData.serviceBreakdown && this.billingData.serviceBreakdown.length > 0) {
-                    this.initServiceBreakdownChart(this.billingData.serviceBreakdown);
-                }
-            },
-
-            initCostHistoryChart(history) {
-                const ctx = document.getElementById('costHistoryChart');
-                if (!ctx) return;
-                if (this.costHistoryChart) this.costHistoryChart.destroy();
-                this.costHistoryChart = new Chart(ctx, {
-                    type: 'bar',
-                    data: {
-                        labels: history.map(h => new Date(h.date).toLocaleDateString('en-US', { month: 'short', year: '2-digit' })),
-                        datasets: [{
-                            label: 'Monthly Cost ($)',
-                            data: history.map(h => h.cost || 0),
-                            backgroundColor: '#3b82f6',
-                            borderColor: '#1d4ed8',
-                            borderWidth: 1,
-                            borderRadius: 6,
-                        }]
-                    },
-                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+                Promise.all([
+                    fetch(summaryUrl).then(res => res.ok ? res.json() : Promise.reject('Failed to fetch summary data')),
+                    fetch(detailedUrl).then(res => res.ok ? res.json() : Promise.reject('Failed to fetch detailed breakdown'))
+                ])
+                .then(([summaryData, detailedData]) => {
+                    this.billingData = summaryData;
+                    this.detailedBreakdown = detailedData;
+                    this.renderCharts(summaryData.costHistory, summaryData.serviceBreakdown);
+                })
+                .catch(err => {
+                    console.error("Data fetching error:", err);
+                    this.error = typeof err === 'string' ? err : 'An unknown error occurred.';
+                })
+                .finally(() => {
+                    this.loading = false;
                 });
             },
 
-            initServiceBreakdownChart(services) {
-                const ctx = document.getElementById('serviceBreakdownChart');
-                if (!ctx) return;
+            renderCharts(history, services) {
+                const historyCtx = document.getElementById('costHistoryChart').getContext('2d');
+                if (this.costHistoryChart) this.costHistoryChart.destroy();
+                this.costHistoryChart = new Chart(historyCtx, {
+                    type: 'line',
+                    data: {
+                        labels: history.map(h => new Date(h.date).toLocaleString('default', { month: 'short' })),
+                        datasets: [{ label: 'Monthly Cost', data: history.map(h => h.cost), borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.1)', fill: true, tension: 0.3 }]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false }
+                });
+
+                const serviceCtx = document.getElementById('serviceBreakdownChart').getContext('2d');
                 if (this.serviceBreakdownChart) this.serviceBreakdownChart.destroy();
-                this.serviceBreakdownChart = new Chart(ctx, {
+                this.serviceBreakdownChart = new Chart(serviceCtx, {
                     type: 'doughnut',
                     data: {
-                        labels: services.map(s => s.name || 'Unknown'),
-                        datasets: [{
-                            data: services.map(s => s.cost || 0),
-                            backgroundColor: ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#6366f1', '#ec4899'],
-                            borderWidth: 2,
-                            borderColor: '#ffffff'
-                        }]
+                        labels: services.map(s => s.name),
+                        datasets: [{ label: 'Cost', data: services.map(s => s.cost || 0), backgroundColor: ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#6366f1', '#ec4899'], borderWidth: 2, borderColor: '#ffffff' }]
                     },
                     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
                 });
@@ -275,6 +234,11 @@
             formatCurrency(value) {
                 if (typeof value !== 'number') return '$0.00';
                 return value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+            },
+            
+            formatNumber(value) {
+                if (typeof value !== 'number') return '0';
+                return value.toLocaleString('en-US', { maximumFractionDigits: 3 });
             },
 
             toggleService(serviceName) {
@@ -296,7 +260,10 @@
             }
         }
     }
+    
+    document.addEventListener('alpine:init', () => {
+        Alpine.data('billingDashboard', billingDashboard);
+    });
 </script>
-
 </body>
 </html>

@@ -11,4 +11,6 @@ public class ResourceCostDto {
     private String resourceId;
     private String resourceName;
     private double cost;
+    private double quantity; // ADDED
+    private String unit;     // ADDED
 }
