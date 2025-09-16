@@ -79,7 +79,7 @@ public class CostService {
                     .stream().flatMap(r -> r.groups().stream())
                     .map(g -> new CostDto(g.keys().get(0),
                             Double.parseDouble(g.metrics().get("UnblendedCost").amount())))
-                    .filter(s -> s.getAmount() > 0.01)
+                    // .filter(s -> s.getAmount() > 0.01)
                     .collect(Collectors.toList());
             
             dbCache.put(cacheKey, result); // Save to database cache

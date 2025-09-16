@@ -34,7 +34,6 @@ public class BillopsController {
     private final CloudAccountRepository cloudAccountRepository;
     private final ExcelExportService excelExportService;
     private final CreditRequestService creditRequestService;
-    // private final BillingService billingService;
     private final TicketService ticketService;
 
 
@@ -45,16 +44,14 @@ public class BillopsController {
                              CloudAccountRepository cloudAccountRepository,
                              ExcelExportService excelExportService,
                              CreditRequestService creditRequestService,
-                            //  BillingService billingService,
                              TicketService ticketService) {
-        // this.dashboardService = dashboardService;
+        this.billingService = billingService;
         this.costService = costService;
         this.resourceService = resourceService;
         this.userRepository = userRepository;
         this.cloudAccountRepository = cloudAccountRepository;
         this.excelExportService = excelExportService;
         this.creditRequestService = creditRequestService;
-        this.billingService = billingService;
         this.ticketService = ticketService;
     }
 
