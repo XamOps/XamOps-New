@@ -59,11 +59,11 @@ public class InvoiceManagementService {
         InvoiceDto.DiscountDto newDiscount = new InvoiceDto.DiscountDto();
         newDiscount.setServiceName(discountRequest.getServiceName());
         newDiscount.setPercentage(discountRequest.getPercentage());
-        newDiscount.setDescription(String.format("%.2f%% discount for %s", 
-            discountRequest.getPercentage(), 
+        newDiscount.setDescription(String.format("%.2f%% discount for %s",
+            discountRequest.getPercentage(),
             "ALL".equalsIgnoreCase(discountRequest.getServiceName()) ? "Overall Bill" : discountRequest.getServiceName()
         ));
-        
+
         if (invoiceDto.getDiscounts() == null) {
             invoiceDto.setDiscounts(new ArrayList<>());
         }
@@ -83,7 +83,7 @@ public class InvoiceManagementService {
 
         for (InvoiceDto.DiscountDto disc : invoiceDto.getDiscounts()) {
             BigDecimal percentage = disc.getPercentage().divide(new BigDecimal(100));
-            
+
             if ("ALL".equalsIgnoreCase(disc.getServiceName())) {
                 totalDiscount = totalDiscount.add(invoiceDto.getPreDiscountTotal().multiply(percentage));
             } else {
@@ -105,7 +105,7 @@ public class InvoiceManagementService {
         CloudAccount cloudAccount = cloudAccountRepository.findByAwsAccountId(accountId)
                 .orElseThrow(() -> new RuntimeException("Cloud account not found"));
 
-        List<ServiceCostDetailDto> detailedReport = billingService.getDetailedBillingReport(accountId, year, month);
+        List<ServiceCostDetailDto> detailedReport = billingService.getDetailedBillingReport(Collections.singletonList(accountId), year, month);
 
         Invoice invoice = new Invoice();
         invoice.setCloudAccount(cloudAccount);
@@ -149,7 +149,7 @@ public class InvoiceManagementService {
         CloudAccount cloudAccount = cloudAccountRepository.findByAwsAccountId(accountId)
                 .orElseThrow(() -> new RuntimeException("Cloud account not found"));
 
-        List<ServiceCostDetailDto> detailedReport = billingService.getDetailedBillingReport(accountId, year, month);
+        List<ServiceCostDetailDto> detailedReport = billingService.getDetailedBillingReport(Collections.singletonList(accountId), year, month);
 
         Invoice invoice = new Invoice();
         invoice.setCloudAccount(cloudAccount);
@@ -216,7 +216,7 @@ public class InvoiceManagementService {
                 .filter(item -> item.getServiceName().equalsIgnoreCase(disc.getServiceName()))
                 .map(InvoiceLineItem::getCost)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
-            
+
             totalDiscount = totalDiscount.add(serviceTotal.multiply(disc.getPercentage().divide(new BigDecimal(100))));
         }
 
@@ -241,13 +241,13 @@ public class InvoiceManagementService {
         return invoiceRepository.findByCloudAccountIdAndBillingPeriodAndStatus(cloudAccount.getId(), billingPeriod, Invoice.InvoiceStatus.FINALIZED)
                 .orElse(null);
     }
-    
+
     @Transactional(readOnly = true)
     public Invoice getInvoiceForAdmin(Long invoiceId) {
         return invoiceRepository.findById(invoiceId)
             .orElseThrow(() -> new RuntimeException("Invoice not found"));
     }
-    
+
     public ByteArrayInputStream generatePdfForInvoice(Long invoiceId) {
         Invoice invoice = getInvoiceForAdmin(invoiceId);
         return createPdfStream(invoice);
@@ -284,7 +284,7 @@ public class InvoiceManagementService {
 
     private ByteArrayInputStream createPdfStream(Invoice invoice) {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
-        
+
         try (PdfWriter writer = new PdfWriter(out);
              PdfDocument pdf = new PdfDocument(writer);
              Document document = new Document(pdf)) {
@@ -322,7 +322,7 @@ public class InvoiceManagementService {
 
             for(Map.Entry<String, List<InvoiceLineItem>> entry : groupedByService.entrySet()) {
                 chargesTable.addCell(new Cell(1, 4).add(new Paragraph(entry.getKey()).setBold()));
-                
+
                 for(InvoiceLineItem item : entry.getValue()) {
                     chargesTable.addCell(new Cell().add(new Paragraph("").setMarginLeft(15)).setBorder(null));
                     chargesTable.addCell(new Cell().add(new Paragraph(item.getResourceName())));
@@ -340,10 +340,10 @@ public class InvoiceManagementService {
 
             Table totalsTable = new Table(UnitValue.createPercentArray(new float[]{3, 1}));
             totalsTable.setWidth(UnitValue.createPercentValue(40)).setHorizontalAlignment(com.itextpdf.layout.properties.HorizontalAlignment.RIGHT);
-            
+
             totalsTable.addCell(new Cell().add(new Paragraph("Subtotal:")).setTextAlignment(TextAlignment.RIGHT).setBorder(null));
             totalsTable.addCell(new Cell().add(new Paragraph(currencyFormatter.format(invoice.getPreDiscountTotal()))).setTextAlignment(TextAlignment.RIGHT).setBorder(null));
-            
+
             totalsTable.addCell(new Cell().add(new Paragraph("Xammer's Credit:")).setTextAlignment(TextAlignment.RIGHT).setBorder(null));
             totalsTable.addCell(new Cell().add(new Paragraph(currencyFormatter.format(invoice.getDiscountAmount().negate()))).setTextAlignment(TextAlignment.RIGHT).setBorder(null));
 

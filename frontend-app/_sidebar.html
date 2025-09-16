@@ -76,7 +76,7 @@
             if (this.selectedAccountIds.length > 0) {
                 const firstSelectedId = this.selectedAccountIds[0];
                 const account = this.accounts.find(a => a.id === firstSelectedId);
-                
+
                 let targetPage;
 
                 if (this.hasAnyRole(['ROLE_BILLOPS']) && !this.hasAnyRole(['ROLE_XAMOPS'])) {
@@ -95,7 +95,7 @@
                 window.location.href = '/account-manager.html';
             }
         },
-        
+
         get selectedAccountDisplay() {
             if (this.selectedAccountIds.length === 0) return { name: 'Select Accounts', id: this.accounts.length === 0 && !this.isLoading ? 'No accounts connected' : 'No account selected' };
             if (this.selectedAccountIds.length === 1) {

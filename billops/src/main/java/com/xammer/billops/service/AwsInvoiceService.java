@@ -31,6 +31,7 @@ import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -49,7 +50,8 @@ public class AwsInvoiceService {
     }
 
     public AwsInvoiceDto getInvoiceData(String accountId, int year, int month) {
-        CloudAccount account = cloudAccountRepository.findByAwsAccountId(accountId)
+        CloudAccount account = cloudAccountRepository.findByAwsAccountIdIn(Collections.singletonList(accountId))
+                .stream().findFirst()
                 .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
 
         if (account.getCurS3Bucket() == null || account.getCurReportPath() == null) {

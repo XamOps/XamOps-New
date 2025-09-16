@@ -125,4 +125,5 @@ public class CloudAccount {
     public void setCurReportPath(String curReportPath) { this.curReportPath = curReportPath; }
     public Client getClient() { return client; }
     public void setClient(Client client) { this.client = client; }
+
 }
