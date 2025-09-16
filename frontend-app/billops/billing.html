@@ -172,7 +172,7 @@
             init() {
                 this.loadSidebar();
                 const urlParams = new URLSearchParams(window.location.search);
-                this.accountId = urlParams.get('accountId');
+                this.accountId = urlParams.get('accountId') || urlParams.get('accountIds');
 
                 if (!this.accountId) {
                     this.error = "No AWS Account ID specified in the URL.";
