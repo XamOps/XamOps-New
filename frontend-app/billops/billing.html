@@ -9,133 +9,364 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <style>
-        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+        body { 
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; 
+            background-color: #f8fafc; 
+        }
         [x-cloak] { display: none !important; }
         .loading { text-align: center; padding: 2rem; color: #6b7280; }
         .error { text-align: center; padding: 2rem; color: #dc2626; }
-        .expand-icon { transition: transform 0.2s ease-in-out; }
-        .rotate-90 { transform: rotate(90deg); }
+        
+        /* Professional Card Styling */
+        .dashboard-card {
+            background: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.1);
+            border: 1px solid rgba(226,232,240,0.6);
+            transition: all 0.2s ease;
+        }
+        
+        .dashboard-card:hover {
+            box-shadow: 0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.06);
+        }
+        
+        /* Improved Table Styling */
+        .cost-breakdown-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            font-size: 14px;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        .cost-breakdown-table thead th {
+            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+            color: #374151;
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 16px 20px;
+            text-align: left;
+            border-bottom: 2px solid #e2e8f0;
+            position: relative;
+        }
+        
+        .cost-breakdown-table tbody tr {
+            transition: all 0.15s ease;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        
+        .cost-breakdown-table tbody tr:hover {
+            background-color: rgba(99, 102, 241, 0.02);
+            transform: translateY(-1px);
+        }
+        
+        .cost-breakdown-table td {
+            padding: 16px 20px;
+            vertical-align: middle;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        
+        .expand-icon { 
+            transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1); 
+            color: #6366f1;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            background: rgba(99, 102, 241, 0.1);
+        }
+        
+        .expand-icon:hover {
+            background: rgba(99, 102, 241, 0.2);
+        }
+        
+        .rotate-90 { 
+            transform: rotate(90deg); 
+        }
+        
+        /* Drilldown Row Styling */
+        .drilldown-row {
+            background: linear-gradient(135deg, #fafbff 0%, #f8fafc 100%);
+            border-left: 4px solid #6366f1;
+        }
+        
+        .drilldown-row td {
+            border-bottom: 1px solid #e2e8f0;
+            padding: 12px 20px;
+        }
+        
+        .nested-drilldown {
+            background: linear-gradient(135deg, #f0f4ff 0%, #fafbff 100%);
+            border-left: 4px solid #8b5cf6;
+        }
+        
+        /* Amount Column Styling */
+        .amount-cell {
+            font-weight: 600;
+            font-family: 'JetBrains Mono', monospace;
+            text-align: right;
+            color: #059669;
+        }
+        
+        .service-name {
+            font-weight: 600;
+            color: #1f2937;
+            font-size: 15px;
+        }
+        
+        .region-name {
+            color: #6b7280;
+            font-weight: 500;
+            padding-left: 20px;
+        }
+        
+        .resource-name {
+            color: #9ca3af;
+            font-size: 13px;
+            padding-left: 40px;
+        }
+        
+        /* Chart Container Improvements */
+        .chart-container {
+            position: relative;
+            height: 280px;
+            padding: 10px;
+        }
+        
+        /* Professional Header */
+        .dashboard-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 12px 12px 0 0;
+            padding: 20px 24px;
+            margin-bottom: 0;
+        }
+        
+        .dashboard-title {
+            font-size: 24px;
+            font-weight: 700;
+            margin: 0;
+        }
+        
+        /* Filter Controls */
+        .filter-select {
+            background: white;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 14px;
+            font-weight: 500;
+            color: #374151;
+            transition: all 0.2s ease;
+        }
+        
+        .filter-select:focus {
+            outline: none;
+            border-color: #6366f1;
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+        }
+        
+        /* Loading and Error States */
+        .loading-spinner {
+            display: inline-block;
+            width: 32px;
+            height: 32px;
+            border: 3px solid #e5e7eb;
+            border-radius: 50%;
+            border-top-color: #6366f1;
+            animation: spin 1s ease-in-out infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .cost-breakdown-table th,
+            .cost-breakdown-table td {
+                padding: 12px 16px;
+                font-size: 13px;
+            }
+            
+            .chart-container {
+                height: 220px;
+            }
+        }
     </style>
 </head>
-<body class="bg-gray-100">
+<body class="bg-gray-50">
 <div class="flex h-screen">
     <div id="sidebar-container" class="flex-shrink-0"></div>
 
     <main class="flex-1 p-6 md:p-8 overflow-y-auto">
         <div x-data="billingDashboard()" x-init="init()" x-cloak>
             <div class="max-w-7xl mx-auto">
-                <div class="flex justify-between items-center mb-6">
-                    <h1 class="text-3xl font-bold text-gray-800">Billing Dashboard</h1>
-                    <div class="flex items-center space-x-2">
-                        <select x-model="selectedYear" @change="fetchAllData()" class="bg-white border border-gray-300 text-gray-700 py-2 px-3 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                            <template x-for="year in availableYears" :key="year">
-                                <option :value="year" x-text="year"></option>
-                            </template>
-                        </select>
-                        <select x-model="selectedMonth" @change="fetchAllData()" class="bg-white border border-gray-300 text-gray-700 py-2 px-3 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                            <template x-for="month in availableMonths" :key="month.value">
-                                <option :value="month.value" x-text="month.name"></option>
-                            </template>
-                        </select>
+                <!-- Header Section -->
+                <div class="dashboard-card mb-6">
+                    <div class="dashboard-header">
+                        <div class="flex justify-between items-center">
+                            <h1 class="dashboard-title">Billing Dashboard</h1>
+                            <div class="flex items-center space-x-3">
+                                <select x-model="selectedYear" @change="fetchAllData()" class="filter-select">
+                                    <template x-for="year in availableYears" :key="year">
+                                        <option :value="year" x-text="year"></option>
+                                    </template>
+                                </select>
+                                <select x-model="selectedMonth" @change="fetchAllData()" class="filter-select">
+                                    <template x-for="month in availableMonths" :key="month.value">
+                                        <option :value="month.value" x-text="month.name"></option>
+                                    </template>
+                                </select>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                <div x-show="loading" class="loading">
-                    <i class="fas fa-spinner fa-spin fa-2x"></i>
-                    <p class="mt-2">Loading billing data...</p>
+                <!-- Loading State -->
+                <div x-show="loading" class="dashboard-card p-8 text-center">
+                    <div class="loading-spinner mx-auto mb-4"></div>
+                    <p class="text-gray-600 font-medium">Loading billing data...</p>
                 </div>
-                <div x-show="error" class="error" x-text="error"></div>
 
+                <!-- Error State -->
+                <div x-show="error" class="dashboard-card p-8 text-center border-red-200 bg-red-50">
+                    <i class="fas fa-exclamation-triangle text-red-500 text-2xl mb-3"></i>
+                    <p class="text-red-700 font-medium" x-text="error"></p>
+                </div>
+
+                <!-- Main Dashboard Content -->
                 <div x-show="!loading && !error">
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                        <div class="bg-white p-6 rounded-lg shadow-md">
-                            <h2 class="text-xl font-semibold text-gray-700 mb-4">Cost Over Time</h2>
-                            <div class="h-64"><canvas id="costHistoryChart"></canvas></div>
+                    <!-- Charts Section -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                        <!-- Cost Over Time Chart -->
+                        <div class="dashboard-card">
+                            <div class="p-6 border-b border-gray-100">
+                                <h2 class="text-xl font-semibold text-gray-800 flex items-center">
+                                    <i class="fas fa-chart-bar text-blue-500 mr-3"></i>
+                                    Cost Over Time
+                                </h2>
+                                <p class="text-sm text-gray-500 mt-1">Monthly spending trends</p>
+                            </div>
+                            <div class="p-4">
+                                <div class="chart-container">
+                                    <canvas id="costHistoryChart"></canvas>
+                                </div>
+                            </div>
                         </div>
-                        <div class="bg-white p-6 rounded-lg shadow-md">
-                            <h2 class="text-xl font-semibold text-gray-700 mb-4">Service Breakdown</h2>
-                            <div class="h-64"><canvas id="serviceBreakdownChart"></canvas></div>
+                        
+                        <!-- Service Breakdown Chart -->
+                        <div class="dashboard-card">
+                            <div class="p-6 border-b border-gray-100">
+                                <h2 class="text-xl font-semibold text-gray-800 flex items-center">
+                                    <i class="fas fa-chart-pie text-purple-500 mr-3"></i>
+                                    Service Breakdown
+                                </h2>
+                                <p class="text-sm text-gray-500 mt-1">Distribution by AWS services</p>
+                            </div>
+                            <div class="p-4">
+                                <div class="chart-container">
+                                    <canvas id="serviceBreakdownChart"></canvas>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
-                    <div class="bg-white rounded-lg shadow-md overflow-hidden">
-                        <h2 class="text-xl font-semibold text-gray-700 p-6">Detailed Cost Breakdown</h2>
+                    <!-- Detailed Cost Breakdown Table -->
+                    <div class="dashboard-card">
+                        <div class="p-6 border-b border-gray-100">
+                            <h2 class="text-xl font-semibold text-gray-800 flex items-center">
+                                <i class="fas fa-table text-green-500 mr-3"></i>
+                                Detailed Cost Breakdown
+                            </h2>
+                            <p class="text-sm text-gray-500 mt-1">Expandable view of all services, regions, and resources</p>
+                        </div>
+                        
                         <div class="overflow-x-auto">
-                            <table class="min-w-full divide-y divide-gray-200">
-                                <thead class="bg-gray-50">
+                            <table class="cost-breakdown-table">
+                                <thead>
                                     <tr>
-                                        <th colspan="2" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
-                                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Usage Quantity</th>
-                                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Amount in USD</th>
+                                        <th style="width: 60px; text-align: center;"></th>
+                                        <th style="width: 50%;">Service / Resource</th>
+                                        <th style="width: 25%; text-align: right;">Usage Quantity</th>
+                                        <th style="width: 25%; text-align: right;">Amount (USD)</th>
                                     </tr>
                                 </thead>
-                                <tbody class="bg-white divide-y divide-gray-200">
+                                <tbody>
+                                    <!-- Main Service Rows -->
                                     <template x-for="service in detailedBreakdown" :key="service.serviceName">
                                         <tbody>
-                                            <tr @click="toggleService(service.serviceName)" class="cursor-pointer hover:bg-gray-50">
-                                                <td class="pl-4 pr-3 py-3 w-8">
-                                                    <i class="fas fa-chevron-right text-gray-400 expand-icon" :class="{ 'rotate-90': expandedServices[service.serviceName] }"></i>
-                                                </td>
-                                                <td class="px-3 py-3 whitespace-nowrap">
-                                                    <div class="text-sm font-semibold text-gray-900" x-text="service.serviceName"></div>
-                                                </td>
-                                                <td class="px-6 py-3"></td>
-                                                <td class="px-6 py-3 whitespace-nowrap text-right">
-                                                    <div class="text-sm text-gray-800 font-bold" x-text="formatCurrency(service.totalCost)"></div>
-                                                </td>
-                                            </tr>
-                                            <tr x-show="expandedServices[service.serviceName]" style="display: none;">
-                                                <td colspan="4" class="p-0 bg-gray-50/50">
-                                                    <div class="p-2">
-                                                        <table class="min-w-full">
-                                                            <tbody>
-                                                                <template x-for="region in service.regionCosts" :key="region.regionName">
-                                                                    <tbody>
-                                                                        <tr @click="toggleRegion(service.serviceName, region.regionName)" class="cursor-pointer hover:bg-gray-100">
-                                                                            <td class="pl-8 pr-3 py-2 w-8">
-                                                                                <i class="fas fa-chevron-right text-gray-400 expand-icon text-xs" :class="{ 'rotate-90': expandedRegions[`${service.serviceName}-${region.regionName}`] }"></i>
-                                                                            </td>
-                                                                            <td class="px-3 py-2 whitespace-nowrap">
-                                                                                <div class="text-sm text-gray-700" x-text="region.regionName"></div>
-                                                                            </td>
-                                                                            <td class="px-6 py-2"></td>
-                                                                            <td class="px-6 py-2 whitespace-nowrap text-right">
-                                                                                <div class="text-sm text-gray-600 font-medium" x-text="formatCurrency(region.cost)"></div>
-                                                                            </td>
-                                                                        </tr>
-                                                                        <tr x-show="expandedRegions[`${service.serviceName}-${region.regionName}`]" style="display: none;">
-                                                                            <td colspan="4" class="p-0">
-                                                                                <div class="pl-16 pr-4 py-1">
-                                                                                    <table class="min-w-full">
-                                                                                        <tbody class="divide-y divide-gray-200/50">
-                                                                                            <template x-for="resource in region.resources" :key="resource.resourceId">
-                                                                                                <tr class="text-sm">
-                                                                                                    <td class="w-8"></td>
-                                                                                                    <td class="py-2 pr-3 whitespace-nowrap text-gray-600">
-                                                                                                        <div x-text="resource.resourceName"></div>
-                                                                                                    </td>
-                                                                                                    <td class="py-2 px-6 whitespace-nowrap text-right text-gray-500" x-text="`${formatNumber(resource.quantity)} ${resource.unit}`"></td>
-                                                                                                    <td class="py-2 px-6 whitespace-nowrap text-right text-gray-700" x-text="formatCurrency(resource.cost)"></td>
-                                                                                                </tr>
-                                                                                            </template>
-                                                                                        </tbody>
-                                                                                    </table>
-                                                                                </div>
-                                                                            </td>
-                                                                        </tr>
-                                                                    </tbody>
-                                                                </template>
-                                                            </tbody>
-                                                        </table>
+                                            <!-- Service Header Row -->
+                                            <tr @click="toggleService(service.serviceName)" class="cursor-pointer">
+                                                <td class="text-center">
+                                                    <div class="expand-icon" :class="{ 'rotate-90': expandedServices[service.serviceName] }">
+                                                        <i class="fas fa-chevron-right text-sm"></i>
                                                     </div>
                                                 </td>
+                                                <td>
+                                                    <div class="service-name" x-text="service.serviceName"></div>
+                                                </td>
+                                                <td class="text-right">
+                                                    <span class="text-gray-500">—</span>
+                                                </td>
+                                                <td class="text-right">
+                                                    <div class="amount-cell" x-text="formatCurrency(service.totalCost)"></div>
+                                                </td>
                                             </tr>
+                                            
+                                            <!-- Region Rows (when service is expanded) -->
+                                            <template x-for="region in service.regionCosts" :key="region.regionName">
+                                                <tbody x-show="expandedServices[service.serviceName]">
+                                                    <tr @click="toggleRegion(service.serviceName, region.regionName)" class="cursor-pointer drilldown-row">
+                                                        <td class="text-center">
+                                                            <div class="expand-icon" :class="{ 'rotate-90': expandedRegions[`${service.serviceName}-${region.regionName}`] }">
+                                                                <i class="fas fa-chevron-right text-xs"></i>
+                                                            </div>
+                                                        </td>
+                                                        <td>
+                                                            <div class="region-name" x-text="region.regionName"></div>
+                                                        </td>
+                                                        <td class="text-right">
+                                                            <span class="text-gray-500">—</span>
+                                                        </td>
+                                                        <td class="text-right">
+                                                            <div class="amount-cell text-blue-600" x-text="formatCurrency(region.cost)"></div>
+                                                        </td>
+                                                    </tr>
+                                                    
+                                                    <!-- Resource Rows (when region is expanded) -->
+                                                    <template x-for="resource in region.resources" :key="resource.resourceId">
+                                                        <tr x-show="expandedRegions[`${service.serviceName}-${region.regionName}`]" class="nested-drilldown">
+                                                            <td></td>
+                                                            <td>
+                                                                <div class="resource-name" x-text="resource.resourceName"></div>
+                                                            </td>
+                                                            <td class="text-right text-gray-600 text-sm" x-text="`${formatNumber(resource.quantity)} ${resource.unit}`"></td>
+                                                            <td class="text-right">
+                                                                <div class="amount-cell text-purple-600" x-text="formatCurrency(resource.cost)"></div>
+                                                            </td>
+                                                        </tr>
+                                                    </template>
+                                                </tbody>
+                                            </template>
                                         </tbody>
                                     </template>
                                 </tbody>
+                                
+                                <!-- Empty State -->
                                 <tbody x-show="detailedBreakdown.length === 0">
                                     <tr>
-                                        <td colspan="4" class="text-center py-10 text-gray-500">No detailed cost data available for the selected period.</td>
+                                        <td colspan="4" class="text-center py-12">
+                                            <i class="fas fa-inbox text-gray-300 text-3xl mb-3"></i>
+                                            <p class="text-gray-500 font-medium">No detailed cost data available for the selected period.</p>
+                                        </td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -208,26 +439,143 @@
             },
 
             renderCharts(history, services) {
+                // Render Cost Over Time as Bar Chart
                 const historyCtx = document.getElementById('costHistoryChart').getContext('2d');
                 if (this.costHistoryChart) this.costHistoryChart.destroy();
+                
                 this.costHistoryChart = new Chart(historyCtx, {
-                    type: 'line',
+                    type: 'bar',
                     data: {
                         labels: history.map(h => new Date(h.date).toLocaleString('default', { month: 'short' })),
-                        datasets: [{ label: 'Monthly Cost', data: history.map(h => h.cost), borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.1)', fill: true, tension: 0.3 }]
+                        datasets: [{
+                            label: 'Monthly Cost',
+                            data: history.map(h => h.cost),
+                            backgroundColor: function(context) {
+                                const chart = context.chart;
+                                const {ctx, chartArea} = chart;
+                                if (!chartArea) {
+                                    return null;
+                                }
+                                const gradient = ctx.createLinearGradient(0, chartArea.bottom, 0, chartArea.top);
+                                gradient.addColorStop(0, '#6366f1');
+                                gradient.addColorStop(1, '#8b5cf6');
+                                return gradient;
+                            },
+                            borderColor: '#6366f1',
+                            borderWidth: 2,
+                            borderRadius: 6,
+                            borderSkipped: false,
+                        }]
                     },
-                    options: { responsive: true, maintainAspectRatio: false }
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                display: false
+                            },
+                            tooltip: {
+                                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                                titleColor: '#fff',
+                                bodyColor: '#fff',
+                                borderColor: '#6366f1',
+                                borderWidth: 1,
+                                cornerRadius: 8,
+                                displayColors: false,
+                                callbacks: {
+                                    label: function(context) {
+                                        return `Cost: ${context.parsed.y.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}`;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                grid: {
+                                    display: false
+                                },
+                                ticks: {
+                                    color: '#6b7280',
+                                    font: {
+                                        size: 12,
+                                        weight: '500'
+                                    }
+                                }
+                            },
+                            y: {
+                                beginAtZero: true,
+                                grid: {
+                                    color: '#f1f5f9',
+                                    drawBorder: false
+                                },
+                                ticks: {
+                                    color: '#6b7280',
+                                    font: {
+                                        size: 12
+                                    },
+                                    callback: function(value) {
+                                        return '$' + value.toLocaleString();
+                                    }
+                                }
+                            }
+                        }
+                    }
                 });
 
+                // Render Service Breakdown Chart
                 const serviceCtx = document.getElementById('serviceBreakdownChart').getContext('2d');
                 if (this.serviceBreakdownChart) this.serviceBreakdownChart.destroy();
+                
                 this.serviceBreakdownChart = new Chart(serviceCtx, {
                     type: 'doughnut',
                     data: {
                         labels: services.map(s => s.name),
-                        datasets: [{ label: 'Cost', data: services.map(s => s.cost || 0), backgroundColor: ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#6366f1', '#ec4899'], borderWidth: 2, borderColor: '#ffffff' }]
+                        datasets: [{
+                            label: 'Cost',
+                            data: services.map(s => s.cost || 0),
+                            backgroundColor: [
+                                '#6366f1', '#8b5cf6', '#10b981', '#f59e0b', 
+                                '#ef4444', '#3b82f6', '#ec4899', '#14b8a6'
+                            ],
+                            borderWidth: 3,
+                            borderColor: '#ffffff',
+                            hoverBorderWidth: 4,
+                            hoverOffset: 8
+                        }]
                     },
-                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: {
+                                    padding: 20,
+                                    usePointStyle: true,
+                                    font: {
+                                        size: 12,
+                                        weight: '500'
+                                    },
+                                    color: '#374151'
+                                }
+                            },
+                            tooltip: {
+                                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                                titleColor: '#fff',
+                                bodyColor: '#fff',
+                                borderColor: '#6366f1',
+                                borderWidth: 1,
+                                cornerRadius: 8,
+                                callbacks: {
+                                    label: function(context) {
+                                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                        const percentage = ((context.parsed / total) * 100).toFixed(1);
+                                        return `${context.label}: ${context.parsed.toLocaleString('en-US', { style: 'currency', currency: 'USD' })} (${percentage}%)`;
+                                    }
+                                }
+                            }
+                        }
+                    }
                 });
             },
 
