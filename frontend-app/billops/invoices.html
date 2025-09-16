@@ -3,46 +3,344 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Invoices</title>
+    <title>XamOps - Detailed Invoice</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        [x-cloak] { display: none !important; }
+        .invoice-table { width: 100%; border-collapse: separate; border-spacing: 0; }
+        .invoice-table th { background-color: #f9fafb; padding: 12px 16px; text-align: left; font-weight: 600; text-transform: uppercase; color: #4b5563; font-size: 0.75rem; border-bottom: 2px solid #e5e7eb; }
+        .invoice-table td { padding: 12px 16px; border-bottom: 1px solid #f3f4f6; }
+        .service-row { font-weight: 700; background-color: #f9fafb; }
+        .line-item-row { background-color: #ffffff; }
+        .line-item-description { padding-left: 24px !important; color: #6b7280; }
+    </style>
 </head>
-<body class="bg-gray-100">
+<body class="bg-gray-100" x-data="invoicePage()">
 <div class="flex h-screen">
-    <div id="sidebar-container" class="flex-shrink-0">
-    </div>
+    <div id="sidebar-container" class="flex-shrink-0"></div>
 
     <div class="flex-1 flex flex-col overflow-hidden">
-        <div class="p-10">
-            <h1 class="text-3xl font-bold mb-6">Invoices</h1>
-            <p>This is the invoices page.</p>
-        </div>
+        <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-6">
+            <div class="container mx-auto">
+                <div class="flex justify-between items-center mb-6">
+                     <div>
+                        <h1 class="text-3xl font-bold text-gray-800">View Invoices</h1>
+                        <p class="text-gray-600" x-text="selectedAccountName ? `Account: ${selectedAccountName} (${selectedAccountId})` : 'No account selected'"></p>
+                    </div>
+                </div>
+
+                <div class="bg-white p-4 rounded-lg shadow-md mb-6 flex items-center space-x-4">
+                    <div>
+                        <label for="year" class="block text-sm font-medium text-gray-700">Year</label>
+                        <select id="year" x-model="selectedYear" @change="fetchInvoiceData()" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
+                            <template x-for="year in years" :key="year">
+                                <option :value="year" x-text="year"></option>
+                            </template>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="month" class="block text-sm font-medium text-gray-700">Month</label>
+                        <select id="month" x-model="selectedMonth" @change="fetchInvoiceData()" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
+                            <template x-for="month in months" :key="month.value">
+                                <option :value="month.value" x-text="month.name"></option>
+                            </template>
+                        </select>
+                    </div>
+                    <div class="pt-6">
+                        <button @click="downloadInvoice()" :disabled="!invoiceData || loading" class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400">
+                            <i class="fas fa-download mr-2"></i>Download PDF
+                        </button>
+                    </div>
+                </div>
+
+                <div x-show="loading" class="text-center p-10 bg-white rounded-lg shadow-md">
+                    <i class="fas fa-spinner fa-spin text-3xl text-indigo-500"></i>
+                    <p class="mt-2">Generating latest invoice data...</p>
+                </div>
+                <div x-show="!loading && error" class="text-center p-10 bg-blue-50 rounded-lg shadow-md">
+                     <p class="text-blue-700" x-text="error"></p>
+                </div>
+
+                <div x-show="!loading && invoiceData" class="space-y-6">
+                    <div class="bg-white rounded-lg shadow-md p-6">
+                        <h3 class="font-semibold text-lg text-gray-800 mb-3">Apply Discount</h3>
+                        <div class="flex items-center space-x-3">
+                            <select x-model="discount.serviceName" class="flex-grow block w-full text-sm border-gray-300 rounded-md">
+                                <option value="ALL">Overall Bill</option>
+                                <template x-for="service in uniqueServices" :key="service">
+                                    <option :value="service" x-text="service"></option>
+                                </template>
+                            </select>
+                            <input type="number" x-model.number="discount.percentage" placeholder="%" class="w-24 text-sm border-gray-300 rounded-md">
+                            <button @click="applyDiscount()" :disabled="!discount.percentage" class="px-4 py-2 bg-indigo-500 text-white text-sm rounded-md hover:bg-indigo-600 disabled:bg-gray-400">Apply</button>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-white rounded-lg shadow-md p-8">
+                        <div class="flex justify-between items-start mb-8">
+                            <div>
+                                <h2 class="text-2xl font-bold text-gray-800" x-text="`Invoice #${invoiceData.invoiceNumber}`"></h2>
+                                <p class="text-gray-500" x-text="`Account ID: ${invoiceData.awsAccountId}`"></p>
+                            </div>
+                            <div class="text-right">
+                                <p class="font-semibold text-gray-700" x-text="`Billing Period: ${invoiceData.billingPeriod}`"></p>
+                                <p class="text-gray-500" x-text="`Generated Date: ${invoiceData.invoiceDate}`"></p>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                            <div class="bg-gray-50 p-4 rounded-lg text-center">
+                                <h3 class="text-sm font-medium text-gray-500">Original Total</h3>
+                                <p class="mt-1 text-2xl font-semibold text-gray-600" x-text="formatCurrency(invoiceData.preDiscountTotal)"></p>
+                            </div>
+                            <div class="bg-red-50 p-4 rounded-lg text-center">
+                                <h3 class="text-sm font-medium text-red-500">Discounts Applied</h3>
+                                <p class="mt-1 text-2xl font-semibold text-red-700" x-text="formatCurrency(invoiceData.discountAmount * -1)"></p>
+                            </div>
+                             <div class="bg-green-50 p-4 rounded-lg text-center">
+                                <h3 class="text-sm font-medium text-green-600">Final Invoice Total</h3>
+                                <p class="mt-1 text-3xl font-bold text-green-800" x-text="formatCurrency(invoiceData.finalTotal)"></p>
+                            </div>
+                        </div>
+
+                        <div x-show="invoiceData.discounts && invoiceData.discounts.length > 0" class="mb-8">
+                            <h3 class="text-lg font-semibold text-gray-700 mb-2">Applied Discounts</h3>
+                            <ul class="space-y-2">
+                                <template x-for="(d, index) in invoiceData.discounts" :key="index">
+                                    <li class="flex justify-between items-center bg-gray-50 p-3 rounded-md">
+                                        <span class="text-sm text-gray-800" x-text="d.description"></span>
+                                        <button @click="removeDiscount(index)" class="text-red-500 hover:text-red-700 text-xs">
+                                            <i class="fas fa-times-circle"></i> Remove
+                                        </button>
+                                    </li>
+                                </template>
+                            </ul>
+                        </div>
+
+                        <h2 class="text-xl font-bold text-gray-800 mb-4">Final Charges</h2>
+                        <div class="border rounded-lg overflow-hidden">
+                            <table class="invoice-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 50%;">Service / Resource</th>
+                                        <th style="width: 25%;">Region</th>
+                                        <th style="width: 25%;" class="text-right">Amount (USD)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="service in Object.keys(groupedLineItems)" :key="service">
+                                        <tbody>
+                                            <tr class="service-row">
+                                                <td colspan="2" x-text="service"></td>
+                                                <td class="text-right font-semibold" x-text="formatCurrency(serviceTotals[service])"></td>
+                                            </tr>
+                                            <template x-for="item in groupedLineItems[service]" :key="item.resourceName">
+                                                <tr class="line-item-row">
+                                                    <td class="line-item-description" x-text="item.resourceName"></td>
+                                                    <td x-text="item.regionName"></td>
+                                                    <td class="text-right" x-text="formatCurrency(item.cost)"></td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </template>
+                                </tbody>
+                                <tfoot class="bg-gray-100 font-bold">
+                                    <tr>
+                                        <td colspan="2" class="text-right py-3 px-6">Subtotal</td>
+                                        <td class="text-right py-3 px-6" x-text="formatCurrency(invoiceData.preDiscountTotal)"></td>
+                                    </tr>
+                                    <tr>
+                                        <td colspan="2" class="text-right py-3 px-6 text-red-600">Total Discounts</td>
+                                        <td class="text-right py-3 px-6 text-red-600" x-text="formatCurrency(invoiceData.discountAmount * -1)"></td>
+                                    </tr>
+                                    <tr>
+                                        <td colspan="2" class="text-right py-4 px-6 text-lg">Grand Total</td>
+                                        <td class="text-right py-4 px-6 text-lg" x-text="formatCurrency(invoiceData.finalTotal)"></td>
+                                    </tr>
+                                 </tfoot>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
     </div>
 </div>
 <script>
-    fetch('/_sidebar.html')
-        .then(response => response.text())
-        .then(html => {
-            const parser = new DOMParser();
-            const sidebarDoc = parser.parseFromString(html, 'text/html');
+    function invoicePage() {
+        return {
+            selectedAccountId: null,
+            selectedAccountName: '',
+            years: [new Date().getFullYear(), new Date().getFullYear() - 1],
+            selectedYear: new Date().getFullYear(),
+            months: [
+                { name: 'January', value: 1 }, { name: 'February', value: 2 }, { name: 'March', value: 3 },
+                { name: 'April', value: 4 }, { name: 'May', value: 5 }, { name: 'June', value: 6 },
+                { name: 'July', value: 7 }, { name: 'August', value: 8 }, { name: 'September', value: 9 },
+                { name: 'October', value: 10 }, { name: 'November', value: 11 }, { name: 'December', value: 12 }
+            ],
+            selectedMonth: new Date().getMonth() + 1,
+            invoiceData: null,
+            loading: true,
+            error: null,
+            groupedLineItems: {},
+            serviceTotals: {},
+            uniqueServices: [],
+            discount: { serviceName: 'ALL', percentage: null },
 
-            // Transfer styles and links from sidebar's head to the main document's head
-            sidebarDoc.head.querySelectorAll('link[rel="stylesheet"], style').forEach(elem => {
-                document.head.appendChild(elem.cloneNode(true));
-            });
+            init() {
+                this.loadSidebar();
+                const urlParams = new URLSearchParams(window.location.search);
+                const accountIds = urlParams.get('accountId') || urlParams.get('accountIds');
+                
+                if (accountIds) {
+                    this.selectedAccountId = accountIds.split(',')[0]; 
+                    this.fetchInvoiceData();
+                } else {
+                    this.error = "No account selected. Please choose an account from the sidebar.";
+                    this.loading = false;
+                }
+            },
 
-            // Put the sidebar's body content into the container
-            document.getElementById('sidebar-container').innerHTML = sidebarDoc.body.innerHTML;
+            fetchInvoiceData() {
+                if (!this.selectedAccountId) return;
+                this.loading = true;
+                this.invoiceData = null;
+                this.error = null;
+                this.discount = { serviceName: 'ALL', percentage: null };
 
-            // Manually create and append the Alpine.js script to ensure it executes
-            const alpineScriptTag = sidebarDoc.head.querySelector('script[src*="alpinejs"]');
-            if (alpineScriptTag) {
-                 const script = document.createElement('script');
-                 script.src = alpineScriptTag.src;
-                 script.defer = true;
-                 document.body.appendChild(script);
+                const url = `/api/billops/invoices/view?accountId=${this.selectedAccountId}&year=${this.selectedYear}&month=${this.selectedMonth}`;
+                fetch(url)
+                    .then(res => {
+                        if (res.status === 404) {
+                            this.error = `No billing data found for ${this.selectedYear}-${String(this.selectedMonth).padStart(2, '0')}. Please try another period.`;
+                            return null;
+                        }
+                        if (!res.ok) throw new Error('Failed to load invoice data.');
+                        return res.json();
+                    })
+                    .then(data => {
+                        if (data) {
+                            this.invoiceData = data;
+                            this.selectedAccountName = data.accountName;
+                            this.groupAndCalculateTotals(data.lineItems);
+                            this.uniqueServices = [...new Set(data.lineItems.map(item => item.serviceName))].sort();
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error fetching invoice:', error);
+                        this.error = 'An error occurred while fetching the invoice.';
+                    })
+                    .finally(() => {
+                        this.loading = false;
+                    });
+            },
+
+            applyDiscount() {
+                if (!this.invoiceData || !this.discount.percentage) return;
+                
+                const payload = {
+                    invoice: this.invoiceData,
+                    discount: this.discount
+                };
+
+                fetch('/api/billops/invoices/apply-discount-preview', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                })
+                .then(res => res.ok ? res.json() : Promise.reject('Failed to apply discount.'))
+                .then(updatedInvoice => {
+                    this.invoiceData = updatedInvoice;
+                    this.groupAndCalculateTotals(updatedInvoice.lineItems); 
+                    this.discount.percentage = null; // Clear percentage input
+                })
+                .catch(err => {
+                    console.error("Discount Error:", err);
+                    alert("An error occurred while applying the discount. Please check the console for details.");
+                });
+            },
+            
+            removeDiscount(index) {
+                this.invoiceData.discounts.splice(index, 1);
+                // After removing, we need to recalculate. We can do this by sending the
+                // current state to the backend again with a 'zero' discount.
+                 const payload = {
+                    invoice: this.invoiceData,
+                    discount: { serviceName: 'ALL', percentage: 0 } // A dummy discount to trigger recalculation
+                };
+                fetch('/api/billops/invoices/apply-discount-preview', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                })
+                .then(res => res.json())
+                .then(recalculatedInvoice => {
+                    this.invoiceData = recalculatedInvoice;
+                });
+            },
+
+
+            groupAndCalculateTotals(lineItems) {
+                const groups = {};
+                const totals = {};
+                lineItems.forEach(item => {
+                    if (!groups[item.serviceName]) {
+                        groups[item.serviceName] = [];
+                        totals[item.serviceName] = 0;
+                    }
+                    groups[item.serviceName].push(item);
+                    totals[item.serviceName] += item.cost;
+                });
+                this.groupedLineItems = groups;
+                this.serviceTotals = totals;
+            },
+
+            downloadInvoice() {
+                if (!this.invoiceData) return;
+                fetch('/api/billops/invoices/download-preview', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(this.invoiceData)
+                })
+                .then(res => {
+                    if (!res.ok) throw new Error('PDF generation failed.');
+                    return res.blob();
+                })
+                .then(blob => {
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.style.display = 'none';
+                    a.href = url;
+                    a.download = `invoice-${this.invoiceData.awsAccountId}-${this.invoiceData.billingPeriod}.pdf`;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                })
+                .catch(err => {
+                    console.error('Download error:', err);
+                    alert('Could not download the invoice PDF.');
+                });
+            },
+
+            formatCurrency(value) {
+                if (typeof value !== 'number') return '$0.00';
+                return value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+            },
+            
+            loadSidebar() {
+                fetch('/_sidebar.html')
+                    .then(response => response.text())
+                    .then(html => {
+                        document.getElementById('sidebar-container').innerHTML = html;
+                        if(window.Alpine) Alpine.start();
+                    });
             }
-        })
-        .catch(error => console.error('Error loading sidebar:', error));
+        }
+    }
 </script>
 </body>
 </html>

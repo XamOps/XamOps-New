@@ -2,26 +2,26 @@ import { defineConfig } from 'vite';
 
 export default defineConfig({
   server: {
+    port: 5173, // Your frontend port
     proxy: {
-      // Proxy xamops service requests
-      '/api/xamops': {
-        target: 'http://localhost:8080',
+      // --- THIS IS THE NEW, CRUCIAL RULE ---
+      // Proxy admin API requests to the billops-service
+      '/api/admin': {
+        target: 'http://localhost:8082', // Target the billops-service
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/xamops/, '/api/xamops'),
+        secure: false,
       },
 
       // Proxy billops service requests
-      '/api/billing': {
-        target: 'http://localhost:8082',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/billing/, '/api/billing'),
-      },
-
-      // ✅ Proxy billops API requests
       '/api/billops': {
-        target: 'http://localhost:8082', // or the correct backend port
+        target: 'http://localhost:8082', // Target the billops-service
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/billops/, '/api/billops'),
+      },
+      
+      // Proxy xamops service requests
+      '/api/xamops': {
+        target: 'http://localhost:8080', // Target the xamops-service
+        changeOrigin: true,
       },
 
       // Proxy authentication requests to xamops

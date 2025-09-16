@@ -49,9 +49,8 @@
             text-transform: uppercase;
             letter-spacing: 0.5px;
             padding: 16px 20px;
-            text-align: left;
             border-bottom: 2px solid #e2e8f0;
-            position: relative;
+            vertical-align: middle !important;
         }
         
         .cost-breakdown-table tbody tr {
@@ -66,7 +65,7 @@
         
         .cost-breakdown-table td {
             padding: 16px 20px;
-            vertical-align: middle;
+            vertical-align: middle !important;
             border-bottom: 1px solid #f1f5f9;
         }
         
@@ -81,6 +80,7 @@
             height: 24px;
             border-radius: 4px;
             background: rgba(99, 102, 241, 0.1);
+            margin: 0 auto;
         }
         
         .expand-icon:hover {
@@ -111,7 +111,6 @@
         .amount-cell {
             font-weight: 600;
             font-family: 'JetBrains Mono', monospace;
-            text-align: right;
             color: #059669;
         }
         
@@ -209,7 +208,6 @@
     <main class="flex-1 p-6 md:p-8 overflow-y-auto">
         <div x-data="billingDashboard()" x-init="init()" x-cloak>
             <div class="max-w-7xl mx-auto">
-                <!-- Header Section -->
                 <div class="dashboard-card mb-6">
                     <div class="dashboard-header">
                         <div class="flex justify-between items-center">
@@ -230,23 +228,18 @@
                     </div>
                 </div>
 
-                <!-- Loading State -->
                 <div x-show="loading" class="dashboard-card p-8 text-center">
                     <div class="loading-spinner mx-auto mb-4"></div>
                     <p class="text-gray-600 font-medium">Loading billing data...</p>
                 </div>
 
-                <!-- Error State -->
                 <div x-show="error" class="dashboard-card p-8 text-center border-red-200 bg-red-50">
                     <i class="fas fa-exclamation-triangle text-red-500 text-2xl mb-3"></i>
                     <p class="text-red-700 font-medium" x-text="error"></p>
                 </div>
 
-                <!-- Main Dashboard Content -->
                 <div x-show="!loading && !error">
-                    <!-- Charts Section -->
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-                        <!-- Cost Over Time Chart -->
                         <div class="dashboard-card">
                             <div class="p-6 border-b border-gray-100">
                                 <h2 class="text-xl font-semibold text-gray-800 flex items-center">
@@ -262,7 +255,6 @@
                             </div>
                         </div>
                         
-                        <!-- Service Breakdown Chart -->
                         <div class="dashboard-card">
                             <div class="p-6 border-b border-gray-100">
                                 <h2 class="text-xl font-semibold text-gray-800 flex items-center">
@@ -279,7 +271,6 @@
                         </div>
                     </div>
 
-                    <!-- Detailed Cost Breakdown Table -->
                     <div class="dashboard-card">
                         <div class="p-6 border-b border-gray-100">
                             <h2 class="text-xl font-semibold text-gray-800 flex items-center">
@@ -294,34 +285,33 @@
                                 <thead>
                                     <tr>
                                         <th style="width: 60px; text-align: center;"></th>
-                                        <th style="width: 50%;">Service / Resource</th>
-                                        <th style="width: 25%; text-align: right;">Usage Quantity</th>
-                                        <th style="width: 25%; text-align: right;">Amount (USD)</th>
+                                        <th style="width: 50%; text-align: left;">Service / Resource</th>
+                                        <th style="width: 25%; text-align: center; border-left: 1px solid #e2e8f0;">Usage Quantity</th>
+                                        <th style="width: 25%; text-align: center; border-left: 1px solid #e2e8f0;">Amount (USD)</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <!-- Main Service Rows -->
                                     <template x-for="service in detailedBreakdown" :key="service.serviceName">
                                         <tbody>
-                                            <!-- Service Header Row -->
                                             <tr @click="toggleService(service.serviceName)" class="cursor-pointer">
                                                 <td class="text-center">
                                                     <div class="expand-icon" :class="{ 'rotate-90': expandedServices[service.serviceName] }">
                                                         <i class="fas fa-chevron-right text-sm"></i>
                                                     </div>
                                                 </td>
-                                                <td>
-                                                    <div class="service-name" x-text="service.serviceName"></div>
+                                                <td class="text-left">
+                                                    <div class="service-name flex items-center">
+                                                        <span x-text="service.serviceName"></span>
+                                                    </div>
                                                 </td>
-                                                <td class="text-right">
+                                                <td class="text-center border-l border-gray-100">
                                                     <span class="text-gray-500">—</span>
                                                 </td>
-                                                <td class="text-right">
+                                                <td class="text-center border-l border-gray-100">
                                                     <div class="amount-cell" x-text="formatCurrency(service.totalCost)"></div>
                                                 </td>
                                             </tr>
                                             
-                                            <!-- Region Rows (when service is expanded) -->
                                             <template x-for="region in service.regionCosts" :key="region.regionName">
                                                 <tbody x-show="expandedServices[service.serviceName]">
                                                     <tr @click="toggleRegion(service.serviceName, region.regionName)" class="cursor-pointer drilldown-row">
@@ -330,26 +320,27 @@
                                                                 <i class="fas fa-chevron-right text-xs"></i>
                                                             </div>
                                                         </td>
-                                                        <td>
+                                                        <td class="text-left">
                                                             <div class="region-name" x-text="region.regionName"></div>
                                                         </td>
-                                                        <td class="text-right">
+                                                        <td class="text-center border-l border-gray-100">
                                                             <span class="text-gray-500">—</span>
                                                         </td>
-                                                        <td class="text-right">
+                                                        <td class="text-center border-l border-gray-100">
                                                             <div class="amount-cell text-blue-600" x-text="formatCurrency(region.cost)"></div>
                                                         </td>
                                                     </tr>
                                                     
-                                                    <!-- Resource Rows (when region is expanded) -->
                                                     <template x-for="resource in region.resources" :key="resource.resourceId">
                                                         <tr x-show="expandedRegions[`${service.serviceName}-${region.regionName}`]" class="nested-drilldown">
-                                                            <td></td>
-                                                            <td>
+                                                            <td class="text-center"></td>
+                                                            <td class="text-left">
                                                                 <div class="resource-name" x-text="resource.resourceName"></div>
                                                             </td>
-                                                            <td class="text-right text-gray-600 text-sm" x-text="`${formatNumber(resource.quantity)} ${resource.unit}`"></td>
-                                                            <td class="text-right">
+                                                            <td class="text-center border-l border-gray-100">
+                                                                <span class="text-gray-600 text-sm" x-text="`${formatNumber(resource.quantity)} ${resource.unit}`"></span>
+                                                            </td>
+                                                            <td class="text-center border-l border-gray-100">
                                                                 <div class="amount-cell text-purple-600" x-text="formatCurrency(resource.cost)"></div>
                                                             </td>
                                                         </tr>
@@ -360,7 +351,6 @@
                                     </template>
                                 </tbody>
                                 
-                                <!-- Empty State -->
                                 <tbody x-show="detailedBreakdown.length === 0">
                                     <tr>
                                         <td colspan="4" class="text-center py-12">
