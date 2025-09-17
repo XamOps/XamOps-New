@@ -21,6 +21,9 @@ public class TicketService {
     @Autowired
     private ClientRepository clientRepository;
 
+    @Autowired
+    private EmailService emailService;
+
     @Transactional
     public TicketDto createTicket(TicketDto ticketDto) {
         Client client = clientRepository.findById(ticketDto.getClientId())
@@ -40,6 +43,20 @@ public class TicketService {
         ticket.setRegion(ticketDto.getRegion());
 
         Ticket savedTicket = ticketRepository.save(ticket);
+
+        // Send email notification
+        String emailSubject = "New Ticket Created: " + savedTicket.getSubject();
+        String emailText = "A new ticket has been created with the following details:\n\n" +
+                "Subject: " + savedTicket.getSubject() + "\n" +
+                "Description: " + savedTicket.getDescription() + "\n" +
+                "Category: " + savedTicket.getCategory() + "\n" +
+                "Service: " + savedTicket.getService() + "\n" +
+                "Severity: " + savedTicket.getSeverity() + "\n" +
+                "Account ID: " + savedTicket.getAccountId() + "\n" +
+                "Region: " + savedTicket.getRegion();
+        emailService.sendSimpleMessage("aditya@xammer.in", emailSubject, emailText);
+
+
         return convertToDto(savedTicket);
     }
 
