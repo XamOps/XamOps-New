@@ -24,6 +24,9 @@ public class CreditRequestService {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private EmailService emailService;
+
     @Transactional
     @CacheEvict(value = {"allCreditRequests", "creditRequestsByUser"}, allEntries = true)
     public CreditRequestDto createCreditRequest(CreditRequestDto creditRequestDto) {
@@ -40,6 +43,17 @@ public class CreditRequestService {
         creditRequest.setSubmittedDate(new Date());
 
         CreditRequest savedRequest = creditRequestRepository.save(creditRequest);
+
+        // Send email notification
+        String emailSubject = "New Credit Request Submitted: " + savedRequest.getAwsAccountId();
+        String emailText = "A new credit request has been submitted with the following details:\n\n" +
+                "AWS Account ID: " + savedRequest.getAwsAccountId() + "\n" +
+                "Expected Credits: " + savedRequest.getExpectedCredits() + "\n" +
+                "Services: " + savedRequest.getServices() + "\n" +
+                "Use Case: " + savedRequest.getUseCase() + "\n" +
+                "User: " + user.getUsername();
+        emailService.sendSimpleMessage("aditya@xammer.in", emailSubject, emailText);
+
         return convertToDto(savedRequest);
     }
 
