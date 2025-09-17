@@ -30,7 +30,7 @@
             box-shadow: 0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.06);
         }
 
-        /* Table Styling with Perfect Column Alignment */
+        /* Table Styling with Consistent Column Alignment */
         .cost-breakdown-table {
             width: 100%;
             border-collapse: separate;
@@ -39,13 +39,13 @@
             background: white;
             border-radius: 8px;
             overflow: hidden;
-            table-layout: fixed; /* Critical for alignment */
+            table-layout: fixed; /* Force fixed layout */
         }
 
-        /* Column definitions - MUST be consistent across all rows */
+        /* Critical: Define specific column widths that ALL tbody elements must follow */
         .cost-breakdown-table colgroup col:nth-child(1) { width: 60px; }
-        .cost-breakdown-table colgroup col:nth-child(2) { width: 40%; }
-        .cost-breakdown-table colgroup col:nth-child(3) { width: 30%; }
+        .cost-breakdown-table colgroup col:nth-child(2) { width: 45%; }
+        .cost-breakdown-table colgroup col:nth-child(3) { width: 25%; }
         .cost-breakdown-table colgroup col:nth-child(4) { width: 25%; }
 
         .cost-breakdown-table thead th {
@@ -55,15 +55,13 @@
             font-size: 12px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            padding: 16px 15px;
+            padding: 16px 20px;
             text-align: left;
             border-bottom: 2px solid #e2e8f0;
-            position: sticky;
-            top: 0;
-            z-index: 10;
+            position: relative;
         }
 
-        /* Force ALL cells to respect column widths */
+        /* Enforce consistent column widths across all tbody elements */
         .cost-breakdown-table th:nth-child(1),
         .cost-breakdown-table td:nth-child(1) {
             width: 60px;
@@ -71,29 +69,22 @@
             max-width: 60px;
             text-align: center;
             box-sizing: border-box;
-            padding: 16px 8px;
-            overflow: hidden;
         }
 
         .cost-breakdown-table th:nth-child(2),
         .cost-breakdown-table td:nth-child(2) {
-            width: 40%;
+            width: 45%;
             text-align: left;
             box-sizing: border-box;
-            padding: 16px 15px;
-            vertical-align: middle;
-            overflow: hidden;
             word-wrap: break-word;
+            overflow-wrap: break-word;
         }
 
         .cost-breakdown-table th:nth-child(3),
         .cost-breakdown-table td:nth-child(3) {
-            width: 30%;
+            width: 25%;
             text-align: right;
             box-sizing: border-box;
-            padding: 16px 15px;
-            vertical-align: middle;
-            overflow: hidden;
         }
 
         .cost-breakdown-table th:nth-child(4),
@@ -101,33 +92,31 @@
             width: 25%;
             text-align: right;
             box-sizing: border-box;
-            padding: 16px 15px;
-            vertical-align: middle;
-            overflow: hidden;
         }
 
-        /* Table structure consistency */
+        /* Ensure ALL tbody elements follow the same layout */
         .cost-breakdown-table tbody {
-            display: table-row-group;
+            display: table-row-group; /* Force proper table behavior */
         }
 
         .cost-breakdown-table tbody tr {
             transition: all 0.15s ease;
             border-bottom: 1px solid #f1f5f9;
-            display: table-row;
+            display: table-row; /* Force proper row behavior */
         }
 
         .cost-breakdown-table tbody tr:hover {
             background-color: rgba(99, 102, 241, 0.02);
+            transform: translateY(-1px);
         }
 
         .cost-breakdown-table td {
-            border-bottom: 1px solid #f1f5f9;
-            display: table-cell;
+            padding: 16px 20px;
             vertical-align: middle;
+            border-bottom: 1px solid #f1f5f9;
+            display: table-cell; /* Force proper cell behavior */
         }
 
-        /* Icon styling */
         .expand-icon {
             transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
             color: #6366f1;
@@ -135,11 +124,10 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            width: 20px;
-            height: 20px;
+            width: 24px;
+            height: 24px;
             border-radius: 4px;
             background: rgba(99, 102, 241, 0.1);
-            margin: 0 auto;
         }
 
         .expand-icon:hover {
@@ -150,101 +138,46 @@
             transform: rotate(90deg);
         }
 
-        /* Row type styling */
-        .service-row {
-            background: #ffffff;
-            cursor: pointer;
-        }
-
-        .service-row:hover {
-            background-color: rgba(99, 102, 241, 0.03);
-        }
-
-        .region-row {
+        /* Drilldown Row Styling */
+        .drilldown-row {
             background: linear-gradient(135deg, #fafbff 0%, #f8fafc 100%);
             border-left: 4px solid #6366f1;
-            cursor: pointer;
         }
 
-        .region-row:hover {
-            background: linear-gradient(135deg, #f0f4ff 0%, #fafbff 100%);
+        .drilldown-row td {
+            border-bottom: 1px solid #e2e8f0;
+            padding: 12px 20px;
         }
 
-        .resource-row {
+        .nested-drilldown {
             background: linear-gradient(135deg, #f0f4ff 0%, #fafbff 100%);
             border-left: 4px solid #8b5cf6;
         }
 
-        .resource-row:hover {
-            background: linear-gradient(135deg, #e0e7ff 0%, #f0f4ff 100%);
+        /* Amount Column Styling */
+        .amount-cell {
+            font-weight: 600;
+            font-family: 'JetBrains Mono', monospace;
+            text-align: right;
+            color: #059669;
         }
 
-        /* Text content styling with proper truncation */
         .service-name {
             font-weight: 600;
             color: #1f2937;
             font-size: 15px;
-            line-height: 1.4;
-            margin: 0;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            max-width: 100%;
         }
 
         .region-name {
             color: #6b7280;
             font-weight: 500;
-            font-size: 14px;
             padding-left: 20px;
-            line-height: 1.4;
-            margin: 0;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            max-width: 100%;
         }
 
         .resource-name {
             color: #9ca3af;
-            font-size: 12px;
+            font-size: 13px;
             padding-left: 40px;
-            line-height: 1.3;
-            margin: 0;
-            font-weight: 400;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            max-width: 100%;
-        }
-
-        /* Amount and usage styling */
-        .amount-cell {
-            font-weight: 600;
-            font-family: 'JetBrains Mono', 'Monaco', 'Courier New', monospace;
-            text-align: right;
-            color: #059669;
-            font-size: 14px;
-            line-height: 1.2;
-            white-space: nowrap;
-        }
-
-        .amount-cell.region-amount {
-            color: #2563eb;
-        }
-
-        .amount-cell.resource-amount {
-            color: #7c3aed;
-        }
-
-        .usage-cell {
-            text-align: right;
-            color: #6b7280;
-            font-size: 12px;
-            font-weight: 500;
-            line-height: 1.2;
-            white-space: nowrap;
-            font-family: 'JetBrains Mono', 'Monaco', 'Courier New', monospace;
         }
 
         /* Chart Container Improvements */
@@ -306,20 +239,8 @@
         @media (max-width: 768px) {
             .cost-breakdown-table th,
             .cost-breakdown-table td {
-                padding: 12px 10px;
-                font-size: 12px;
-            }
-
-            .cost-breakdown-table colgroup col:nth-child(2) { width: 35%; }
-            .cost-breakdown-table colgroup col:nth-child(3) { width: 35%; }
-            .cost-breakdown-table colgroup col:nth-child(4) { width: 25%; }
-
-            .region-name {
-                padding-left: 10px;
-            }
-
-            .resource-name {
-                padding-left: 20px;
+                padding: 12px 16px;
+                font-size: 13px;
             }
 
             .chart-container {
@@ -335,6 +256,7 @@
     <main class="flex-1 p-6 md:p-8 overflow-y-auto">
         <div x-data="billingDashboard()" x-init="init()" x-cloak>
             <div class="max-w-7xl mx-auto">
+                <!-- Header Section -->
                 <div class="dashboard-card mb-6">
                     <div class="dashboard-header">
                         <div class="flex justify-between items-center">
@@ -355,18 +277,23 @@
                     </div>
                 </div>
 
+                <!-- Loading State -->
                 <div x-show="loading" class="dashboard-card p-8 text-center">
                     <div class="loading-spinner mx-auto mb-4"></div>
                     <p class="text-gray-600 font-medium">Loading billing data...</p>
                 </div>
 
+                <!-- Error State -->
                 <div x-show="error" class="dashboard-card p-8 text-center border-red-200 bg-red-50">
                     <i class="fas fa-exclamation-triangle text-red-500 text-2xl mb-3"></i>
                     <p class="text-red-700 font-medium" x-text="error"></p>
                 </div>
 
+                <!-- Main Dashboard Content -->
                 <div x-show="!loading && !error">
+                    <!-- Charts Section -->
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                        <!-- Cost Over Time Chart -->
                         <div class="dashboard-card">
                             <div class="p-6 border-b border-gray-100">
                                 <h2 class="text-xl font-semibold text-gray-800 flex items-center">
@@ -381,7 +308,6 @@
                                 </div>
                             </div>
                         </div>
-                        
 
                         <!-- Service Breakdown Chart -->
                         <div class="dashboard-card">
@@ -400,6 +326,7 @@
                         </div>
                     </div>
 
+                    <!-- Detailed Cost Breakdown Table -->
                     <div class="dashboard-card">
                         <div class="p-6 border-b border-gray-100">
                             <h2 class="text-xl font-semibold text-gray-800 flex items-center">
@@ -411,88 +338,15 @@
 
                         <div class="overflow-x-auto">
                             <table class="cost-breakdown-table">
-                                <!-- Critical: Column group ensures all rows follow same width structure -->
+                                <!-- Column definitions for consistent alignment -->
                                 <colgroup>
                                     <col style="width: 60px;">
-                                    <col style="width: 40%;">
-                                    <col style="width: 30%;">
+                                    <col style="width: 45%;">
+                                    <col style="width: 25%;">
                                     <col style="width: 25%;">
                                 </colgroup>
 
                                 <thead>
-                                    <tr>
-                                        <th style="width: 60px; text-align: center;"></th>
-                                        <th style="width: 50%; text-align: left;">Service / Resource</th>
-                                        <th style="width: 25%; text-align: center; border-left: 1px solid #e2e8f0;">Usage Quantity</th>
-                                        <th style="width: 25%; text-align: center; border-left: 1px solid #e2e8f0;">Amount (USD)</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <template x-for="service in detailedBreakdown" :key="service.serviceName">
-                                        <tbody>
-                                            <tr @click="toggleService(service.serviceName)" class="cursor-pointer">
-                                                <td class="text-center">
-                                                    <div class="expand-icon" :class="{ 'rotate-90': expandedServices[service.serviceName] }">
-                                                        <i class="fas fa-chevron-right text-sm"></i>
-                                                    </div>
-                                                </td>
-                                                <td class="text-left">
-                                                    <div class="service-name flex items-center">
-                                                        <span x-text="service.serviceName"></span>
-                                                    </div>
-                                                </td>
-                                                <td class="text-center border-l border-gray-100">
-                                                    <span class="text-gray-500">—</span>
-                                                </td>
-                                                <td class="text-center border-l border-gray-100">
-                                                    <div class="amount-cell" x-text="formatCurrency(service.totalCost)"></div>
-                                                </td>
-                                            </tr>
-                                            
-                                            <template x-for="region in service.regionCosts" :key="region.regionName">
-                                                <tbody x-show="expandedServices[service.serviceName]">
-                                                    <tr @click="toggleRegion(service.serviceName, region.regionName)" class="cursor-pointer drilldown-row">
-                                                        <td class="text-center">
-                                                            <div class="expand-icon" :class="{ 'rotate-90': expandedRegions[`${service.serviceName}-${region.regionName}`] }">
-                                                                <i class="fas fa-chevron-right text-xs"></i>
-                                                            </div>
-                                                        </td>
-                                                        <td class="text-left">
-                                                            <div class="region-name" x-text="region.regionName"></div>
-                                                        </td>
-                                                        <td class="text-center border-l border-gray-100">
-                                                            <span class="text-gray-500">—</span>
-                                                        </td>
-                                                        <td class="text-center border-l border-gray-100">
-                                                            <div class="amount-cell text-blue-600" x-text="formatCurrency(region.cost)"></div>
-                                                        </td>
-                                                    </tr>
-                                                    
-                                                    <template x-for="resource in region.resources" :key="resource.resourceId">
-                                                        <tr x-show="expandedRegions[`${service.serviceName}-${region.regionName}`]" class="nested-drilldown">
-                                                            <td class="text-center"></td>
-                                                            <td class="text-left">
-                                                                <div class="resource-name" x-text="resource.resourceName"></div>
-                                                            </td>
-                                                            <td class="text-center border-l border-gray-100">
-                                                                <span class="text-gray-600 text-sm" x-text="`${formatNumber(resource.quantity)} ${resource.unit}`"></span>
-                                                            </td>
-                                                            <td class="text-center border-l border-gray-100">
-                                                                <div class="amount-cell text-purple-600" x-text="formatCurrency(resource.cost)"></div>
-                                                            </td>
-                                                        </tr>
-                                                    </template>
-                                                </tbody>
-                                            </template>
-                                        </tbody>
-                                    </template>
-                                </tbody>
-                                
-                                <tbody x-show="detailedBreakdown.length === 0">
-                                    <tr>
-                                        <td colspan="4" class="text-center py-12">
-                                            <i class="fas fa-inbox text-gray-300 text-3xl mb-3"></i>
-                                            <p class="text-gray-500 font-medium">No detailed cost data available for the selected period.</p>
                                 <tr>
                                     <th></th>
                                     <th>Service / Resource</th>
@@ -501,62 +355,57 @@
                                 </tr>
                                 </thead>
 
+                                <!-- Main Service Rows - Keep the original nested tbody structure for functionality -->
                                 <template x-for="service in detailedBreakdown" :key="service.serviceName">
                                     <tbody>
                                     <!-- Service Header Row -->
-                                    <tr @click="toggleService(service.serviceName)" class="service-row">
+                                    <tr @click="toggleService(service.serviceName)" class="cursor-pointer">
                                         <td>
                                             <div class="expand-icon" :class="{ 'rotate-90': expandedServices[service.serviceName] }">
                                                 <i class="fas fa-chevron-right text-sm"></i>
                                             </div>
                                         </td>
                                         <td>
-                                            <div class="service-name" x-text="service.serviceName" :title="service.serviceName"></div>
+                                            <div class="service-name" x-text="service.serviceName"></div>
                                         </td>
                                         <td>
-                                            <span class="text-gray-400">—</span>
+                                            <span class="text-gray-500">—</span>
                                         </td>
                                         <td>
                                             <div class="amount-cell" x-text="formatCurrency(service.totalCost)"></div>
                                         </td>
                                     </tr>
 
-                                    <!-- Region Rows -->
+                                    <!-- Region Rows (when service is expanded) -->
                                     <template x-for="region in service.regionCosts" :key="region.regionName">
                                         <tbody x-show="expandedServices[service.serviceName]">
-                                        <tr @click="toggleRegion(service.serviceName, region.regionName)" class="region-row">
+                                        <tr @click="toggleRegion(service.serviceName, region.regionName)" class="cursor-pointer drilldown-row">
                                             <td>
                                                 <div class="expand-icon" :class="{ 'rotate-90': expandedRegions[`${service.serviceName}-${region.regionName}`] }">
                                                     <i class="fas fa-chevron-right text-xs"></i>
                                                 </div>
                                             </td>
                                             <td>
-                                                <div class="region-name" x-text="region.regionName" :title="region.regionName"></div>
+                                                <div class="region-name" x-text="region.regionName"></div>
                                             </td>
                                             <td>
-                                                <span class="text-gray-400">—</span>
+                                                <span class="text-gray-500">—</span>
                                             </td>
                                             <td>
-                                                <div class="amount-cell region-amount" x-text="formatCurrency(region.cost)"></div>
+                                                <div class="amount-cell text-blue-600" x-text="formatCurrency(region.cost)"></div>
                                             </td>
                                         </tr>
 
-                                        <!-- Resource Rows - Proper alignment under columns -->
+                                        <!-- Resource Rows (when region is expanded) -->
                                         <template x-for="resource in region.resources" :key="resource.resourceId">
-                                            <tr x-show="expandedRegions[`${service.serviceName}-${region.regionName}`]" class="resource-row">
+                                            <tr x-show="expandedRegions[`${service.serviceName}-${region.regionName}`]" class="nested-drilldown">
+                                                <td></td>
                                                 <td>
-                                                    <!-- Empty cell for icon column -->
+                                                    <div class="resource-name" x-text="resource.resourceName"></div>
                                                 </td>
+                                                <td class="text-right text-gray-600 text-sm" x-text="`${formatNumber(resource.quantity)} ${resource.unit}`"></td>
                                                 <td>
-                                                    <div class="resource-name"
-                                                         x-text="formatResourceName(resource)"
-                                                         :title="formatResourceName(resource)"></div>
-                                                </td>
-                                                <td>
-                                                    <div class="usage-cell" x-text="formatResourceQuantity(resource.quantity, resource.unit)"></div>
-                                                </td>
-                                                <td>
-                                                    <div class="amount-cell resource-amount" x-text="formatCurrency(resource.cost)"></div>
+                                                    <div class="amount-cell text-purple-600" x-text="formatCurrency(resource.cost)"></div>
                                                 </td>
                                             </tr>
                                         </template>
@@ -773,7 +622,7 @@
                                 cornerRadius: 8,
                                 callbacks: {
                                     label: function(context) {
-                                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                        const total = context.dataset.data.reduce((a, b) => b, 0);
                                         const percentage = ((context.parsed / total) * 100).toFixed(1);
                                         return `${context.label}: ${context.parsed.toLocaleString('en-US', { style: 'currency', currency: 'USD' })} (${percentage}%)`;
                                     }
@@ -792,30 +641,6 @@
             formatNumber(value) {
                 if (typeof value !== 'number') return '0';
                 return value.toLocaleString('en-US', { maximumFractionDigits: 3 });
-            },
-
-            formatResourceQuantity(quantity, unit) {
-                if (!quantity && !unit) return '—';
-                if (!quantity) return unit || '—';
-                if (!unit) return this.formatNumber(quantity);
-                return `${this.formatNumber(quantity)} ${unit}`;
-            },
-
-            formatResourceName(resource) {
-                // Create a more compact resource name that fits in column
-                const name = resource.resourceName || resource.resourceId || 'Unknown Resource';
-
-                // If the name is too long, truncate it intelligently
-                if (name.length > 50) {
-                    // Try to keep important parts like service identifiers
-                    const parts = name.split(/[\s\-\(\)]/);
-                    if (parts.length > 1) {
-                        return parts.slice(0, 2).join(' ') + '...';
-                    }
-                    return name.substring(0, 47) + '...';
-                }
-
-                return name;
             },
 
             toggleService(serviceName) {
