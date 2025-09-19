@@ -1,35 +1,30 @@
-# --- Stage 1: The Builder ---
-# Use a specific Maven and Java version to build our application
-FROM maven:3.9-eclipse-temurin-17 AS builder
-
-# Set the working directory in the container
-WORKDIR /app
-
-# Copy the entire project context into the builder stage
-COPY . .
-
-# Build only the 'billops' module and its dependencies
-RUN mvn clean package -pl billops -am -DskipTests
-
-
-# --- Stage 2: The Final Image ---
-# Use a lightweight JRE-only image for a smaller, more secure final container
-FROM eclipse-temurin:17-jre-alpine
+# Stage 1: Build the application using Maven
+FROM maven:3.8.5-openjdk-17 AS build
 
 # Set the working directory
 WORKDIR /app
 
-# Argument to define the path to the JAR file from the builder stage
-ARG JAR_FILE_PATH=billops/target/billops-0.0.1-SNAPSHOT.jar
+# Copy the entire project context (parent POM and all modules)
+COPY . .
 
-# Copy only the built JAR file from the 'builder' stage
-COPY --from=builder /app/${JAR_FILE_PATH} app.jar
+# Build the specific module.
+# The `pl` flag tells Maven to build a specific project/module.
+# We use a variable `MODULE_NAME` which we'll set during the build command.
+ARG MODULE_NAME
+RUN mvn clean package -pl ${MODULE_NAME} -am -DskipTests
 
-# Expose the port the application runs on
-EXPOSE 8082
+# Stage 2: Create the final, lightweight runtime image
+FROM eclipse-temurin:17-jre-jammy
+WORKDIR /app
 
-# HEALTHCHECK instruction is removed as the Spring Boot Actuator dependency is not present.
+# The port the application will run on inside the container.
+# We'll set this as an argument for flexibility.
+ARG EXPOSE_PORT=8080
+EXPOSE ${EXPOSE_PORT}
 
-# The command to run the application. Add JVM arguments here if needed (e.g., "-Xmx512m").
+# Copy only the built JAR file from the specific module's target directory
+ARG MODULE_NAME
+COPY --from=build /app/${MODULE_NAME}/target/*.jar app.jar
+
+# The command to run the application when the container starts
 ENTRYPOINT ["java", "-jar", "app.jar"]
-

@@ -25,32 +25,28 @@
                 </button>
             </div>
 
-            <template x-if="tickets.length === 0">
-                <p class="text-gray-600">You have no support cases yet. Create one using the button above.</p>
-            </template>
-
             <div class="space-y-6" x-show="tickets.length > 0" x-cloak>
                 <template x-for="ticket in tickets" :key="ticket.id">
-                    <div class="bg-white rounded-xl shadow p-6">
+                    <a :href="`ticket_detail.html?id=${ticket.id}`" class="block bg-white rounded-xl shadow p-6 hover:shadow-lg transition">
                         <div class="flex justify-between mb-4">
                             <div>
-                                <h2 class="font-bold text-lg" x-text="ticket.subject"></h2>
+                                <h2 class="font-bold text-lg text-gray-900" x-text="ticket.subject"></h2>
                                 <p class="text-sm text-gray-600" x-text="`${ticket.category} | ${ticket.service} | Severity: ${ticket.severity}`"></p>
                             </div>
                             <div>
                                 <span class="text-xs font-medium px-3 py-1 rounded-full capitalize"
-                                      :class="statusColors[ticket.status.toLowerCase()] || 'bg-gray-200 text-gray-800'">
-                                    <span x-text="ticket.status"></span>
+                                      :class="{ 'bg-blue-100 text-blue-800': ticket.status === 'OPEN', 'bg-yellow-100 text-yellow-800': ticket.status === 'IN_PROGRESS', 'bg-gray-200 text-gray-800': ticket.status === 'CLOSED' }"
+                                      x-text="ticket.status">
                                 </span>
                             </div>
                         </div>
-                        <p class="mb-4 text-gray-700 whitespace-pre-wrap" x-text="ticket.description"></p>
+                        <p class="mb-4 text-gray-700 whitespace-pre-wrap truncate" x-text="ticket.description"></p>
                         <div class="text-xs text-gray-400" x-text="'Created on: ' + new Date(ticket.createdAt).toLocaleString()"></div>
-                    </div>
+                    </a>
                 </template>
             </div>
-        </div>
-
+            </div>
+        
         <div x-show="showModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60">
             <div @click.away="!isSubmitting && (showModal = false)"
                  class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-xl mx-4 max-h-[90vh] overflow-y-auto">

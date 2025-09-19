@@ -7,6 +7,7 @@ import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.security.CustomAuthenticationSuccessHandler;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.core.GrantedAuthority;
@@ -16,8 +17,11 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.firewall.HttpFirewall;
 import org.springframework.security.web.firewall.StrictHttpFirewall;
+import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.web.filter.CommonsRequestLoggingFilter;
 
 import java.util.Collections;
 import java.util.List;
@@ -26,7 +30,7 @@ import java.util.Optional;
 import static org.springframework.security.config.Customizer.withDefaults;
 
 @Configuration
-@EnableWebSecurity
+@EnableWebSecurity(debug = true) // ✅ ENABLE EXTREME SECURITY DEBUG LOGGING
 public class SecurityConfig {
 
     private final CustomAuthenticationSuccessHandler authenticationSuccessHandler;
@@ -40,20 +44,26 @@ public class SecurityConfig {
         http
                 .cors(withDefaults())
                 .csrf(csrf -> csrf.disable())
+                .exceptionHandling(exceptions -> exceptions
+                    // This is the key change. For any API request that is unauthenticated,
+                    // it will now return a 401 Unauthorized status instead of redirecting.
+                    .defaultAuthenticationEntryPointFor(
+                        new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
+                        new AntPathRequestMatcher("/api/**")
+                    )
+                )
                 .authorizeHttpRequests((requests) -> requests
-                        // Allow all frontend assets and page routes to pass through the auth service
+                        // ✅ CORRECTED: Only allow public access to login page and static assets
                         .antMatchers(
-                            "/", "/*.html", "/gcp_*.html", "/billops/**", "/admin/**", 
+                            "/", "/index.html", "/login",
                             "/css/**", "/js/**", "/images/**", "/icons/**", "/webjars/**", "/ws/**"
                         ).permitAll()
-                        
-                        // Secure all API endpoints that this service is responsible for
-                        .antMatchers("/api/xamops/**").hasAnyAuthority("ROLE_XAMOPS", "ROLE_ADMIN", "ROLE_BILLOPS", "ROLE_BILLOPS_ADMIN")
-                        
-                        // Any other request must be authenticated
+                        // All other requests require the user to be authenticated
                         .anyRequest().authenticated()
                 )
                 .formLogin((form) -> form
+                        // We still define the login page so Spring knows where to find it,
+                        // but the exception handling above will prevent redirects for API calls.
                         .loginPage("/login")
                         .successHandler(authenticationSuccessHandler)
                         .permitAll()
@@ -67,6 +77,20 @@ public class SecurityConfig {
                 );
 
         return http.build();
+    }
+
+    // ✅ ENHANCED REQUEST LOGGING WITH BETTER CONFIGURATION
+    @Bean
+    public CommonsRequestLoggingFilter requestLoggingFilter() {
+        CommonsRequestLoggingFilter loggingFilter = new CommonsRequestLoggingFilter();
+        loggingFilter.setIncludeQueryString(true);
+        loggingFilter.setIncludePayload(true);
+        loggingFilter.setMaxPayloadLength(10000);
+        loggingFilter.setIncludeHeaders(true);
+        loggingFilter.setIncludeClientInfo(true);
+        loggingFilter.setBeforeMessagePrefix("INCOMING REQUEST DATA: ");
+        loggingFilter.setAfterMessagePrefix("REQUEST PROCESSING COMPLETE: ");
+        return loggingFilter;
     }
 
     @Bean

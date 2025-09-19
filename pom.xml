@@ -69,5 +69,15 @@
                 <version>v1-rev20250807-2.0.0</version>
             </dependency>
             </dependencies>
+
     </dependencyManagement>
+
+        <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
 </project>

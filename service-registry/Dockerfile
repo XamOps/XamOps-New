@@ -1,14 +1,30 @@
-# --- Stage 1: The Builder ---
-FROM maven:3.9-eclipse-temurin-17 AS builder
-WORKDIR /app
-COPY . .
-RUN mvn clean package -pl service-registry -am -DskipTests
+# Stage 1: Build the application using Maven
+FROM maven:3.8.5-openjdk-17 AS build
 
-# --- Stage 2: The Final Image ---
-FROM eclipse-temurin:17-jre-alpine
+# Set the working directory
 WORKDIR /app
-ARG JAR_FILE_PATH=service-registry/target/service-registry-1.0.0.jar
-COPY --from=builder /app/${JAR_FILE_PATH} app.jar
-EXPOSE 8761
-# CORRECTED ENTRYPOINT
-ENTRYPOINT ["java", "-cp", "app.jar", "org.springframework.boot.loader.JarLauncher", "com.xammer.service_registry.ServiceRegistryApplication"]
+
+# Copy the entire project context (parent POM and all modules)
+COPY . .
+
+# Build the specific module.
+# The `pl` flag tells Maven to build a specific project/module.
+# We use a variable `MODULE_NAME` which we'll set during the build command.
+ARG MODULE_NAME
+RUN mvn clean package -pl ${MODULE_NAME} -am -DskipTests
+
+# Stage 2: Create the final, lightweight runtime image
+FROM eclipse-temurin:17-jre-jammy
+WORKDIR /app
+
+# The port the application will run on inside the container.
+# We'll set this as an argument for flexibility.
+ARG EXPOSE_PORT=8080
+EXPOSE ${EXPOSE_PORT}
+
+# Copy only the built JAR file from the specific module's target directory
+ARG MODULE_NAME
+COPY --from=build /app/${MODULE_NAME}/target/*.jar app.jar
+
+# The command to run the application when the container starts
+ENTRYPOINT ["java", "-jar", "app.jar"]

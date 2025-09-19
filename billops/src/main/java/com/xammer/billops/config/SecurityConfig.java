@@ -6,24 +6,22 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.HttpStatusEntryPoint;
-import org.springframework.http.HttpStatus;
 
 @Configuration
 @EnableWebSecurity
-@EnableMethodSecurity(prePostEnabled = true) // Enable method-level security
+@EnableMethodSecurity(prePostEnabled = true) // This is still useful for method-level checks if needed
 public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
                 .authorizeHttpRequests(authz -> authz
-                        // Secure the admin invoice endpoints
-                        .requestMatchers("/api/admin/invoices/**").hasRole("BILLOPS_ADMIN")
-                        // Allow all other requests for now, as per original logic
+                        // In a microservice architecture behind a gateway,
+                        // we trust the gateway to handle authentication.
+                        // This service will permit all requests that reach it.
                         .anyRequest().permitAll()
                 )
-                .csrf(csrf -> csrf.disable());  // Disable CSRF (for development only)
+                .csrf(csrf -> csrf.disable());  // Disable CSRF as it's not needed for this API service
         return http.build();
     }
 }

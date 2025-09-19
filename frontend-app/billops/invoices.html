@@ -57,27 +57,13 @@
 
                 <div x-show="loading" class="text-center p-10 bg-white rounded-lg shadow-md">
                     <i class="fas fa-spinner fa-spin text-3xl text-indigo-500"></i>
-                    <p class="mt-2">Generating latest invoice data...</p>
+                    <p class="mt-2">Fetching finalized invoice...</p>
                 </div>
                 <div x-show="!loading && error" class="text-center p-10 bg-blue-50 rounded-lg shadow-md">
                      <p class="text-blue-700" x-text="error"></p>
                 </div>
 
                 <div x-show="!loading && invoiceData" class="space-y-6">
-                    <div class="bg-white rounded-lg shadow-md p-6">
-                        <h3 class="font-semibold text-lg text-gray-800 mb-3">Apply Discount</h3>
-                        <div class="flex items-center space-x-3">
-                            <select x-model="discount.serviceName" class="flex-grow block w-full text-sm border-gray-300 rounded-md">
-                                <option value="ALL">Overall Bill</option>
-                                <template x-for="service in uniqueServices" :key="service">
-                                    <option :value="service" x-text="service"></option>
-                                </template>
-                            </select>
-                            <input type="number" x-model.number="discount.percentage" placeholder="%" class="w-24 text-sm border-gray-300 rounded-md">
-                            <button @click="applyDiscount()" :disabled="!discount.percentage" class="px-4 py-2 bg-indigo-500 text-white text-sm rounded-md hover:bg-indigo-600 disabled:bg-gray-400">Apply</button>
-                        </div>
-                    </div>
-                    
                     <div class="bg-white rounded-lg shadow-md p-8">
                         <div class="flex justify-between items-start mb-8">
                             <div>
@@ -103,20 +89,6 @@
                                 <h3 class="text-sm font-medium text-green-600">Final Invoice Total</h3>
                                 <p class="mt-1 text-3xl font-bold text-green-800" x-text="formatCurrency(invoiceData.finalTotal)"></p>
                             </div>
-                        </div>
-
-                        <div x-show="invoiceData.discounts && invoiceData.discounts.length > 0" class="mb-8">
-                            <h3 class="text-lg font-semibold text-gray-700 mb-2">Applied Discounts</h3>
-                            <ul class="space-y-2">
-                                <template x-for="(d, index) in invoiceData.discounts" :key="index">
-                                    <li class="flex justify-between items-center bg-gray-50 p-3 rounded-md">
-                                        <span class="text-sm text-gray-800" x-text="d.description"></span>
-                                        <button @click="removeDiscount(index)" class="text-red-500 hover:text-red-700 text-xs">
-                                            <i class="fas fa-times-circle"></i> Remove
-                                        </button>
-                                    </li>
-                                </template>
-                            </ul>
                         </div>
 
                         <h2 class="text-xl font-bold text-gray-800 mb-4">Final Charges</h2>
@@ -151,7 +123,7 @@
                                         <td colspan="2" class="text-right py-3 px-6">Subtotal</td>
                                         <td class="text-right py-3 px-6" x-text="formatCurrency(invoiceData.preDiscountTotal)"></td>
                                     </tr>
-                                    <tr>
+                                    <tr x-show="invoiceData.discountAmount > 0">
                                         <td colspan="2" class="text-right py-3 px-6 text-red-600">Total Discounts</td>
                                         <td class="text-right py-3 px-6 text-red-600" x-text="formatCurrency(invoiceData.discountAmount * -1)"></td>
                                     </tr>
@@ -187,8 +159,6 @@
             error: null,
             groupedLineItems: {},
             serviceTotals: {},
-            uniqueServices: [],
-            discount: { serviceName: 'ALL', percentage: null },
 
             init() {
                 this.loadSidebar();
@@ -209,13 +179,12 @@
                 this.loading = true;
                 this.invoiceData = null;
                 this.error = null;
-                this.discount = { serviceName: 'ALL', percentage: null };
 
                 const url = `/api/billops/invoices/view?accountId=${this.selectedAccountId}&year=${this.selectedYear}&month=${this.selectedMonth}`;
                 fetch(url)
                     .then(res => {
                         if (res.status === 404) {
-                            this.error = `No billing data found for ${this.selectedYear}-${String(this.selectedMonth).padStart(2, '0')}. Please try another period.`;
+                            this.error = `No finalized invoice is available for ${this.selectedYear}-${String(this.selectedMonth).padStart(2, '0')}. Please check back later or contact your administrator.`;
                             return null;
                         }
                         if (!res.ok) throw new Error('Failed to load invoice data.');
@@ -226,7 +195,6 @@
                             this.invoiceData = data;
                             this.selectedAccountName = data.accountName;
                             this.groupAndCalculateTotals(data.lineItems);
-                            this.uniqueServices = [...new Set(data.lineItems.map(item => item.serviceName))].sort();
                         }
                     })
                     .catch(error => {
@@ -237,51 +205,6 @@
                         this.loading = false;
                     });
             },
-
-            applyDiscount() {
-                if (!this.invoiceData || !this.discount.percentage) return;
-                
-                const payload = {
-                    invoice: this.invoiceData,
-                    discount: this.discount
-                };
-
-                fetch('/api/billops/invoices/apply-discount-preview', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                })
-                .then(res => res.ok ? res.json() : Promise.reject('Failed to apply discount.'))
-                .then(updatedInvoice => {
-                    this.invoiceData = updatedInvoice;
-                    this.groupAndCalculateTotals(updatedInvoice.lineItems); 
-                    this.discount.percentage = null; // Clear percentage input
-                })
-                .catch(err => {
-                    console.error("Discount Error:", err);
-                    alert("An error occurred while applying the discount. Please check the console for details.");
-                });
-            },
-            
-            removeDiscount(index) {
-                this.invoiceData.discounts.splice(index, 1);
-                // After removing, we need to recalculate. We can do this by sending the
-                // current state to the backend again with a 'zero' discount.
-                 const payload = {
-                    invoice: this.invoiceData,
-                    discount: { serviceName: 'ALL', percentage: 0 } // A dummy discount to trigger recalculation
-                };
-                fetch('/api/billops/invoices/apply-discount-preview', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                })
-                .then(res => res.json())
-                .then(recalculatedInvoice => {
-                    this.invoiceData = recalculatedInvoice;
-                });
-            },
-
 
             groupAndCalculateTotals(lineItems) {
                 const groups = {};
@@ -328,7 +251,7 @@
 
             formatCurrency(value) {
                 if (typeof value !== 'number') return '$0.00';
-                return value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+                return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
             },
             
             loadSidebar() {

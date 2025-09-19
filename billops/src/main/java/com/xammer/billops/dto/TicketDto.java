@@ -4,6 +4,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.time.LocalDateTime;
+import java.util.List; // ADD THIS IMPORT
 
 @Setter
 @Getter
@@ -24,4 +25,7 @@ public class TicketDto {
     private String accountId;
     private String region;
 
+    // --- START: MODIFIED SECTION ---
+    private List<TicketReplyDto> replies; // Add this line to hold replies
+    // --- END: MODIFIED SECTION ---
 }

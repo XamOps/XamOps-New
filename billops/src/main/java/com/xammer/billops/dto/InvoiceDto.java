@@ -2,7 +2,6 @@ package com.xammer.billops.dto;
 
 import com.xammer.billops.domain.Invoice;
 import lombok.Data;
-
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -18,7 +17,9 @@ public class InvoiceDto {
     private Invoice.InvoiceStatus status;
     private BigDecimal preDiscountTotal;
     private BigDecimal discountAmount;
+    
     private BigDecimal finalTotal;
+
     private String accountName;
     private String awsAccountId;
     private List<LineItemDto> lineItems;
@@ -36,6 +37,7 @@ public class InvoiceDto {
 
     @Data
     public static class DiscountDto {
+        private Long id;
         private String serviceName;
         private BigDecimal percentage;
         private String description;
@@ -50,29 +52,38 @@ public class InvoiceDto {
         dto.setStatus(invoice.getStatus());
         dto.setPreDiscountTotal(invoice.getPreDiscountTotal());
         dto.setDiscountAmount(invoice.getDiscountAmount());
+        
+        // --- FIX: This now correctly calls the updated getFinalTotal() ---
         dto.setFinalTotal(invoice.getFinalTotal());
+        // --- END FIX ---
+
         dto.setAccountName(invoice.getCloudAccount().getAccountName());
         dto.setAwsAccountId(invoice.getCloudAccount().getAwsAccountId());
 
-        dto.setLineItems(invoice.getLineItems().stream().map(item -> {
-            LineItemDto itemDto = new LineItemDto();
-            itemDto.setServiceName(item.getServiceName());
-            itemDto.setRegionName(item.getRegionName());
-            itemDto.setResourceName(item.getResourceName());
-            itemDto.setUsageQuantity(item.getUsageQuantity());
-            itemDto.setUnit(item.getUnit());
-            itemDto.setCost(item.getCost());
-            return itemDto;
-        }).collect(Collectors.toList()));
+        if (invoice.getLineItems() != null) {
+            dto.setLineItems(invoice.getLineItems().stream().map(item -> {
+                LineItemDto itemDto = new LineItemDto();
+                itemDto.setServiceName(item.getServiceName());
+                itemDto.setRegionName(item.getRegionName());
+                itemDto.setResourceName(item.getResourceName());
+                itemDto.setUsageQuantity(item.getUsageQuantity());
+                itemDto.setUnit(item.getUnit());
+                itemDto.setCost(item.getCost());
+                return itemDto;
+            }).collect(Collectors.toList()));
+        }
 
-        dto.setDiscounts(invoice.getDiscounts().stream().map(discount -> {
-            DiscountDto discountDto = new DiscountDto();
-            discountDto.setServiceName(discount.getServiceName());
-            discountDto.setPercentage(discount.getPercentage());
-            discountDto.setDescription(discount.getDescription());
-            return discountDto;
-        }).collect(Collectors.toList()));
-
+        if (invoice.getDiscounts() != null) {
+            dto.setDiscounts(invoice.getDiscounts().stream().map(discount -> {
+                DiscountDto discountDto = new DiscountDto();
+                discountDto.setId(discount.getId());
+                discountDto.setServiceName(discount.getServiceName());
+                discountDto.setPercentage(discount.getPercentage());
+                discountDto.setDescription(discount.getDescription());
+                return discountDto;
+            }).collect(Collectors.toList()));
+        }
+        
         return dto;
     }
 }

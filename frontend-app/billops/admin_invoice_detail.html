@@ -7,6 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/big.js@6.0.3/big.min.js"></script>
     <style>[x-cloak] { display: none !important; }</style>
 </head>
 <body class="bg-gray-100" x-data="invoiceDetailPage()">
@@ -45,7 +46,7 @@
                                 <h4 class="font-medium text-gray-700 mb-2">Apply Discount</h4>
                                 <div class="flex items-center space-x-2">
                                     <select x-model="discountService" class="block w-full text-sm border-gray-300 rounded-md">
-                                        <option value="">Select Service</option>
+                                        <option value="ALL">Overall Bill</option>
                                         <template x-for="service in uniqueServices" :key="service">
                                             <option :value="service" x-text="service"></option>
                                         </template>
@@ -84,19 +85,33 @@
                                     </template>
                                 </tbody>
                                 <tfoot class="bg-gray-50 font-semibold">
-                                    <tr>
-                                        <td colspan="2" class="px-4 py-2 text-right text-gray-600">Subtotal:</td>
-                                        <td class="px-4 py-2 text-right text-gray-800" x-text="formatCurrency(invoice.preDiscountTotal)"></td>
-                                    </tr>
-                                    <tr>
-                                        <td colspan="2" class="px-4 py-2 text-right text-gray-600">Discounts Applied:</td>
-                                        <td class="px-4 py-2 text-right text-red-600" x-text="formatCurrency(invoice.discountAmount * -1)"></td>
-                                    </tr>
-                                    <tr class="border-t-2 border-gray-300">
-                                        <td colspan="2" class="px-4 py-3 text-right text-gray-800 font-bold text-lg">FINAL TOTAL:</td>
-                                        <td class="px-4 py-3 text-right text-gray-900 font-bold text-lg" x-text="formatCurrency(invoice.finalTotal)"></td>
-                                    </tr>
-                                </tfoot>
+    <tr>
+        <td colspan="2" class="px-4 py-2 text-right text-gray-600">Subtotal:</td>
+        <td class="px-4 py-2 text-right text-gray-800" x-text="formatCurrency(invoice.preDiscountTotal)"></td>
+    </tr>
+    
+    <template x-for="discount in invoice.discounts" :key="discount.id">
+        <tr class="text-sm">
+            <td colspan="2" class="px-4 py-1 text-right text-gray-500" x-text="discount.description"></td>
+            <td class="px-4 py-1 text-right text-red-600 flex justify-end items-center">
+                <span x-text="formatCurrency(calculateDiscountAmount(discount))"></span>
+                <button x-show="invoice.status === 'DRAFT'" @click="removeDiscount(discount.id)" class="ml-2 text-gray-400 hover:text-red-500 transition-colors" title="Remove Discount">
+                    <i class="fas fa-trash-alt"></i>
+                </button>
+            </td>
+        </tr>
+    </template>
+
+    <tr x-show="invoice.discountAmount > 0" class="border-t">
+        <td colspan="2" class="px-4 py-2 text-right text-gray-600">Total Discounts:</td>
+        <td class="px-4 py-2 text-right text-red-600" x-text="formatCurrency(invoice.discountAmount * -1)"></td>
+    </tr>
+
+    <tr class="border-t-2 border-gray-300">
+        <td colspan="2" class="px-4 py-3 text-right text-gray-800 font-bold text-lg">FINAL TOTAL:</td>
+        <td class="px-4 py-3 text-right text-gray-900 font-bold text-lg" x-text="formatCurrency(invoice.finalTotal)"></td>
+    </tr>
+</tfoot>
                             </table>
                         </div>
                     </div>
@@ -114,7 +129,7 @@
             error: null,
             invoiceId: null,
             uniqueServices: [],
-            discountService: '',
+            discountService: 'ALL',
             discountPercentage: null,
             message: '',
             isError: false,
@@ -167,13 +182,46 @@
                 .then(updatedInvoice => {
                     this.invoice = updatedInvoice;
                     this.message = 'Discount applied successfully!';
-                    this.discountService = '';
                     this.discountPercentage = null;
                 })
                 .catch(err => {
                     this.message = err.message;
                     this.isError = true;
                 });
+            },
+
+            removeDiscount(discountId) {
+                this.message = '';
+                fetch(`/api/admin/invoices/${this.invoiceId}/discounts/${discountId}`, {
+                    method: 'DELETE'
+                })
+                .then(res => {
+                    if (!res.ok) return Promise.reject('Failed to remove discount.');
+                    return res.json();
+                })
+                .then(updatedInvoice => {
+                    this.invoice = updatedInvoice;
+                    this.message = 'Discount removed successfully!';
+                    this.isError = false;
+                })
+                .catch(err => {
+                    this.message = err;
+                    this.isError = true;
+                });
+            },
+
+            calculateDiscountAmount(discount) {
+                let amount = 0;
+                const percentage = new Big(discount.percentage).div(100);
+                if (discount.serviceName.toUpperCase() === 'ALL') {
+                    amount = new Big(this.invoice.preDiscountTotal).times(percentage);
+                } else {
+                    const serviceTotal = this.invoice.lineItems
+                        .filter(item => item.serviceName === discount.serviceName)
+                        .reduce((sum, item) => sum.plus(new Big(item.cost)), new Big(0));
+                    amount = serviceTotal.times(percentage);
+                }
+                return amount.times(-1).toNumber(); // Return as a negative number for display
             },
 
             finalizeInvoice() {
@@ -195,7 +243,7 @@
 
             formatCurrency(value) {
                 if (typeof value !== 'number') return '$0.00';
-                return value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+                return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
             },
 
             loadSidebar() {

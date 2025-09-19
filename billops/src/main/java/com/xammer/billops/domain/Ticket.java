@@ -1,8 +1,9 @@
 package com.xammer.billops.domain;
 
 import jakarta.persistence.*;
-
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 public class Ticket {
@@ -31,6 +32,11 @@ public class Ticket {
     private String severity;
     private String accountId;
     private String region;
+
+    // --- START: MODIFIED SECTION ---
+    @OneToMany(mappedBy = "ticket", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
+    private List<TicketReply> replies = new ArrayList<>();
+    // --- END: MODIFIED SECTION ---
 
 
     // Getters and Setters
@@ -121,4 +127,14 @@ public class Ticket {
     public void setRegion(String region) {
         this.region = region;
     }
+
+    // --- START: ADDED GETTERS/SETTERS ---
+    public List<TicketReply> getReplies() {
+        return replies;
+    }
+
+    public void setReplies(List<TicketReply> replies) {
+        this.replies = replies;
+    }
+    // --- END: ADDED GETTERS/SETTERS ---
 }

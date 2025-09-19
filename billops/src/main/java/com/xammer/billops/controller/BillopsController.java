@@ -8,6 +8,7 @@ import com.xammer.billops.dto.CreditRequestDto;
 import com.xammer.billops.dto.DashboardCardDto;
 import com.xammer.billops.dto.ServiceCostDetailDto;
 import com.xammer.billops.dto.TicketDto;
+import com.xammer.billops.dto.TicketReplyDto;
 import com.xammer.billops.repository.CloudAccountRepository;
 import com.xammer.billops.repository.UserRepository;
 import com.xammer.billops.service.*;
@@ -26,7 +27,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/billops")
-@CrossOrigin(origins = {"http://localhost:5173", "http://127.0.0.1:5500"}, allowCredentials = "true")
+@CrossOrigin(origins = {"http://localhost:5173", "http://127.0.0.1:5500", "https://uat.xamops.com"}, allowCredentials = "true")
 public class BillopsController {
     private final BillingService billingService;
     private final CostService costService;
@@ -39,7 +40,7 @@ public class BillopsController {
     private final DashboardService dashboardService;
 
 
-    public BillopsController(BillingService billingService,
+     public BillopsController(BillingService billingService,
                              CostService costService,
                              ResourceService resourceService,
                              UserRepository userRepository,
@@ -58,7 +59,6 @@ public class BillopsController {
         this.ticketService = ticketService;
         this.dashboardService = dashboardService;
     }
-
     @GetMapping("/health")
     public ResponseEntity<String> health() {
         return ResponseEntity.ok("Billops service is running successfully!");
@@ -203,7 +203,7 @@ public class BillopsController {
         return ResponseEntity.ok(creditRequestService.updateRequestStatus(id, status));
     }
 
-    @PostMapping("/tickets")
+     @PostMapping("/tickets")
     public ResponseEntity<TicketDto> createTicket(@RequestBody TicketDto ticketDto) {
         return ResponseEntity.ok(ticketService.createTicket(ticketDto));
     }
@@ -211,5 +211,25 @@ public class BillopsController {
     @GetMapping("/tickets")
     public ResponseEntity<List<TicketDto>> getAllTickets() {
         return ResponseEntity.ok(ticketService.getAllTickets());
+    }
+
+    // --- START: NEW TICKET ENDPOINTS ---
+
+    @GetMapping("/tickets/{id}")
+    public ResponseEntity<TicketDto> getTicketById(@PathVariable Long id) {
+        return ResponseEntity.ok(ticketService.getTicketById(id));
+    }
+
+    @PostMapping("/tickets/{id}/replies")
+    public ResponseEntity<TicketDto> addTicketReply(@PathVariable Long id, @RequestBody TicketReplyDto replyDto) {
+        // In a real app, you would get the authorId from the authenticated user principal
+        // For now, we assume it's sent in the DTO.
+        return ResponseEntity.ok(ticketService.addReplyToTicket(id, replyDto));
+    }
+
+    @PostMapping("/tickets/{id}/close")
+    // @PreAuthorize("hasRole('ROLE_BILLOPS_ADMIN')") // You can uncomment this for security
+    public ResponseEntity<TicketDto> closeTicket(@PathVariable Long id) {
+        return ResponseEntity.ok(ticketService.closeTicket(id));
     }
 }
