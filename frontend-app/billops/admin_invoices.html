@@ -23,10 +23,10 @@
                 <div class="bg-white p-6 rounded-lg shadow-md mb-8">
                     <h2 class="text-xl font-semibold mb-4">Generate New Draft Invoice</h2>
                     <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                        <input type="text" x-model="generation.accountId" placeholder="AWS Account ID" class="p-2 border rounded">
-                        <input type="number" x-model.number="generation.year" placeholder="Year (e.g., 2023)" class="p-2 border rounded">
+                        <input type="text" x-model="generation.accountId" placeholder="Select an account from the sidebar" class="p-2 border rounded bg-gray-50">
+                        <input type="number" x-model.number="generation.year" placeholder="Year (e.g., 2025)" class="p-2 border rounded">
                         <input type="number" x-model.number="generation.month" placeholder="Month (1-12)" class="p-2 border rounded">
-                        <button @click="generateInvoice()" :disabled="generating" class="bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400">
+                        <button @click="generateInvoice()" :disabled="generating || !generation.accountId" class="bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400">
                             <span x-show="!generating">Generate Draft</span>
                             <span x-show="generating"><i class="fas fa-spinner fa-spin"></i> Generating...</span>
                         </button>
@@ -48,7 +48,9 @@
                         <tbody class="bg-white divide-y divide-gray-200">
                             <template x-for="invoice in invoices" :key="invoice.id">
                                 <tr>
-                                    <td class="px-6 py-4 whitespace-nowrap" x-text="invoice.invoiceNumber"></td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <a :href="`admin_invoice_detail.html?id=${invoice.id}`" class="text-indigo-600 hover:underline" x-text="invoice.invoiceNumber"></a>
+                                    </td>
                                     <td class="px-6 py-4 whitespace-nowrap" x-text="invoice.awsAccountId"></td>
                                     <td class="px-6 py-4 whitespace-nowrap" x-text="invoice.billingPeriod"></td>
                                     <td class="px-6 py-4 whitespace-nowrap" x-text="formatCurrency(invoice.finalTotal)"></td>
@@ -59,8 +61,7 @@
                                         </span>
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                        <button @click="openDiscountModal(invoice)" x-show="invoice.status === 'DRAFT'" class="text-indigo-600 hover:text-indigo-900 mr-4">Discount</button>
-                                        <button @click="finalizeInvoice(invoice.id)" x-show="invoice.status === 'DRAFT'" class="text-green-600 hover:text-green-900">Finalize</button>
+                                        <a :href="`admin_invoice_detail.html?id=${invoice.id}`" class="text-indigo-600 hover:text-indigo-900">View / Edit</a>
                                     </td>
                                 </tr>
                             </template>
@@ -70,27 +71,6 @@
             </div>
         </main>
     </div>
-
-    <div x-show="showDiscountModal" class="fixed z-10 inset-0 overflow-y-auto" x-cloak>
-        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-            <div @click="showDiscountModal = false" class="fixed inset-0 transition-opacity" aria-hidden="true">
-                <div class="absolute inset-0 bg-gray-500 opacity-75"></div>
-            </div>
-            <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
-                <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-                    <h3 class="text-lg leading-6 font-medium text-gray-900 mb-4">Apply Discount</h3>
-                    <div class="space-y-4">
-                        <input type="text" x-model="discount.serviceName" placeholder="Service Name (e.g., AmazonEC2)" class="w-full p-2 border rounded">
-                        <input type="number" x-model.number="discount.percentage" placeholder="Percentage (e.g., 10)" class="w-full p-2 border rounded">
-                    </div>
-                </div>
-                <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
-                    <button @click="applyDiscount()" type="button" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 sm:ml-3 sm:w-auto sm:text-sm">Apply</button>
-                    <button @click="showDiscountModal = false" type="button" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 sm:mt-0 sm:w-auto sm:text-sm">Cancel</button>
-                </div>
-            </div>
-        </div>
-    </div>
 </div>
 
 <script>
@@ -99,19 +79,38 @@
             invoices: [],
             generation: { accountId: '', year: new Date().getFullYear(), month: new Date().getMonth() + 1 },
             generating: false,
-            showDiscountModal: false,
-            discount: { invoiceId: null, serviceName: '', percentage: null },
-
+            
             init() {
                 this.loadSidebar();
                 this.fetchInvoices();
+
+                // --- START: MODIFIED SECTION ---
+                // This code reads the selected account from the browser's session storage,
+                // which is where the sidebar component saves it.
+                const selectedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                
+                // If one or more accounts are selected, use the first one for the form.
+                if (selectedIds.length > 0) {
+                    this.generation.accountId = selectedIds[0];
+                }
+                // --- END: MODIFIED SECTION ---
             },
 
             fetchInvoices() {
                 fetch('/api/admin/invoices')
-                    .then(res => res.json())
+                    .then(res => {
+                        if (!res.ok) {
+                           // If the user is not authorized, they will be redirected by the security config.
+                           if (res.status === 401 || res.status === 403) window.location.href = '/login';
+                           throw new Error(`Server responded with status: ${res.status}`);
+                        }
+                        return res.json();
+                    })
                     .then(data => {
                         this.invoices = data.sort((a, b) => b.id - a.id);
+                    })
+                    .catch(err => {
+                        console.error("An error occurred during fetch:", err.message);
                     });
             },
 
@@ -127,40 +126,15 @@
                     return res.json();
                 })
                 .then(() => {
-                    this.fetchInvoices(); // Refresh list
-                    this.generation.accountId = ''; // Reset form
+                    this.fetchInvoices(); 
+                    // We keep the selected account ID in the field for convenience
                 })
                 .catch(err => alert(err.message))
                 .finally(() => this.generating = false);
             },
             
-            finalizeInvoice(invoiceId) {
-                if (!confirm('Are you sure you want to finalize this invoice? This cannot be undone.')) return;
-                fetch(`/api/admin/invoices/${invoiceId}/finalize`, { method: 'POST' })
-                    .then(() => this.fetchInvoices());
-            },
-
-            openDiscountModal(invoice) {
-                this.discount.invoiceId = invoice.id;
-                this.discount.serviceName = '';
-                this.discount.percentage = null;
-                this.showDiscountModal = true;
-            },
-
-            applyDiscount() {
-                fetch(`/api/admin/invoices/${this.discount.invoiceId}/discount`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ serviceName: this.discount.serviceName, percentage: this.discount.percentage })
-                })
-                .then(() => {
-                    this.fetchInvoices();
-                    this.showDiscountModal = false;
-                });
-            },
-
             formatCurrency(value) {
-                return value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+                return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
             },
 
             loadSidebar() {

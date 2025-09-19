@@ -2,6 +2,8 @@ package com.xammer.cloud.security;
 
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import org.slf4j.Logger; // ✅ ADD THIS IMPORT
+import org.slf4j.LoggerFactory; // ✅ ADD THIS IMPORT
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -13,9 +15,14 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Component
 public class CustomAuthenticationSuccessHandler extends SimpleUrlAuthenticationSuccessHandler {
+
+    // ✅ ADD A LOGGER INSTANCE
+    private static final Logger logger = LoggerFactory.getLogger(CustomAuthenticationSuccessHandler.class);
 
     private final CloudAccountRepository cloudAccountRepository;
     private final String frontendUrl;
@@ -26,39 +33,42 @@ public class CustomAuthenticationSuccessHandler extends SimpleUrlAuthenticationS
         this.frontendUrl = frontendUrl;
     }
 
-    @Override
-    public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response, Authentication authentication) throws IOException, ServletException {
-        ClientUserDetails userDetails = (ClientUserDetails) authentication.getPrincipal();
-        String role = userDetails.getAuthorities().stream()
-                .findFirst()
-                .map(GrantedAuthority::getAuthority)
-                .orElse("");
+   @Override
+public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response, Authentication authentication) throws IOException, ServletException {
+    ClientUserDetails userDetails = (ClientUserDetails) authentication.getPrincipal();
+    Set<String> roles = userDetails.getAuthorities().stream()
+            .map(GrantedAuthority::getAuthority)
+            .collect(Collectors.toSet());
 
-        String targetUrl;
-        Long clientId = userDetails.getClientId();
-        List<CloudAccount> accounts = cloudAccountRepository.findByClientId(clientId);
+    String targetUrl;
+    Long clientId = userDetails.getClientId();
+    List<CloudAccount> accounts = cloudAccountRepository.findByClientId(clientId);
 
-        if (accounts.isEmpty()) {
-            // Default to account manager if no accounts are connected
-            targetUrl = frontendUrl + "/account-manager.html";
+    if (roles.contains("ROLE_BILLOPS_ADMIN")) {
+        targetUrl = frontendUrl + "/billops/billing.html";
+    } else if (accounts.isEmpty()) {
+        targetUrl = frontendUrl + "/account-manager.html";
+    } else {
+        if (roles.contains("ROLE_BILLOPS")) {
+            targetUrl = frontendUrl + "/billops/billing.html" + "?accountIds=" + accounts.get(0).getAwsAccountId();
         } else {
-            // All roles with accounts get redirected with the first account ID
             CloudAccount defaultAccount = accounts.get(0);
             String firstAccountId = "AWS".equals(defaultAccount.getProvider())
                     ? defaultAccount.getAwsAccountId()
                     : defaultAccount.getGcpProjectId();
 
-            String page;
-            if ("ROLE_BILLOPS".equals(role)) {
-                page = "/billops/billing.html";
-            } else {
-                page = "GCP".equals(defaultAccount.getProvider())
-                        ? "/gcp_dashboard.html"
-                        : "/dashboard.html";
-            }
+            String page = "GCP".equals(defaultAccount.getProvider())
+                    ? "/gcp_dashboard.html"
+                    : "/dashboard.html";
             targetUrl = frontendUrl + page + "?accountId=" + firstAccountId;
         }
-
-        getRedirectStrategy().sendRedirect(request, response, targetUrl);
     }
+
+    logger.debug("Authentication successful. Sending redirect target URL: {}", targetUrl);
+
+    // ✅ CHANGED: Instead of redirecting, write a JSON response
+    response.setContentType("application/json");
+    response.setCharacterEncoding("UTF-8");
+    response.getWriter().write("{\"redirectUrl\":\"" + targetUrl + "\"}");
+}
 }

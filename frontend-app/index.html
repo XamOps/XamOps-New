@@ -606,7 +606,7 @@
                 speed: 0.5
             });
 
-            // Handle Login Form Submission
+            // Handle Login Form Submission with Enhanced Debugging
             const loginForm = document.getElementById('loginForm');
             const errorAlert = document.getElementById('errorAlert');
             const button = document.getElementById('loginButton');
@@ -614,40 +614,70 @@
             const buttonLoading = document.getElementById('buttonLoading');
 
             loginForm.addEventListener('submit', async function(event) {
-                event.preventDefault(); // Stop the default page reload
-
-                // Hide previous errors and show loading state
+                event.preventDefault();
+                
                 errorAlert.style.display = 'none';
                 button.disabled = true;
-                buttonText.textContent = 'Authenticating';
+                buttonText.textContent = 'Authenticating...';
                 buttonLoading.style.display = 'inline-block';
                 button.style.transform = 'scale(0.98)';
-
+                
                 const formData = new FormData(loginForm);
-
+                
                 try {
-                    // Make the API call to the backend's /login endpoint
+                    console.log('--- START LOGIN PROCESS ---');
+                    console.log('[DEBUG] 1. Initiating login request to /login');
+                    
                     const response = await fetch('/login', {
                         method: 'POST',
-                        body: new URLSearchParams(formData) // Spring Security formLogin expects 'application/x-www-form-urlencoded'
+                        body: new URLSearchParams(formData),
+                        credentials: 'include', //  <--  THIS IS THE FIX
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded'
+                        }
                     });
-
-                    // If login is successful, the server's success handler will redirect.
-                    // The 'fetch' API automatically follows redirects.
-                    // We check the final URL to confirm success.
-                    if (response.ok && response.redirected) {
-                        // Redirect the browser to the dashboard page.
-                        window.location.href = response.url;
+                    
+                    console.log('[DEBUG] 2. Received response from server:', {
+                        status: response.status,
+                        statusText: response.statusText,
+                        ok: response.ok,
+                        type: response.type,
+                        url: response.url
+                    });
+                    
+                    if (response.ok) {
+                        const contentType = response.headers.get('content-type');
+                        console.log('[DEBUG] 3. Response is OK. Content-Type:', contentType);
+                        
+                        if (contentType && contentType.includes('application/json')) {
+                            console.log('[DEBUG] 4a. Handling JSON response.');
+                            const data = await response.json();
+                            console.log('[DEBUG] 5a. Parsed JSON:', data);
+                            if (data.redirectUrl) {
+                                console.log('[DEBUG] 6a. Redirect URL found. Navigating to:', data.redirectUrl);
+                                window.location.href = data.redirectUrl;
+                            } else {
+                                throw new Error('Redirect URL not found in JSON response.');
+                            }
+                        } else {
+                            console.log('[DEBUG] 4b. Handling non-JSON response (likely a redirect).');
+                            if (response.redirected) {
+                                console.log('[DEBUG] 5b. Browser followed redirect. Final URL:', response.url);
+                                window.location.href = response.url;
+                            } else {
+                                console.warn('[DEBUG] 5b. Response was OK but not a redirect or JSON. Manually redirecting to dashboard as a fallback.');
+                                window.location.href = '/dashboard.html?fallback=true';
+                            }
+                        }
                     } else {
-                        // If login fails (e.g., 401 Unauthorized), show the error.
-                        throw new Error('Authentication failed');
+                        console.error('[DEBUG] ERROR: Server responded with a non-OK status:', response.status);
+                        const responseText = await response.text();
+                        console.error('[DEBUG] ERROR Response body:', responseText);
+                        throw new Error(`Authentication failed: Status ${response.status}`);
                     }
                 } catch (error) {
-                    console.error('Login error:', error);
-                    // Show the error message
+                    console.error('[DEBUG] CATCH BLOCK: An error occurred during the login process.', error);
                     errorAlert.style.display = 'block';
-
-                    // Reset button state
                     button.disabled = false;
                     buttonText.textContent = 'Sign In';
                     buttonLoading.style.display = 'none';
@@ -660,13 +690,11 @@
                 input.addEventListener('focus', function() {
                     this.parentElement.style.transform = 'translateY(-2px)';
                 });
-
                 input.addEventListener('blur', function() {
                     this.parentElement.style.transform = 'translateY(0)';
                 });
             });
         });
     </script>
-
 </body>
 </html>

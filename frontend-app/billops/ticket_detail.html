@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XamOps - Ticket Details</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>[x-cloak] { display: none !important; }</style>
+</head>
+<body class="bg-gray-100" x-data="ticketDetailApp()">
+<div class="flex h-screen">
+    <div id="sidebar-container" class="flex-shrink-0"></div>
+
+    <div class="flex-1 flex flex-col overflow-hidden">
+        <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-6">
+            <div x-show="loading" class="text-center p-10"><i class="fas fa-spinner fa-spin text-3xl text-indigo-500"></i></div>
+            <div x-show="error" class="text-center p-10 bg-red-50 rounded-lg"><p class="text-red-700" x-text="error"></p></div>
+            
+            <div x-show="!loading && ticket" class="container mx-auto">
+                <a href="javascript:history.back()" class="text-indigo-600 hover:text-indigo-800 mb-4 inline-block"><i class="fas fa-arrow-left mr-2"></i>Back</a>
+                
+                <div class="bg-white rounded-lg shadow-md">
+                    <div class="p-6 border-b">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <h1 class="text-2xl font-bold text-gray-800" x-text="ticket.subject"></h1>
+                                <p class="text-sm text-gray-600" x-text="`Category: ${ticket.category} | Service: ${ticket.service} | Severity: ${ticket.severity}`"></p>
+                            </div>
+                            <span class="px-3 py-1 text-sm font-semibold rounded-full"
+                                  :class="{ 'bg-blue-100 text-blue-800': ticket.status === 'OPEN', 'bg-yellow-100 text-yellow-800': ticket.status === 'IN_PROGRESS', 'bg-gray-200 text-gray-800': ticket.status === 'CLOSED' }"
+                                  x-text="ticket.status"></span>
+                        </div>
+                    </div>
+                    
+                    <div class="p-6 space-y-6">
+                        <div class="flex items-start space-x-4">
+                            <div class="flex-shrink-0 w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center"><i class="fas fa-user text-gray-500"></i></div>
+                            <div class="flex-1">
+                                <p class="font-semibold text-gray-800">You</p>
+                                <div class="bg-gray-50 rounded-lg p-4 mt-1"><p class="text-gray-700 whitespace-pre-wrap" x-text="ticket.description"></p></div>
+                                <p class="text-xs text-gray-400 mt-1" x-text="`Posted on: ${new Date(ticket.createdAt).toLocaleString()}`"></p>
+                            </div>
+                        </div>
+
+                        <template x-for="reply in ticket.replies" :key="reply.id">
+                            <div class="flex items-start space-x-4" :class="reply.authorUsername === currentUser.username ? 'justify-end' : ''">
+                                <div class="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center" :class="reply.authorUsername.includes('admin') ? 'bg-indigo-500' : 'bg-gray-200'">
+                                    <i class="fas text-white" :class="reply.authorUsername.includes('admin') ? 'fa-user-shield' : 'fa-user'"></i>
+                                </div>
+                                <div class="flex-1">
+                                    <p class="font-semibold text-gray-800" x-text="reply.authorUsername"></p>
+                                    <div class="rounded-lg p-4 mt-1" :class="reply.authorUsername.includes('admin') ? 'bg-indigo-50' : 'bg-gray-50'">
+                                        <p class="text-gray-700 whitespace-pre-wrap" x-text="reply.message"></p>
+                                    </div>
+                                    <p class="text-xs text-gray-400 mt-1" x-text="`Posted on: ${new Date(reply.createdAt).toLocaleString()}`"></p>
+                                </div>
+                            </div>
+                        </template>
+
+                        <div x-show="ticket.status !== 'CLOSED'" class="pt-6 border-t">
+                             <textarea x-model="newReply" rows="4" class="w-full p-3 border rounded-md" placeholder="Type your reply here..."></textarea>
+                             <div class="mt-4 flex justify-between items-center">
+                                 <button @click="submitReply()" :disabled="!newReply.trim()" class="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400">Send Reply</button>
+                                 <button x-show="currentUser.roles.includes('ROLE_BILLOPS_ADMIN')" @click="closeTicket()" class="px-6 py-2 bg-red-600 text-white rounded-md hover:bg-red-700">Close Ticket</button>
+                             </div>
+                        </div>
+
+                        <div x-show="ticket.status === 'CLOSED'" class="text-center text-gray-500 py-4 border-t">
+                            This ticket has been closed. You can no longer reply.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+</div>
+
+<script>
+    function ticketDetailApp() {
+        return {
+            ticket: null,
+            loading: true,
+            error: null,
+            ticketId: null,
+            newReply: '',
+            currentUser: { username: '', roles: [] },
+
+            init() {
+                this.loadSidebar();
+                const urlParams = new URLSearchParams(window.location.search);
+                this.ticketId = urlParams.get('id');
+                if (!this.ticketId) {
+                    this.error = "No Ticket ID provided.";
+                    this.loading = false;
+                    return;
+                }
+                this.fetchCurrentUser().then(() => this.fetchTicketDetails());
+            },
+
+            async fetchCurrentUser() {
+                try {
+                    const response = await fetch('/api/xamops/user/profile');
+                    this.currentUser = await response.json();
+                } catch (e) {
+                    console.error('Could not fetch user profile', e);
+                }
+            },
+
+            fetchTicketDetails() {
+                fetch(`/api/billops/tickets/${this.ticketId}`)
+                    .then(res => res.ok ? res.json() : Promise.reject('Ticket not found.'))
+                    .then(data => { this.ticket = data; })
+                    .catch(err => { this.error = err; })
+                    .finally(() => { this.loading = false; });
+            },
+
+            submitReply() {
+                fetch(`/api/billops/tickets/${this.ticketId}/replies`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: this.newReply, authorId: 1 }) // Hardcoded authorId for now
+                })
+                .then(res => res.json())
+                .then(updatedTicket => {
+                    this.ticket = updatedTicket;
+                    this.newReply = '';
+                });
+            },
+
+            closeTicket() {
+                if(confirm('Are you sure you want to close this ticket?')) {
+                    fetch(`/api/billops/tickets/${this.ticketId}/close`, { method: 'POST' })
+                    .then(res => res.json())
+                    .then(updatedTicket => { this.ticket = updatedTicket; });
+                }
+            },
+            
+            loadSidebar() {
+                fetch('/_sidebar.html')
+                    .then(response => response.text())
+                    .then(html => {
+                        document.getElementById('sidebar-container').innerHTML = html;
+                        if (window.Alpine) Alpine.start();
+                    });
+            }
+        };
+    }
+</script>
+</body>
+</html>

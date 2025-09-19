@@ -9,16 +9,15 @@ import com.itextpdf.layout.element.Paragraph;
 import com.itextpdf.layout.element.Table;
 import com.itextpdf.layout.properties.TextAlignment;
 import com.itextpdf.layout.properties.UnitValue;
-import com.xammer.billops.domain.CloudAccount;
-import com.xammer.billops.domain.Discount;
-import com.xammer.billops.domain.Invoice;
-import com.xammer.billops.domain.InvoiceLineItem;
+import com.xammer.billops.domain.*;
 import com.xammer.billops.dto.DiscountRequestDto;
 import com.xammer.billops.dto.InvoiceDto;
 import com.xammer.billops.dto.ServiceCostDetailDto;
 import com.xammer.billops.repository.CloudAccountRepository;
 import com.xammer.billops.repository.DiscountRepository;
 import com.xammer.billops.repository.InvoiceRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,6 +39,7 @@ public class InvoiceManagementService {
     private final CloudAccountRepository cloudAccountRepository;
     private final DiscountRepository discountRepository;
     private final BillingService billingService;
+    private static final Logger logger = LoggerFactory.getLogger(InvoiceManagementService.class);
 
     public InvoiceManagementService(InvoiceRepository invoiceRepository,
                                   CloudAccountRepository cloudAccountRepository,
@@ -51,11 +51,7 @@ public class InvoiceManagementService {
         this.billingService = billingService;
     }
 
-    /**
-     * MODIFIED: This now adds to a list of discounts and recalculates the total.
-     */
     public InvoiceDto applyDiscountToTemporaryInvoice(InvoiceDto invoiceDto, DiscountRequestDto discountRequest) {
-        // Add the new discount to the list
         InvoiceDto.DiscountDto newDiscount = new InvoiceDto.DiscountDto();
         newDiscount.setServiceName(discountRequest.getServiceName());
         newDiscount.setPercentage(discountRequest.getPercentage());
@@ -69,15 +65,11 @@ public class InvoiceManagementService {
         }
         invoiceDto.getDiscounts().add(newDiscount);
 
-        // Recalculate totals based on the full list of discounts
         recalculateTotalsForDto(invoiceDto);
 
         return invoiceDto;
     }
 
-    /**
-     * NEW HELPER METHOD: Recalculates the total discount and final total for an InvoiceDto.
-     */
     private void recalculateTotalsForDto(InvoiceDto invoiceDto) {
         BigDecimal totalDiscount = BigDecimal.ZERO;
 
@@ -109,6 +101,7 @@ public class InvoiceManagementService {
 
         Invoice invoice = new Invoice();
         invoice.setCloudAccount(cloudAccount);
+        invoice.setClient(cloudAccount.getClient());
         invoice.setInvoiceDate(LocalDate.now());
         invoice.setBillingPeriod(YearMonth.of(year, month).format(DateTimeFormatter.ofPattern("yyyy-MM")));
         invoice.setStatus(Invoice.InvoiceStatus.DRAFT);
@@ -139,7 +132,6 @@ public class InvoiceManagementService {
         invoice.setPreDiscountTotal(totalCost);
         invoice.setDiscountAmount(BigDecimal.ZERO);
         invoice.setFinalTotal(totalCost);
-        invoice.setDiscounts(new ArrayList<>());
 
         return invoice;
     }
@@ -153,6 +145,7 @@ public class InvoiceManagementService {
 
         Invoice invoice = new Invoice();
         invoice.setCloudAccount(cloudAccount);
+        invoice.setClient(cloudAccount.getClient());
         invoice.setInvoiceDate(LocalDate.now());
         invoice.setBillingPeriod(YearMonth.of(year, month).format(DateTimeFormatter.ofPattern("yyyy-MM")));
         invoice.setStatus(Invoice.InvoiceStatus.DRAFT);
@@ -183,45 +176,80 @@ public class InvoiceManagementService {
         invoice.setPreDiscountTotal(totalCost);
         invoice.setDiscountAmount(BigDecimal.ZERO);
         invoice.setFinalTotal(totalCost);
-        invoice.setDiscounts(new ArrayList<>());
 
         return invoiceRepository.save(invoice);
     }
+    
+@Transactional
+public Invoice applyDiscountToInvoice(Long invoiceId, String serviceName, BigDecimal percentage) {
+    Invoice invoice = invoiceRepository.findById(invoiceId)
+            .orElseThrow(() -> new RuntimeException("Invoice not found"));
 
-    @Transactional
-    public Invoice applyDiscountToInvoice(Long invoiceId, String serviceName, BigDecimal percentage) {
-        Invoice invoice = invoiceRepository.findById(invoiceId)
-                .orElseThrow(() -> new RuntimeException("Invoice not found"));
-
-        if (invoice.getStatus() == Invoice.InvoiceStatus.FINALIZED) {
-            throw new IllegalStateException("Cannot apply discount to a finalized invoice.");
-        }
-
-        Discount discount = new Discount();
-        discount.setInvoice(invoice);
-        discount.setServiceName(serviceName);
-        discount.setPercentage(percentage);
-        discount.setDescription(percentage + "% discount for " + serviceName);
-        invoice.getDiscounts().add(discount);
-
-        recalculateTotals(invoice);
-
-        return invoiceRepository.save(invoice);
+    if (invoice.getStatus() == Invoice.InvoiceStatus.FINALIZED) {
+        throw new IllegalStateException("Cannot apply discount to a finalized invoice.");
     }
 
+    Discount discount = new Discount();
+    discount.setInvoice(invoice);
+    discount.setClient(invoice.getClient());
+    discount.setServiceName(serviceName);
+    discount.setPercentage(percentage);
+    discount.setDescription(String.format("%.2f%% discount for %s",
+        percentage,
+        "ALL".equalsIgnoreCase(serviceName) ? "Overall Bill" : serviceName
+    ));
+    
+    // Save the discount first
+    discountRepository.save(discount);
+
+    invoice.getDiscounts().add(discount);
+
+    recalculateTotals(invoice);
+
+    return invoiceRepository.save(invoice);
+}
+// Add this new method to your InvoiceManagementService class
+@Transactional
+public Invoice removeDiscountFromInvoice(Long invoiceId, Long discountId) {
+    Invoice invoice = invoiceRepository.findById(invoiceId)
+            .orElseThrow(() -> new RuntimeException("Invoice not found"));
+
+    if (invoice.getStatus() == Invoice.InvoiceStatus.FINALIZED) {
+        throw new IllegalStateException("Cannot modify a finalized invoice.");
+    }
+
+    // Find the discount to remove from the invoice's list
+    Optional<Discount> discountToRemove = invoice.getDiscounts().stream()
+            .filter(d -> d.getId().equals(discountId))
+            .findFirst();
+
+    if (discountToRemove.isPresent()) {
+        // Remove the discount. orphanRemoval=true will delete it from the database.
+        invoice.getDiscounts().remove(discountToRemove.get());
+        recalculateTotals(invoice); // Recalculate totals after removal
+        return invoiceRepository.save(invoice);
+    } else {
+        throw new RuntimeException("Discount not found on this invoice.");
+    }
+}
     private void recalculateTotals(Invoice invoice) {
         BigDecimal totalDiscount = BigDecimal.ZERO;
         for (Discount disc : invoice.getDiscounts()) {
-            BigDecimal serviceTotal = invoice.getLineItems().stream()
-                .filter(item -> item.getServiceName().equalsIgnoreCase(disc.getServiceName()))
-                .map(InvoiceLineItem::getCost)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal percentage = disc.getPercentage().divide(new BigDecimal(100));
 
-            totalDiscount = totalDiscount.add(serviceTotal.multiply(disc.getPercentage().divide(new BigDecimal(100))));
+            if ("ALL".equalsIgnoreCase(disc.getServiceName())) {
+                totalDiscount = totalDiscount.add(invoice.getPreDiscountTotal().multiply(percentage));
+            } else {
+                 BigDecimal serviceTotal = invoice.getLineItems().stream()
+                    .filter(item -> disc.getServiceName().equalsIgnoreCase(item.getServiceName()))
+                    .map(InvoiceLineItem::getCost)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+                totalDiscount = totalDiscount.add(serviceTotal.multiply(percentage));
+            }
         }
 
-        invoice.setDiscountAmount(totalDiscount);
-        invoice.setFinalTotal(invoice.getPreDiscountTotal().subtract(totalDiscount));
+        invoice.setDiscountAmount(totalDiscount.setScale(2, RoundingMode.HALF_UP));
+        invoice.setFinalTotal(invoice.getPreDiscountTotal().subtract(invoice.getDiscountAmount()));
     }
 
 
@@ -233,15 +261,40 @@ public class InvoiceManagementService {
         return invoiceRepository.save(invoice);
     }
 
-    @Transactional(readOnly = true)
+ @Transactional(readOnly = true)
     public Invoice getInvoiceForUser(String accountId, int year, int month) {
         CloudAccount cloudAccount = cloudAccountRepository.findByAwsAccountId(accountId)
                 .orElseThrow(() -> new RuntimeException("Cloud account not found"));
         String billingPeriod = YearMonth.of(year, month).format(DateTimeFormatter.ofPattern("yyyy-MM"));
-        return invoiceRepository.findByCloudAccountIdAndBillingPeriodAndStatus(cloudAccount.getId(), billingPeriod, Invoice.InvoiceStatus.FINALIZED)
-                .orElse(null);
-    }
 
+        logger.info("Searching for finalized invoice with parameters:");
+        logger.info("--> Cloud Account DB ID: {}", cloudAccount.getId());
+        logger.info("--> Billing Period: {}", billingPeriod);
+        logger.info("--> Status: {}", Invoice.InvoiceStatus.FINALIZED);
+
+        // --- FIX: Handle the possibility of multiple invoices ---
+        List<Invoice> invoices = invoiceRepository.findByCloudAccountIdAndBillingPeriodAndStatus(cloudAccount.getId(), billingPeriod, Invoice.InvoiceStatus.FINALIZED);
+
+        if (invoices.isEmpty()) {
+            logger.warn("--> RESULT: No finalized invoice found for the given criteria.");
+            return null; // Return null if no invoice is found
+        }
+
+        if (invoices.size() > 1) {
+            logger.warn("--> RESULT: Found {} finalized invoices for the same period. This is unexpected. Returning the most recent one (highest ID).", invoices.size());
+            // Find the invoice with the maximum ID and return it.
+            return invoices.stream()
+                         .max(Comparator.comparing(Invoice::getId))
+                         .orElse(null); // Should not happen if the list is not empty
+        }
+
+        // If there's only one, log its ID and return it.
+        Invoice singleInvoice = invoices.get(0);
+        logger.info("--> RESULT: Found finalized invoice with ID: {}", singleInvoice.getId());
+        return singleInvoice;
+        // --- END FIX ---
+    }
+    
     @Transactional(readOnly = true)
     public Invoice getInvoiceForAdmin(Long invoiceId) {
         return invoiceRepository.findById(invoiceId)
