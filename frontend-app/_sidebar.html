@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.0/dist/cdn.min.js" defer></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fngont-awesome/6.4.0/css/all.min.css">
     <link rel="icon" type="image/png" href="/icons/XamOps.png">
     <style>
         [x-cloak] { display: none !important; }
@@ -81,13 +81,23 @@
                 const account = this.accounts.find(a => a.id === firstSelectedId);
 
                 let targetPage;
-                if (this.hasAnyRole(['ROLE_BILLOPS', 'ROLE_BILLOPS_ADMIN'])) {
-                    targetPage = '/billops/billing.html';
-                } else {
-                    targetPage = '/dashboard.html';
-                    if (account && account.provider === 'GCP') {
+
+                // This switch statement correctly routes to the new Azure dashboard
+                switch (account ? account.provider : '') {
+                    case 'GCP':
                         targetPage = '/gcp_dashboard.html';
-                    }
+                        break;
+                    case 'Azure':
+                        targetPage = '/azure_dashboard.html';
+                        break;
+                    case 'AWS':
+                    default:
+                        if (this.hasAnyRole(['ROLE_BILLOPS', 'ROLE_BILLOPS_ADMIN'])) {
+                           targetPage = '/billops/billing.html';
+                        } else {
+                           targetPage = '/dashboard.html';
+                        }
+                        break;
                 }
                 const targetUrl = `${targetPage}?accountIds=${this.selectedAccountIds.join(',')}`;
                 window.location.href = targetUrl;
@@ -109,13 +119,14 @@
         toggleAccount(accountId) {
             const account = this.accounts.find(a => a.id === accountId);
             if (!account) return;
-            const isGcp = account.provider === 'GCP';
+            // Azure is now treated as a single-selection provider
+            const isSingleSelect = account.provider === 'GCP' || account.provider === 'Azure';
             const index = this.selectedAccountIds.indexOf(accountId);
-            if (isGcp) {
+            if (isSingleSelect) {
                 this.selectedAccountIds = index > -1 ? [] : [accountId];
             } else {
-                const gcpSelected = this.selectedAccountIds.some(id => this.accounts.find(a => a.id === id)?.provider === 'GCP');
-                if (gcpSelected) {
+                const nonAwsSelected = this.selectedAccountIds.some(id => this.accounts.find(a => a.id === id)?.provider !== 'AWS');
+                if (nonAwsSelected) {
                     this.selectedAccountIds = [accountId];
                 } else {
                     index > -1 ? this.selectedAccountIds.splice(index, 1) : this.selectedAccountIds.push(accountId);
@@ -125,8 +136,8 @@
 
         isSelectionDisabled(accountProvider) {
             if (this.selectedAccountIds.length === 0) return false;
-            const isGcpSelected = this.selectedAccountIds.some(id => this.accounts.find(a => a.id === id)?.provider === 'GCP');
-            return isGcpSelected ? true : accountProvider === 'GCP';
+            const nonAwsSelected = this.selectedAccountIds.some(id => this.accounts.find(a => a.id === id)?.provider !== 'AWS');
+            return nonAwsSelected ? true : (accountProvider !== 'AWS');
         },
 
         get filteredAccounts() {
@@ -136,8 +147,14 @@
         },
 
         getProviderIcon(provider) {
-             if (provider === 'GCP') return '/icons/gcp-icon.png';
-             return '/icons/default-icon.png';
+             // Added the Azure icon
+             switch(provider) {
+                case 'GCP': return '/icons/gcp-icon.png';
+                case 'Azure': return '/icons/azure-icon.png';
+                case 'AWS':
+                default:
+                    return '/icons/default-icon.png';
+             }
         },
 
         isActive(path) {
@@ -148,189 +165,188 @@
             const selectedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
             if (selectedIds.length === 0) {
                 if (basePath.includes('account-manager.html') || basePath.includes('dashboard.html')) return basePath;
-                return '#'; 
+                return '#';
             }
             const url = new URL(window.location.origin + basePath);
             url.searchParams.append('accountIds', selectedIds.join(','));
             return url.toString();
         }
     }">
-        <div class="flex-shrink-0 flex items-center justify-center h-16 border-b bg-white">
-            <a href="/dashboard.html"><img src="/icons/XamOps.png" alt="XamOps Logo" class="h-10 w-auto"></a>
-        </div>
+    <div class="flex-shrink-0 flex items-center justify-center h-16 border-b bg-white">
+        <a href="/dashboard.html"><img src="/icons/XamOps.png" alt="XamOps Logo" class="h-10 w-auto"></a>
+    </div>
 
-        <div class="p-4 border-b bg-gradient-to-r from-gray-50 to-white flex-shrink-0">
-            <div class="relative">
-                <div @click="open = !open" class="flex items-center justify-between p-3 rounded-xl bg-white border border-gray-200 hover:border-indigo-300 cursor-pointer transition-all duration-200 hover:shadow-md">
-                    <div class="flex items-center min-w-0">
-                        <div class="relative flex-shrink-0">
-                            <div class="w-10 h-10 account-avatar rounded-full flex items-center justify-center text-white font-bold text-sm mr-3" x-show="selectedAccountIds.length === 0" x-text="'X'"></div>
-                            <div class="w-10 h-10 account-avatar rounded-full flex items-center justify-center text-white font-bold text-lg mr-3" x-show="selectedAccountIds.length > 1" x-text="selectedAccountIds.length"></div>
-                            <img :src="getProviderIcon(selectedAccountDisplay.provider)" class="w-10 h-10 rounded-full mr-3 object-cover" x-show="selectedAccountIds.length === 1">
-                            <div class="connection-indicator" x-show="selectedAccountIds.length > 0"></div>
-                        </div>
-                        <div class="flex-1 min-w-0">
-                            <div class="flex items-center space-x-2">
-                                <span class="account-status" x-show="selectedAccountIds.length > 0"></span>
-                                <span class="text-sm font-semibold text-gray-800 truncate" x-text="selectedAccountDisplay.name"></span>
-                            </div>
-                            <p class="text-xs text-gray-500 truncate" x-text="selectedAccountDisplay.id"></p>
-                        </div>
+    <div class="p-4 border-b bg-gradient-to-r from-gray-50 to-white flex-shrink-0">
+        <div class="relative">
+            <div @click="open = !open" class="flex items-center justify-between p-3 rounded-xl bg-white border border-gray-200 hover:border-indigo-300 cursor-pointer transition-all duration-200 hover:shadow-md">
+                <div class="flex items-center min-w-0">
+                    <div class="relative flex-shrink-0">
+                        <div class="w-10 h-10 account-avatar rounded-full flex items-center justify-center text-white font-bold text-sm mr-3" x-show="selectedAccountIds.length === 0" x-text="'X'"></div>
+                        <div class="w-10 h-10 account-avatar rounded-full flex items-center justify-center text-white font-bold text-lg mr-3" x-show="selectedAccountIds.length > 1" x-text="selectedAccountIds.length"></div>
+                        <img :src="getProviderIcon(selectedAccountDisplay.provider)" class="w-10 h-10 rounded-full mr-3 object-cover" x-show="selectedAccountIds.length === 1">
+                        <div class="connection-indicator" x-show="selectedAccountIds.length > 0"></div>
                     </div>
-                    <div class="flex items-center space-x-2">
-                        <div x-show="isLoading" class="w-4 h-4 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
-                        <i class="fas fa-chevron-down text-gray-400 text-xs transition-transform duration-200" :class="{ 'rotate-180': open }"></i>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center space-x-2">
+                            <span class="account-status" x-show="selectedAccountIds.length > 0"></span>
+                            <span class="text-sm font-semibold text-gray-800 truncate" x-text="selectedAccountDisplay.name"></span>
+                        </div>
+                        <p class="text-xs text-gray-500 truncate" x-text="selectedAccountDisplay.id"></p>
                     </div>
                 </div>
-
-                <div x-show="open" x-transition @click.outside="open = false" x-cloak class="absolute left-0 right-0 mt-2 bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden dropdown-animation">
-                    <div class="p-3 border-b bg-gray-50">
-                        <input type="text" x-model="searchTerm" placeholder="Search accounts..." class="w-full px-3 py-2 text-sm rounded-lg focus:outline-none border">
-                    </div>
-                    <div class="py-1 max-h-60 overflow-y-auto sidebar-scroll">
-                        <template x-for="account in filteredAccounts" :key="account.dbId">
-                            <div @click="toggleAccount(account.id)" class="flex items-center px-4 py-3 text-sm hover:bg-indigo-50 cursor-pointer" :class="{ 'bg-indigo-50': selectedAccountIds.includes(account.id) }">
-                                <input type="checkbox" :checked="selectedAccountIds.includes(account.id)" class="mr-3 rounded text-indigo-600">
-                                <img :src="getProviderIcon(account.provider)" class="w-8 h-8 rounded-full mr-3 flex-shrink-0 object-cover">
-                                <div class="flex-1 min-w-0">
-                                    <div class="font-medium text-gray-900 truncate" x-text="account.name"></div>
-                                    <div class="text-xs text-gray-500 truncate" x-text="account.id"></div>
-                                </div>
-                            </div>
-                        </template>
-                    </div>
-                    <div class="p-3 bg-gray-50 border-t">
-                        <button @click="applySelection()" class="w-full bg-indigo-600 text-white font-semibold py-2 rounded-lg hover:bg-indigo-700">Apply Selection</button>
-                    </div>
+                <div class="flex items-center space-x-2">
+                    <div x-show="isLoading" class="w-4 h-4 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+                    <i class="fas fa-chevron-down text-gray-400 text-xs transition-transform duration-200" :class="{ 'rotate-180': open }"></i>
                 </div>
             </div>
-        </div>
 
-        <nav class="flex-1 px-3 py-4 space-y-2 text-sm overflow-y-auto sidebar-scroll">
-            
-            <div x-show="hasAnyRole(['ROLE_XAMOPS', 'ROLE_ADMIN'])" x-cloak>
-                 <div class="sidebar-section" :class="{'active': isActive('/dashboard.html')}">
-                    <a :href="getLink('/dashboard.html')" class="nav-item flex items-center gap-3 rounded-xl px-4 py-3 font-semibold" :class="isActive('/dashboard.html') ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg' : 'text-gray-600 hover:bg-indigo-50'">
-                        <i class="fas fa-tachometer-alt fa-fw w-5 text-center"></i>
-                        <span>Dashboard</span>
-                    </a>
+            <div x-show="open" x-transition @click.outside="open = false" x-cloak class="absolute left-0 right-0 mt-2 bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden dropdown-animation">
+                <div class="p-3 border-b bg-gray-50">
+                    <input type="text" x-model="searchTerm" placeholder="Search accounts..." class="w-full px-3 py-2 text-sm rounded-lg focus:outline-none border">
                 </div>
-
-                <div class="sidebar-section" :class="{'active': isActive('/cloudk8s') || isActive('/cloudlist') || isActive('/cloudmap')}">
-                    <div x-data="{ open: isActive('/cloudk8s') || isActive('/cloudlist') || isActive('/cloudmap') }">
-                        <button @click="open = !open" class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold" :class="isActive('/cloudk8s') || isActive('/cloudlist') || isActive('/cloudmap') ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg' : 'text-gray-600 hover:bg-indigo-50'">
-                            <div class="flex items-center gap-3">
-                                <i class="fas fa-cloud fa-fw w-5 text-center"></i>
-                                <span>Cloudview</span>
+                <div class="py-1 max-h-60 overflow-y-auto sidebar-scroll">
+                    <template x-for="account in filteredAccounts" :key="account.dbId">
+                        <div @click="toggleAccount(account.id)" class="flex items-center px-4 py-3 text-sm hover:bg-indigo-50 cursor-pointer" :class="{ 'bg-indigo-50': selectedAccountIds.includes(account.id) }">
+                            <input type="checkbox" :checked="selectedAccountIds.includes(account.id)" class="mr-3 rounded text-indigo-600">
+                            <img :src="getProviderIcon(account.provider)" class="w-8 h-8 rounded-full mr-3 flex-shrink-0 object-cover">
+                            <div class="flex-1 min-w-0">
+                                <div class="font-medium text-gray-900 truncate" x-text="account.name"></div>
+                                <div class="text-xs text-gray-500 truncate" x-text="account.id"></div>
                             </div>
-                            <i class="fas fa-chevron-down text-xs" :class="open && 'rotate-180'"></i>
-                        </button>
-                        <div x-show="open" class="ml-6 mt-2 space-y-1">
-                            <a :href="getLink('/cloudk8s.html')" :class="{'text-indigo-600 font-bold bg-indigo-50': isActive('/cloudk8s.html')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-indigo-600">CloudK8s</a>
-                            <a :href="getLink('/cloudlist.html')" :class="{'text-indigo-600 font-bold bg-indigo-50': isActive('/cloudlist.html')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-indigo-600">Cloudlist</a>
-                            <a :href="getLink('/cloudmap.html')" :class="{'text-indigo-600 font-bold bg-indigo-50': isActive('/cloudmap.html')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-indigo-600">Cloudmap</a>
                         </div>
-                    </div>
+                    </template>
                 </div>
-
-                <div class="sidebar-section" :class="{'active': isActive('/finops.html') || isActive('/cost.html') || isActive('/waste.html') || isActive('/rightsizing.html') || isActive('/reservation.html')}">
-                    <div x-data="{ open: isActive('/finops.html') || isActive('/cost.html') || isActive('/waste.html') || isActive('/rightsizing.html') || isActive('/reservation.html') }">
-                        <button @click="open = !open" class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold" :class="isActive('/finops.html') || isActive('/cost.html') || isActive('/waste.html') || isActive('/rightsizing.html') || isActive('/reservation.html') ? 'bg-gradient-to-r from-green-500 to-teal-600 text-white shadow-lg' : 'text-gray-600 hover:bg-green-50'">
-                           <div class="flex items-center gap-3">
-                                <i class="fas fa-cogs fa-fw w-5 text-center"></i>
-                                <span>Optimization</span>
-                            </div>
-                            <i class="fas fa-chevron-down text-xs" :class="open && 'rotate-180'"></i>
-                        </button>
-                        <div x-show="open" class="ml-6 mt-2 space-y-1">
-                            <a :href="getLink('/finops.html')" :class="{'text-green-600 font-bold bg-green-50': isActive('/finops.html')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-green-600">FinOps Report</a>
-                            <a :href="getLink('/cost.html')" :class="{'text-green-600 font-bold bg-green-50': isActive('/cost.html')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-green-600">Costs Overview</a>
-                            <a :href="getLink('/waste.html')" :class="{'text-green-600 font-bold bg-green-50': isActive('/waste.html')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-green-600">Waste</a>
-                            <a :href="getLink('/rightsizing.html')" :class="{'text-green-600 font-bold bg-green-50': isActive('/rightsizing.html')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-green-600">Rightsizing</a>
-                            <a :href="getLink('/reservation.html')" :class="{'text-green-600 font-bold bg-green-50': isActive('/reservation.html')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-green-600">Reservation</a>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="sidebar-section" :class="{'active': isActive('/security.html') || isActive('/performance.html') || isActive('/alerts.html')}">
-                    <div x-data="{ open: isActive('/security.html') || isActive('/performance.html') || isActive('/alerts.html') }">
-                        <button @click="open = !open" class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold" :class="isActive('/security.html') || isActive('/performance.html') || isActive('/alerts.html') ? 'bg-gradient-to-r from-red-500 to-orange-600 text-white shadow-lg' : 'text-gray-600 hover:bg-red-50'">
-                            <div class="flex items-center gap-3">
-                                <i class="fas fa-shield-alt fa-fw w-5 text-center"></i>
-                                <span>Cloudguard</span>
-                            </div>
-                            <i class="fas fa-chevron-down text-xs" :class="open && 'rotate-180'"></i>
-                        </button>
-                        <div x-show="open" class="ml-6 mt-2 space-y-1">
-                            <a :href="getLink('/security.html')" :class="{'text-red-600 font-bold bg-red-50': isActive('/security.html')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-red-600">Security</a>
-                            <a :href="getLink('/performance.html')" :class="{'text-red-600 font-bold bg-red-50': isActive('/performance.html')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-red-600">Performance</a>
-                            <a :href="getLink('/alerts.html')" :class="{'text-red-600 font-bold bg-red-50': isActive('/alerts.html')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-red-600">Alerts</a>
-                        </div>
-                    </div>
+                <div class="p-3 bg-gray-50 border-t">
+                    <button @click="applySelection()" class="w-full bg-indigo-600 text-white font-semibold py-2 rounded-lg hover:bg-indigo-700">Apply Selection</button>
                 </div>
             </div>
-            <div x-show="hasAnyRole('ROLE_BILLOPS') && !hasAnyRole('ROLE_BILLOPS_ADMIN')" x-cloak>
-                <div class="sidebar-section" :class="{'active': isActive('/billops/')}">
-                    <div x-data="{ open: isActive('/billops/') }">
-                        <button @click="open = !open" class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold" :class="isActive('/billops/') ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg' : 'text-gray-600 hover:bg-cyan-50'">
-                            <div class="flex items-center gap-3">
-                                <i class="fas fa-file-invoice-dollar fa-fw w-5 text-center"></i>
-                                <span>BillOps</span>
-                            </div>
-                            <i class="fas fa-chevron-down text-xs" :class="open && 'rotate-180'"></i>
-                        </button>
-                        <div x-show="open" class="ml-6 mt-2 space-y-1">
-                            <a :href="getLink('/billops/billing.html')" :class="{'text-cyan-600 font-bold bg-cyan-50': isActive('/billops/billing')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-cyan-600">Billing</a>
-                            <a :href="getLink('/billops/invoices.html')" :class="{'text-cyan-600 font-bold bg-cyan-50': isActive('/billops/invoices')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-cyan-600">Invoices</a>
-                            <a :href="getLink('/billops/credits.html')" :class="{'text-cyan-600 font-bold bg-cyan-50': isActive('/billops/credits')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-cyan-600">Credits</a>
-                            <a :href="getLink('/billops/tickets.html')" :class="{'text-cyan-600 font-bold bg-cyan-50': isActive('/billops/tickets')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-cyan-600">Tickets</a>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div x-show="hasAnyRole('ROLE_BILLOPS_ADMIN')" x-cloak>
-                <div class="px-3 py-2 text-xs font-semibold text-gray-400 uppercase">Admin Tools</div>
-                <div class="sidebar-section mt-2">
-                    <div x-data="{ open: isActive('/billops/admin_') }">
-                        <button @click="open = !open" class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold" :class="isActive('/billops/admin_') ? 'bg-gradient-to-r from-gray-700 to-gray-800 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-100'">
-                            <div class="flex items-center gap-3">
-                                <i class="fas fa-user-shield fa-fw w-5 text-center"></i>
-                                <span>Admin Console</span>
-                            </div>
-                            <i class="fas fa-chevron-down text-xs" :class="open && 'rotate-180'"></i>
-                        </button>
-                        <div x-show="open" class="ml-6 mt-2 space-y-1">
-                            <a href="/billops/admin_invoices.html" :class="{'text-gray-800 font-bold bg-gray-100': isActive('/billops/admin_invoices')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-gray-800">Invoice Admin</a>
-                            <a href="/billops/admin_credits.html" :class="{'text-gray-800 font-bold bg-gray-100': isActive('/billops/admin_credits')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-gray-800">Credit Admin</a>
-                            <a href="/billops/admin_tickets.html" :class="{'text-gray-800 font-bold bg-gray-100': isActive('/billops/admin_tickets')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-gray-800">Ticket Admin</a>
-                        </div>
-                    </div>
-                </div>
-                <div class="sidebar-section mt-4" :class="{'active': isActive('/billops/billing')}">
-                     <a :href="getLink('/billops/billing.html')" class="nav-item flex items-center gap-3 rounded-xl px-4 py-3 font-semibold" :class="isActive('/billops/billing') ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg' : 'text-gray-600 hover:bg-cyan-50'">
-                        <i class="fas fa-file-invoice-dollar fa-fw w-5 text-center"></i>
-                        <span>Billing</span>
-                    </a>
-                </div>
-            </div>
-            <div class="pt-4 mt-4 border-t">
-                 <div class="sidebar-section" :class="{'active': isActive('/account-manager.html')}">
-                    <a href="/account-manager.html" class="nav-item flex items-center gap-3 rounded-xl px-4 py-3 font-semibold" :class="isActive('/account-manager.html') ? 'bg-gradient-to-r from-purple-500 to-pink-600 text-white shadow-lg' : 'text-gray-600 hover:bg-purple-50'">
-                        <i class="fas fa-users-cog fa-fw w-5 text-center"></i>
-                        <span>Account Manager</span>
-                    </a>
-                </div>
-            </div>
-        </nav>
-
-        <div class="flex-shrink-0 p-4 border-t bg-gradient-to-r from-gray-50 to-white">
-            <form action="/logout" method="post" class="w-full">
-                <button type="submit" class="nav-item flex items-center gap-3 rounded-xl px-4 py-3 font-semibold text-gray-600 hover:bg-red-50 w-full text-left">
-                    <i class="fas fa-sign-out-alt fa-fw w-5 text-center"></i>
-                    <span>Logout</span>
-                </button>
-            </form>
         </div>
     </div>
+
+    <nav class="flex-1 px-3 py-4 space-y-2 text-sm overflow-y-auto sidebar-scroll">
+
+        <div x-show="hasAnyRole(['ROLE_XAMOPS', 'ROLE_ADMIN'])" x-cloak>
+            <div class="sidebar-section" :class="{'active': isActive('/dashboard.html')}">
+                <a :href="getLink('/dashboard.html')" class="nav-item flex items-center gap-3 rounded-xl px-4 py-3 font-semibold" :class="isActive('/dashboard.html') ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg' : 'text-gray-600 hover:bg-indigo-50'">
+                    <i class="fas fa-tachometer-alt fa-fw w-5 text-center"></i>
+                    <span>Dashboard</span>
+                </a>
+            </div>
+
+            <div class="sidebar-section" :class="{'active': isActive('/cloudk8s') || isActive('/cloudlist') || isActive('/cloudmap')}">
+                <div x-data="{ open: isActive('/cloudk8s') || isActive('/cloudlist') || isActive('/cloudmap') }">
+                    <button @click="open = !open" class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold" :class="isActive('/cloudk8s') || isActive('/cloudlist') || isActive('/cloudmap') ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg' : 'text-gray-600 hover:bg-indigo-50'">
+                        <div class="flex items-center gap-3">
+                            <i class="fas fa-cloud fa-fw w-5 text-center"></i>
+                            <span>Cloudview</span>
+                        </div>
+                        <i class="fas fa-chevron-down text-xs" :class="open && 'rotate-180'"></i>
+                    </button>
+                    <div x-show="open" class="ml-6 mt-2 space-y-1">
+                        <a :href="getLink('/cloudk8s.html')" :class="{'text-indigo-600 font-bold bg-indigo-50': isActive('/cloudk8s.html')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-indigo-600">CloudK8s</a>
+                        <a :href="getLink('/cloudlist.html')" :class="{'text-indigo-600 font-bold bg-indigo-50': isActive('/cloudlist.html')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-indigo-600">Cloudlist</a>
+                        <a :href="getLink('/cloudmap.html')" :class="{'text-indigo-600 font-bold bg-indigo-50': isActive('/cloudmap.html')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-indigo-600">Cloudmap</a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar-section" :class="{'active': isActive('/finops.html') || isActive('/cost.html') || isActive('/waste.html') || isActive('/rightsizing.html') || isActive('/reservation.html')}">
+                <div x-data="{ open: isActive('/finops.html') || isActive('/cost.html') || isActive('/waste.html') || isActive('/rightsizing.html') || isActive('/reservation.html') }">
+                    <button @click="open = !open" class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold" :class="isActive('/finops.html') || isActive('/cost.html') || isActive('/waste.html') || isActive('/rightsizing.html') || isActive('/reservation.html') ? 'bg-gradient-to-r from-green-500 to-teal-600 text-white shadow-lg' : 'text-gray-600 hover:bg-green-50'">
+                        <div class="flex items-center gap-3">
+                            <i class="fas fa-cogs fa-fw w-5 text-center"></i>
+                            <span>Optimization</span>
+                        </div>
+                        <i class="fas fa-chevron-down text-xs" :class="open && 'rotate-180'"></i>
+                    </button>
+                    <div x-show="open" class="ml-6 mt-2 space-y-1">
+                        <a :href="getLink('/finops.html')" :class="{'text-green-600 font-bold bg-green-50': isActive('/finops.html')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-green-600">FinOps Report</a>
+                        <a :href="getLink('/cost.html')" :class="{'text-green-600 font-bold bg-green-50': isActive('/cost.html')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-green-600">Costs Overview</a>
+                        <a :href="getLink('/waste.html')" :class="{'text-green-600 font-bold bg-green-50': isActive('/waste.html')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-green-600">Waste</a>
+                        <a :href="getLink('/rightsizing.html')" :class="{'text-green-600 font-bold bg-green-50': isActive('/rightsizing.html')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-green-600">Rightsizing</a>
+                        <a :href="getLink('/reservation.html')" :class="{'text-green-600 font-bold bg-green-50': isActive('/reservation.html')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-green-600">Reservation</a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar-section" :class="{'active': isActive('/security.html') || isActive('/performance.html') || isActive('/alerts.html')}">
+                <div x-data="{ open: isActive('/security.html') || isActive('/performance.html') || isActive('/alerts.html') }">
+                    <button @click="open = !open" class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold" :class="isActive('/security.html') || isActive('/performance.html') || isActive('/alerts.html') ? 'bg-gradient-to-r from-red-500 to-orange-600 text-white shadow-lg' : 'text-gray-600 hover:bg-red-50'">
+                        <div class="flex items-center gap-3">
+                            <i class="fas fa-shield-alt fa-fw w-5 text-center"></i>
+                            <span>Cloudguard</span>
+                        </div>
+                        <i class="fas fa-chevron-down text-xs" :class="open && 'rotate-180'"></i>
+                    </button>
+                    <div x-show="open" class="ml-6 mt-2 space-y-1">
+                        <a :href="getLink('/security.html')" :class="{'text-red-600 font-bold bg-red-50': isActive('/security.html')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-red-600">Security</a>
+                        <a :href="getLink('/performance.html')" :class="{'text-red-600 font-bold bg-red-50': isActive('/performance.html')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-red-600">Performance</a>
+                        <a :href="getLink('/alerts.html')" :class="{'text-red-600 font-bold bg-red-50': isActive('/alerts.html')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-red-600">Alerts</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div x-show="hasAnyRole('ROLE_BILLOPS') && !hasAnyRole('ROLE_BILLOPS_ADMIN')" x-cloak>
+            <div class="sidebar-section" :class="{'active': isActive('/billops/')}">
+                <div x-data="{ open: isActive('/billops/') }">
+                    <button @click="open = !open" class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold" :class="isActive('/billops/') ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg' : 'text-gray-600 hover:bg-cyan-50'">
+                        <div class="flex items-center gap-3">
+                            <i class="fas fa-file-invoice-dollar fa-fw w-5 text-center"></i>
+                            <span>BillOps</span>
+                        </div>
+                        <i class="fas fa-chevron-down text-xs" :class="open && 'rotate-180'"></i>
+                    </button>
+                    <div x-show="open" class="ml-6 mt-2 space-y-1">
+                        <a :href="getLink('/billops/billing.html')" :class="{'text-cyan-600 font-bold bg-cyan-50': isActive('/billops/billing')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-cyan-600">Billing</a>
+                        <a :href="getLink('/billops/invoices.html')" :class="{'text-cyan-600 font-bold bg-cyan-50': isActive('/billops/invoices')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-cyan-600">Invoices</a>
+                        <a :href="getLink('/billops/credits.html')" :class="{'text-cyan-600 font-bold bg-cyan-50': isActive('/billops/credits')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-cyan-600">Credits</a>
+                        <a :href="getLink('/billops/tickets.html')" :class="{'text-cyan-600 font-bold bg-cyan-50': isActive('/billops/tickets')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-cyan-600">Tickets</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div x-show="hasAnyRole('ROLE_BILLOPS_ADMIN')" x-cloak>
+            <div class="px-3 py-2 text-xs font-semibold text-gray-400 uppercase">Admin Tools</div>
+            <div class="sidebar-section mt-2">
+                <div x-data="{ open: isActive('/billops/admin_') }">
+                    <button @click="open = !open" class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold" :class="isActive('/billops/admin_') ? 'bg-gradient-to-r from-gray-700 to-gray-800 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-100'">
+                        <div class="flex items-center gap-3">
+                            <i class="fas fa-user-shield fa-fw w-5 text-center"></i>
+                            <span>Admin Console</span>
+                        </div>
+                        <i class="fas fa-chevron-down text-xs" :class="open && 'rotate-180'"></i>
+                    </button>
+                    <div x-show="open" class="ml-6 mt-2 space-y-1">
+                        <a href="/billops/admin_invoices.html" :class="{'text-gray-800 font-bold bg-gray-100': isActive('/billops/admin_invoices')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-gray-800">Invoice Admin</a>
+                        <a href="/billops/admin_credits.html" :class="{'text-gray-800 font-bold bg-gray-100': isActive('/billops/admin_credits')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-gray-800">Credit Admin</a>
+                        <a href="/billops/admin_tickets.html" :class="{'text-gray-800 font-bold bg-gray-100': isActive('/billops/admin_tickets')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-gray-800">Ticket Admin</a>
+                    </div>
+                </div>
+            </div>
+            <div class="sidebar-section mt-4" :class="{'active': isActive('/billops/billing')}">
+                <a :href="getLink('/billops/billing.html')" class="nav-item flex items-center gap-3 rounded-xl px-4 py-3 font-semibold" :class="isActive('/billops/billing') ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg' : 'text-gray-600 hover:bg-cyan-50'">
+                    <i class="fas fa-file-invoice-dollar fa-fw w-5 text-center"></i>
+                    <span>Billing</span>
+                </a>
+            </div>
+        </div>
+        <div class="pt-4 mt-4 border-t">
+            <div class="sidebar-section" :class="{'active': isActive('/account-manager.html')}">
+                <a href="/account-manager.html" class="nav-item flex items-center gap-3 rounded-xl px-4 py-3 font-semibold" :class="isActive('/account-manager.html') ? 'bg-gradient-to-r from-purple-500 to-pink-600 text-white shadow-lg' : 'text-gray-600 hover:bg-purple-50'">
+                    <i class="fas fa-users-cog fa-fw w-5 text-center"></i>
+                    <span>Account Manager</span>
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="flex-shrink-0 p-4 border-t bg-gradient-to-r from-gray-50 to-white">
+        <form action="/logout" method="post" class="w-full">
+            <button type="submit" class="nav-item flex items-center gap-3 rounded-xl px-4 py-3 font-semibold text-gray-600 hover:bg-red-50 w-full text-left">
+                <i class="fas fa-sign-out-alt fa-fw w-5 text-center"></i>
+                <span>Logout</span>
+            </button>
+        </form>
+    </div>
+</div>
 </body>
-</html>

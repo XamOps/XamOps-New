@@ -18,7 +18,7 @@ export default defineConfig({
         target: 'http://localhost:8082', // Target the billops-service
         changeOrigin: true,
       },
-      
+
       // Proxy xamops service requests
       '/api/xamops': {
         target: 'http://localhost:8080', // Target the xamops-service
@@ -60,18 +60,23 @@ export default defineConfig({
         'eks-details': resolve(__dirname, 'eks-details.html'),
         finops: resolve(__dirname, 'finops.html'),
         _sidebar:resolve(__dirname,'_sidebar.html'),
+        security:resolve(__dirname,'security.html'),
         // invoices: resolve(__dirname, 'invoices.html'),
         // 'ticket_detail': resolve(__dirname, 'ticket_detail.html'),
         // tickets: resolve(__dirname, 'tickets.html'),
         // Admin subdir files
-        // 'admin_credits': resolve(__dirname, 'billops/credits.html'),
-        // // 'admin_invoice_detail': resolve(__dirname, 'billops/invoice_detail.html'),
-        // 'admin_invoices': resolve(__dirname, 'billops/invoices.html'),
-        // 'admin_tickets': resolve(__dirname, 'billops/tickets.html'),
-        //         'billing': resolve(__dirname, 'billops/billing.html'),
+        'admin_credits': resolve(__dirname, 'billops/admin_credits.html'),
+        'admin_invoice_detail': resolve(__dirname, 'billops/admin_invoice_detail.html'),
+        'admin_invoices': resolve(__dirname, 'billops/admin_invoices.html'),
+        'admin_tickets': resolve(__dirname, 'billops/admin_tickets.html'),
+                'billing': resolve(__dirname, 'billops/billing.html'),
+                'tickets': resolve(__dirname, 'billops/tickets.html'),
+                'ticket_detail': resolve(__dirname, 'billops/ticket_detail.html'),
+                'credits': resolve(__dirname, 'billops/credits.html'),
+                'invoices': resolve(__dirname, 'billops/invoices.html'),
 
         // // GCP subdir files
-        // 'gcp_cloudlist': resolve(__dirname, 'gcp/cloudlist.html'),
+        // 'gcp_cloudlist': resolve(__dirname, 'gcp_cloudlist.html'),
         // 'gcp_cloudmap': resolve(__dirname, 'gcp/cloudmap.html'),
         // 'gcp_cost': resolve(__dirname, 'gcp/cost.html'),
         // 'gcp_dashboard': resolve(__dirname, 'gcp/dashboard.html'),
