@@ -88,7 +88,7 @@ public class InvoiceManagementService {
         }
 
         invoiceDto.setDiscountAmount(totalDiscount.setScale(2, RoundingMode.HALF_UP));
-        invoiceDto.setFinalTotal(invoiceDto.getPreDiscountTotal().subtract(invoiceDto.getDiscountAmount()));
+        invoiceDto.setAmount(invoiceDto.getPreDiscountTotal().subtract(invoiceDto.getDiscountAmount()));
     }
 
 
@@ -131,7 +131,7 @@ public class InvoiceManagementService {
         invoice.setLineItems(lineItems);
         invoice.setPreDiscountTotal(totalCost);
         invoice.setDiscountAmount(BigDecimal.ZERO);
-        invoice.setFinalTotal(totalCost);
+        invoice.setAmount(totalCost);
 
         return invoice;
     }
@@ -175,7 +175,7 @@ public class InvoiceManagementService {
         invoice.setLineItems(lineItems);
         invoice.setPreDiscountTotal(totalCost);
         invoice.setDiscountAmount(BigDecimal.ZERO);
-        invoice.setFinalTotal(totalCost);
+        invoice.setAmount(totalCost);
 
         return invoiceRepository.save(invoice);
     }
@@ -249,7 +249,7 @@ public Invoice removeDiscountFromInvoice(Long invoiceId, Long discountId) {
         }
 
         invoice.setDiscountAmount(totalDiscount.setScale(2, RoundingMode.HALF_UP));
-        invoice.setFinalTotal(invoice.getPreDiscountTotal().subtract(invoice.getDiscountAmount()));
+        invoice.setAmount(invoice.getPreDiscountTotal().subtract(invoice.getDiscountAmount()));
     }
 
 
@@ -313,7 +313,7 @@ public Invoice removeDiscountFromInvoice(Long invoiceId, Long discountId) {
         invoice.setInvoiceDate(dto.getInvoiceDate());
         invoice.setPreDiscountTotal(dto.getPreDiscountTotal());
         invoice.setDiscountAmount(dto.getDiscountAmount());
-        invoice.setFinalTotal(dto.getFinalTotal());
+        invoice.setAmount(dto.getAmount());
 
         CloudAccount tempAccount = new CloudAccount();
         tempAccount.setAccountName(dto.getAccountName());
@@ -401,7 +401,7 @@ public Invoice removeDiscountFromInvoice(Long invoiceId, Long discountId) {
             totalsTable.addCell(new Cell().add(new Paragraph(currencyFormatter.format(invoice.getDiscountAmount().negate()))).setTextAlignment(TextAlignment.RIGHT).setBorder(null));
 
             totalsTable.addCell(new Cell().add(new Paragraph("Total:").setBold()).setTextAlignment(TextAlignment.RIGHT).setBorder(null));
-            totalsTable.addCell(new Cell().add(new Paragraph(currencyFormatter.format(invoice.getFinalTotal()))).setBold().setTextAlignment(TextAlignment.RIGHT).setBorder(null));
+            totalsTable.addCell(new Cell().add(new Paragraph(currencyFormatter.format(invoice.getAmount()))).setBold().setTextAlignment(TextAlignment.RIGHT).setBorder(null));
             document.add(totalsTable);
 
         } catch (Exception e) {

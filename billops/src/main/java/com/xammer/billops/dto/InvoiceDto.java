@@ -18,7 +18,7 @@ public class InvoiceDto {
     private BigDecimal preDiscountTotal;
     private BigDecimal discountAmount;
     
-    private BigDecimal finalTotal;
+    private BigDecimal amount;
 
     private String accountName;
     private String awsAccountId;
@@ -53,8 +53,8 @@ public class InvoiceDto {
         dto.setPreDiscountTotal(invoice.getPreDiscountTotal());
         dto.setDiscountAmount(invoice.getDiscountAmount());
         
-        // --- FIX: This now correctly calls the updated getFinalTotal() ---
-        dto.setFinalTotal(invoice.getFinalTotal());
+        // --- FIX: This now correctly calls the updated getAmount() ---
+        dto.setAmount(invoice.getAmount());
         // --- END FIX ---
 
         dto.setAccountName(invoice.getCloudAccount().getAccountName());
