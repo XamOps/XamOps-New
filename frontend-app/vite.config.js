@@ -18,7 +18,7 @@ export default defineConfig({
         target: 'http://localhost:8082', // Target the billops-service
         changeOrigin: true,
       },
-      
+
       // Proxy xamops service requests
       '/api/xamops': {
         target: 'http://localhost:8080', // Target the xamops-service
@@ -76,7 +76,7 @@ export default defineConfig({
                 'invoices': resolve(__dirname, 'billops/invoices.html'),
 
         // // GCP subdir files
-        // 'gcp_cloudlist': resolve(__dirname, 'gcp/cloudlist.html'),
+        // 'gcp_cloudlist': resolve(__dirname, 'gcp_cloudlist.html'),
         // 'gcp_cloudmap': resolve(__dirname, 'gcp/cloudmap.html'),
         // 'gcp_cost': resolve(__dirname, 'gcp/cost.html'),
         // 'gcp_dashboard': resolve(__dirname, 'gcp/dashboard.html'),

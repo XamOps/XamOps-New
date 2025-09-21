@@ -356,11 +356,39 @@
             // Azure Function
             addAzureAccount() {
                 this.isLoading = true;
+                let payload;
                 try {
-                    // Quick client-side validation for JSON
-                    JSON.parse(this.azureDetails.azureCredentialsJson);
+                    const parsedJson = JSON.parse(this.azureDetails.azureCredentialsJson);
+
+                    // Helper to convert snake_case and kebab-case keys to camelCase
+                    const toCamel = (s) => s.replace(/([-_][a-z])/ig, ($1) => {
+                        return $1.toUpperCase().replace('-', '').replace('_', '');
+                    });
+
+                    // Convert all keys in the parsed JSON to camelCase
+                    const credentials = Object.keys(parsedJson).reduce((acc, key) => {
+                        acc[toCamel(key)] = parsedJson[key];
+                        return acc;
+                    }, {});
+
+                    // Combine with account name from the form
+                    payload = {
+                        ...credentials,
+                        accountName: this.azureDetails.accountName
+                    };
+
+                    // Client-side validation for required fields after conversion
+                    const requiredFields = ['tenantId', 'subscriptionId', 'clientId', 'clientSecret'];
+                    const missingFields = requiredFields.filter(field => !payload[field]);
+
+                    if (missingFields.length > 0) {
+                        // More specific error message if fields are missing
+                        throw new Error(`The provided JSON is missing required fields: ${missingFields.join(', ')}.`);
+                    }
+
                 } catch (e) {
-                    alert('Error: The provided text is not valid JSON.');
+                    // Catches both JSON parsing errors and missing field errors
+                    alert(`Error: ${e.message}`);
                     this.isLoading = false;
                     return;
                 }
@@ -368,10 +396,11 @@
                 fetch('/api/xamops/account-manager/accounts/azure', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(this.azureDetails)
+                    body: JSON.stringify(payload)
                 })
                 .then(res => {
                     if (!res.ok) {
+                        // The backend error message is often more specific
                         return res.text().then(text => { throw new Error(text || 'Failed to add Azure account.') });
                     }
                     return res.json();
@@ -381,6 +410,7 @@
                     window.location.href = '/account-manager.html';
                 })
                 .catch(err => {
+                    // Display the specific error from the backend or the frontend validation
                     alert(`Error: ${err.message}`);
                     console.error(err);
                 })
