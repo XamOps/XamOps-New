@@ -3,6 +3,8 @@ package com.xammer.cloud.repository;
 import com.xammer.cloud.domain.CloudAccount;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
@@ -20,4 +22,7 @@ public interface CloudAccountRepository extends JpaRepository<CloudAccount, Long
     Optional<CloudAccount> findByAwsAccountIdAndClientId(String awsAccountId, Long clientId);
 
     Optional<CloudAccount> findByAwsAccountIdOrGcpProjectId(String awsAccountId, String gcpProjectId);
+
+    @Query("SELECT ca FROM CloudAccount ca WHERE ca.awsAccountId = :accountId OR ca.gcpProjectId = :accountId OR ca.azureSubscriptionId = :accountId")
+    Optional<CloudAccount> findByProviderAccountId(@Param("accountId") String accountId);
 }
