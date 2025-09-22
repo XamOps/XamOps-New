@@ -11,7 +11,7 @@ COPY . .
 # The `pl` flag tells Maven to build a specific project/module.
 # We use a variable `MODULE_NAME` which we'll set during the build command.
 ARG MODULE_NAME
-RUN mvn clean package -pl ${MODULE_NAME} -am -DskipTests
+RUN mvn clean package -DskipTests
 
 # Stage 2: Create the final, lightweight runtime image
 FROM eclipse-temurin:17-jre-jammy
