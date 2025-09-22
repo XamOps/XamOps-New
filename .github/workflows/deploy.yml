@@ -1,4 +1,3 @@
-
 name: Build and Deploy Microservices
 
 on:
@@ -20,16 +19,16 @@ jobs:
         with:
           registry: ghcr.io
           username: sahil-remoterepo
-          password: ${{ secrets.UAT_GHCR }}   # REPLACE: Create GHCR_PAT secret in repo
+          password: ${{ secrets.UAT_GHCR }}   # Secret for your PAT
 
       # Build and push Billops
       - name: Build & Push Billops
         uses: docker/build-push-action@v4
         with:
-          context: .            # REPLACE if your folder is different
+          context: .
           file: ./billops/Dockerfile
           push: true
-          tags: ghcr.io/sahil-remoterepo/billops:latest   # REPLACE <OWNER> with your GitHub username/org
+          tags: ghcr.io/sahil-remoterepo/billops:latest
 
       # Build and push Xamops
       - name: Build & Push Xamops
@@ -62,30 +61,33 @@ jobs:
     needs: build-and-push
     runs-on: ubuntu-latest
     steps:
-      # Install AWS CLI
+      # Configure AWS CLI
       - name: Configure AWS CLI
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ap-south-1    # REPLACE with your region
+          aws-region: ap-south-1
 
-      # Use SSM to run commands on EC2
+      # Deploy containers on EC2 via SSM
       - name: Deploy containers on EC2
         run: |
           aws ssm send-command \
-           --targets "Key=instanceIds,Values=i-0715da8b0b0b757e7" \
-           --document-name "AWS-RunShellScript" \
-           --comment "Deploy microservices" \
-           --parameters commands='[
-        "sudo docker login ghcr.io -u sahil-remoterepo -p ${{ secrets.UAT_GHCR }}",
-        "sudo docker pull ghcr.io/xammer/billops:latest",
-        "sudo docker pull ghcr.io/xammer/xamops-service:latest",
-        "sudo docker pull ghcr.io/xammer/service-registry:latest",
-        "sudo docker pull ghcr.io/xammer/frontend-app:latest",
-        "sudo docker stop billops || true && sudo docker rm billops || true",
-        "sudo docker stop xamops-service || true && sudo docker rm xamops-service || true",
-        "sudo docker stop service-registry || true && sudo docker rm service-registry || true",
-        "sudo docker stop frontend-app || true && sudo docker rm frontend-app || true",
-        "sudo docker run -d --name billops ghcr.io/xammer/billops:latest",
-        "sudo docker run -d --name xam
+            --targets "Key=instanceIds,Values=i-0715da8b0b0b757e7" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Deploy microservices" \
+            --parameters commands='[
+              "sudo docker login ghcr.io -u sahil-remoterepo -p ${{ secrets.UAT_GHCR }}",
+              "sudo docker pull ghcr.io/sahil-remoterepo/billops:latest",
+              "sudo docker pull ghcr.io/sahil-remoterepo/xamops-service:latest",
+              "sudo docker pull ghcr.io/sahil-remoterepo/service-registry:latest",
+              "sudo docker pull ghcr.io/sahil-remoterepo/frontend-app:latest",
+              "sudo docker stop billops || true && sudo docker rm billops || true",
+              "sudo docker stop xamops-service || true && sudo docker rm xamops-service || true",
+              "sudo docker stop service-registry || true && sudo docker rm service-registry || true",
+              "sudo docker stop frontend-app || true && sudo docker rm frontend-app || true",
+              "sudo docker run -d --name billops ghcr.io/sahil-remoterepo/billops:latest",
+              "sudo docker run -d --name xamops-service ghcr.io/sahil-remoterepo/xamops-service:latest",
+              "sudo docker run -d --name service-registry ghcr.io/sahil-remoterepo/service-registry:latest",
+              "sudo docker run -d --name frontend-app -p 80:80 ghcr.io/sahil-remoterepo/frontend-app:latest"
+            ]'
