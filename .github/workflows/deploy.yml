@@ -78,8 +78,8 @@ jobs:
               "sudo docker stop xamops-service || true && sudo docker rm xamops-service || true",
               "sudo docker stop service-registry || true && sudo docker rm service-registry || true",
               "sudo docker stop frontend-app || true && sudo docker rm frontend-app || true",
-              "sudo docker run -d --name billops ghcr.io/sahil-remoterepo/billops:latest",
-              "sudo docker run -d --name xamops-service ghcr.io/sahil-remoterepo/xamops-service:latest",
-              "sudo docker run -d --name service-registry ghcr.io/sahil-remoterepo/service-registry:latest",
-              "sudo docker run -d --name frontend-app -p 80:80 ghcr.io/sahil-remoterepo/frontend-app:latest",
+              "sudo docker run -d --name billops --network xamops-network ghcr.io/sahil-remoterepo/billops:latest",
+              "sudo docker run -d --name xamops-service --network xamops-network ghcr.io/sahil-remoterepo/xamops-service:latest",
+              "sudo docker run -d --name service-registry --network xamops-network ghcr.io/sahil-remoterepo/service-registry:latest",
+              "sudo docker run -d --name frontend-app --network xamops-network ghcr.io/sahil-remoterepo/frontend-app:latest",
             ]'
