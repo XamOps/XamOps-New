@@ -10,8 +10,7 @@ COPY . .
 # Build the specific module.
 # The `pl` flag tells Maven to build a specific project/module.
 # We use a variable `MODULE_NAME` which we'll set during the build command.
-ARG MODULE_NAME
-RUN mvn clean package -pl ${MODULE_NAME} -am -DskipTests
+RUN mvn clean package -DskipTests
 
 # Stage 2: Create the final, lightweight runtime image
 FROM eclipse-temurin:17-jre-jammy
@@ -24,7 +23,7 @@ EXPOSE ${EXPOSE_PORT}
 
 # Copy only the built JAR file from the specific module's target directory
 ARG MODULE_NAME
-COPY --from=build /app/${MODULE_NAME}/target/*.jar app.jar
+COPY --from=build /app/target/*.jar app.jar
 
 # The command to run the application when the container starts
 ENTRYPOINT ["java", "-jar", "app.jar"]
