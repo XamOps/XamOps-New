@@ -3,10 +3,10 @@ package com.xammer.billops.controller;
 import com.xammer.billops.domain.Invoice;
 import com.xammer.billops.dto.DiscountRequestDto;
 import com.xammer.billops.dto.InvoiceDto;
+import com.xammer.billops.dto.InvoiceUpdateDto; // ADDED IMPORT
 import com.xammer.billops.repository.InvoiceRepository;
 import com.xammer.billops.service.InvoiceManagementService;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -15,7 +15,6 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/admin/invoices")
-// @PreAuthorize("hasRole('ROLE_BILLOPS_ADMIN')") // Security enabled
 public class AdminInvoiceController {
 
     private final InvoiceManagementService invoiceManagementService;
@@ -48,6 +47,14 @@ public class AdminInvoiceController {
         return ResponseEntity.ok(InvoiceDto.fromEntity(invoice));
     }
 
+    // --- START: NEW ENDPOINT TO SAVE CHANGES ---
+    @PutMapping("/{id}")
+    public ResponseEntity<InvoiceDto> updateInvoice(@PathVariable Long id, @RequestBody InvoiceUpdateDto invoiceUpdateDto) {
+        Invoice updatedInvoice = invoiceManagementService.updateInvoice(id, invoiceUpdateDto);
+        return ResponseEntity.ok(InvoiceDto.fromEntity(updatedInvoice));
+    }
+    // --- END: NEW ENDPOINT ---
+
     @PutMapping("/{id}/discount")
     public ResponseEntity<InvoiceDto> applyDiscount(@PathVariable Long id, @RequestBody DiscountRequestDto discountRequest) {
         Invoice updatedInvoice = invoiceManagementService.applyDiscountToInvoice(id, discountRequest.getServiceName(), discountRequest.getPercentage());
@@ -59,9 +66,10 @@ public class AdminInvoiceController {
         Invoice finalizedInvoice = invoiceManagementService.finalizeInvoice(id);
         return ResponseEntity.ok(InvoiceDto.fromEntity(finalizedInvoice));
     }
-@DeleteMapping("/{invoiceId}/discounts/{discountId}")
-public ResponseEntity<InvoiceDto> removeDiscount(@PathVariable Long invoiceId, @PathVariable Long discountId) {
-    Invoice updatedInvoice = invoiceManagementService.removeDiscountFromInvoice(invoiceId, discountId);
-    return ResponseEntity.ok(InvoiceDto.fromEntity(updatedInvoice));
-}
+
+    @DeleteMapping("/{invoiceId}/discounts/{discountId}")
+    public ResponseEntity<InvoiceDto> removeDiscount(@PathVariable Long invoiceId, @PathVariable Long discountId) {
+        Invoice updatedInvoice = invoiceManagementService.removeDiscountFromInvoice(invoiceId, discountId);
+        return ResponseEntity.ok(InvoiceDto.fromEntity(updatedInvoice));
+    }
 }
