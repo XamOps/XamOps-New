@@ -1,41 +1,42 @@
 package com.xammer.cloud.service.azure;
 
 import com.azure.core.credential.TokenCredential;
-import com.azure.core.management.AzureEnvironment;
+import com.azure.core.management.AzureEnvironment; // Import this class
 import com.azure.core.management.profile.AzureProfile;
 import com.azure.identity.ClientSecretCredentialBuilder;
 import com.azure.resourcemanager.AzureResourceManager;
 import com.xammer.cloud.domain.CloudAccount;
 import org.springframework.stereotype.Service;
 
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
 @Service
 public class AzureClientProvider {
 
+    private final Map<String, AzureResourceManager> clientCache = new ConcurrentHashMap<>();
+
     public AzureResourceManager getAzureClient(CloudAccount account) {
+        String subscriptionId = account.getAzureSubscriptionId();
+        if (clientCache.containsKey(subscriptionId)) {
+            return clientCache.get(subscriptionId);
+        }
+
         TokenCredential credential = new ClientSecretCredentialBuilder()
                 .clientId(account.getAzureClientId())
                 .clientSecret(account.getAzureClientSecret())
                 .tenantId(account.getAzureTenantId())
                 .build();
 
-        AzureProfile profile = new AzureProfile(account.getAzureTenantId(), account.getAzureSubscriptionId(), AzureEnvironment.AZURE);
+        // Use the correct AzureProfile constructor with tenantId, subscriptionId, and environment
+        AzureProfile profile = new AzureProfile(account.getAzureTenantId(), subscriptionId, AzureEnvironment.AZURE);
 
-        return AzureResourceManager.authenticate(credential, profile).withDefaultSubscription();
-    }
+        AzureResourceManager azureClient = AzureResourceManager
+                .configure()
+                .authenticate(credential, profile)
+                .withSubscription(subscriptionId);
 
-    public boolean verifyCredentials(String tenantId, String subscriptionId, String clientId, String clientSecret) {
-        try {
-            TokenCredential credential = new ClientSecretCredentialBuilder()
-                    .clientId(clientId)
-                    .clientSecret(clientSecret)
-                    .tenantId(tenantId)
-                    .build();
-            AzureProfile profile = new AzureProfile(tenantId, subscriptionId, AzureEnvironment.AZURE);
-            AzureResourceManager.authenticate(credential, profile).subscriptions().list();
-            return true;
-        } catch (Exception e) {
-            // Log the exception
-            return false;
-        }
+        clientCache.put(subscriptionId, azureClient);
+        return azureClient;
     }
 }

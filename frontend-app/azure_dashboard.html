@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>XamOps - Live Dashboard</title>
+    <title>XamOps - Live Azure Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -635,15 +635,33 @@
         initializeDashboardLayout() {
             const container = document.getElementById('widgets-container');
             fetch('/api/dashboard/layout')
-                .then(res => res.json())
+                .then(res => {
+                    if (!res.ok) {
+                        throw new Error(`HTTP error! status: ${res.status}`);
+                    }
+                    const contentType = res.headers.get("content-type");
+                    if (contentType && contentType.indexOf("application/json") !== -1) {
+                        return res.json();
+                    } else {
+                        return res.text().then(text => {
+                            // If we get HTML, we can still proceed with default layout, but log the error
+                            console.error(`Expected JSON, but got HTML: ${text.substring(0, 100)}...`);
+                            return null; // Return null to indicate layout data is not available
+                        });
+                    }
+                })
                 .then(layout => {
                     if (layout && layout.layoutConfig) {
-                        const widgetOrder = JSON.parse(layout.layoutConfig);
-                        if (widgetOrder && widgetOrder.length > 0) {
-                            widgetOrder.forEach(widgetId => {
-                                const widget = document.getElementById(widgetId);
-                                if (widget) container.appendChild(widget);
-                            });
+                        try {
+                            const widgetOrder = JSON.parse(layout.layoutConfig);
+                            if (widgetOrder && widgetOrder.length > 0) {
+                                widgetOrder.forEach(widgetId => {
+                                    const widget = document.getElementById(widgetId);
+                                    if (widget) container.appendChild(widget);
+                                });
+                            }
+                        } catch (e) {
+                            console.error("Failed to parse layout config, using default.", e);
                         }
                     }
                     new Sortable(container, {
@@ -772,7 +790,7 @@
                     icon: 'fa-dollar-sign',
                     color: { iconClass: 'text-blue-500', chartColor: '#3b82f6', gradientClass: 'from-blue-500 to-blue-600' },
                     trendData: costHistory.costs,
-                    change: lastMonthSpend > 0 ? ((mtdSpend - lastMonthSpend) / lastMonthSpend * 100).toFixed(1) : 0
+                    change: lastMonthSpend > 0 ? ((mtdSpend - lastMonthSpend) / lastMonthSpend * 100).toFixed(1) : '0.0'
                 },
                 {
                     id: 'forecastedSpend',
@@ -781,7 +799,7 @@
                     icon: 'fa-chart-line',
                     color: { iconClass: 'text-yellow-500', chartColor: '#f59e0b', gradientClass: 'from-yellow-500 to-yellow-600' },
                     trendData: costHistory.costs,
-                    change: '+' + ((forecastedSpend - mtdSpend) / mtdSpend * 100).toFixed(1)
+                    change: mtdSpend > 0 ? '+' + ((forecastedSpend - mtdSpend) / mtdSpend * 100).toFixed(1) : '+0.0'
                 },
                 {
                     id: 'lastMonthSpend',
@@ -790,7 +808,7 @@
                     icon: 'fa-calendar-alt',
                     color: { iconClass: 'text-gray-500', chartColor: '#6b7280', gradientClass: 'from-gray-500 to-gray-600' },
                     trendData: costHistory.costs.slice(0, -1),
-                    change: costHistory.costs.length > 2 ? ((lastMonthSpend - costHistory.costs[costHistory.costs.length - 3]) / costHistory.costs[costHistory.costs.length - 3] * 100).toFixed(1) : 0
+                    change: costHistory.costs.length > 2 ? ((lastMonthSpend - costHistory.costs[costHistory.costs.length - 3]) / costHistory.costs[costHistory.costs.length - 3] * 100).toFixed(1) : '0.0'
                 },
                 {
                     id: 'potentialSavings',
@@ -803,7 +821,9 @@
                 }
             ];
 
-            kpiContainer.innerHTML = kpis.map(kpi => `
+            kpiContainer.innerHTML = kpis.map(kpi => {
+                const changeAsString = String(kpi.change);
+                return `
                 <div class="kpi-card rounded-xl p-6 group" @mouseenter="renderSparkline('sparkline-${kpi.id}', [${kpi.trendData.join(',')}], '${kpi.color.chartColor}')">
                     <div class="main-content">
                         <div class="flex justify-between items-start">
@@ -811,7 +831,7 @@
                                 <h3 class="text-gray-600 text-sm font-medium mb-1">${kpi.title}</h3>
                                 <p class="text-2xl font-bold text-gray-900 mb-2">${kpi.value}</p>
                                 <div class="flex items-center text-sm">
-                                    <span class="text-${kpi.change.startsWith('+') ? 'green' : kpi.change.startsWith('-') ? 'red' : 'gray'}-600 font-medium">
+                                    <span class="text-${changeAsString.startsWith('+') ? 'green' : changeAsString.startsWith('-') ? 'red' : 'gray'}-600 font-medium">
                                         ${kpi.change}%
                                     </span>
                                     <span class="text-gray-500 ml-1">vs last period</span>
@@ -828,25 +848,25 @@
                         </div>
                     </div>
                 </div>
-            `).join('');
+            `}).join('');
         },
 
         populateResourceInventory(inv) {
             if (!inv) return;
             const container = document.getElementById('resourceInventory');
             const resources = [
-                { name: 'EC2 Instances', count: inv.ec2, type: 'EC2 Instance', icon: 'ec2-instances.png' },
-                { name: 'S3 Buckets', count: inv.s3Buckets, type: 'S3 Bucket', icon: 's3-bucket.png' },
-                { name: 'RDS Instances', count: inv.rdsInstances, type: 'RDS Instance', icon: 'rds-instance.png' },
-                { name: 'VPC Networks', count: inv.vpc, type: 'VPC', icon: 'vpc.png' },
-                { name: 'Lambda Functions', count: inv.lambdas, type: 'Lambda Function', icon: 'aws-lambda.png' },
-                { name: 'EBS Volumes', count: inv.ebsVolumes, type: 'EBS Volume', icon: 'aws-ebs.png' },
-                { name: 'Route 53 Zones', count: inv.route53Zones, type: 'Route 53 Zone', icon: 'aws-route53.png' },
+                { name: 'Virtual Machines', count: inv.virtualMachines, type: 'Virtual Machine', icon: 'virtual-machine.png' },
+                { name: 'Storage Accounts', count: inv.storageAccounts, type: 'Storage Account', icon: 'storage-account.png' },
+                { name: 'SQL Databases', count: inv.sqlDatabases, type: 'SQL Database', icon: 'sql-database.png' },
+                { name: 'Virtual Networks', count: inv.virtualNetworks, type: 'Virtual Network', icon: 'virtual-network.png' },
+                { name: 'Function Apps', count: inv.functions, type: 'Function App', icon: 'function-app.png' },
+                { name: 'Disk Storage', count: inv.disks, type: 'Disk', icon: 'disk-storage.png' },
+                { name: 'DNS Zones', count: inv.dnsZones, type: 'DNS Zone', icon: 'dns.png' },
                 { name: 'Load Balancers', count: inv.loadBalancers, type: 'Load Balancer', icon: 'load-balancer.png' },
-                { name: 'ECS Clusters', count: inv.ecs, type: 'ECS', icon: 'aws-ecs.png' },
-                { name: 'EKS Clusters', count: inv.kubernetes, type: 'EKS', icon: 'aws-eks.png' },
-                { name: 'Lightsail Instances', count: inv.lightsail, type: 'Lightsail Instance', icon: 'lightsail.png' },
-                { name: 'Amplify Apps', count: inv.amplify, type: 'Amplify App', icon: 'amplify.png' }
+                { name: 'Container Instances', count: inv.containerInstances, type: 'Container Instance', icon: 'container-instance.png' },
+                { name: 'Kubernetes Services', count: inv.kubernetesServices, type: 'AKS', icon: 'kubernetes-service.png' },
+                { name: 'App Services', count: inv.appServices, type: 'App Service', icon: 'app-service.png' },
+                { name: 'Static Web Apps', count: inv.staticWebApps, type: 'Static Web App', icon: 'static-web-app.png' }
             ];
 
             container.innerHTML = resources.map(res => `
@@ -859,14 +879,14 @@
                         <p class="text-sm text-gray-500">Active resources</p>
                     </div>
                     <div class="text-right">
-                        <p class="text-xl font-bold text-gray-900">${res.count}</p>
+                        <p class="text-xl font-bold text-gray-900">${res.count || 0}</p>
                         <p class="text-xs text-gray-500">total</p>
                     </div>
                 </a>
             `).join('');
         },
 
-        populateOptimizationHub(summary, anomalies, ec2Recs, ebsRecs, lambdaRecs) {
+        populateOptimizationHub(summary, anomalies, vmRecs, diskRecs, functionRecs) {
             const container = document.getElementById('optimizationHub');
             if(!summary || !container) return;
 
@@ -980,9 +1000,9 @@
                         <p class="text-sm text-red-600">items to review</p>
                     </div>
                 </div>
-                ${recsHtml('EC2 Instance Right-Sizing', ec2Recs, 'fa-server', 'orange', 'from-orange-500 to-orange-600')}
-                ${recsHtml('EBS Volume Optimization', ebsRecs, 'fa-hdd', 'purple', 'from-purple-500 to-purple-600')}
-                ${recsHtml('Lambda Function Optimization', lambdaRecs, 'fa-bolt', 'yellow', 'from-yellow-500 to-yellow-600')}
+                ${recsHtml('Virtual Machine Right-Sizing', vmRecs, 'fa-server', 'orange', 'from-orange-500 to-orange-600')}
+                ${recsHtml('Disk Storage Optimization', diskRecs, 'fa-hdd', 'purple', 'from-purple-500 to-purple-600')}
+                ${recsHtml('Function App Optimization', functionRecs, 'fa-bolt', 'yellow', 'from-yellow-500 to-yellow-600')}
                 ${anomaliesHtml(anomalies)}
             `;
         },
@@ -1167,7 +1187,7 @@ renderHighchartMap(regionStatus) {
                     },
                     {
                         type: 'mappoint',
-                        name: 'AWS Regions',
+                        name: 'Azure Regions',
                         data: regionPoints,
                         marker: {
                             lineWidth: 2,

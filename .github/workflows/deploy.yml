@@ -1,0 +1,93 @@
+
+name: Build and Deploy Microservices
+
+on:
+  push:
+    branches:
+      - main   # You can change to 'master' or any branch you want to trigger deployment
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout repo
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # Log in to GitHub Container Registry
+      - name: Log in to GHCR
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: sahil-remoterepo
+          password: ${{ secrets.UAT_GHCR }}   # REPLACE: Create GHCR_PAT secret in repo
+
+      # Build and push Billops
+      - name: Build & Push Billops
+        uses: docker/build-push-action@v4
+        with:
+          context: .            # REPLACE if your folder is different
+          file: ./billops/Dockerfile
+          push: true
+          tags: ghcr.io/xammer/billops:latest   # REPLACE <OWNER> with your GitHub username/org
+
+      # Build and push Xamops
+      - name: Build & Push Xamops
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./xamops-service/Dockerfile
+          push: true
+          tags: ghcr.io/xammer/xamops-service:latest
+
+      # Build and push Service Registry
+      - name: Build & Push Service Registry
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./service-registry/Dockerfile
+          push: true
+          tags: ghcr.io/xammer/service-registry:latest
+
+      # Build and push Frontend
+      - name: Build & Push Frontend
+        uses: docker/build-push-action@v4
+        with:
+          context: ./frontend-app
+          file: ./frontend-app/Dockerfile
+          push: true
+          tags: ghcr.io/xammer/frontend-app:latest
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      # Install AWS CLI
+      - name: Configure AWS CLI
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-south-1    # REPLACE with your region
+
+      # Use SSM to run commands on EC2
+      - name: Deploy containers on EC2
+        run: |
+          aws ssm send-command \
+            --targets "Key=instanceIds,Values=i-0715da8b0b0b757e7" \  # REPLACE with your EC2 ID
+            --document-name "AWS-RunShellScript" \
+            --comment "Deploy microservices" \
+            --parameters 'commands=[
+              "sudo docker login ghcr.io -u sahil-remoterepo -p ${{ secrets.UAT_GHCR }}",   # REPLACE USERNAME with your GitHub username
+              "sudo docker pull ghcr.io/xammer/billops:latest",
+              "sudo docker pull ghcr.io/xammer/xamops-service:latest",
+              "sudo docker pull ghcr.io/xammer/service-registry:latest",
+              "sudo docker pull ghcr.io/xammer/frontend-app:latest",
+              "sudo docker stop billops || true && sudo docker rm billops || true",
+              "sudo docker stop xamops-service || true && sudo docker rm xamops-service || true",
+              "sudo docker stop service-registry || true && sudo docker rm service-registry || true",
+              "sudo docker stop frontend-app || true && sudo docker rm frontend-app || true",
+              "sudo docker run -d --name billops ghcr.io/xammer/billops:latest",
+              "sudo docker run -d --name xamops-service ghcr.io/xammer/xamops-service:latest",
+              "sudo docker run -d --name service-registry ghcr.io/xammer/service-registry:latest",
+              "sudo docker run -d --name frontend-app -p 80:80 ghcr.io/xammer/frontend-app:latest"
