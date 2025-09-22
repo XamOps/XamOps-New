@@ -49,9 +49,8 @@ public class CloudAccount {
     private String status = "PENDING"; // PENDING, CONNECTED, FAILED
 
     @Column(nullable = false)
-    private String provider; // AWS or GCP
+    private String provider; // AWS, GCP, or Azure
 
-    // ✅ ADD THIS FIELD FOR GCP BILLING
     @Column
     private String billingExportTable;
 
@@ -77,5 +76,20 @@ public class CloudAccount {
         this.externalId = externalId;
         this.accessType = accessType;
         this.client = client;
+    }
+
+    // ✅ ADD THIS METHOD
+    // This helper method returns the correct account ID based on the provider.
+    public String getProviderAccountId() {
+        switch (this.provider) {
+            case "AWS":
+                return this.awsAccountId;
+            case "GCP":
+                return this.gcpProjectId;
+            case "Azure":
+                return this.azureSubscriptionId;
+            default:
+                return null;
+        }
     }
 }

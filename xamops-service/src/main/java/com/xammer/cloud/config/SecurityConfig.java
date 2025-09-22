@@ -30,7 +30,7 @@ import java.util.Optional;
 import static org.springframework.security.config.Customizer.withDefaults;
 
 @Configuration
-@EnableWebSecurity(debug = true) // ✅ ENABLE EXTREME SECURITY DEBUG LOGGING
+@EnableWebSecurity(debug = true)
 public class SecurityConfig {
 
     private final CustomAuthenticationSuccessHandler authenticationSuccessHandler;
@@ -45,25 +45,27 @@ public class SecurityConfig {
                 .cors(withDefaults())
                 .csrf(csrf -> csrf.disable())
                 .exceptionHandling(exceptions -> exceptions
-                    // This is the key change. For any API request that is unauthenticated,
-                    // it will now return a 401 Unauthorized status instead of redirecting.
-                    .defaultAuthenticationEntryPointFor(
-                        new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
-                        new AntPathRequestMatcher("/api/**")
-                    )
+                        .defaultAuthenticationEntryPointFor(
+                                new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
+                                new AntPathRequestMatcher("/api/**")
+                        )
                 )
                 .authorizeHttpRequests((requests) -> requests
-                        // ✅ CORRECTED: Only allow public access to login page and static assets
-                        .antMatchers(
-                            "/", "/index.html", "/login",
-                            "/css/**", "/js/**", "/images/**", "/icons/**", "/webjars/**", "/ws/**"
+                        // **FIX**: Updated to use the correct `AntPathRequestMatcher` syntax
+                        .requestMatchers(
+                                new AntPathRequestMatcher("/"),
+                                new AntPathRequestMatcher("/index.html"),
+                                new AntPathRequestMatcher("/login"),
+                                new AntPathRequestMatcher("/css/**"),
+                                new AntPathRequestMatcher("/js/**"),
+                                new AntPathRequestMatcher("/images/**"),
+                                new AntPathRequestMatcher("/icons/**"),
+                                new AntPathRequestMatcher("/webjars/**"),
+                                new AntPathRequestMatcher("/ws/**")
                         ).permitAll()
-                        // All other requests require the user to be authenticated
                         .anyRequest().authenticated()
                 )
                 .formLogin((form) -> form
-                        // We still define the login page so Spring knows where to find it,
-                        // but the exception handling above will prevent redirects for API calls.
                         .loginPage("/login")
                         .successHandler(authenticationSuccessHandler)
                         .permitAll()
@@ -79,7 +81,6 @@ public class SecurityConfig {
         return http.build();
     }
 
-    // ✅ ENHANCED REQUEST LOGGING WITH BETTER CONFIGURATION
     @Bean
     public CommonsRequestLoggingFilter requestLoggingFilter() {
         CommonsRequestLoggingFilter loggingFilter = new CommonsRequestLoggingFilter();

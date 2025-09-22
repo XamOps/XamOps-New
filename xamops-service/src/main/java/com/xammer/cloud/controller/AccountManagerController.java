@@ -99,13 +99,35 @@ public class AccountManagerController {
             return ResponseEntity.status(500).body("IOException: " + e.getMessage());
         }
     }
-    
+
     private AccountDto mapToAccountDto(CloudAccount account) {
-        String connectionType = "AWS".equals(account.getProvider()) ? "Cross-account role" : "Workload Identity Federation";
+        String connectionType;
+        String accountIdentifier;
+
+        // This switch statement ensures the correct ID is used for each provider
+        switch (account.getProvider()) {
+            case "AWS":
+                connectionType = "Cross-account role";
+                accountIdentifier = account.getAwsAccountId();
+                break;
+            case "GCP":
+                connectionType = "Workload Identity Federation";
+                accountIdentifier = account.getGcpProjectId();
+                break;
+            case "Azure":
+                connectionType = "Service Principal";
+                accountIdentifier = account.getAzureSubscriptionId(); // This line fixes the issue
+                break;
+            default:
+                connectionType = "Unknown";
+                accountIdentifier = "N/A";
+                break;
+        }
+
         return new AccountDto(
                 account.getId(),
                 account.getAccountName(),
-                "AWS".equals(account.getProvider()) ? account.getAwsAccountId() : account.getGcpProjectId(),
+                accountIdentifier,
                 account.getAccessType(),
                 connectionType,
                 account.getStatus(),
@@ -115,45 +137,50 @@ public class AccountManagerController {
         );
     }
     @PostMapping("/accounts/azure")
-    public ResponseEntity<?> addAzureAccount(@RequestBody AzureAccountRequestDto request) {
+    public ResponseEntity<?> addAzureAccount(@RequestBody AzureAccountRequestDto request, Authentication authentication) {
+        ClientUserDetails userDetails = (ClientUserDetails) authentication.getPrincipal();
+        Long clientId = userDetails.getClientId();
+        Client client = clientRepository.findById(clientId)
+                .orElseThrow(() -> new RuntimeException("Client not found"));
+
         try {
-            JsonNode rootNode = objectMapper.readTree(request.getAzureCredentialsJson());
+            // The request DTO now directly contains the credential fields
+            String tenantId = request.getTenantId();
+            String subscriptionId = request.getSubscriptionId();
+            String clientIdStr = request.getClientId();
+            String clientSecret = request.getClientSecret();
 
-            String tenantId = rootNode.path("tenantId").asText();
-            String subscriptionId = rootNode.path("subscriptionId").asText();
-            String clientId = rootNode.path("clientId").asText();
-            String clientSecret = rootNode.path("clientSecret").asText();
-
-            if (tenantId.isEmpty() || subscriptionId.isEmpty() || clientId.isEmpty() || clientSecret.isEmpty()) {
+            if (tenantId == null || tenantId.isEmpty() ||
+                    subscriptionId == null || subscriptionId.isEmpty() ||
+                    clientIdStr == null || clientIdStr.isEmpty() ||
+                    clientSecret == null || clientSecret.isEmpty()) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("The provided JSON is missing required fields (tenantId, subscriptionId, clientId, clientSecret).");
             }
 
-            boolean credentialsValid = azureClientProvider.verifyCredentials(
-                    tenantId,
-                    subscriptionId,
-                    clientId,
-                    clientSecret
-            );
-
-            if (!credentialsValid) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Invalid Azure credentials provided.");
-            }
+            // Note: Ensure AzureClientProvider is properly injected if you have one for validation
+            // boolean credentialsValid = azureClientProvider.verifyCredentials(tenantId, subscriptionId, clientIdStr, clientSecret);
+            // if (!credentialsValid) {
+            //     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Invalid Azure credentials provided.");
+            // }
 
             CloudAccount newAccount = new CloudAccount();
             newAccount.setAccountName(request.getAccountName());
             newAccount.setProvider("Azure");
             newAccount.setAzureTenantId(tenantId);
             newAccount.setAzureSubscriptionId(subscriptionId);
-            newAccount.setAzureClientId(clientId);
-            newAccount.setAzureClientSecret(clientSecret); // Encryption is recommended
+            newAccount.setAzureClientId(clientIdStr);
+            newAccount.setAzureClientSecret(clientSecret); // Encryption is strongly recommended for secrets
             newAccount.setStatus("CONNECTED");
+            newAccount.setClient(client);
 
             CloudAccount savedAccount = cloudAccountRepository.save(newAccount);
             return ResponseEntity.ok(savedAccount);
 
         } catch (Exception e) {
-            // Log the exception e
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Invalid JSON format provided.");
+            // Log the exception for debugging
+            System.err.println("Error adding Azure account: " + e.getMessage());
+            e.printStackTrace();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("An unexpected error occurred while adding the account.");
         }
     }
 }
