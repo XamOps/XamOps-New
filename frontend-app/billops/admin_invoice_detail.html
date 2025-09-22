@@ -8,22 +8,36 @@
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/big.js@6.0.3/big.min.js"></script>
-    <style>[x-cloak] { display: none !important; }</style>
+    <style>
+        [x-cloak] { display: none !important; }
+        .invoice-table th { background-color: #f9fafb; }
+        .service-row { font-weight: 700; background-color: #f9fafb; }
+        .line-item-row { background-color: #ffffff; }
+        .editable-input {
+            width: 100%;
+            padding: 4px 8px;
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            background-color: #f9fafb;
+        }
+        .editable-input:focus {
+            border-color: #4f46e5;
+            background-color: white;
+            outline: none;
+            box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2);
+        }
+    </style>
 </head>
 <body class="bg-gray-100" x-data="invoiceDetailPage()">
 <div class="flex h-screen">
     <div id="sidebar-container" class="flex-shrink-0"></div>
 
     <div class="flex-1 flex flex-col overflow-hidden">
-        <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-6">
-            <div x-show="loading" class="text-center p-10">
-                <i class="fas fa-spinner fa-spin text-3xl text-indigo-500"></i>
-            </div>
-            <div x-show="error" class="text-center p-10 bg-red-50 rounded-lg">
-                <p class="text-red-700" x-text="error"></p>
-            </div>
+        <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-6 relative">
+            <div x-show="loading" class="text-center p-10"><i class="fas fa-spinner fa-spin text-3xl text-indigo-500"></i></div>
+            <div x-show="error" class="text-center p-10 bg-red-50 rounded-lg"><p class="text-red-700" x-text="error"></p></div>
             
-            <div x-show="!loading && invoice" class="container mx-auto">
+            <div x-show="!loading && invoice" class="container mx-auto" x-cloak>
                 <a href="admin_invoices.html" class="text-indigo-600 hover:text-indigo-800 mb-4 inline-block"><i class="fas fa-arrow-left mr-2"></i>Back to All Invoices</a>
                 <div class="bg-white rounded-lg shadow-md p-8">
                     <div class="flex justify-between items-start mb-6">
@@ -32,9 +46,7 @@
                             <p class="text-gray-600" x-text="`For: ${invoice.accountName} (${invoice.awsAccountId})`"></p>
                         </div>
                         <div class="text-right">
-                            <span class="px-3 py-1 text-sm font-semibold rounded-full"
-                                  :class="{ 'bg-yellow-100 text-yellow-800': invoice.status === 'DRAFT', 'bg-green-100 text-green-800': invoice.status === 'FINALIZED' }"
-                                  x-text="invoice.status"></span>
+                            <span class="px-3 py-1 text-sm font-semibold rounded-full" :class="{ 'bg-yellow-100 text-yellow-800': invoice.status === 'DRAFT', 'bg-green-100 text-green-800': invoice.status === 'FINALIZED' }" x-text="invoice.status"></span>
                             <p class="text-gray-500 mt-2" x-text="`Period: ${invoice.billingPeriod}`"></p>
                         </div>
                     </div>
@@ -42,7 +54,7 @@
                     <div x-show="invoice.status === 'DRAFT'" class="bg-indigo-50 border border-indigo-200 p-4 rounded-lg mb-6">
                         <h3 class="font-semibold text-lg text-indigo-800 mb-3">Admin Actions</h3>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div>
+                             <div>
                                 <h4 class="font-medium text-gray-700 mb-2">Apply Discount</h4>
                                 <div class="flex items-center space-x-2">
                                     <select x-model="discountService" class="block w-full text-sm border-gray-300 rounded-md">
@@ -55,64 +67,96 @@
                                     <button @click="applyDiscount()" :disabled="!discountService || !discountPercentage" class="px-4 py-2 bg-indigo-500 text-white text-sm rounded-md hover:bg-indigo-600 disabled:bg-gray-400">Apply</button>
                                 </div>
                             </div>
-                            <div class="flex items-end justify-end">
-                                <button @click="finalizeInvoice()" class="px-6 py-2 bg-green-600 text-white font-semibold rounded-md hover:bg-green-700">
-                                    <i class="fas fa-check-circle mr-2"></i>Finalize & Publish
-                                </button>
+                            <div class="flex items-end justify-end space-x-4">
+                                <button x-show="!editMode" @click="toggleEditMode(true)" class="px-6 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700"><i class="fas fa-pencil-alt mr-2"></i>Edit Invoice</button>
+                                <button x-show="editMode" @click="cancelEdit()" class="px-6 py-2 bg-gray-500 text-white font-semibold rounded-md hover:bg-gray-600">Cancel</button>
+                                <button x-show="editMode" @click="saveChanges()" class="px-6 py-2 bg-green-600 text-white font-semibold rounded-md hover:bg-green-700"><i class="fas fa-save mr-2"></i>Save Changes</button>
+                                <button x-show="!editMode" @click="finalizeInvoice()" class="px-6 py-2 bg-green-600 text-white font-semibold rounded-md hover:bg-green-700"><i class="fas fa-check-circle mr-2"></i>Finalize & Publish</button>
                             </div>
                         </div>
                         <div x-show="message" class="mt-3 text-sm" :class="isError ? 'text-red-600' : 'text-green-600'" x-text="message"></div>
                     </div>
 
                     <div>
-                        <h2 class="text-xl font-bold text-gray-800 mb-4">Invoice Details</h2>
+                        <div class="flex justify-between items-center mb-4">
+                            <h2 class="text-xl font-bold text-gray-800">Invoice Details</h2>
+                            <div x-show="editMode" class="flex items-center">
+                                <input type="checkbox" id="showHidden" x-model="showHiddenItems" class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                                <label for="showHidden" class="ml-2 block text-sm text-gray-900">Show Hidden Items</label>
+                            </div>
+                        </div>
+
                         <div class="border rounded-lg overflow-hidden">
-                            <table class="min-w-full">
+                            <table class="min-w-full invoice-table">
                                 <thead class="bg-gray-50">
                                     <tr>
-                                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Service</th>
-                                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Resource / Usage Type</th>
+                                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Service / Resource</th>
+                                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Region</th>
                                         <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Cost (USD)</th>
+                                        <th x-show="editMode" class="w-16 px-4 py-2"></th>
                                     </tr>
                                 </thead>
-                                <tbody class="bg-white">
-                                    <template x-for="item in invoice.lineItems" :key="item.resourceName">
-                                        <tr class="border-t border-gray-200">
-                                            <td class="px-4 py-3 text-sm text-gray-600" x-text="item.serviceName"></td>
-                                            <td class="px-4 py-3 text-sm text-gray-500" x-text="item.resourceName"></td>
-                                            <td class="px-4 py-3 text-sm text-gray-800 text-right" x-text="formatCurrency(item.cost)"></td>
+                                <tbody>
+                                    <template x-for="(item, index) in invoice.lineItems" :key="index">
+                                        <tr x-show="!item.hidden || showHiddenItems" class="border-t border-gray-200" :class="{'opacity-50 bg-gray-50': item.hidden && editMode}">
+                                            <td class="px-4 py-3">
+                                                <input x-show="editMode" type="text" x-model="item.serviceName" @input="recalculateTotals()" class="editable-input">
+                                                <span x-show="!editMode" x-text="item.serviceName"></span>
+                                                <span x-show="editMode && item.hidden" class="text-xs text-gray-500 ml-2">(Hidden)</span>
+                                            </td>
+                                            <td class="px-4 py-3"><input x-show="editMode" type="text" x-model="item.regionName" class="editable-input"><span x-show="!editMode" x-text="item.regionName"></span></td>
+                                            <td class="px-4 py-3 text-right"><input x-show="editMode" type="number" x-model.number="item.cost" @input="recalculateTotals()" class="editable-input text-right"><span x-show="!editMode" x-text="formatCurrency(item.cost)"></span></td>
+                                            <td x-show="editMode" class="text-center" x-data="{ open: false }">
+                                                <div class="relative">
+                                                    <button @click="open = !open" class="text-gray-500 hover:text-gray-700 p-2 rounded-full focus:outline-none"><i class="fas fa-ellipsis-v"></i></button>
+                                                    <div x-show="open" @click.away="open = false" class="absolute right-0 mt-2 w-32 bg-white rounded-md shadow-lg z-10">
+                                                        <a href="#" @click.prevent="toggleHideItem(index, true); open = false" x-show="!item.hidden" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Hide</a>
+                                                        <a href="#" @click.prevent="toggleHideItem(index, false); open = false" x-show="item.hidden" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Unhide</a>
+                                                        <a href="#" @click.prevent="removeLineItem(index); open = false" class="block px-4 py-2 text-sm text-red-600 hover:bg-gray-100">Remove</a>
+                                                    </div>
+                                                </div>
+                                            </td>
                                         </tr>
                                     </template>
                                 </tbody>
                                 <tfoot class="bg-gray-50 font-semibold">
-    <tr>
-        <td colspan="2" class="px-4 py-2 text-right text-gray-600">Subtotal:</td>
-        <td class="px-4 py-2 text-right text-gray-800" x-text="formatCurrency(invoice.preDiscountTotal)"></td>
-    </tr>
-    
-    <template x-for="discount in invoice.discounts" :key="discount.id">
-        <tr class="text-sm">
-            <td colspan="2" class="px-4 py-1 text-right text-gray-500" x-text="discount.description"></td>
-            <td class="px-4 py-1 text-right text-red-600 flex justify-end items-center">
-                <span x-text="formatCurrency(calculateDiscountAmount(discount))"></span>
-                <button x-show="invoice.status === 'DRAFT'" @click="removeDiscount(discount.id)" class="ml-2 text-gray-400 hover:text-red-500 transition-colors" title="Remove Discount">
-                    <i class="fas fa-trash-alt"></i>
-                </button>
-            </td>
-        </tr>
-    </template>
-
-    <tr x-show="invoice.discountAmount > 0" class="border-t">
-        <td colspan="2" class="px-4 py-2 text-right text-gray-600">Total Discounts:</td>
-        <td class="px-4 py-2 text-right text-red-600" x-text="formatCurrency(invoice.discountAmount * -1)"></td>
-    </tr>
-
-    <tr class="border-t-2 border-gray-300">
-        <td colspan="2" class="px-4 py-3 text-right text-gray-800 font-bold text-lg">FINAL TOTAL:</td>
-        <td class="px-4 py-3 text-right text-gray-900 font-bold text-lg" x-text="formatCurrency(invoice.amount)"></td>
-    </tr>
-</tfoot>
+                                    <tr x-show="editMode">
+                                        <td colspan="4" class="p-2"><button @click="addNewLineItem()" class="w-full text-center py-2 text-sm text-indigo-600 hover:bg-indigo-50 rounded-md"><i class="fas fa-plus mr-2"></i>Add Custom Item</button></td>
+                                    </tr>
+                                    <tr>
+                                        <td colspan="3" class="px-4 py-2 text-right text-gray-600">Subtotal:</td>
+                                        <td class="px-4 py-2 text-right text-gray-800" x-text="formatCurrency(invoice.preDiscountTotal)"></td>
+                                    </tr>
+                                    <template x-for="discount in invoice.discounts" :key="discount.id">
+                                        <tr class="text-sm">
+                                            <td colspan="3" class="px-4 py-1 text-right text-gray-500" x-text="discount.description"></td>
+                                            <td class="px-4 py-1 text-right text-red-600 flex justify-end items-center">
+                                                <span x-text="formatCurrency(calculateDiscountAmount(discount))"></span>
+                                                <button x-show="invoice.status === 'DRAFT' && !editMode" @click="removeDiscount(discount.id)" class="ml-2 text-gray-400 hover:text-red-500" title="Remove Discount"><i class="fas fa-trash-alt fa-xs"></i></button>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                    <tr class="border-t-2 border-gray-300">
+                                        <td colspan="3" class="px-4 py-3 text-right text-gray-800 font-bold text-lg">FINAL TOTAL:</td>
+                                        <td class="px-4 py-3 text-right text-gray-900 font-bold text-lg" x-text="formatCurrency(invoice.amount)"></td>
+                                    </tr>
+                                </tfoot>
                             </table>
+                        </div>
+                    </div>
+
+                    <div x-show="editMode && recentlyRemovedItems.length > 0" class="mt-8">
+                        <h3 class="text-lg font-semibold text-gray-700 mb-3">Recently Removed Items</h3>
+                        <div class="bg-gray-50 rounded-lg p-4 space-y-3">
+                            <template x-for="(removed, index) in recentlyRemovedItems" :key="index">
+                                <div class="flex justify-between items-center bg-white p-3 rounded-md shadow-sm">
+                                    <div>
+                                        <p class="font-medium text-gray-800" x-text="removed.item.serviceName"></p>
+                                        <p class="text-sm text-gray-500" x-text="removed.item.resourceName"></p>
+                                    </div>
+                                    <button @click="undoRemove(index)" class="text-sm font-semibold text-indigo-600 hover:text-indigo-800">Undo</button>
+                                </div>
+                            </template>
                         </div>
                     </div>
                 </div>
@@ -125,6 +169,7 @@
     function invoiceDetailPage() {
         return {
             invoice: null,
+            originalInvoice: null,
             loading: true,
             error: null,
             invoiceId: null,
@@ -133,81 +178,151 @@
             discountPercentage: null,
             message: '',
             isError: false,
+            editMode: false,
+            showHiddenItems: true,
+            recentlyRemovedItems: [],
 
             init() {
                 this.loadSidebar();
                 const urlParams = new URLSearchParams(window.location.search);
                 this.invoiceId = urlParams.get('id');
-
                 if (!this.invoiceId) {
-                    this.error = "No Invoice ID provided in the URL.";
-                    this.loading = false;
-                    return;
+                    this.error = "No Invoice ID provided."; this.loading = false; return;
                 }
                 this.fetchInvoiceDetails();
             },
 
             fetchInvoiceDetails() {
-                this.loading = true;
-                this.error = null;
+                this.loading = true; this.error = null;
                 fetch(`/api/admin/invoices/${this.invoiceId}`)
-                    .then(res => {
-                        if (!res.ok) throw new Error('Invoice not found.');
-                        return res.json();
-                    })
+                    .then(res => res.ok ? res.json() : Promise.reject('Invoice not found.'))
                     .then(data => {
                         this.invoice = data;
-                        this.uniqueServices = [...new Set(data.lineItems.map(item => item.serviceName))];
+                        this.originalInvoice = JSON.parse(JSON.stringify(data));
+                        this.updateUniqueServices();
                     })
-                    .catch(err => {
-                        this.error = err.message;
-                    })
-                    .finally(() => {
-                        this.loading = false;
-                    });
+                    .catch(err => { this.error = err.message; })
+                    .finally(() => { this.loading = false; });
+            },
+            
+            toggleEditMode(state) { this.editMode = state; },
+            
+            cancelEdit() {
+                this.invoice = JSON.parse(JSON.stringify(this.originalInvoice));
+                this.recentlyRemovedItems = [];
+                this.toggleEditMode(false);
+                this.message = 'Changes have been discarded.';
+                this.isError = false;
+            },
+
+            saveChanges() {
+                this.recentlyRemovedItems = [];
+                this.message = ''; this.isError = false;
+                fetch(`/api/admin/invoices/${this.invoiceId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ lineItems: this.invoice.lineItems })
+                })
+                .then(res => res.ok ? res.json() : Promise.reject('Failed to save changes.'))
+                .then(updatedInvoice => {
+                    this.invoice = updatedInvoice;
+                    this.originalInvoice = JSON.parse(JSON.stringify(updatedInvoice));
+                    this.updateUniqueServices();
+                    this.toggleEditMode(false);
+                    this.message = 'Invoice updated successfully!';
+                })
+                .catch(err => { this.message = err.message; this.isError = true; });
+            },
+
+            addNewLineItem() {
+                this.invoice.lineItems.push({
+                    serviceName: 'New Service',
+                    regionName: 'Global',
+                    resourceName: 'Custom Charge',
+                    usageQuantity: '1',
+                    unit: 'Unit',
+                    cost: 0.0,
+                    hidden: false
+                });
+                this.recalculateTotals();
+            },
+
+            removeLineItem(index) {
+                const itemToRemove = this.invoice.lineItems.splice(index, 1)[0];
+                this.recentlyRemovedItems.push({ item: itemToRemove, originalIndex: index });
+                this.recalculateTotals();
+            },
+
+            undoRemove(removedIndex) {
+                const { item, originalIndex } = this.recentlyRemovedItems.splice(removedIndex, 1)[0];
+                this.invoice.lineItems.splice(originalIndex, 0, item);
+                this.recalculateTotals();
+            },
+
+            toggleHideItem(index, shouldHide) {
+                this.invoice.lineItems[index].hidden = shouldHide;
+                // --- THIS IS THE FIX ---
+                // We DO NOT recalculate totals here. Hiding is purely visual.
+            },
+            
+            recalculateTotals() {
+                let subtotal = new Big(0);
+                this.invoice.lineItems.forEach(item => {
+                    subtotal = subtotal.plus(new Big(item.cost || 0));
+                });
+                this.invoice.preDiscountTotal = subtotal.toNumber();
+                
+                let totalDiscount = new Big(0);
+                (this.invoice.discounts || []).forEach(disc => {
+                    const percentage = new Big(disc.percentage).div(100);
+                    if (disc.serviceName.toUpperCase() === 'ALL') {
+                        totalDiscount = totalDiscount.plus(subtotal.times(percentage));
+                    } else {
+                        const serviceTotal = this.invoice.lineItems
+                            .filter(item => item.serviceName === disc.serviceName)
+                            .reduce((sum, item) => sum.plus(new Big(item.cost || 0)), new Big(0));
+                        totalDiscount = totalDiscount.plus(serviceTotal.times(percentage));
+                    }
+                });
+                this.invoice.discountAmount = totalDiscount.round(2).toNumber();
+                this.invoice.amount = subtotal.minus(totalDiscount).round(2).toNumber();
+                this.updateUniqueServices();
+            },
+
+            updateUniqueServices() {
+                if (this.invoice && this.invoice.lineItems) {
+                    this.uniqueServices = [...new Set(this.invoice.lineItems.map(item => item.serviceName))];
+                }
             },
             
             applyDiscount() {
-                this.message = '';
-                this.isError = false;
+                this.message = ''; this.isError = false;
                 fetch(`/api/admin/invoices/${this.invoiceId}/discount`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        serviceName: this.discountService,
-                        percentage: this.discountPercentage
-                    })
+                    body: JSON.stringify({ serviceName: this.discountService, percentage: this.discountPercentage })
                 })
                 .then(res => res.ok ? res.json() : Promise.reject('Failed to apply discount.'))
                 .then(updatedInvoice => {
                     this.invoice = updatedInvoice;
+                    this.originalInvoice = JSON.parse(JSON.stringify(updatedInvoice));
                     this.message = 'Discount applied successfully!';
                     this.discountPercentage = null;
                 })
-                .catch(err => {
-                    this.message = err.message;
-                    this.isError = true;
-                });
+                .catch(err => { this.message = err.message; this.isError = true; });
             },
 
             removeDiscount(discountId) {
                 this.message = '';
-                fetch(`/api/admin/invoices/${this.invoiceId}/discounts/${discountId}`, {
-                    method: 'DELETE'
-                })
-                .then(res => {
-                    if (!res.ok) return Promise.reject('Failed to remove discount.');
-                    return res.json();
-                })
+                fetch(`/api/admin/invoices/${this.invoiceId}/discounts/${discountId}`, { method: 'DELETE' })
+                .then(res => res.ok ? res.json() : Promise.reject('Failed to remove discount.'))
                 .then(updatedInvoice => {
                     this.invoice = updatedInvoice;
+                    this.originalInvoice = JSON.parse(JSON.stringify(updatedInvoice));
                     this.message = 'Discount removed successfully!';
                     this.isError = false;
                 })
-                .catch(err => {
-                    this.message = err;
-                    this.isError = true;
-                });
+                .catch(err => { this.message = err; this.isError = true; });
             },
 
             calculateDiscountAmount(discount) {
@@ -221,28 +336,24 @@
                         .reduce((sum, item) => sum.plus(new Big(item.cost)), new Big(0));
                     amount = serviceTotal.times(percentage);
                 }
-                return amount.times(-1).toNumber(); // Return as a negative number for display
+                return amount.times(-1).toNumber();
             },
 
             finalizeInvoice() {
                 if (!confirm('Are you sure you want to finalize this invoice? This action cannot be undone.')) return;
-
-                this.message = '';
-                this.isError = false;
+                this.message = ''; this.isError = false;
                 fetch(`/api/admin/invoices/${this.invoiceId}/finalize`, { method: 'POST' })
                 .then(res => res.ok ? res.json() : Promise.reject('Failed to finalize invoice.'))
                 .then(finalizedInvoice => {
                     this.invoice = finalizedInvoice;
+                    this.originalInvoice = JSON.parse(JSON.stringify(finalizedInvoice));
                     this.message = 'Invoice has been finalized and is now visible to the user.';
                 })
-                .catch(err => {
-                    this.message = err.message;
-                    this.isError = true;
-                });
+                .catch(err => { this.message = err.message; this.isError = true; });
             },
 
             formatCurrency(value) {
-                if (typeof value !== 'number') return '$0.00';
+                if (typeof value !== 'number' && typeof value !== 'string') return '$0.00';
                 return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
             },
 
