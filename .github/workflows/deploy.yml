@@ -29,7 +29,7 @@ jobs:
           context: .            # REPLACE if your folder is different
           file: ./billops/Dockerfile
           push: true
-          tags: ghcr.io/xammer/billops:latest   # REPLACE <OWNER> with your GitHub username/org
+          tags: ghcr.io/sahil-remoterepo/billops:latest   # REPLACE <OWNER> with your GitHub username/org
 
       # Build and push Xamops
       - name: Build & Push Xamops
@@ -38,7 +38,7 @@ jobs:
           context: .
           file: ./xamops-service/Dockerfile
           push: true
-          tags: ghcr.io/xammer/xamops-service:latest
+          tags: ghcr.io/sahil-remoterepo/xamops-service:latest
 
       # Build and push Service Registry
       - name: Build & Push Service Registry
@@ -47,7 +47,7 @@ jobs:
           context: .
           file: ./service-registry/Dockerfile
           push: true
-          tags: ghcr.io/xammer/service-registry:latest
+          tags: ghcr.io/sahil-remoterepo/service-registry:latest
 
       # Build and push Frontend
       - name: Build & Push Frontend
@@ -56,7 +56,7 @@ jobs:
           context: ./frontend-app
           file: ./frontend-app/Dockerfile
           push: true
-          tags: ghcr.io/xammer/frontend-app:latest
+          tags: ghcr.io/sahil-remoterepo/frontend-app:latest
 
   deploy:
     needs: build-and-push
@@ -79,15 +79,15 @@ jobs:
             --comment "Deploy microservices" \
             --parameters 'commands=[
               "sudo docker login ghcr.io -u sahil-remoterepo -p ${{ secrets.UAT_GHCR }}",   # REPLACE USERNAME with your GitHub username
-              "sudo docker pull ghcr.io/xammer/billops:latest",
-              "sudo docker pull ghcr.io/xammer/xamops-service:latest",
-              "sudo docker pull ghcr.io/xammer/service-registry:latest",
-              "sudo docker pull ghcr.io/xammer/frontend-app:latest",
+              "sudo docker pull ghcr.io/sahil-remoterepo/billops:latest",
+              "sudo docker pull ghcr.io/sahil-remoterepo/xamops-service:latest",
+              "sudo docker pull ghcr.io/sahil-remoterepo/service-registry:latest",
+              "sudo docker pull ghcr.io/sahil-remoterepo/frontend-app:latest",
               "sudo docker stop billops || true && sudo docker rm billops || true",
               "sudo docker stop xamops-service || true && sudo docker rm xamops-service || true",
               "sudo docker stop service-registry || true && sudo docker rm service-registry || true",
               "sudo docker stop frontend-app || true && sudo docker rm frontend-app || true",
-              "sudo docker run -d --name billops ghcr.io/xammer/billops:latest",
-              "sudo docker run -d --name xamops-service ghcr.io/xammer/xamops-service:latest",
-              "sudo docker run -d --name service-registry ghcr.io/xammer/service-registry:latest",
-              "sudo docker run -d --name frontend-app -p 80:80 ghcr.io/xammer/frontend-app:latest"
+              "sudo docker run -d --name billops ghcr.io/sahil-remoterepo/billops:latest",
+              "sudo docker run -d --name xamops-service ghcr.io/sahil-remoterepo/xamops-service:latest",
+              "sudo docker run -d --name service-registry ghcr.io/sahil-remoterepo/service-registry:latest",
+              "sudo docker run -d --name frontend-app -p 80:80 ghcr.io/sahil-remoterepo/frontend-app:latest"
