@@ -19,7 +19,7 @@ jobs:
         uses: docker/login-action@v2
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
+          username: sahil-remoterepo
           password: ${{ secrets.UAT_GHCR }}   # REPLACE: Create GHCR_PAT secret in repo
 
       # Build and push Billops
@@ -78,7 +78,7 @@ jobs:
             --document-name "AWS-RunShellScript" \
             --comment "Deploy microservices" \
             --parameters 'commands=[
-              "sudo docker login ghcr.io -u sahil-remoterepo -p ${{ secrets.GHCR_PAT }}",   # REPLACE USERNAME with your GitHub username
+              "sudo docker login ghcr.io -u sahil-remoterepo -p ${{ secrets.UAT_GHCR }}",   # REPLACE USERNAME with your GitHub username
               "sudo docker pull ghcr.io/xammer/billops:latest",
               "sudo docker pull ghcr.io/xammer/xamops-service:latest",
               "sudo docker pull ghcr.io/xammer/service-registry:latest",
