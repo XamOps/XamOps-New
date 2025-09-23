@@ -6,32 +6,27 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/xamops/azure")
 public class AzureDashboardController {
 
-    private static final Logger logger = LoggerFactory.getLogger(AzureDashboardController.class);
-    private final AzureDashboardService azureDashboardService;
+    private static final Logger log = LoggerFactory.getLogger(AzureDashboardController.class);
 
     @Autowired
-    public AzureDashboardController(AzureDashboardService azureDashboardService) {
-        this.azureDashboardService = azureDashboardService;
-    }
+    private AzureDashboardService azureDashboardService;
 
     @GetMapping("/dashboard-data")
-    public ResponseEntity<AzureDashboardData> getDashboardData(@RequestParam String accountId) {
+    public ResponseEntity<AzureDashboardData> getDashboardData(@RequestParam String accountId, @RequestParam(defaultValue = "false") boolean force) {
         try {
-            logger.info("Fetching Azure dashboard data for account: {}", accountId);
-            AzureDashboardData data = azureDashboardService.getDashboardData(accountId);
+            // The accountId here is the Azure Subscription ID
+            AzureDashboardData data = azureDashboardService.getDashboardData(accountId, force);
             return ResponseEntity.ok(data);
         } catch (Exception e) {
-            logger.error("Error fetching Azure dashboard data for account: " + accountId, e);
-            return ResponseEntity.internalServerError().build();
+            log.error("Error fetching Azure dashboard data for accountId: {}", accountId, e);
+            // Return a proper 500 error response
+            return ResponseEntity.status(500).build();
         }
     }
 }

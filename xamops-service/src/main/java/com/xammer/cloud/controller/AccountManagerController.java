@@ -8,49 +8,45 @@ import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.service.AwsAccountService;
 import com.xammer.cloud.service.gcp.GcpDataService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import com.xammer.cloud.dto.azure.AzureAccountRequestDto;
-import com.xammer.cloud.service.azure.AzureClientProvider;
 import org.springframework.http.HttpStatus;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-
 
 @RestController
 @RequestMapping("/api/xamops/account-manager")
 public class AccountManagerController {
 
-    private final AwsAccountService awsAccountService;
-    private final GcpDataService gcpDataService;
-    private final CloudAccountRepository cloudAccountRepository;
-    private final ClientRepository clientRepository;
-    private AzureClientProvider azureClientProvider;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private static final Logger logger = LoggerFactory.getLogger(AccountManagerController.class);
 
+    @Autowired
+    private AwsAccountService awsAccountService;
 
+    @Autowired
+    private GcpDataService gcpDataService;
 
-    public AccountManagerController(AwsAccountService awsAccountService, GcpDataService gcpDataService, CloudAccountRepository cloudAccountRepository, ClientRepository clientRepository) {
-        this.awsAccountService = awsAccountService;
-        this.gcpDataService = gcpDataService;
-        this.cloudAccountRepository = cloudAccountRepository;
-        this.clientRepository = clientRepository;
+    @Autowired
+    private CloudAccountRepository cloudAccountRepository;
 
-    }
+    @Autowired
+    private ClientRepository clientRepository;
 
     @PostMapping("/generate-stack-url")
-    public ResponseEntity<Map<String, String>> generateStackUrl(@RequestBody AccountCreationRequestDto request, Authentication authentication) {
-        ClientUserDetails userDetails = (ClientUserDetails) authentication.getPrincipal();
+    public ResponseEntity<Map<String, String>> generateStackUrl(@RequestBody AccountCreationRequestDto request, @AuthenticationPrincipal ClientUserDetails userDetails) {
         Long clientId = userDetails.getClientId();
         try {
             Map<String, Object> result = awsAccountService.generateCloudFormationUrl(request.getAccountName(), request.getAwsAccountId(), request.getAccessType(), clientId);
             Map<String, String> stackDetails = Map.of(
-                "url", result.get("url").toString(),
-                "externalId", result.get("externalId").toString()
+                    "url", result.get("url").toString(),
+                    "externalId", result.get("externalId").toString()
             );
             return ResponseEntity.ok(stackDetails);
         } catch (Exception e) {
@@ -69,8 +65,7 @@ public class AccountManagerController {
     }
 
     @GetMapping("/accounts")
-    public List<AccountDto> getAccounts(Authentication authentication) {
-        ClientUserDetails userDetails = (ClientUserDetails) authentication.getPrincipal();
+    public List<AccountDto> getAccounts(@AuthenticationPrincipal ClientUserDetails userDetails) {
         Long clientId = userDetails.getClientId();
         return cloudAccountRepository.findByClientId(clientId).stream()
                 .map(this::mapToAccountDto)
@@ -88,8 +83,7 @@ public class AccountManagerController {
     }
 
     @PostMapping("/add-gcp-account")
-    public ResponseEntity<?> addGcpAccount(@RequestBody GcpAccountRequestDto gcpAccountRequestDto, Authentication authentication) {
-        ClientUserDetails userDetails = (ClientUserDetails) authentication.getPrincipal();
+    public ResponseEntity<?> addGcpAccount(@RequestBody GcpAccountRequestDto gcpAccountRequestDto, @AuthenticationPrincipal ClientUserDetails userDetails) {
         Long clientId = userDetails.getClientId();
         Client client = clientRepository.findById(clientId).orElse(null);
         try {
@@ -104,7 +98,6 @@ public class AccountManagerController {
         String connectionType;
         String accountIdentifier;
 
-        // This switch statement ensures the correct ID is used for each provider
         switch (account.getProvider()) {
             case "AWS":
                 connectionType = "Cross-account role";
@@ -116,7 +109,7 @@ public class AccountManagerController {
                 break;
             case "Azure":
                 connectionType = "Service Principal";
-                accountIdentifier = account.getAzureSubscriptionId(); // This line fixes the issue
+                accountIdentifier = account.getAzureSubscriptionId();
                 break;
             default:
                 connectionType = "Unknown";
@@ -136,40 +129,22 @@ public class AccountManagerController {
                 account.getProvider()
         );
     }
-    @PostMapping("/accounts/azure")
-    public ResponseEntity<?> addAzureAccount(@RequestBody AzureAccountRequestDto request, Authentication authentication) {
-        ClientUserDetails userDetails = (ClientUserDetails) authentication.getPrincipal();
+
+    @PostMapping("/azure")
+    public ResponseEntity<?> addAzureAccount(@RequestBody AzureAccountRequestDto request, @AuthenticationPrincipal ClientUserDetails userDetails) {
         Long clientId = userDetails.getClientId();
-        Client client = clientRepository.findById(clientId)
-                .orElseThrow(() -> new RuntimeException("Client not found"));
 
         try {
-            // The request DTO now directly contains the credential fields
-            String tenantId = request.getTenantId();
-            String subscriptionId = request.getSubscriptionId();
-            String clientIdStr = request.getClientId();
-            String clientSecret = request.getClientSecret();
-
-            if (tenantId == null || tenantId.isEmpty() ||
-                    subscriptionId == null || subscriptionId.isEmpty() ||
-                    clientIdStr == null || clientIdStr.isEmpty() ||
-                    clientSecret == null || clientSecret.isEmpty()) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("The provided JSON is missing required fields (tenantId, subscriptionId, clientId, clientSecret).");
-            }
-
-            // Note: Ensure AzureClientProvider is properly injected if you have one for validation
-            // boolean credentialsValid = azureClientProvider.verifyCredentials(tenantId, subscriptionId, clientIdStr, clientSecret);
-            // if (!credentialsValid) {
-            //     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Invalid Azure credentials provided.");
-            // }
+            Client client = clientRepository.findById(clientId)
+                    .orElseThrow(() -> new RuntimeException("Client not found for ID: " + clientId));
 
             CloudAccount newAccount = new CloudAccount();
             newAccount.setAccountName(request.getAccountName());
             newAccount.setProvider("Azure");
-            newAccount.setAzureTenantId(tenantId);
-            newAccount.setAzureSubscriptionId(subscriptionId);
-            newAccount.setAzureClientId(clientIdStr);
-            newAccount.setAzureClientSecret(clientSecret); // Encryption is strongly recommended for secrets
+            newAccount.setAzureTenantId(request.getTenantId());
+            newAccount.setAzureSubscriptionId(request.getSubscriptionId());
+            newAccount.setAzureClientId(request.getClientId());
+            newAccount.setAzureClientSecret(request.getClientSecret());
             newAccount.setStatus("CONNECTED");
             newAccount.setClient(client);
 
@@ -177,9 +152,7 @@ public class AccountManagerController {
             return ResponseEntity.ok(savedAccount);
 
         } catch (Exception e) {
-            // Log the exception for debugging
-            System.err.println("Error adding Azure account: " + e.getMessage());
-            e.printStackTrace();
+            logger.error("Error adding Azure account", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("An unexpected error occurred while adding the account.");
         }
     }
