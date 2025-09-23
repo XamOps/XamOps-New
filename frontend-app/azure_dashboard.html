@@ -598,7 +598,7 @@
                 const urlParams = new URLSearchParams(window.location.search);
                 const accountIdsParam = urlParams.get('accountId') || urlParams.get('accountIds');
 
-                if (accountIdsParam) {
+                if (accountIdsParam && accountIdsParam !== 'null') {
                     this.selectedAccountIds = accountIdsParam.split(',');
                     sessionStorage.setItem('selectedAccountIds', JSON.stringify(this.selectedAccountIds));
                 } else {
@@ -634,7 +634,7 @@
             },
         initializeDashboardLayout() {
             const container = document.getElementById('widgets-container');
-            fetch('/api/dashboard/layout')
+            fetch('/api/xamops/dashboard/layout')
                 .then(res => {
                     if (!res.ok) {
                         throw new Error(`HTTP error! status: ${res.status}`);
@@ -644,9 +644,8 @@
                         return res.json();
                     } else {
                         return res.text().then(text => {
-                            // If we get HTML, we can still proceed with default layout, but log the error
                             console.error(`Expected JSON, but got HTML: ${text.substring(0, 100)}...`);
-                            return null; // Return null to indicate layout data is not available
+                            return null;
                         });
                     }
                 })
@@ -683,73 +682,78 @@
                 });
         },
 
-            fetchDashboardData(forceRefresh = false) {
-                if (this.selectedAccountIds.length === 0) {
+        fetchDashboardData(forceRefresh = false) {
+            if (this.selectedAccountIds.length === 0) {
+                this.isLoading = false;
+                return;
+            }
+
+            this.connectWebSocket();
+            this.initializeDashboardLayout();
+
+            const cacheKey = `dashboardData-${this.selectedAccountIds.join('-')}`;
+            const cachedData = sessionStorage.getItem(cacheKey);
+
+            if (cachedData && !forceRefresh) {
+                this.isLoading = false;
+                this.populatePage(JSON.parse(cachedData));
+                return;
+            }
+
+            if (!cachedData) {
+                this.isLoading = true;
+            }
+
+            if (forceRefresh) {
+                this.isRefreshing = true;
+                this.showNotification('loading', 'Updating dashboard...');
+            }
+
+            let endpoint = `/api/xamops/azure/dashboard-data?accountId=${this.selectedAccountIds[0]}`;
+            if (forceRefresh) {
+                endpoint += '&force=true';
+            }
+
+            fetch(endpoint)
+                .then(res => {
+                    if (!res.ok) {
+                        throw new Error(`HTTP error! status: ${res.status}`);
+                    }
+                    return res.json();
+                })
+                .then(data => {
+                    if (!data) return;
+                    sessionStorage.setItem(cacheKey, JSON.stringify(data));
+                    this.populatePage(data);
+                    if (forceRefresh) {
+                        this.showNotification('success', 'Dashboard updated successfully!');
+                    }
+                })
+                .catch(error => {
+                    console.error('Failed to fetch dashboard data:', error);
+                    document.getElementById('errorMessage').textContent = 'Failed to load cloud data. The backend might be starting up, or there could be a connection issue. Please try again in a moment.';
+                    document.getElementById('errorState').classList.remove('hidden');
+                    document.getElementById('appBody').classList.add('hidden');
+                })
+                .finally(() => {
                     this.isLoading = false;
-                    return;
-                }
+                    this.isRefreshing = false;
+                });
+        },
 
-                this.connectWebSocket();
-                this.initializeDashboardLayout();
-
-                const cacheKey = `dashboardData-${this.selectedAccountIds.join('-')}`;
-                const cachedData = sessionStorage.getItem(cacheKey);
-
-                if (cachedData && !forceRefresh) {
-                    this.isLoading = false;
-                    this.populatePage(JSON.parse(cachedData));
-                    return;
-                }
-
-                if (!cachedData) {
-                    this.isLoading = true;
-                }
-
-                if (forceRefresh) {
-                    this.isRefreshing = true;
-                    this.showNotification('loading', 'Updating dashboard...');
-                }
-
-                let endpoint = `/api/xamops/dashboard-data?accountId=${this.selectedAccountIds[0]}`;
-                if (forceRefresh) {
-                    endpoint += '&force=true';
-                }
-
-                fetch(endpoint)
-                    .then(res => res.json())
-                    .then(data => {
-                        if (!data) return;
-                        sessionStorage.setItem(cacheKey, JSON.stringify(data));
-                        this.populatePage(data);
-                        if (forceRefresh) {
-                            this.showNotification('success', 'Dashboard updated successfully!');
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Failed to fetch dashboard data:', error);
-                        document.getElementById('errorMessage').textContent = 'Failed to load cloud data. The backend might be starting up, or there could be a connection issue. Please try again in a moment.';
-                        document.getElementById('errorState').classList.remove('hidden');
-                        document.getElementById('appBody').classList.add('hidden');
-                    })
-                    .finally(() => {
-                        this.isLoading = false;
-                        this.isRefreshing = false;
-                    });
-            },
-
-            showNotification(type, message) {
-                const notification = document.getElementById(type + 'Notification');
-                if (notification) {
-                    notification.classList.add('show');
-                    setTimeout(() => {
-                        notification.classList.remove('show');
-                    }, 3000);
-                }
-            },
+        showNotification(type, message) {
+            const notification = document.getElementById(type + 'Notification');
+            if (notification) {
+                notification.classList.add('show');
+                setTimeout(() => {
+                    notification.classList.remove('show');
+                }, 3000);
+            }
+        },
         saveLayout() {
             const container = document.getElementById('widgets-container');
             const widgetOrder = [...container.children].map(w => w.id);
-            fetch('/api/dashboard/layout', {
+            fetch('/api/xamops/dashboard/layout', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(widgetOrder)
@@ -764,19 +768,19 @@
         },
 
         populatePage(data) {
-                const account = data.selectedAccount;
+                const account = data;
                 if (!account) return;
                 document.getElementById('updateTime').textContent = `Updated ${new Date().toLocaleTimeString()}`;
                 this.populateKpiCards(account);
                 this.populateResourceInventory(account.resourceInventory);
-                this.populateOptimizationHub(account.optimizationSummary, account.costAnomalies, account.ec2Recommendations, account.ebsRecommendations, account.lambdaRecommendations);
+                this.populateOptimizationHub(account.optimizationSummary, account.costAnomalies, account.vmRecommendations, account.diskRecommendations, account.functionRecommendations);
                 this.populateBillingSummary(account.billingSummary);
                 this.renderCostHistoryChart(account.costHistory);
                 this.renderHighchartMap(account.regionStatus);
             },
         populateKpiCards(account) {
             const kpiContainer = document.getElementById('kpi-cards');
-            if (!kpiContainer) return;
+            if (!kpiContainer || !account.costHistory) return;
             const costHistory = account.costHistory;
             const mtdSpend = costHistory.costs.length > 0 ? costHistory.costs[costHistory.costs.length - 1] : 0;
             const lastMonthSpend = costHistory.costs.length > 1 ? costHistory.costs[costHistory.costs.length - 2] : 0;

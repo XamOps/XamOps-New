@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 import software.amazon.awssdk.services.iam.IamClient;
 import software.amazon.awssdk.services.iam.model.PolicyScopeType;
 import software.amazon.awssdk.services.servicequotas.ServiceQuotasClient;
@@ -74,6 +75,17 @@ public class DashboardDataService {
 
 
     private CloudAccount getAccount(String accountId) {
+        if (!StringUtils.hasText(accountId)) {
+            throw new IllegalArgumentException("Account ID cannot be null or empty.");
+        }
+
+        // Try finding by Azure Subscription ID first
+        Optional<CloudAccount> azureAccount = cloudAccountRepository.findByAzureSubscriptionId(accountId);
+        if (azureAccount.isPresent()) {
+            return azureAccount.get();
+        }
+
+        // Fallback to AWS or GCP account lookup
         return cloudAccountRepository.findByAwsAccountIdOrGcpProjectId(accountId, accountId)
                 .orElseThrow(() -> new RuntimeException("Account not found in database: " + accountId));
     }

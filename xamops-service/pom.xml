@@ -106,6 +106,7 @@
 
 
 
+
         <dependency><groupId>com.google.cloud</groupId><artifactId>google-cloud-storage</artifactId></dependency>
         <dependency><groupId>com.google.auth</groupId><artifactId>google-auth-library-oauth2-http</artifactId></dependency>
         <dependency><groupId>com.google.cloud</groupId><artifactId>google-cloud-compute</artifactId></dependency>
@@ -195,6 +196,11 @@
             <groupId>com.azure.resourcemanager</groupId>
             <artifactId>azure-resourcemanager</artifactId>
             <version>2.31.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.azure.resourcemanager</groupId>
+            <artifactId>azure-resourcemanager-costmanagement</artifactId>
+            <version>1.0.0-beta.4</version>
         </dependency>
     </dependencies>
 
