@@ -17,7 +17,6 @@ public class InvoiceDto {
     private Invoice.InvoiceStatus status;
     private BigDecimal preDiscountTotal;
     private BigDecimal discountAmount;
-    
     private BigDecimal amount;
 
     private String accountName;
@@ -33,6 +32,7 @@ public class InvoiceDto {
         private String usageQuantity;
         private String unit;
         private BigDecimal cost;
+        private boolean hidden;
     }
 
     @Data
@@ -52,25 +52,28 @@ public class InvoiceDto {
         dto.setStatus(invoice.getStatus());
         dto.setPreDiscountTotal(invoice.getPreDiscountTotal());
         dto.setDiscountAmount(invoice.getDiscountAmount());
-        
-        // --- FIX: This now correctly calls the updated getAmount() ---
         dto.setAmount(invoice.getAmount());
-        // --- END FIX ---
 
         dto.setAccountName(invoice.getCloudAccount().getAccountName());
         dto.setAwsAccountId(invoice.getCloudAccount().getAwsAccountId());
 
         if (invoice.getLineItems() != null) {
-            dto.setLineItems(invoice.getLineItems().stream().map(item -> {
-                LineItemDto itemDto = new LineItemDto();
-                itemDto.setServiceName(item.getServiceName());
-                itemDto.setRegionName(item.getRegionName());
-                itemDto.setResourceName(item.getResourceName());
-                itemDto.setUsageQuantity(item.getUsageQuantity());
-                itemDto.setUnit(item.getUnit());
-                itemDto.setCost(item.getCost());
-                return itemDto;
-            }).collect(Collectors.toList()));
+            dto.setLineItems(invoice.getLineItems().stream()
+                // --- START: THIS IS THE FIX ---
+                // This filter removes any hidden items before sending the data to the user's invoice page.
+                .filter(item -> !item.isHidden())
+                // --- END: THIS IS THE FIX ---
+                .map(item -> {
+                    LineItemDto itemDto = new LineItemDto();
+                    itemDto.setServiceName(item.getServiceName());
+                    itemDto.setRegionName(item.getRegionName());
+                    itemDto.setResourceName(item.getResourceName());
+                    itemDto.setUsageQuantity(item.getUsageQuantity());
+                    itemDto.setUnit(item.getUnit());
+                    itemDto.setCost(item.getCost());
+                    itemDto.setHidden(item.isHidden()); // This is still useful for the admin view
+                    return itemDto;
+                }).collect(Collectors.toList()));
         }
 
         if (invoice.getDiscounts() != null) {

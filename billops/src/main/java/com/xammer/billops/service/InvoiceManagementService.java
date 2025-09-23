@@ -20,6 +20,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.xammer.billops.dto.InvoiceUpdateDto;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -408,5 +409,42 @@ public Invoice removeDiscountFromInvoice(Long invoiceId, Long discountId) {
             e.printStackTrace();
         }
         return new ByteArrayInputStream(out.toByteArray());
+    }
+
+     @Transactional
+    public Invoice updateInvoice(Long invoiceId, InvoiceUpdateDto invoiceUpdateDto) {
+        Invoice invoice = invoiceRepository.findById(invoiceId)
+                .orElseThrow(() -> new RuntimeException("Invoice not found"));
+
+        if (invoice.getStatus() == Invoice.InvoiceStatus.FINALIZED) {
+            throw new IllegalStateException("Cannot edit a finalized invoice.");
+        }
+
+        invoice.getLineItems().clear();
+        BigDecimal newPreDiscountTotal = BigDecimal.ZERO;
+
+        for (InvoiceUpdateDto.LineItemUpdateDto itemDto : invoiceUpdateDto.getLineItems()) {
+            InvoiceLineItem newLineItem = new InvoiceLineItem();
+            newLineItem.setInvoice(invoice);
+            newLineItem.setServiceName(itemDto.getServiceName());
+            newLineItem.setRegionName(itemDto.getRegionName());
+            newLineItem.setResourceName(itemDto.getResourceName());
+            newLineItem.setUsageQuantity(itemDto.getUsageQuantity());
+            newLineItem.setUnit(itemDto.getUnit());
+            newLineItem.setCost(itemDto.getCost());
+
+            // --- START: THIS IS THE FIX ---
+            // Now, we correctly set the hidden status from the frontend data
+            newLineItem.setHidden(itemDto.isHidden());
+            // --- END: THIS IS THE FIX ---
+
+            invoice.getLineItems().add(newLineItem);
+            newPreDiscountTotal = newPreDiscountTotal.add(itemDto.getCost());
+        }
+
+        invoice.setPreDiscountTotal(newPreDiscountTotal);
+        recalculateTotals(invoice);
+
+        return invoiceRepository.save(invoice);
     }
 }
