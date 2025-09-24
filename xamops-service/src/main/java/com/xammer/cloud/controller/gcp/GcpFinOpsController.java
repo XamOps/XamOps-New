@@ -58,8 +58,8 @@ public class GcpFinOpsController {
             gcpOptimizationService.getOptimizationSummary(accountId).thenAccept(finalReport::setOptimizationSummary),
             gcpOptimizationService.getRightsizingRecommendations(accountId).thenAccept(finalReport::setRightsizingRecommendations),
             gcpOptimizationService.getWasteReport(accountId).thenAccept(finalReport::setWastedResources),
-            gcpBudgetService.getBudgets(billingAccountId).thenAccept(finalReport::setBudgets),
-            gcpOptimizationService.getTaggingCompliance(accountId).thenAccept(finalReport::setTaggingCompliance)
+            gcpBudgetService.getBudgets(billingAccountId).thenAccept(finalReport::setBudgets)
+            //gcpOptimizationService.getTaggingCompliance(accountId).thenAccept(finalReport::setTaggingCompliance)
         ).thenApply(v -> {
             log.info("Successfully aggregated GCP FinOps report for accountId: {}", accountId);
             return ResponseEntity.ok(finalReport);

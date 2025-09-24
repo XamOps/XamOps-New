@@ -86,41 +86,42 @@
 </div>
 
 <script>
-function addGcpAccount() {
-    return {
-        accountName: '',
-        projectId: '',
-        serviceAccountKey: '',
-        isLoading: false,
+    function addGcpAccount() {
+        return {
+            accountName: '',
+            projectId: '',
+            serviceAccountKey: '',
+            isLoading: false,
 
-        addAccount() {
-            this.isLoading = true;
-            fetch('/api/account-manager/add-gcp-account', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    accountName: this.accountName,
-                    projectId: this.projectId,
-                    serviceAccountKey: this.serviceAccountKey
+            addAccount() {
+                this.isLoading = true;
+                // The corrected URL is here
+                fetch('/api/xamops/account-manager/add-gcp-account', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        accountName: this.accountName,
+                        projectId: this.projectId,
+                        serviceAccountKey: this.serviceAccountKey
+                    }) // <-- Correctly closed parenthesis
+                }) // <-- And the fetch options object is closed here
+                .then(res => {
+                    if (res.ok) {
+                        window.location.href = '/account-manager';
+                    } else {
+                        res.json().then(err => alert('Failed to add GCP account: ' + (err.message || 'Unknown error')));
+                    }
                 })
-            })
-            .then(res => {
-                if (res.ok) {
-                    window.location.href = '/account-manager';
-                } else {
-                    res.json().then(err => alert('Failed to add GCP account: ' + (err.message || 'Unknown error')));
-                }
-            })
-            .catch(err => {
-                console.error('Error adding GCP account:', err);
-                alert('An error occurred while adding the account.');
-            })
-            .finally(() => {
-                this.isLoading = false;
-            });
+                .catch(err => {
+                    console.error('Error adding GCP account:', err);
+                    alert('An error occurred while adding the account.');
+                })
+                .finally(() => {
+                    this.isLoading = false;
+                });
+            }
         }
     }
-}
 </script>
 
 </body>

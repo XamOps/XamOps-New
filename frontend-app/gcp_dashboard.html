@@ -711,8 +711,8 @@
                     sessionStorage.removeItem(cacheKey); 
                 }
                 
-                // --- CORRECTED ENDPOINT FOR GCP ---
-                let endpoint = `/api/gcp/dashboard?accountId=${selectedAccountId}`;
+
+                let endpoint = `/api/xamops/gcp/dashboard?accountId=${selectedAccountId}`;
                 if (forceRefresh) {
                     endpoint += '&forceRefresh=true';
                 }
