@@ -269,6 +269,9 @@
                 </div>
             </div>
 
+
+
+
             <div class="sidebar-section" :class="{'active': isActive('/security.html') || isActive('/performance.html') || isActive('/alerts.html')}">
                 <div x-data="{ open: isActive('/security.html') || isActive('/performance.html') || isActive('/alerts.html') }">
                     <button @click="open = !open" class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold" :class="isActive('/security.html') || isActive('/performance.html') || isActive('/alerts.html') ? 'bg-gradient-to-r from-red-500 to-orange-600 text-white shadow-lg' : 'text-gray-600 hover:bg-red-50'">
@@ -286,6 +289,9 @@
                 </div>
             </div>
         </div>
+
+
+
         <div x-show="hasAnyRole('ROLE_BILLOPS') && !hasAnyRole('ROLE_BILLOPS_ADMIN')" x-cloak>
             <div class="sidebar-section" :class="{'active': isActive('/billops/')}">
                 <div x-data="{ open: isActive('/billops/') }">

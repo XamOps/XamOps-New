@@ -190,6 +190,7 @@ public class GcpDataService {
                 return new DashboardData.SavingsSummary(0.0, Collections.emptyList());
             });
 
+
         CompletableFuture<DashboardData.OptimizationSummary> optimizationSummaryFuture = gcpOptimizationService.getOptimizationSummary(gcpProjectId)
             .exceptionally(ex -> {
                 log.error("Failed to get optimization summary for project {}: {}", gcpProjectId, ex.getMessage());
