@@ -9,12 +9,82 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         [x-cloak] { display: none !important; }
-        .invoice-table { width: 100%; border-collapse: separate; border-spacing: 0; }
-        .invoice-table th { background-color: #f9fafb; padding: 12px 16px; text-align: left; font-weight: 600; text-transform: uppercase; color: #4b5563; font-size: 0.75rem; border-bottom: 2px solid #e5e7eb; }
-        .invoice-table td { padding: 12px 16px; border-bottom: 1px solid #f3f4f6; }
-        .service-row { font-weight: 700; background-color: #f9fafb; }
-        .line-item-row { background-color: #ffffff; }
-        .line-item-description { padding-left: 24px !important; color: #6b7280; }
+
+        /* --- START: STYLES COPIED FROM billing.html --- */
+        .cost-breakdown-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            font-size: 14px;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            table-layout: fixed;
+        }
+
+        .cost-breakdown-table thead th {
+            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+            color: #374151;
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 16px 20px;
+            text-align: left;
+            border-bottom: 2px solid #e2e8f0;
+        }
+
+        .cost-breakdown-table tbody tr {
+            transition: all 0.15s ease;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .cost-breakdown-table tbody tr:hover {
+            background-color: rgba(99, 102, 241, 0.02);
+        }
+
+        .cost-breakdown-table td {
+            padding: 16px 20px;
+            vertical-align: middle;
+        }
+
+        .expand-icon {
+            transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            color: #6366f1;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            background: rgba(99, 102, 241, 0.1);
+        }
+        
+        .expand-icon:hover { background: rgba(99, 102, 241, 0.2); }
+        .rotate-90 { transform: rotate(90deg); }
+
+        .drilldown-row {
+            background: linear-gradient(135deg, #fafbff 0%, #f8fafc 100%);
+            border-left: 4px solid #6366f1;
+        }
+
+        .nested-drilldown {
+            background: linear-gradient(135deg, #f0f4ff 0%, #fafbff 100%);
+            border-left: 4px solid #8b5cf6;
+        }
+
+        .amount-cell {
+            font-weight: 600;
+            font-family: 'JetBrains Mono', monospace;
+            text-align: right;
+            color: #059669;
+        }
+
+        .service-name { font-weight: 600; color: #1f2937; font-size: 15px; }
+        .region-name { color: #6b7280; font-weight: 500; padding-left: 20px; }
+        .resource-name { color: #9ca3af; font-size: 13px; padding-left: 40px; }
+        /* --- END: STYLES COPIED FROM billing.html --- */
     </style>
 </head>
 <body class="bg-gray-100" x-data="invoicePage()">
@@ -93,48 +163,72 @@
 
                         <h2 class="text-xl font-bold text-gray-800 mb-4">Final Charges</h2>
                         <div class="border rounded-lg overflow-hidden">
-                            <table class="invoice-table">
+                             <table class="cost-breakdown-table">
+                                <colgroup>
+                                    <col style="width: 60px;">
+                                    <col style="width: 45%;">
+                                    <col style="width: 25%;">
+                                    <col style="width: 25%;">
+                                </colgroup>
                                 <thead>
-                                    <tr>
-                                        <th style="width: 50%;">Service / Resource</th>
-                                        <th style="width: 25%;">Region</th>
-                                        <th style="width: 25%;" class="text-right">Amount (USD)</th>
-                                    </tr>
+                                <tr>
+                                    <th></th>
+                                    <th>Service / Resource</th>
+                                    <th>Usage Quantity</th>
+                                    <th>Amount (USD)</th>
+                                </tr>
                                 </thead>
-                                <tbody>
-                                    <template x-for="service in Object.keys(groupedLineItems)" :key="service">
-                                        <tbody>
-                                            <tr class="service-row">
-                                                <td colspan="2" x-text="service"></td>
-                                                <td class="text-right font-semibold" x-text="formatCurrency(serviceTotals[service])"></td>
+
+                                <template x-for="service in detailedBreakdown" :key="service.serviceName">
+                                    <tbody>
+                                    <tr @click="toggleService(service.serviceName)" class="cursor-pointer">
+                                        <td>
+                                            <div class="expand-icon" :class="{ 'rotate-90': expandedServices[service.serviceName] }">
+                                                <i class="fas fa-chevron-right text-sm"></i>
+                                            </div>
+                                        </td>
+                                        <td><div class="service-name" x-text="service.serviceName"></div></td>
+                                        <td><span class="text-gray-500">—</span></td>
+                                        <td><div class="amount-cell" x-text="formatCurrency(service.totalCost)"></div></td>
+                                    </tr>
+
+                                    <template x-for="region in service.regionCosts" :key="region.regionName">
+                                        <tbody x-show="expandedServices[service.serviceName]">
+                                        <tr @click="toggleRegion(service.serviceName, region.regionName)" class="cursor-pointer drilldown-row">
+                                            <td>
+                                                <div class="expand-icon" :class="{ 'rotate-90': expandedRegions[`${service.serviceName}-${region.regionName}`] }">
+                                                    <i class="fas fa-chevron-right text-xs"></i>
+                                                </div>
+                                            </td>
+                                            <td><div class="region-name" x-text="region.regionName"></div></td>
+                                            <td><span class="text-gray-500">—</span></td>
+                                            <td><div class="amount-cell text-blue-600" x-text="formatCurrency(region.cost)"></div></td>
+                                        </tr>
+
+                                        <template x-for="resource in region.resources" :key="resource.resourceId">
+                                            <tr x-show="expandedRegions[`${service.serviceName}-${region.regionName}`]" class="nested-drilldown">
+                                                <td></td>
+                                                <td><div class="resource-name" x-text="resource.resourceName"></div></td>
+                                                <td class="text-right text-gray-600 text-sm" x-text="`${formatNumber(resource.usageQuantity)} ${resource.unit}`"></td>
+                                                <td><div class="amount-cell text-purple-600" x-text="formatCurrency(resource.cost)"></div></td>
                                             </tr>
-                                            <template x-for="item in groupedLineItems[service]" :key="item.resourceName">
-                                                <tr class="line-item-row">
-                                                    <td class="line-item-description" x-text="item.resourceName"></td>
-                                                    <td x-text="item.regionName"></td>
-                                                    <td class="text-right" x-text="formatCurrency(item.cost)"></td>
-                                                </tr>
-                                            </template>
+                                        </template>
                                         </tbody>
                                     </template>
+                                    </tbody>
+                                </template>
+
+                                <tbody x-show="detailedBreakdown.length === 0">
+                                <tr>
+                                    <td colspan="4" class="text-center py-12">
+                                        <i class="fas fa-inbox text-gray-300 text-3xl mb-3"></i>
+                                        <p class="text-gray-500 font-medium">No line item data found in this invoice.</p>
+                                    </td>
+                                </tr>
                                 </tbody>
-                                <tfoot class="bg-gray-100 font-bold">
-                                    <tr>
-                                        <td colspan="2" class="text-right py-3 px-6">Subtotal</td>
-                                        <td class="text-right py-3 px-6" x-text="formatCurrency(invoiceData.preDiscountTotal)"></td>
-                                    </tr>
-                                    <tr x-show="invoiceData.discountAmount > 0">
-                                        <td colspan="2" class="text-right py-3 px-6 text-red-600">Total Discounts</td>
-                                        <td class="text-right py-3 px-6 text-red-600" x-text="formatCurrency(invoiceData.discountAmount * -1)"></td>
-                                    </tr>
-                                    <tr>
-                                        <td colspan="2" class="text-right py-4 px-6 text-lg">Grand Total</td>
-                                        <td class="text-right py-4 px-6 text-lg" x-text="formatCurrency(invoiceData.amount)"></td>
-                                    </tr>
-                                 </tfoot>
                             </table>
                         </div>
-                    </div>
+                        </div>
                 </div>
             </div>
         </main>
@@ -157,8 +251,12 @@
             invoiceData: null,
             loading: true,
             error: null,
-            groupedLineItems: {},
-            serviceTotals: {},
+            
+            // --- START: NEW PROPERTIES FOR DRILL-DOWN ---
+            detailedBreakdown: [],
+            expandedServices: {},
+            expandedRegions: {},
+            // --- END: NEW PROPERTIES ---
 
             init() {
                 this.loadSidebar();
@@ -194,7 +292,8 @@
                         if (data) {
                             this.invoiceData = data;
                             this.selectedAccountName = data.accountName;
-                            this.groupAndCalculateTotals(data.lineItems);
+                            // --- MODIFIED: Use new transformation function ---
+                            this.detailedBreakdown = this.transformToDrilldown(data.lineItems);
                         }
                     })
                     .catch(error => {
@@ -206,20 +305,51 @@
                     });
             },
 
-            groupAndCalculateTotals(lineItems) {
-                const groups = {};
-                const totals = {};
-                lineItems.forEach(item => {
-                    if (!groups[item.serviceName]) {
-                        groups[item.serviceName] = [];
-                        totals[item.serviceName] = 0;
+            // --- START: NEW DATA TRANSFORMATION FUNCTION ---
+            transformToDrilldown(lineItems) {
+                if (!lineItems || lineItems.length === 0) return [];
+
+                const serviceMap = new Map();
+
+                for (const item of lineItems) {
+                    if (!serviceMap.has(item.serviceName)) {
+                        serviceMap.set(item.serviceName, {
+                            serviceName: item.serviceName,
+                            totalCost: 0,
+                            regionCosts: new Map()
+                        });
                     }
-                    groups[item.serviceName].push(item);
-                    totals[item.serviceName] += item.cost;
-                });
-                this.groupedLineItems = groups;
-                this.serviceTotals = totals;
+                    const service = serviceMap.get(item.serviceName);
+                    service.totalCost += item.cost;
+
+                    if (!service.regionCosts.has(item.regionName)) {
+                        service.regionCosts.set(item.regionName, {
+                            regionName: item.regionName,
+                            cost: 0,
+                            resources: []
+                        });
+                    }
+                    const region = service.regionCosts.get(item.regionName);
+                    region.cost += item.cost;
+
+                    region.resources.push({
+                        resourceId: `${item.serviceName}-${item.regionName}-${item.resourceName}-${item.cost}`, // Unique key
+                        resourceName: item.resourceName,
+                        usageQuantity: item.usageQuantity,
+                        unit: item.unit,
+                        cost: item.cost
+                    });
+                }
+
+                const result = [];
+                for (const service of serviceMap.values()) {
+                    service.regionCosts = Array.from(service.regionCosts.values());
+                    result.push(service);
+                }
+                
+                return result;
             },
+            // --- END: NEW DATA TRANSFORMATION FUNCTION ---
 
             downloadInvoice() {
                 if (!this.invoiceData) return;
@@ -254,6 +384,24 @@
                 return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
             },
             
+            formatNumber(value) {
+                if (typeof value !== 'number' && typeof value !== 'string') return '0';
+                const num = Number(value);
+                if (isNaN(num)) return '0';
+                return num.toLocaleString('en-US', { maximumFractionDigits: 3 });
+            },
+
+            // --- START: NEW TOGGLE METHODS ---
+            toggleService(serviceName) {
+                this.expandedServices[serviceName] = !this.expandedServices[serviceName];
+            },
+
+            toggleRegion(serviceName, regionName) {
+                const key = `${serviceName}-${regionName}`;
+                this.expandedRegions[key] = !this.expandedRegions[key];
+            },
+            // --- END: NEW TOGGLE METHODS ---
+            
             loadSidebar() {
                 fetch('/_sidebar.html')
                     .then(response => response.text())
@@ -264,6 +412,11 @@
             }
         }
     }
+
+    // --- MODIFIED: Ensure Alpine is initialized correctly ---
+    document.addEventListener('alpine:init', () => {
+        Alpine.data('invoicePage', invoicePage);
+    });
 </script>
 </body>
 </html>

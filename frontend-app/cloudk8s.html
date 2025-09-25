@@ -321,7 +321,7 @@ function cloudK8s() {
             this.isRefreshing = forceRefresh;
 
             // --- THIS IS THE CORRECTED LINE ---
-            fetch(`/api/k8s/clusters?accountIds=${this.selectedAccountId}&forceRefresh=${forceRefresh}`)
+            fetch(`/api/xamops/k8s/clusters?accountIds=${this.selectedAccountId}&forceRefresh=${forceRefresh}`)
                 .then(res => {
                     if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
                     return res.json();
@@ -342,7 +342,7 @@ function cloudK8s() {
             const { name, region } = this.selectedCluster;
             
             try {
-                const response = await fetch(`/api/k8s/clusters/usage?accountId=${this.selectedAccountId}&clusterName=${name}&region=${region}`, { method: 'POST' });
+                const response = await fetch(`/api/xamops/k8s/clusters/usage?accountId=${this.selectedAccountId}&clusterName=${name}&region=${region}`, { method: 'POST' });
                 if (!response.ok) throw new Error('Failed to fetch usage data');
                 this.clusterUsage = await response.json();
             } catch (err) {
@@ -393,7 +393,7 @@ function cloudK8s() {
                 return;
             }
 
-            const apiUrl = `/api/eks/${this.selectedCluster.name}/install-opencost?accountId=${this.selectedAccountId}&region=${this.selectedCluster.region}`;
+            const apiUrl = `/api/xamops/eks/${this.selectedCluster.name}/install-opencost?accountId=${this.selectedAccountId}&region=${this.selectedCluster.region}`;
 
             fetch(apiUrl, { method: 'POST' })
             .then(res => {
@@ -417,7 +417,7 @@ function cloudK8s() {
             const { name, region } = cluster;
 
             try {
-                const response = await fetch(`/api/eks/${name}/enable-monitoring?accountId=${this.selectedAccountId}&region=${region}`, {
+                const response = await fetch(`/api/xamops/eks/${name}/enable-monitoring?accountId=${this.selectedAccountId}&region=${region}`, {
                     method: 'POST'
                 });
                 const result = await response.json();

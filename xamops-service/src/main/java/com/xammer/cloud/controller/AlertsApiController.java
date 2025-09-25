@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 @RestController
-@RequestMapping("/api/cloudguard")
+@RequestMapping("/api/xamops/cloudguard")
 public class AlertsApiController {
 
     private static final Logger logger = LoggerFactory.getLogger(AlertsApiController.class);

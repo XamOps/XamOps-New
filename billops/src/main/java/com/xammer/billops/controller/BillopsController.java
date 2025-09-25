@@ -15,6 +15,7 @@ import com.xammer.billops.service.*;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.web.bind.annotation.*;
@@ -188,6 +189,7 @@ public class BillopsController {
     }
 
     @GetMapping("/credits/admin/all")
+    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
     public ResponseEntity<List<CreditRequestDto>> getAllCreditRequests() {
         return ResponseEntity.ok(creditRequestService.getAllCreditRequests());
     }
@@ -198,6 +200,7 @@ public class BillopsController {
     }
 
     @PutMapping("/credits/{id}/status")
+    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
     public ResponseEntity<CreditRequestDto> updateRequestStatus(@PathVariable Long id, @RequestBody Map<String, String> statusUpdate) {
         String status = statusUpdate.get("status");
         return ResponseEntity.ok(creditRequestService.updateRequestStatus(id, status));
@@ -228,7 +231,7 @@ public class BillopsController {
     }
 
     @PostMapping("/tickets/{id}/close")
-    // @PreAuthorize("hasRole('ROLE_BILLOPS_ADMIN')") // You can uncomment this for security
+    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
     public ResponseEntity<TicketDto> closeTicket(@PathVariable Long id) {
         return ResponseEntity.ok(ticketService.closeTicket(id));
     }

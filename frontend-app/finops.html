@@ -621,7 +621,7 @@ loadReport(forceRefresh = false) {
                     this.isRefreshing = true;
                 }
                 
-                const url = `/api/finops/report?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`;
+                const url = `/api/xamops/finops/report?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`;
                 fetch(url)
                     .then(res => res.json())
                     .then(data => {

@@ -17,7 +17,7 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 @RestController
-@RequestMapping("/api/costing")
+@RequestMapping("/api/xamops/costing")
 public class CostingController {
 
     private static final Logger logger = LoggerFactory.getLogger(CostingController.class);

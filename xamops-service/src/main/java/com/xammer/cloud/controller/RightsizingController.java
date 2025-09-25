@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 @RestController
-@RequestMapping("/api/rightsizing")
+@RequestMapping("/api/xamops/rightsizing")
 public class RightsizingController {
 
     private static final Logger logger = LoggerFactory.getLogger(RightsizingController.class);

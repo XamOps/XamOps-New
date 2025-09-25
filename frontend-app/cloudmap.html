@@ -401,7 +401,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         vpcSelector.innerHTML = '<option value="">Loading VPCs...</option>';
-        fetch(`/api/cloudmap/vpcs?accountId=${selectedAccountId}`)
+        fetch(`/api/xamops/cloudmap/vpcs?accountId=${selectedAccountId}`)
             .then(response => {
                 if (!response.ok) throw new Error('Bad Request');
                 return response.json();
@@ -444,7 +444,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         const [vpcId, region] = (vpcSelectorValue || '|').split('|');
-        const url = `/api/cloudmap/graph?accountId=${selectedAccountId}&vpcId=${vpcId || ''}&region=${region || ''}`;
+        const url = `/api/xamops/cloudmap/graph?accountId=${selectedAccountId}&vpcId=${vpcId || ''}&region=${region || ''}`;
 
         messageOverlay.innerHTML = `
             <div class="message-overlay text-center">

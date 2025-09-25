@@ -80,8 +80,13 @@ public class DashboardController {
             @RequestParam(defaultValue = "false") boolean forceRefresh) {
         
         String accountIdToUse = accountIds.split(",")[0]; // Use the first ID
-        CloudAccount account = cloudAccountRepository.findByAwsAccountId(accountIdToUse)
-                .orElseThrow(() -> new RuntimeException("Account not found: " + accountIdToUse));
+        
+        // MODIFIED: Handle list of accounts to prevent crash
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountIdToUse);
+        if (accounts.isEmpty()) {
+            throw new RuntimeException("Account not found: " + accountIdToUse);
+        }
+        CloudAccount account = accounts.get(0); // Use the first account
 
         return cloudListService.getRegionStatusForAccount(account, forceRefresh)
                 .thenCompose(activeRegions -> optimizationService.getWastedResources(account, activeRegions, forceRefresh))

@@ -311,7 +311,7 @@ function reservationManagement() {
             this.isRecsLoading = true;
             
             const { term, paymentOption, lookback, offeringClass } = this.recFilters;
-            const url = `/api/reservations/recommendations?accountId=${this.selectedAccountId}&term=${term}&paymentOption=${paymentOption}&lookback=${lookback}&offeringClass=${offeringClass}&forceRefresh=${forceRefresh}`;
+            const url = `/api/xamops/reservations/recommendations?accountId=${this.selectedAccountId}&term=${term}&paymentOption=${paymentOption}&lookback=${lookback}&offeringClass=${offeringClass}&forceRefresh=${forceRefresh}`;
 
             fetch(url)
                 .then(res => res.json())

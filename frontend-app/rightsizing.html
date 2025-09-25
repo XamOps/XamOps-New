@@ -415,7 +415,7 @@ loadRecommendations(forceRefresh = false) {
                 sessionStorage.removeItem(cacheKey);
             }
             
-            fetch(`/api/rightsizing/recommendations?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`)
+            fetch(`/api/xamops/rightsizing/recommendations?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`)
                 .then(res => res.json())
                 .then(data => {
                     this.recommendations = data;

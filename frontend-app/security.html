@@ -457,7 +457,7 @@ function securityCenter() {
                 sessionStorage.removeItem(cacheKey);
             }
             
-            fetch(`/api/security/findings?accountId=${this.selectedAccountId}&forceRefresh=${forceRefresh}`)
+            fetch(`/api/xamops/security/findings?accountId=${this.selectedAccountId}&forceRefresh=${forceRefresh}`)
                 .then(res => res.json())
                 .then(data => {
                     sessionStorage.setItem(cacheKey, JSON.stringify(data));

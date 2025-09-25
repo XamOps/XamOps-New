@@ -473,7 +473,7 @@
                     sessionStorage.removeItem(cacheKey);
                 }
 
-                fetch(`/api/cloudlist/resources?accountIds=${this.selectedAccountId}&forceRefresh=${forceRefresh}`)
+                fetch(`/api/xamops/cloudlist/resources?accountIds=${this.selectedAccountId}&forceRefresh=${forceRefresh}`)
                     .then(res => res.json())
                     .then(data => {
                         this.allGroups = Array.isArray(data) ? data : [];

@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 @RestController
-@RequestMapping("/api/costs")
+@RequestMapping("/api/xamops/costs")
 public class CostController {
 
     private final CostService costService;

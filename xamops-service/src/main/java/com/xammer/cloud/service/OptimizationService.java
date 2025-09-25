@@ -73,8 +73,12 @@ public class OptimizationService {
     }
 
     private CloudAccount getAccount(String accountId) {
-        return cloudAccountRepository.findByAwsAccountId(accountId)
-                .orElseThrow(() -> new RuntimeException("Account not found in database: " + accountId));
+        // MODIFIED: Handle list of accounts to prevent crash
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
+        if (accounts.isEmpty()) {
+            throw new RuntimeException("Account not found in database: " + accountId);
+        }
+        return accounts.get(0); // Return the first one found
     }
 
     @Async("awsTaskExecutor")

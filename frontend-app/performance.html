@@ -505,7 +505,7 @@
                     this.isRefreshing = true;
                 }
 
-                fetch(`/api/metrics/insights?accountId=${this.selectedAccountId}&forceRefresh=${forceRefresh}`)
+                fetch(`/api/xamops/metrics/insights?accountId=${this.selectedAccountId}&forceRefresh=${forceRefresh}`)
                     .then(res => res.json())
                     .then(data => {
                         const uniqueInsights = this.deduplicateInsights(data);
@@ -581,7 +581,7 @@
                     sessionStorage.removeItem(cacheKey);
                 }
 
-                fetch(`/api/metrics/insights/summary?accountId=${this.selectedAccountId}&forceRefresh=${forceRefresh}`)
+                fetch(`/api/xamops/metrics/insights/summary?accountId=${this.selectedAccountId}&forceRefresh=${forceRefresh}`)
                     .then(res => res.json())
                     .then(data => {
                         this.summary = data;
@@ -633,7 +633,7 @@
             archiveInsight(insightId) {
                 if (!confirm('Are you sure you want to archive this insight?')) return;
 
-                fetch(`/api/metrics/insights/${insightId}/archive`, {
+                fetch(`/api/xamops/metrics/insights/${insightId}/archive`, {
                     method: 'POST'
                 })
                     .then(res => {
@@ -655,7 +655,7 @@
                 if (this.selectedInsights.length === 0) return;
                 if (!confirm(`Are you sure you want to archive ${this.selectedInsights.length} insights?`)) return;
 
-                fetch('/api/metrics/insights/bulk-archive', {
+                fetch('/api/xamops/metrics/insights/bulk-archive', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -720,7 +720,7 @@
                 }
                 this.whatIf.isLoading = true;
                 this.whatIf.result = null;
-                fetch(`/api/metrics/insights/what-if?accountId=${this.selectedAccountId}&resourceId=${this.whatIf.resourceId}&targetInstanceType=${this.whatIf.targetInstanceType}`)
+                fetch(`/api/xamops/metrics/insights/what-if?accountId=${this.selectedAccountId}&resourceId=${this.whatIf.resourceId}&targetInstanceType=${this.whatIf.targetInstanceType}`)
                     .then(res => res.json())
                     .then(data => {
                         this.whatIf.result = data;

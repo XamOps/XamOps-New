@@ -15,7 +15,7 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 @RestController
-@RequestMapping("/api/cloudmap")
+@RequestMapping("/api/xamops/cloudmap")
 public class CloudmapController {
 
     private static final Logger logger = LoggerFactory.getLogger(CloudmapController.class);

@@ -12,6 +12,7 @@ import software.amazon.awssdk.services.cloudwatch.model.*;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 @Service
@@ -25,11 +26,17 @@ public class EksClusterUsageService {
         this.awsClientProvider = awsClientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
     }
-
+    private CloudAccount getAccount(String accountId) {
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
+        if (accounts.isEmpty()) {
+            throw new RuntimeException("Account not found: " + accountId);
+        }
+        return accounts.get(0);
+    }
     @Async
     public CompletableFuture<ClusterUsageDto> getClusterUsage(String accountId, String clusterName, String region) {
-        CloudAccount account = cloudAccountRepository.findByAwsAccountId(accountId)
-            .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
+        CloudAccount account = getAccount(accountId);
+            // .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
         
         CloudWatchClient cwClient = awsClientProvider.getCloudWatchClient(account, region);
         logger.info("Fetching EKS cluster usage from CloudWatch for account {}, cluster {}", accountId, clusterName);

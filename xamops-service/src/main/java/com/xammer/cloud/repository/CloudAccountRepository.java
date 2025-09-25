@@ -15,13 +15,15 @@ public interface CloudAccountRepository extends JpaRepository<CloudAccount, Long
     Optional<CloudAccount> findByGcpProjectId(String gcpProjectId);
     Optional<CloudAccount> findByExternalId(String externalId);
 
-    Optional<CloudAccount> findByAwsAccountId(String awsAccountId);
+    // MODIFIED: Changed return type to List<CloudAccount>
+    List<CloudAccount> findByAwsAccountId(String awsAccountId);
 
     List<CloudAccount> findByClientId(Long clientId);
 
     Optional<CloudAccount> findByAwsAccountIdAndClientId(String awsAccountId, Long clientId);
 
-    Optional<CloudAccount> findByAwsAccountIdOrGcpProjectId(String awsAccountId, String gcpProjectId);
+    // MODIFIED: This was changed in the previous step and remains correct
+    List<CloudAccount> findByAwsAccountIdOrGcpProjectId(String awsAccountId, String gcpProjectId);
 
     @Query("SELECT ca FROM CloudAccount ca WHERE ca.awsAccountId = :accountId OR ca.gcpProjectId = :accountId OR ca.azureSubscriptionId = :accountId")
     Optional<CloudAccount> findByProviderAccountId(@Param("accountId") String accountId);

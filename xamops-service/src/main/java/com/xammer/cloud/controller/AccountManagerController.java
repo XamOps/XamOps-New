@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
@@ -66,11 +67,23 @@ public class AccountManagerController {
 
     @GetMapping("/accounts")
     public List<AccountDto> getAccounts(@AuthenticationPrincipal ClientUserDetails userDetails) {
-        Long clientId = userDetails.getClientId();
-        return cloudAccountRepository.findByClientId(clientId).stream()
+        boolean isAdmin = userDetails.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch(role -> "ROLE_BILLOPS_ADMIN".equals(role));
+
+        List<CloudAccount> accounts;
+        if (isAdmin) {
+            accounts = cloudAccountRepository.findAll();
+        } else {
+            Long clientId = userDetails.getClientId();
+            accounts = cloudAccountRepository.findByClientId(clientId);
+        }
+
+        return accounts.stream()
                 .map(this::mapToAccountDto)
                 .collect(Collectors.toList());
     }
+
 
     @DeleteMapping("/accounts/{id}")
     public ResponseEntity<?> deleteAccount(@PathVariable Long id) {

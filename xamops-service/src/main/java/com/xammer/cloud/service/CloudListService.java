@@ -59,6 +59,13 @@ public class CloudListService {
     public final AwsClientProvider awsClientProvider;
     private final Map<String, double[]> regionCoordinates = new HashMap<>();
     private static final Set<String> SUSTAINABLE_REGIONS = Set.of("eu-west-1", "eu-north-1", "ca-central-1", "us-west-2");
+    // Define a set of valid Lightsail regions
+    private static final Set<String> LIGHTSAIL_REGIONS = Set.of(
+            "us-east-1", "us-east-2", "us-west-2", "ap-south-1", "ap-northeast-1",
+            "ap-northeast-2", "ap-southeast-1", "ap-southeast-2", "ca-central-1",
+            "eu-central-1", "eu-west-1", "eu-west-2", "eu-west-3", "eu-north-1"
+    );
+
 
     @Autowired
     private DatabaseCacheService dbCache; // Inject the new database cache service
@@ -78,9 +85,14 @@ public class CloudListService {
     }
 
     private CloudAccount getAccount(String accountId) {
-        return cloudAccountRepository.findByAwsAccountId(accountId)
-                .orElseThrow(() -> new RuntimeException("Account not found in database: " + accountId));
+        // MODIFIED: Handle list of accounts to prevent crash
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
+        if (accounts.isEmpty()) {
+            throw new RuntimeException("Account not found in database: " + accountId);
+        }
+        return accounts.get(0); // Return the first one found
     }
+
 
     private void loadRegionCoordinates() {
         ObjectMapper mapper = new ObjectMapper();
@@ -530,6 +542,10 @@ public class CloudListService {
 
     private CompletableFuture<List<ResourceDto>> fetchLightsailInstancesForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            // Add a check to ensure we only query valid Lightsail regions
+            if (!LIGHTSAIL_REGIONS.contains(regionId)) {
+                return Collections.emptyList();
+            }
             LightsailClient lightsail = awsClientProvider.getLightsailClient(account, regionId);
             return lightsail.getInstances().instances().stream()
                     .map(i -> new ResourceDto(i.arn(), i.name(), "Lightsail Instance", i.location().regionName().toString(), i.state().name(), i.createdAt(), Map.of("BlueprintId", i.blueprintId(), "BundleId", i.bundleId())))

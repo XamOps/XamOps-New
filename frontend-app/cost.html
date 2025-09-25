@@ -583,7 +583,7 @@
 
                 loadForecastServices() {
                     if (!this.selectedAccountId) return;
-                    fetch(`/api/costs/breakdown?accountId=${this.selectedAccountId}&groupBy=SERVICE&forceRefresh=true`)
+                    fetch(`/api/xamops/costs/breakdown?accountId=${this.selectedAccountId}&groupBy=SERVICE&forceRefresh=true`)
                         .then(res => res.json())
                         .then(data => {
                             this.forecast.availableServices = ['ALL', ...[...new Set(data.map(item => item.name))].sort()];
@@ -682,7 +682,7 @@
                         sessionStorage.removeItem(cacheKey);
                     }
 
-                    let url = `/api/costs/breakdown?accountId=${this.selectedAccountId}&groupBy=${this.groupBy}&forceRefresh=${forceRefresh}`;
+                    let url = `/api/xamops/costs/breakdown?accountId=${this.selectedAccountId}&groupBy=${this.groupBy}&forceRefresh=${forceRefresh}`;
                     if (this.groupBy === 'TAG' && this.tagKey) {
                         url += `&tag=${this.tagKey}`;
                     }
@@ -779,7 +779,7 @@
                     this.historical.isLoading = true;
                     this.historical.dimension = dimensionValue;
                     
-                    let url = `/api/costs/historical?accountId=${this.selectedAccountId}&groupBy=${this.groupBy}&dimensionValue=${encodeURIComponent(dimensionValue)}`;
+                    let url = `/api/xamops/costs/historical?accountId=${this.selectedAccountId}&groupBy=${this.groupBy}&dimensionValue=${encodeURIComponent(dimensionValue)}`;
                     if (this.groupBy === 'TAG') url += `&tagKey=${encodeURIComponent(this.tagKey)}`;
                     fetch(url)
                         .then(res => res.json())
@@ -866,7 +866,7 @@
                         if (!this.selectedAccountId) {
                            throw new Error("No account selected for forecast.");
                         }
-                        let url = `/api/forecast/cost?accountId=${this.selectedAccountId}&periods=${this.forecast.periods}`;
+                        let url = `/api/xamops/forecast/cost?accountId=${this.selectedAccountId}&periods=${this.forecast.periods}`;
                         if (this.forecast.service !== 'ALL') url += `&serviceName=${encodeURIComponent(this.forecast.service)}`;
                         const response = await fetch(url);
                         if (!response.ok) throw new Error('Fetch failed');

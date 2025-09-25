@@ -93,10 +93,13 @@ public class InvoiceManagementService {
     }
 
 
-    @Transactional(readOnly = true)
+   @Transactional(readOnly = true)
     public Invoice generateTemporaryInvoiceForUser(String accountId, int year, int month) {
-        CloudAccount cloudAccount = cloudAccountRepository.findByAwsAccountId(accountId)
-                .orElseThrow(() -> new RuntimeException("Cloud account not found"));
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
+        if (accounts.isEmpty()) {
+            throw new RuntimeException("Cloud account not found");
+        }
+        CloudAccount cloudAccount = accounts.get(0);
 
         List<ServiceCostDetailDto> detailedReport = billingService.getDetailedBillingReport(Collections.singletonList(accountId), year, month);
 
@@ -139,8 +142,11 @@ public class InvoiceManagementService {
 
     @Transactional
     public Invoice generateDraftInvoice(String accountId, int year, int month) {
-        CloudAccount cloudAccount = cloudAccountRepository.findByAwsAccountId(accountId)
-                .orElseThrow(() -> new RuntimeException("Cloud account not found"));
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
+        if (accounts.isEmpty()) {
+            throw new RuntimeException("Cloud account not found");
+        }
+        CloudAccount cloudAccount = accounts.get(0);
 
         List<ServiceCostDetailDto> detailedReport = billingService.getDetailedBillingReport(Collections.singletonList(accountId), year, month);
 
@@ -262,10 +268,16 @@ public Invoice removeDiscountFromInvoice(Long invoiceId, Long discountId) {
         return invoiceRepository.save(invoice);
     }
 
- @Transactional(readOnly = true)
+@Transactional(readOnly = true)
     public Invoice getInvoiceForUser(String accountId, int year, int month) {
-        CloudAccount cloudAccount = cloudAccountRepository.findByAwsAccountId(accountId)
-                .orElseThrow(() -> new RuntimeException("Cloud account not found"));
+        // --- START OF FIX ---
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
+        if (accounts.isEmpty()) {
+            throw new RuntimeException("Cloud account not found");
+        }
+        CloudAccount cloudAccount = accounts.get(0); // Use the first account found
+        // --- END OF FIX ---
+
         String billingPeriod = YearMonth.of(year, month).format(DateTimeFormatter.ofPattern("yyyy-MM"));
 
         logger.info("Searching for finalized invoice with parameters:");
@@ -273,28 +285,25 @@ public Invoice removeDiscountFromInvoice(Long invoiceId, Long discountId) {
         logger.info("--> Billing Period: {}", billingPeriod);
         logger.info("--> Status: {}", Invoice.InvoiceStatus.FINALIZED);
 
-        // --- FIX: Handle the possibility of multiple invoices ---
         List<Invoice> invoices = invoiceRepository.findByCloudAccountIdAndBillingPeriodAndStatus(cloudAccount.getId(), billingPeriod, Invoice.InvoiceStatus.FINALIZED);
 
         if (invoices.isEmpty()) {
             logger.warn("--> RESULT: No finalized invoice found for the given criteria.");
-            return null; // Return null if no invoice is found
+            return null;
         }
 
         if (invoices.size() > 1) {
             logger.warn("--> RESULT: Found {} finalized invoices for the same period. This is unexpected. Returning the most recent one (highest ID).", invoices.size());
-            // Find the invoice with the maximum ID and return it.
             return invoices.stream()
                          .max(Comparator.comparing(Invoice::getId))
-                         .orElse(null); // Should not happen if the list is not empty
+                         .orElse(null);
         }
 
-        // If there's only one, log its ID and return it.
         Invoice singleInvoice = invoices.get(0);
         logger.info("--> RESULT: Found finalized invoice with ID: {}", singleInvoice.getId());
         return singleInvoice;
-        // --- END FIX ---
     }
+
     
     @Transactional(readOnly = true)
     public Invoice getInvoiceForAdmin(Long invoiceId) {

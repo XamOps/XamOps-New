@@ -14,7 +14,7 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 @RestController
-@RequestMapping("/api/metrics/insights")
+@RequestMapping("/api/xamops/metrics/insights")
 public class PerformanceInsightsController {
 
     private static final Logger logger = LoggerFactory.getLogger(PerformanceInsightsController.class);
