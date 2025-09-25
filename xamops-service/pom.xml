@@ -25,14 +25,23 @@
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
         </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.tomcat.embed</groupId>
+                    <artifactId>tomcat-embed-jasper</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
-        <!-- <dependency>
+
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-thymeleaf</artifactId>
-        </dependency> -->
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security</artifactId>
@@ -120,40 +129,45 @@
         <dependency><groupId>com.google.cloud</groupId><artifactId>google-cloud-resourcemanager</artifactId></dependency>
         <dependency><groupId>com.google.cloud</groupId><artifactId>google-cloud-billingbudgets</artifactId></dependency>
 
-  <dependency>
-        <groupId>com.google.cloud</groupId>
-        <artifactId>google-cloud-artifact-registry</artifactId>
-    </dependency>
-    <dependency>
-        <groupId>com.google.cloud</groupId>
-        <artifactId>google-cloud-build</artifactId>
-    </dependency>
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-artifact-registry</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-build</artifactId>
+        </dependency>
 
-<dependency>
-  <groupId>com.google.cloud</groupId>
-  <artifactId>google-cloud-functions</artifactId>
-</dependency>
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-functions</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-csv</artifactId>
+            <version>1.10.0</version>
+        </dependency>
 
-<dependency>
-  <groupId>com.google.cloud</groupId>
-  <artifactId>google-iam-admin</artifactId>
-</dependency>
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-iam-admin</artifactId>
+        </dependency>
 
-<dependency>
-  <groupId>com.google.cloud</groupId>
-  <artifactId>google-cloud-kms</artifactId>
-</dependency>
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-kms</artifactId>
+        </dependency>
 
-<dependency>
-  <groupId>com.google.cloud</groupId>
-  <artifactId>google-cloud-secretmanager</artifactId>
-</dependency>
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-secretmanager</artifactId>
+        </dependency>
 
-     <dependency>
-    <groupId>com.google.apis</groupId>
-    <artifactId>google-api-services-sqladmin</artifactId>
-    <version>v1-rev20250807-2.0.0</version>
-</dependency>
+        <dependency>
+            <groupId>com.google.apis</groupId>
+            <artifactId>google-api-services-sqladmin</artifactId>
+            <version>v1-rev20250807-2.0.0</version>
+        </dependency>
         <dependency>
             <groupId>com.google.apis</groupId>
             <artifactId>google-api-services-sqladmin</artifactId>

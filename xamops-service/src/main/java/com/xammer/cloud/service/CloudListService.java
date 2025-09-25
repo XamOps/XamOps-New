@@ -84,7 +84,7 @@ public class CloudListService {
         loadRegionCoordinates();
     }
 
-    private CloudAccount getAccount(String accountId) {
+    CloudAccount getAccount(String accountId) {
         // MODIFIED: Handle list of accounts to prevent crash
         List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
         if (accounts.isEmpty()) {

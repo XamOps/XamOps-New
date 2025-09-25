@@ -1,7 +1,9 @@
 package com.xammer.cloud.controller;
 
 import com.xammer.cloud.dto.DashboardData;
+import com.xammer.cloud.dto.XamOpsRightsizingRecommendation;
 import com.xammer.cloud.service.OptimizationService;
+import com.xammer.cloud.service.XamOpsRightsizingService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -21,9 +23,11 @@ public class RightsizingController {
     private static final Logger logger = LoggerFactory.getLogger(RightsizingController.class);
 
     private final OptimizationService optimizationService;
+    private final XamOpsRightsizingService xamOpsRightsizingService;
 
-    public RightsizingController(OptimizationService optimizationService) {
+    public RightsizingController(OptimizationService optimizationService, XamOpsRightsizingService xamOpsRightsizingService) {
         this.optimizationService = optimizationService;
+        this.xamOpsRightsizingService = xamOpsRightsizingService;
     }
 
     @GetMapping("/recommendations")
@@ -36,5 +40,13 @@ public class RightsizingController {
                     logger.error("Error fetching optimization recommendations for account {}", accountId, ex);
                     return ResponseEntity.status(500).body(Collections.emptyList());
                 });
+    }
+
+    /**
+     * ✅ UPDATED: Now accepts accountId to fetch live instance data for targeted recommendations.
+     */
+    @GetMapping("/aws/xamops-recommendations")
+    public List<XamOpsRightsizingRecommendation> getXamOpsRecommendations(@RequestParam String accountId) {
+        return xamOpsRightsizingService.getLiveRecommendations(accountId);
     }
 }

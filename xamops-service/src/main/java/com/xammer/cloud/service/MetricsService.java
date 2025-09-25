@@ -52,13 +52,56 @@ public class MetricsService {
     }
 
     private CloudAccount getAccount(String accountId) {
-        // MODIFIED: Handle list of accounts to prevent crash
         List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
         if (accounts.isEmpty()) {
             throw new RuntimeException("Account not found in database: " + accountId);
         }
-        return accounts.get(0); // Return the first one found
+        return accounts.get(0);
     }
+
+    /**
+     * ✅ NEW: This method provides the maximum CPU utilization for a given EC2 instance.
+     * It's the missing piece that your XamOpsRightsizingService needs.
+     */
+    public Optional<Double> getMaxCpuUtilization(String accountId, String instanceId, String region, int lookbackDays) {
+        try {
+            CloudAccount account = getAccount(accountId);
+            CloudWatchClient cwClient = awsClientProvider.getCloudWatchClient(account, region);
+
+            Metric metric = Metric.builder()
+                    .namespace("AWS/EC2")
+                    .metricName("CPUUtilization")
+                    .dimensions(Dimension.builder().name("InstanceId").value(instanceId).build())
+                    .build();
+
+            MetricStat metricStat = MetricStat.builder()
+                    .metric(metric)
+                    .period(86400) // Daily statistics
+                    .stat("Maximum")
+                    .build();
+
+            MetricDataQuery metricDataQuery = MetricDataQuery.builder()
+                    .id("maxCpu")
+                    .metricStat(metricStat)
+                    .returnData(true)
+                    .build();
+
+            GetMetricDataRequest request = GetMetricDataRequest.builder()
+                    .startTime(Instant.now().minus(lookbackDays, ChronoUnit.DAYS))
+                    .endTime(Instant.now())
+                    .metricDataQueries(metricDataQuery)
+                    .build();
+
+            GetMetricDataResponse response = cwClient.getMetricData(request);
+            if (!response.metricDataResults().isEmpty() && !response.metricDataResults().get(0).values().isEmpty()) {
+                return response.metricDataResults().get(0).values().stream().max(Double::compare);
+            }
+        } catch (Exception e) {
+            logger.error("Failed to get max CPU utilization for instance {}", instanceId, e);
+        }
+        return Optional.empty();
+    }
+
 
     @Async("awsTaskExecutor")
     public CompletableFuture<Map<String, List<MetricDto>>> getEc2InstanceMetrics(String accountId, String instanceId, boolean forceRefresh) {
@@ -98,6 +141,8 @@ public class MetricsService {
         });
     }
 
+    // ... (rest of the file is unchanged)
+
     @Async("awsTaskExecutor")
     public CompletableFuture<Map<String, List<MetricDto>>> getRdsInstanceMetrics(String accountId, String instanceId, boolean forceRefresh) {
         String cacheKey = "metrics-rds-" + accountId + "-" + instanceId;
@@ -107,7 +152,7 @@ public class MetricsService {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
         }
-        
+
         return CompletableFuture.supplyAsync(() -> {
             CloudAccount account = getAccount(accountId);
             String rdsRegion = findResourceRegion(account, "RDS", instanceId);
@@ -186,7 +231,7 @@ public class MetricsService {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
         }
-        
+
         return CompletableFuture.supplyAsync(() -> {
             CloudAccount account = getAccount(accountId);
             CloudWatchClient cwClient = awsClientProvider.getCloudWatchClient(account, region);
