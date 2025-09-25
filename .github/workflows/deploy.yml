@@ -63,10 +63,9 @@ jobs:
           aws-region: ap-south-1
 
       - name: Deploy containers on EC2
-        if: ${{ false }}   # 👈 disables this step temporarily
         run: |
           aws ssm send-command \
-            --targets "Key=instanceIds,Values=" \
+            --targets "Key=instanceIds,Values=i-0715da8b0b0b757e7" \
             --document-name "AWS-RunShellScript" \
             --comment "Deploy microservices" \
             --parameters commands='[
