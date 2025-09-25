@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 @RestController
-@RequestMapping("/api/gcp/costs")
+@RequestMapping("/api/xamops/gcp/costs")
 @Slf4j
 public class GcpCostController {
 

@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-                <script type="module" src="/src/main.js"></script>
+    <script type="module" src="/src/main.js"></script>
 
 
     <style>
@@ -316,6 +316,8 @@
         </header>
 
         <div class="flex-1 overflow-y-auto p-8">
+            <div id="tagging-compliance-widget" class="bg-white/80 backdrop-blur-sm rounded-2xl p-6 mb-8 border border-gray-200/50 shadow-lg">
+                </div>
             <div class="bg-white/80 backdrop-blur-sm rounded-2xl p-6 mb-8 border border-gray-200/50 shadow-lg">
                 <div class="flex flex-wrap items-center justify-between gap-6">
                     <div class="flex items-center space-x-4 flex-1">
@@ -343,10 +345,10 @@
 
             <div id="resource-list-container" class="space-y-6">
                 <div id="loading-state" class="w-full space-y-4">
-                    </div>
+                </div>
                 
                 <div id="empty-state" class="empty-state hidden text-center py-20 px-8 rounded-2xl mt-8">
-                    </div>
+                </div>
             </div>
         </div>
     </main>
@@ -367,17 +369,52 @@ document.addEventListener('DOMContentLoaded', function() {
             refreshButtonText: document.getElementById('refresh-button-text'),
             refreshButtonIcon: document.getElementById('refresh-button').querySelector('i'),
             updateStatus: document.getElementById('update-status'),
+            taggingComplianceWidget: document.getElementById('tagging-compliance-widget'),
         },
 
         init() {
             this.setupEventListeners();
             this.loadResources(false);
+            this.loadTaggingCompliance();
+        },
+
+        loadTaggingCompliance() {
+            const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+            const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
+            if (!selectedAccountId) return;
+
+            fetch(`/api/xamops/gcp/tagging/compliance?accountId=${selectedAccountId}`)
+                .then(res => res.json())
+                .then(data => {
+                    this.renderTaggingCompliance(data);
+                });
+        },
+        
+        renderTaggingCompliance(data) {
+            const compliancePercentage = data.compliancePercentage || 0;
+            const widget = this.dom.taggingComplianceWidget;
+            widget.innerHTML = `
+                <h3 class="text-xl font-bold text-gray-800 mb-4">Tagging Compliance</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
+                    <div class="flex flex-col items-center justify-center">
+                        <div class="text-5xl font-bold text-green-600">${compliancePercentage.toFixed(1)}%</div>
+                        <div class="text-sm text-gray-600">Compliance</div>
+                    </div>
+                    <div class="md:col-span-2">
+                        <div class="text-sm">Total Resources Scanned: <strong>${data.totalResourcesScanned}</strong></div>
+                        <div class="text-sm">Untagged Resources: <strong>${data.untaggedResourcesCount}</strong></div>
+                        </div>
+                </div>
+            `;
         },
 
         setupEventListeners() {
             this.dom.searchInput.addEventListener('input', () => this.debounce(this.render, 300)());
             this.dom.regionFilter.addEventListener('change', () => this.render());
-            this.dom.refreshButton.addEventListener('click', () => this.loadResources(true));
+            this.dom.refreshButton.addEventListener('click', () => {
+                this.loadResources(true);
+                this.loadTaggingCompliance();
+            });
             window.addEventListener('storage', (e) => {
                 if (e.key === 'selectedAccountId') {
                     this.loadResources(true);
@@ -395,8 +432,9 @@ document.addEventListener('DOMContentLoaded', function() {
         },
 
         loadResources(forceRefresh = false) {
-const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;            if (!selectedAccountId) {
+            const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+            const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
+            if (!selectedAccountId) {
                 this.dom.loadingState.style.display = 'none';
                 this.dom.emptyState.classList.remove('hidden');
                 this.dom.updateStatus.textContent = 'Please select an account.';
@@ -414,7 +452,6 @@ const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] 
                 return;
             }
 
-            // Set loading states
             this.isRefreshing = true;
             this.dom.updateStatus.innerHTML = '<div class="loading-spinner inline-block mr-2"></div>Updating...';
             this.dom.refreshButton.disabled = true;
@@ -427,8 +464,8 @@ const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] 
                 sessionStorage.removeItem(cacheKey); 
             }
             
-            fetch(`/api/gcp/cloudlist?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`)
-                .then(res => res.json())
+            fetch(`/api/xamops/gcp/cloudlist/resources?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`, { credentials: 'include' })
+             .then(res => res.json())
                 .then(data => {
                     this.allResources = Array.isArray(data) ? data : [];
                     sessionStorage.setItem(cacheKey, JSON.stringify(this.allResources));
@@ -453,34 +490,13 @@ const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] 
 
         getRegionDisplayName(regionId) {
             const regionMap = {
-                'us-east1': 'US East (N. Virginia)',
-                'us-east4': 'US East (S. Carolina)',
-                'us-central1': 'US Central (Iowa)',
-                'us-west1': 'US West (Oregon)',
-                'us-west2': 'US West (Los Angeles)',
-                'us-west3': 'US West (Salt Lake City)',
-                'us-west4': 'US West (Las Vegas)',
-                'europe-west1': 'Europe (Belgium)',
-                'europe-west2': 'Europe (London)',
-                'europe-west3': 'Europe (Frankfurt)',
-                'europe-west4': 'Europe (Netherlands)',
-                'europe-west6': 'Europe (Zürich)',
-                'europe-north1': 'Europe (Finland)',
-                'europe-southwest1': 'Europe (Madrid)',
-                'europe-central2': 'Europe (Warsaw)',
-                'asia-east1': 'Asia Pacific (Taiwan)',
-                'asia-east2': 'Asia Pacific (Hong Kong)',
-                'asia-northeast1': 'Asia Pacific (Tokyo)',
-                'asia-northeast2': 'Asia Pacific (Osaka)',
-                'asia-northeast3': 'Asia Pacific (Seoul)',
-                'asia-south1': 'Asia Pacific (Mumbai)',
-                'asia-south2': 'Asia Pacific (Delhi)',
-                'asia-southeast1': 'Asia Pacific (Singapore)',
-                'asia-southeast2': 'Asia Pacific (Jakarta)',
-                'australia-southeast1': 'Australia (Sydney)',
-                'australia-southeast2': 'Australia (Melbourne)',
-                'southamerica-east1': 'South America (São Paulo)',
-                'southamerica-west1': 'South America (Santiago)',
+                'us-east1': 'US East (N. Virginia)', 'us-east4': 'US East (S. Carolina)', 'us-central1': 'US Central (Iowa)',
+                'us-west1': 'US West (Oregon)', 'us-west2': 'US West (Los Angeles)', 'us-west3': 'US West (Salt Lake City)', 'us-west4': 'US West (Las Vegas)',
+                'europe-west1': 'Europe (Belgium)', 'europe-west2': 'Europe (London)', 'europe-west3': 'Europe (Frankfurt)', 'europe-west4': 'Europe (Netherlands)', 'europe-west6': 'Europe (Zürich)', 'europe-north1': 'Europe (Finland)', 'europe-southwest1': 'Europe (Madrid)', 'europe-central2': 'Europe (Warsaw)',
+                'asia-east1': 'Asia Pacific (Taiwan)', 'asia-east2': 'Asia Pacific (Hong Kong)', 'asia-northeast1': 'Asia Pacific (Tokyo)', 'asia-northeast2': 'Asia Pacific (Osaka)', 'asia-northeast3': 'Asia Pacific (Seoul)',
+                'asia-south1': 'Asia Pacific (Mumbai)', 'asia-south2': 'Asia Pacific (Delhi)', 'asia-southeast1': 'Asia Pacific (Singapore)', 'asia-southeast2': 'Asia Pacific (Jakarta)',
+                'australia-southeast1': 'Australia (Sydney)', 'australia-southeast2': 'Australia (Melbourne)',
+                'southamerica-east1': 'South America (São Paulo)', 'southamerica-west1': 'South America (Santiago)',
                 'global': 'Global',
             };
             return regionMap[regionId] || regionId.charAt(0).toUpperCase() + regionId.slice(1);
@@ -490,7 +506,7 @@ const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] 
             const regions = [...new Set(this.allResources.map(r => r.location).filter(Boolean))];
             regions.sort();
             
-            this.dom.regionFilter.innerHTML = ''; // Clear existing options
+            this.dom.regionFilter.innerHTML = ''; 
 
             const defaultOption = document.createElement('option');
             defaultOption.value = '';
