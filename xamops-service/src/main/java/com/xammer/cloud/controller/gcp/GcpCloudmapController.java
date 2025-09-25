@@ -2,6 +2,7 @@ package com.xammer.cloud.controller.gcp;
 
 import com.xammer.cloud.dto.gcp.GcpResourceDto;
 import com.xammer.cloud.service.gcp.GcpDataService;
+import com.xammer.cloud.service.gcp.GcpNetworkService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -13,13 +14,15 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 @RestController
-@RequestMapping("/api/gcp/cloudmap")
+@RequestMapping("/api/xamops/gcp/cloudmap")
 public class GcpCloudmapController {
 
     private final GcpDataService gcpDataService;
+    private final GcpNetworkService gcpNetworkService;
 
-    public GcpCloudmapController(GcpDataService gcpDataService) {
+    public GcpCloudmapController(GcpDataService gcpDataService, GcpNetworkService gcpNetworkService) {
         this.gcpDataService = gcpDataService;
+        this.gcpNetworkService = gcpNetworkService;
     }
 
     @GetMapping("/vpcs")
@@ -32,7 +35,7 @@ public class GcpCloudmapController {
     public CompletableFuture<ResponseEntity<List<Map<String, Object>>>> getGraphData(
             @RequestParam String accountId,
             @RequestParam(required = false) String vpcId) {
-        return gcpDataService.getVpcTopologyGraph(accountId, vpcId)
+        return gcpNetworkService.getNetworkTopologyGraph(accountId)
                 .thenApply(ResponseEntity::ok);
     }
 }

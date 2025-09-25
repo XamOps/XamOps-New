@@ -26,6 +26,33 @@ public class GcpCostService {
         this.gcpClientProvider = gcpClientProvider;
     }
 
+    public CompletableFuture<List<GcpCostDto>> getCostByTag(String gcpProjectId, String tagKey) {
+        return CompletableFuture.supplyAsync(() -> {
+            Optional<BigQuery> bqOpt = gcpClientProvider.getBigQueryClient(gcpProjectId);
+            if (bqOpt.isEmpty()) return Collections.emptyList();
+
+            BigQuery bigquery = bqOpt.get();
+            Optional<String> tableNameOpt = getBillingTableName(bigquery, gcpProjectId);
+            if (tableNameOpt.isEmpty()) return Collections.emptyList();
+
+            LocalDate today = LocalDate.now();
+            LocalDate startDate = today.withDayOfMonth(1);
+
+            String query = String.format(
+                "SELECT l.value as name, SUM(cost) as total_cost, false as is_anomaly " +
+                "FROM `%s`, UNNEST(labels) as l " +
+                "WHERE l.key = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
+                "GROUP BY 1 " +
+                "ORDER BY total_cost DESC",
+                tableNameOpt.get(), tagKey,
+                startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
+                today.format(DateTimeFormatter.ISO_LOCAL_DATE)
+            );
+
+            return executeQuery(bigquery, query, gcpProjectId);
+        });
+    }
+
     /**
      * **[FIXED]** This is the authoritative method to get the gross (unfiltered) MTD spend.
      * It is used by the dashboard and other services to ensure consistency.

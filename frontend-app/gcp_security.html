@@ -7,8 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
-                <script type="module" src="/src/main.js"></script>
-
+    <script type="module" src="/src/main.js"></script>
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
@@ -199,7 +198,7 @@
                         <i class="fas" :class="isExporting ? 'fa-spinner fa-spin' : 'fa-file-excel'"></i>
                         <span x-text="isExporting ? 'Exporting...' : 'Export Report'"></span>
                     </button>
-                    <button @click="loadFindings(true)" class="btn-primary flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md" :disabled="isRefreshing">
+                    <button @click="loadAllData(true)" class="btn-primary flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md" :disabled="isRefreshing">
                         <i class="fas fa-sync-alt" :class="{ 'fa-spin': isRefreshing }"></i>
                         <span x-text="isRefreshing ? 'Scanning...' : 'Refresh Scan'"></span>
                     </button>
@@ -282,8 +281,46 @@
                         </select>
                     </div>
                 </div>
-
+                
                 <div class="space-y-6">
+                    <div class="severity-section rounded-2xl shadow-lg overflow-hidden" x-show="!isLoading && iamDrift.length > 0" x-cloak>
+                        <button @click="toggleSection('iamDrift')" class="w-full flex justify-between items-center p-6 bg-gradient-to-r from-purple-100 to-purple-200 text-purple-800">
+                            <div class="flex items-center space-x-4">
+                                <div class="w-8 h-8 rounded-lg flex items-center justify-center bg-purple-600">
+                                    <i class="fas fa-user-shield text-white"></i>
+                                </div>
+                                <h3 class="font-bold text-xl">IAM Policy Drift</h3>
+                            </div>
+                            <div class="flex items-center space-x-4">
+                                <span class="severity-badge bg-purple-500 text-white border-purple-600" x-text="iamDrift.length"></span>
+                                <i class="fas fa-chevron-down text-xl" :class="{'rotate-180': openSections.includes('iamDrift')}"></i>
+                            </div>
+                        </button>
+                        <div x-show="openSections.includes('iamDrift')" x-transition class="p-6 bg-white">
+                            <div class="table-enhanced">
+                                </div>
+                        </div>
+                    </div>
+
+                    <div class="severity-section rounded-2xl shadow-lg overflow-hidden" x-show="!isLoading && vulnerabilities.length > 0" x-cloak>
+                        <button @click="toggleSection('vulnerabilities')" class="w-full flex justify-between items-center p-6 bg-gradient-to-r from-cyan-100 to-cyan-200 text-cyan-800">
+                            <div class="flex items-center space-x-4">
+                                <div class="w-8 h-8 rounded-lg flex items-center justify-center bg-cyan-600">
+                                    <i class="fas fa-box-open text-white"></i>
+                                </div>
+                                <h3 class="font-bold text-xl">Container Vulnerabilities</h3>
+                            </div>
+                            <div class="flex items-center space-x-4">
+                                <span class="severity-badge bg-cyan-500 text-white border-cyan-600" x-text="vulnerabilities.length"></span>
+                                <i class="fas fa-chevron-down text-xl" :class="{'rotate-180': openSections.includes('vulnerabilities')}"></i>
+                            </div>
+                        </button>
+                        <div x-show="openSections.includes('vulnerabilities')" x-transition class="p-6 bg-white">
+                            <div class="table-enhanced">
+                                </div>
+                        </div>
+                    </div>
+
                     <div x-show="isLoading" class="skeleton h-96 rounded-2xl"></div>
                     
                     <div x-show="!isLoading && filteredFindings.length === 0" x-cloak class="empty-state text-center py-20 px-8 rounded-2xl">
@@ -292,7 +329,7 @@
                         </div>
                         <h3 class="text-2xl font-bold text-gray-800 mb-2">All Clear!</h3>
                         <p class="text-gray-600 mb-6">No security findings detected. Your environment appears to be secure.</p>
-                        <button @click="loadFindings(true)" class="btn-primary px-6 py-3 text-sm font-semibold rounded-lg">
+                        <button @click="loadAllData(true)" class="btn-primary px-6 py-3 text-sm font-semibold rounded-lg">
                             <i class="fas fa-sync-alt mr-2"></i>Run Security Scan
                         </button>
                     </div>
@@ -381,20 +418,23 @@ function gcpSecurityCenter() {
         isRefreshing: false,
         isExporting: false,
         findings: [],
-        openSeverities: ['CRITICAL', 'HIGH'], // Auto-expand critical and high
+        iamDrift: [],
+        vulnerabilities: [],
+        openSeverities: ['CRITICAL', 'HIGH'],
+        openSections: ['iamDrift', 'vulnerabilities'],
         isModalOpen: false,
         selectedFinding: {},
         remediationSteps: '',
         selectedCategory: 'All',
 
         init() {
-            this.loadFindings(false);
+            this.loadAllData(false);
         },
         
-        loadFindings(forceRefresh = false) {
-const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-// GCP pages operate on a single account, so we take the first one.
-const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;            if (!selectedAccountId) {
+        loadAllData(forceRefresh = false) {
+            const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+            const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
+            if (!selectedAccountId) {
                 this.isLoading = false;
                 return;
             }
@@ -402,19 +442,20 @@ const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] 
             this.isLoading = !forceRefresh;
             this.isRefreshing = forceRefresh;
             
-            fetch(`/api/gcp/security/findings?accountId=${selectedAccountId}`)
-                .then(res => res.json())
-                .then(data => {
-                    this.processFindings(data);
-                })
-                .catch(err => {
-                    console.error('Failed to load GCP security findings:', err);
-                    this.findings = [];
-                })
-                .finally(() => {
-                    this.isLoading = false;
-                    this.isRefreshing = false;
-                });
+            Promise.all([
+                fetch(`/api/xamops/gcp/security/findings?accountId=${selectedAccountId}`).then(res => res.json()),
+                fetch(`/api/xamops/gcp/security/iam-drift?accountId=${selectedAccountId}`).then(res => res.json()),
+                fetch(`/api/xamops/gcp/security/container-vulnerabilities?accountId=${selectedAccountId}`).then(res => res.json())
+            ]).then(([findingsData, iamDriftData, vulnerabilitiesData]) => {
+                this.processFindings(findingsData);
+                this.iamDrift = iamDriftData;
+                this.vulnerabilities = vulnerabilitiesData;
+            }).catch(err => {
+                console.error('Failed to load GCP security data:', err);
+            }).finally(() => {
+                this.isLoading = false;
+                this.isRefreshing = false;
+            });
         },
         
         processFindings(data) {
@@ -455,6 +496,14 @@ const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] 
                 this.openSeverities = this.openSeverities.filter(s => s !== severity);
             } else {
                 this.openSeverities.push(severity);
+            }
+        },
+        
+        toggleSection(section) {
+            if (this.openSections.includes(section)) {
+                this.openSections = this.openSections.filter(s => s !== section);
+            } else {
+                this.openSections.push(section);
             }
         },
         

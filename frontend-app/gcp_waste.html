@@ -172,7 +172,7 @@ function gcpWaste() {
             }
             this.isRefreshing = forceRefresh;
             this.isLoading = !forceRefresh;
-            fetch(`/api/gcp/optimization/waste-report?accountId=${this.accountId}`)
+            fetch(`/api/xamops/gcp/optimization/waste-report?accountId=${this.accountId}`)
                 .then(res => res.json())
                 .then(data => { 
                     this.wasteItems = data.map(item => ({ ...item, detailsOpen: false }));

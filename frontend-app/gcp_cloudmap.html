@@ -358,7 +358,6 @@ document.addEventListener('DOMContentLoaded', function () {
     const saveBtn = document.getElementById('save-btn');
     let cy;
 
-    // This object will hold our application state
     const appState = {
         selectedAccountIds: [],
         get selectedAccountId() {
@@ -369,16 +368,11 @@ document.addEventListener('DOMContentLoaded', function () {
     cytoscape.use(cytoscapeDagre);
 
     const icons = {
-        'VPC Network': '/icons/gcp-vpc.png',
-        'Compute Engine': '/icons/gcp-compute-engine.png',
-        'Cloud SQL': '/icons/gcp-cloud-sql.png',
-        'Load Balancer': '/icons/gcp-load-balancer.png',
-        'Cloud Storage': '/icons/gcp-cloud-storage.png',
-        'Firewall Rule': '/icons/gcp-firewall.png',
-        'Kubernetes Engine': '/icons/gcp-gke.png',
-        'Cloud DNS': '/icons/gcp-cloud-dns.png',
+        'VPC': '/icons/gcp-vpc.png',
+        'Instance': '/icons/gcp-compute-engine.png',
+        'Subnet': '/icons/gcp-vpc.png',
+        'Firewall': '/icons/gcp-firewall.png',
         'Region': '/icons/gcp-icon.png',
-        'Subnetwork': '/icons/gcp-vpc.png'
     };
 
     closePanelBtn.addEventListener('click', () => infoPanel.classList.add('translate-x-full'));
@@ -394,7 +388,6 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     });
 
-    // --- START: MODIFIED INITIALIZATION LOGIC ---
     function initialize() {
         const urlParams = new URLSearchParams(window.location.search);
         const accountIdsParam = urlParams.get('accountIds');
@@ -426,7 +419,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function loadVpcs() {
         vpcSelector.innerHTML = '<option value="">Loading VPCs...</option>';
-        fetch(`/api/gcp/cloudmap/vpcs?accountId=${appState.selectedAccountId}`)
+        fetch(`/api/xamops/gcp/cloudmap/vpcs?accountId=${appState.selectedAccountId}`)
             .then(response => {
                 if (!response.ok) throw new Error('Bad Request');
                 return response.json();
@@ -448,19 +441,17 @@ document.addEventListener('DOMContentLoaded', function () {
                 vpcSelector.innerHTML = '<option value="">❌ Error loading VPCs</option>';
             });
     }
-    // --- END: MODIFIED INITIALIZATION LOGIC ---
 
     function loadGraphForVpc(vpcId) {
         if (cy) cy.destroy();
         infoPanel.classList.add('translate-x-full');
         
-        // Use the consistent appState to get the account ID
         if (!appState.selectedAccountId) {
             console.error("No account ID found in app state for loading graph.");
             return;
         }
 
-        const url = `/api/gcp/cloudmap/graph?accountId=${appState.selectedAccountId}&vpcId=${vpcId || ''}`;
+        const url = `/api/xamops/gcp/cloudmap/graph?accountId=${appState.selectedAccountId}&vpcId=${vpcId || ''}`;
         
         messageOverlay.innerHTML = `
             <div class="message-overlay text-center">
@@ -563,7 +554,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     }
                 },
                 {
-                    selector: 'node[type="VPC Network"]',
+                    selector: 'node[type="VPC"]',
                     style: {
                         'background-color': '#f0fdf4',
                         'border-width': 3,
@@ -581,7 +572,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     }
                 },
                 {
-                    selector: 'node[type="Subnetwork"]',
+                    selector: 'node[type="Subnet"]',
                     style: {
                         'background-color': '#ecfdf5',
                         'border-width': 2,
@@ -590,7 +581,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     }
                 },
                 { 
-                    selector: 'node[type="Firewall Rule"]', 
+                    selector: 'node[type="Firewall"]', 
                     style: { 
                         'width': 40, 
                         'height': 40,
@@ -609,14 +600,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function displayNodeInfo(data) {
         const nodeTypeColors = {
-            'VPC Network': 'from-green-500 to-emerald-600',
-            'Compute Engine': 'from-orange-500 to-red-600',
-            'Cloud SQL': 'from-blue-500 to-indigo-600',
-            'Load Balancer': 'from-purple-500 to-pink-600',
-            'Cloud Storage': 'from-green-500 to-teal-600',
-            'Firewall Rule': 'from-yellow-500 to-orange-600',
-            'Kubernetes Engine': 'from-blue-500 to-cyan-600',
-            'Cloud DNS': 'from-indigo-500 to-purple-600'
+            'VPC': 'from-green-500 to-emerald-600',
+            'Instance': 'from-orange-500 to-red-600',
+            'Subnet': 'from-blue-500 to-indigo-600',
+            'Firewall': 'from-yellow-500 to-orange-600'
         };
 
         const gradientClass = nodeTypeColors[data.type] || 'from-gray-500 to-gray-600';
@@ -653,16 +640,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function getIconForType(type) {
         const iconMap = {
-            'VPC Network': 'cloud',
-            'Compute Engine': 'server',
-            'Cloud SQL': 'database',
-            'Load Balancer': 'balance-scale',
-            'Cloud Storage': 'archive',
-            'Firewall Rule': 'shield-alt',
-            'Kubernetes Engine': 'cogs',
-            'Cloud DNS': 'globe',
-            'Region': 'layer-group',
-            'Subnetwork': 'network-wired'
+            'VPC': 'cloud',
+            'Instance': 'server',
+            'Subnet': 'network-wired',
+            'Firewall': 'shield-alt',
+            'Region': 'layer-group'
         };
         return iconMap[type] || 'cube';
     }

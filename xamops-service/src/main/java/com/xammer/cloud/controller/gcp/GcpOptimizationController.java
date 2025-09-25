@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 @RestController
-@RequestMapping("/api/gcp/optimization")
+@RequestMapping("/api/xamops/gcp/optimization")
 public class GcpOptimizationController {
 
     private final GcpOptimizationService gcpOptimizationService;
