@@ -22,7 +22,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 @RestController
-@RequestMapping("/api/security")
+@RequestMapping("/api/xamops/security")
 public class SecurityController {
 
     private static final Logger logger = LoggerFactory.getLogger(SecurityController.class);
@@ -46,8 +46,12 @@ public class SecurityController {
     public CompletableFuture<ResponseEntity<List<DashboardData.SecurityFinding>>> getSecurityFindings(
             @RequestParam String accountId,
             @RequestParam(defaultValue = "false") boolean forceRefresh) { // <-- FIX: Added forceRefresh parameter
-        CloudAccount account = cloudAccountRepository.findByAwsAccountId(accountId)
-                .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
+        // MODIFIED: Handle list of accounts to prevent crash
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
+        if (accounts.isEmpty()) {
+            throw new RuntimeException("Account not found: " + accountId);
+        }
+        CloudAccount account = accounts.get(0); // Use the first account
 
         // FIX: Pass the forceRefresh parameter down to the service calls
         return cloudListService.getRegionStatusForAccount(account, forceRefresh)
@@ -61,8 +65,12 @@ public class SecurityController {
 
     @GetMapping("/export")
     public CompletableFuture<ResponseEntity<byte[]>> exportFindingsToExcel(@RequestParam String accountId) {
-        CloudAccount account = cloudAccountRepository.findByAwsAccountId(accountId)
-                .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
+        // MODIFIED: Handle list of accounts to prevent crash
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
+        if (accounts.isEmpty()) {
+            throw new RuntimeException("Account not found: " + accountId);
+        }
+        CloudAccount account = accounts.get(0); // Use the first account
 
         // For exports, always get the freshest data.
         return cloudListService.getRegionStatusForAccount(account, true)

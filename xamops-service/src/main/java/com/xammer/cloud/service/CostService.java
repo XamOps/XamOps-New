@@ -44,6 +44,14 @@ public class CostService {
         this.cloudAccountRepository = cloudAccountRepository;
     }
 
+    private CloudAccount getAccount(String accountId) {
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
+        if (accounts.isEmpty()) {
+            throw new RuntimeException("Account not found: " + accountId);
+        }
+        return accounts.get(0);
+    }
+
     @Async("awsTaskExecutor")
     public CompletableFuture<List<CostDto>> getCostBreakdown(String accountId, String groupBy, String tagKey, boolean forceRefresh) {
         String cacheKey = "costBreakdown-" + accountId + "-" + groupBy + "-" + tagKey;
@@ -55,8 +63,7 @@ public class CostService {
         }
 
         logger.info("Fetching cost breakdown for account {}, grouped by: {}", accountId, groupBy);
-        CloudAccount account = cloudAccountRepository.findByAwsAccountId(accountId)
-                .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
+        CloudAccount account = getAccount(accountId);
         CostExplorerClient costExplorerClient = awsClientProvider.getCostExplorerClient(account);
 
         try {
@@ -103,8 +110,7 @@ public class CostService {
 
         logger.info("Fetching historical cost for account {}, service: {}, region: {}, days: {}",
                 accountId, serviceName, regionName, days);
-        CloudAccount account = cloudAccountRepository.findByAwsAccountId(accountId)
-                .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
+        CloudAccount account = getAccount(accountId);
         CostExplorerClient ceClient = awsClientProvider.getCostExplorerClient(account);
 
         List<String> labels = new ArrayList<>();
@@ -170,8 +176,7 @@ public class CostService {
         }
         
         logger.info("Fetching historical cost for account {}, dimension: {}, value: {}", accountId, groupBy, dimensionValue);
-        CloudAccount account = cloudAccountRepository.findByAwsAccountId(accountId)
-                .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
+        CloudAccount account = getAccount(accountId);
         CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
 
         List<String> labels = new ArrayList<>();

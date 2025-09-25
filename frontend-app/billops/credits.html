@@ -23,17 +23,21 @@
         showForm: false,
         creditRequests: [],
         newRequestData: { awsAccountId: '', expectedCredits: null, services: '', useCase: '', priority: 'medium' },
-        userId: 1, // Hardcoded user ID for demonstration
+        userId: 1, // This should be dynamically set based on the logged-in user
         selectedFilter: 'all',
 
         init() {
-            this.fetchRequests();
-            setInterval(() => this.fetchRequests(), 5000); // Poll for updates every 5 seconds
+            // It's better to load the sidebar first, then fetch data.
+            this.loadSidebar().then(() => {
+                this.fetchRequests();
+                setInterval(() => this.fetchRequests(), 5000); // Poll for updates every 5 seconds
+            });
         },
 
         async fetchRequests() {
             try {
-                const response = await fetch(`/api/billops/credits/admin/all`);
+                // CORRECTED: This now fetches requests only for the specific user.
+                const response = await fetch(`/api/billops/credits/user/${this.userId}`);
                 if (!response.ok) throw new Error('Network response was not ok');
                 this.creditRequests = await response.json();
             } catch (error) {
@@ -86,6 +90,19 @@
             notification.textContent = message;
             document.body.appendChild(notification);
             setTimeout(() => notification.remove(), 3000);
+        },
+        // ADDED: loadSidebar to handle sidebar loading
+        async loadSidebar() {
+            try {
+                const response = await fetch('/_sidebar.html');
+                const html = await response.text();
+                document.getElementById('sidebar-container').innerHTML = html;
+                if (window.Alpine) {
+                    window.Alpine.start();
+                }
+            } catch (error) {
+                console.error('Error loading sidebar:', error);
+            }
         }
     }">
         <div class="bg-white shadow-sm border-b border-gray-200">
@@ -214,7 +231,7 @@
                                                     <p class="text-sm text-gray-600">We are reviewing your documentation</p>
                                                     <span class="text-xs font-medium" :class="request.status === 'submitted' ? 'text-gray-500' : 'text-green-600'">
                                                          <span x-text="['documentation', 'verification', 'approved'].includes(request.status) ? '✓ Completed' : 'Pending'"></span>
-                                                     </span>
+                                                      </span>
                                                 </div>
                                             </div>
                                             <div class="flex items-center" :class="{'opacity-40': !['verification', 'approved', 'rejected'].includes(request.status)}">
@@ -232,15 +249,15 @@
                                                     <p class="text-sm text-gray-600">AWS is verifying your use case</p>
                                                     <span class="text-xs font-medium" :class="request.status === 'verification' ? 'text-yellow-600 animate-pulse' : (request.status === 'approved' ? 'text-green-600' : 'text-gray-500')">
                                                          <span x-text="request.status === 'verification' ? '⏳ In Progress' : (request.status === 'approved' ? '✓ Completed' : 'Pending')"></span>
-                                                     </span>
+                                                      </span>
                                                 </div>
                                             </div>
                                             <div class="flex items-center" :class="{'opacity-40': !['approved', 'rejected'].includes(request.status)}">
                                                 <div class="rounded-full h-12 w-12 flex items-center justify-center z-10"
                                                      :class="{
-                                                         'bg-gradient-to-r from-green-500 to-teal-500': request.status === 'approved',
-                                                         'bg-gradient-to-r from-red-500 to-pink-500': request.status === 'rejected',
-                                                         'bg-gray-300': !['approved', 'rejected'].includes(request.status)
+                                                          'bg-gradient-to-r from-green-500 to-teal-500': request.status === 'approved',
+                                                          'bg-gradient-to-r from-red-500 to-pink-500': request.status === 'rejected',
+                                                          'bg-gray-300': !['approved', 'rejected'].includes(request.status)
                                                       }">
                                                     <i class="fas text-white text-sm" :class="request.status === 'approved' ? 'fa-check-circle' : (request.status === 'rejected' ? 'fa-times-circle' : 'fa-trophy')"></i>
                                                 </div>
@@ -264,26 +281,5 @@
         </main>
     </div>
 </div>
-
-<script>
-    fetch('/_sidebar.html')
-        .then(response => response.text())
-        .then(html => {
-            const parser = new DOMParser();
-            const sidebarDoc = parser.parseFromString(html, 'text/html');
-            sidebarDoc.head.querySelectorAll('link[rel="stylesheet"], style').forEach(elem => {
-                document.head.appendChild(elem.cloneNode(true));
-            });
-            document.getElementById('sidebar-container').innerHTML = sidebarDoc.body.innerHTML;
-            const alpineScriptTag = sidebarDoc.head.querySelector('script[src*="alpinejs"]');
-            if (alpineScriptTag && !document.querySelector(`script[src='${alpineScriptTag.src}']`)) {
-                 const script = document.createElement('script');
-                 script.src = alpineScriptTag.src;
-                 script.defer = true;
-                 document.body.appendChild(script);
-            }
-        })
-        .catch(error => console.error('Error loading sidebar:', error));
-</script>
 </body>
 </html>

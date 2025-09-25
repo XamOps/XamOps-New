@@ -16,7 +16,7 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 @RestController
-@RequestMapping("/api/finops")
+@RequestMapping("/api/xamops/finops")
 public class FinOpsController {
 
     private static final Logger logger = LoggerFactory.getLogger(FinOpsController.class);

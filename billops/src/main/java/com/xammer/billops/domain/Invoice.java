@@ -26,23 +26,27 @@ public class Invoice {
     @Column(precision = 19, scale = 4)
     private BigDecimal discountAmount;
 
-    
+    // --- FIX: Reverted 'finalTotal' to 'amount' ---
     @Column(precision = 19, scale = 4)
     private BigDecimal amount;
-    
+    // --- END FIX ---
 
-    
+    // --- FIX: Changed FetchType to EAGER to prevent LazyInitializationException ---
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "cloud_account_id", nullable = false)
     private CloudAccount cloudAccount;
-    
+    // --- END FIX ---
+
+    // --- FIX: Changed FetchType to EAGER ---
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "client_id", nullable = false)
     private Client client;
-    
+    // --- END FIX ---
+
+    // --- FIX: Changed FetchType to EAGER ---
     @OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     private List<InvoiceLineItem> lineItems = new ArrayList<>();
-    
+    // --- END FIX ---
 
     @OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     private List<Discount> discounts = new ArrayList<>();
@@ -68,10 +72,10 @@ public class Invoice {
     public BigDecimal getDiscountAmount() { return discountAmount; }
     public void setDiscountAmount(BigDecimal discountAmount) { this.discountAmount = discountAmount; }
     
-    
+    // --- FIX: Updated getters and setters for renamed field ---
     public BigDecimal getAmount() { return this.amount; }
     public void setAmount(BigDecimal amount) { this.amount = amount; }
-    
+    // --- END FIX ---
 
     public CloudAccount getCloudAccount() { return cloudAccount; }
     public void setCloudAccount(CloudAccount cloudAccount) { this.cloudAccount = cloudAccount; }

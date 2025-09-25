@@ -445,6 +445,11 @@
                 const urlParams = new URLSearchParams(window.location.search);
                 this.accountId = urlParams.get('accountId') || urlParams.get('accountIds');
 
+                // --- START: ADDED CONSOLE LOGS ---
+                console.log('--- Alpine Component Initialized ---');
+                console.log('Account ID from URL:', this.accountId);
+                // --- END: ADDED CONSOLE LOGS ---
+
                 if (!this.accountId) {
                     this.error = "No AWS Account ID specified in the URL.";
                     this.loading = false;
@@ -457,6 +462,10 @@
                 this.loading = true;
                 this.error = null;
 
+                // --- START: ADDED CONSOLE LOGS ---
+                console.log(`--- Fetching Data for year: ${this.selectedYear}, month: ${this.selectedMonth} ---`);
+                // --- END: ADDED CONSOLE LOGS ---
+
                 const summaryUrl = `/api/billops/billing?accountIds=${this.accountId}&year=${this.selectedYear}&month=${this.selectedMonth}`;
                 const detailedUrl = `/api/billops/detailed-breakdown?accountIds=${this.accountId}&year=${this.selectedYear}&month=${this.selectedMonth}`;
 
@@ -465,6 +474,12 @@
                     fetch(detailedUrl).then(res => res.ok ? res.json() : Promise.reject('Failed to fetch detailed breakdown'))
                 ])
                 .then(([summaryData, detailedData]) => {
+                    // --- START: ADDED CONSOLE LOGS ---
+                    // Using JSON.parse/stringify to log a snapshot of the data, preventing mutation issues in the console
+                    console.log('✅ Received Summary Data:', JSON.parse(JSON.stringify(summaryData)));
+                    console.log('✅ Received Detailed Breakdown Data:', JSON.parse(JSON.stringify(detailedData)));
+                    // --- END: ADDED CONSOLE LOGS ---
+                    
                     if (summaryData && detailedData) {
                         this.billingData = summaryData;
                         this.detailedBreakdown = detailedData;
@@ -485,6 +500,12 @@
             },
 
             renderOrUpdateCharts(history, services) {
+                // --- START: ADDED CONSOLE LOGS ---
+                console.log('--- Rendering charts with the following data ---');
+                console.log('Cost History Data:', history);
+                console.log('Service Breakdown Data:', services);
+                // --- END: ADDED CONSOLE LOGS ---
+
                 const historyCanvas = document.getElementById('costHistoryChart');
                 const serviceCanvas = document.getElementById('serviceBreakdownChart');
 
@@ -528,7 +549,6 @@
                             maintainAspectRatio: false,
                             plugins: {
                                 legend: { display: false },
-                                // ✅ CORRECTED: Restored full tooltip configuration
                                 tooltip: {
                                     backgroundColor: 'rgba(0, 0, 0, 0.8)',
                                     titleColor: '#fff',

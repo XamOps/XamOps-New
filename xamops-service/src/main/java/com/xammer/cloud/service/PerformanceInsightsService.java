@@ -64,6 +64,14 @@ public class PerformanceInsightsService {
         this.dbCache = dbCache;
     }
 
+        private CloudAccount getAccount(String accountId) {
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
+        if (accounts.isEmpty()) {
+            throw new RuntimeException("Account not found: " + accountId);
+        }
+        return accounts.get(0);
+    }
+
     public List<PerformanceInsightDto> getInsights(String accountId, String severity, boolean forceRefresh) {
         // FIX: Use a standardized cache key that does not include the severity filter.
         String cacheKey = "performanceInsights-" + accountId + "-ALL";
@@ -78,8 +86,8 @@ public class PerformanceInsightsService {
         }
 
         logger.info("Starting multi-region performance insights scan for account: {}", accountId);
-        CloudAccount account = cloudAccountRepository.findByAwsAccountId(accountId)
-                .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
+        CloudAccount account = getAccount(accountId);
+                // .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
 
         try {
             List<DashboardData.RegionStatus> activeRegions = cloudListService.getRegionStatusForAccount(account, forceRefresh).get();
@@ -180,8 +188,8 @@ public class PerformanceInsightsService {
         }
         
         return CompletableFuture.supplyAsync(() -> {
-            CloudAccount account = cloudAccountRepository.findByAwsAccountId(accountId)
-                    .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
+            CloudAccount account = getAccount(accountId);
+                    // .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
 
             String region = findInstanceRegion(account, resourceId);
             if (region == null) {

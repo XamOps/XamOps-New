@@ -14,6 +14,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.stream.Stream; // Import Stream
+import java.util.function.Function; // Import Function
 
 @Service
 public class BillingService {
@@ -29,12 +31,30 @@ public class BillingService {
         this.resourceService = resourceService;
     }
 
-    public BillingDashboardDto getBillingData(List<String> accountIds, Integer year, Integer month) {
-        logger.info("Fetching summary billing data for accounts: {}", accountIds);
-        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountIdIn(accountIds);
-        if (accounts.isEmpty()) {
+    private List<CloudAccount> getUniqueAccounts(List<String> accountIds) {
+        List<CloudAccount> allAccounts = cloudAccountRepository.findByAwsAccountIdIn(accountIds);
+        if (allAccounts.isEmpty()) {
             throw new RuntimeException("Accounts not found: " + accountIds);
         }
+        
+        // --- START OF FIX ---
+        // This ensures that even if one AWS account ID is linked to multiple clients,
+        // we only process it once to avoid fetching and displaying duplicate data.
+        Map<String, CloudAccount> uniqueAccountsMap = allAccounts.stream()
+            .collect(Collectors.toMap(
+                CloudAccount::getAwsAccountId,
+                Function.identity(), // This is a shorthand for account -> account
+                (existing, replacement) -> existing // In case of duplicates, keep the first one
+            ));
+        
+        return new ArrayList<>(uniqueAccountsMap.values());
+        // --- END OF FIX ---
+    }
+    
+    public BillingDashboardDto getBillingData(List<String> accountIds, Integer year, Integer month) {
+        logger.info("Fetching summary billing data for accounts: {}", accountIds);
+        // --- MODIFIED: Use the new helper method ---
+        List<CloudAccount> accounts = getUniqueAccounts(accountIds);
 
         BillingDashboardDto data = new BillingDashboardDto();
         List<BillingDashboardDto.CostHistory> combinedCostHistory = new ArrayList<>();
@@ -60,10 +80,8 @@ public class BillingService {
 
     public List<ServiceCostDetailDto> getDetailedBillingReport(List<String> accountIds, Integer year, Integer month) {
         logger.info("--- Starting Detailed Billing Report Generation (Cost-Only Method) ---");
-        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountIdIn(accountIds);
-        if (accounts.isEmpty()) {
-            throw new RuntimeException("Accounts not found: " + accountIds);
-        }
+        // --- MODIFIED: Use the new helper method ---
+        List<CloudAccount> accounts = getUniqueAccounts(accountIds);
 
         List<ServiceCostDetailDto> detailedReport = new ArrayList<>();
         for (CloudAccount account : accounts) {
@@ -171,9 +189,4 @@ public class BillingService {
         // Fallback for anything not specifically matched
         return usageType.replace('-', ' ');
     }
-
-    // public List<ServiceCostDetailDto> getDetailedBillingReport(List<String> accountIds, Integer year, Integer month) {
-    //     // TODO Auto-generated method stub
-    //     throw new UnsupportedOperationException("Unimplemented method 'getDetailedBillingReport'");
-    // }
 }

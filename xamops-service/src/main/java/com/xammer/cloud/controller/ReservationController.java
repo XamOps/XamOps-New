@@ -18,7 +18,7 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 @RestController
-@RequestMapping("/api/reservations")
+@RequestMapping("/api/xamops/reservations")
 public class ReservationController {
 
     private static final Logger logger = LoggerFactory.getLogger(ReservationController.class);
@@ -52,8 +52,12 @@ public class ReservationController {
             @RequestParam(defaultValue = "STANDARD") String offeringClass,
             @RequestParam(defaultValue = "false") boolean forceRefresh) {
         
-        CloudAccount account = cloudAccountRepository.findByAwsAccountId(accountId)
-                .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
+        // MODIFIED: Handle list of accounts to prevent crash
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
+        if (accounts.isEmpty()) {
+            throw new RuntimeException("Account not found: " + accountId);
+        }
+        CloudAccount account = accounts.get(0); // Use the first account
 
         return reservationService.getReservationPurchaseRecommendations(
                     account, term, paymentOption, lookback, offeringClass, forceRefresh

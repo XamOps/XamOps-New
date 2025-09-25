@@ -5,10 +5,11 @@ import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.service.EksAutomationService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/eks")
+@RequestMapping("/api/xamops/eks")
 public class EksController {
 
     private final EksAutomationService eksAutomationService;
@@ -24,8 +25,13 @@ public class EksController {
             @PathVariable String clusterName,
             @RequestParam String accountId,
             @RequestParam String region) {
-        CloudAccount account = cloudAccountRepository.findByAwsAccountId(accountId)
-                .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
+        // MODIFIED: Handle list of accounts to prevent crash
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
+        if (accounts.isEmpty()) {
+            throw new RuntimeException("Account not found: " + accountId);
+        }
+        CloudAccount account = accounts.get(0); // Use the first account
+
         boolean success = eksAutomationService.installOpenCost(account, clusterName, region);
         if (success) {
             return ResponseEntity.ok(Map.of("message", "OpenCost installation initiated successfully."));
@@ -42,8 +48,13 @@ public class EksController {
             @PathVariable String clusterName,
             @RequestParam String accountId,
             @RequestParam String region) {
-        CloudAccount account = cloudAccountRepository.findByAwsAccountId(accountId)
-                .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
+        // MODIFIED: Handle list of accounts to prevent crash
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
+        if (accounts.isEmpty()) {
+            throw new RuntimeException("Account not found: " + accountId);
+        }
+        CloudAccount account = accounts.get(0); // Use the first account
+
         boolean success = eksAutomationService.enableContainerInsights(account, clusterName, region);
         if (success) {
             return ResponseEntity.ok(Map.of("message", "Container Insights enabled successfully. Metrics will appear shortly."));

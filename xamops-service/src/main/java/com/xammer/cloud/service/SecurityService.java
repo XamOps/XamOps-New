@@ -58,9 +58,13 @@ public class SecurityService {
         this.configuredRegion = System.getenv().getOrDefault("AWS_REGION", "us-east-1");
     }
 
-    private CloudAccount getAccount(String accountId) {
-        return cloudAccountRepository.findByAwsAccountId(accountId)
-                .orElseThrow(() -> new RuntimeException("Account not found in database: " + accountId));
+     private CloudAccount getAccount(String accountId) {
+        // MODIFIED: Handle list of accounts to prevent crash
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
+        if (accounts.isEmpty()) {
+            throw new RuntimeException("Account not found in database: " + accountId);
+        }
+        return accounts.get(0); // Return the first one found
     }
     
     @Async("awsTaskExecutor")

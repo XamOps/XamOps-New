@@ -7,12 +7,15 @@ import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.gcp.GcpDashboardData;
 import com.xammer.cloud.dto.ReservationInventoryDto;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.service.gcp.GcpDataService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import software.amazon.awssdk.services.iam.IamClient;
@@ -85,9 +88,13 @@ public class DashboardDataService {
             return azureAccount.get();
         }
 
-        // Fallback to AWS or GCP account lookup
-        return cloudAccountRepository.findByAwsAccountIdOrGcpProjectId(accountId, accountId)
-                .orElseThrow(() -> new RuntimeException("Account not found in database: " + accountId));
+        // MODIFIED: Handle multiple accounts returned for the same ID
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountIdOrGcpProjectId(accountId, accountId);
+        if (accounts.isEmpty()) {
+            throw new RuntimeException("Account not found in database: " + accountId);
+        }
+        // Return the first account found to resolve the ambiguity
+        return accounts.get(0);
     }
 
     public DashboardData getDashboardData(String accountId, boolean forceRefresh) throws ExecutionException, InterruptedException, IOException {
@@ -250,7 +257,19 @@ public class DashboardDataService {
 
         data.setSelectedAccount(mainAccount);
 
-        List<DashboardData.Account> availableAccounts = cloudAccountRepository.findAll().stream()
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        ClientUserDetails userDetails = (ClientUserDetails) authentication.getPrincipal();
+        boolean isAdmin = userDetails.getAuthorities().stream()
+                .anyMatch(role -> "ROLE_BILLOPS_ADMIN".equals(role.getAuthority()));
+
+        List<CloudAccount> userAccounts;
+        if (isAdmin) {
+            userAccounts = cloudAccountRepository.findAll();
+        } else {
+            userAccounts = cloudAccountRepository.findByClientId(userDetails.getClientId());
+        }
+
+        List<DashboardData.Account> availableAccounts = userAccounts.stream()
                 .map(acc -> new DashboardData.Account(
                         "AWS".equals(acc.getProvider()) ? acc.getAwsAccountId() : acc.getGcpProjectId(),
                         acc.getAccountName(),
@@ -262,6 +281,7 @@ public class DashboardDataService {
                 ))
                 .collect(Collectors.toList());
         data.setAvailableAccounts(availableAccounts);
+
 
         return data;
     }

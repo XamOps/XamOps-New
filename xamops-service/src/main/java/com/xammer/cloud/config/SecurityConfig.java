@@ -61,6 +61,8 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("/images/**"),
                                 new AntPathRequestMatcher("/icons/**"),
                                 new AntPathRequestMatcher("/webjars/**"),
+                                new AntPathRequestMatcher("/gcp_dashboard.html"), // Add this line
+                            new AntPathRequestMatcher("/azure_dashboard.html") ,// Add this line
                                 new AntPathRequestMatcher("/ws/**")
                         ).permitAll()
                         .anyRequest().authenticated()

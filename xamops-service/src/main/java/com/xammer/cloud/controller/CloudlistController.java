@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 @RestController
-@RequestMapping("/api/cloudlist")
+@RequestMapping("/api/xamops/cloudlist")
 public class CloudlistController {
 
     private static final Logger logger = LoggerFactory.getLogger(CloudlistController.class);

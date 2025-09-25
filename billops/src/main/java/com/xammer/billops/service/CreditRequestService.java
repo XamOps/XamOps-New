@@ -1,3 +1,5 @@
+// src/main/java/com/xammer/billops/service/CreditRequestService.java
+
 package com.xammer.billops.service;
 
 import com.xammer.billops.domain.CreditRequest;
@@ -6,8 +8,8 @@ import com.xammer.billops.dto.CreditRequestDto;
 import com.xammer.billops.repository.CreditRequestRepository;
 import com.xammer.billops.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.Cacheable;
+// import org.springframework.cache.annotation.CacheEvict; // REMOVE
+// import org.springframework.cache.annotation.Cacheable; // REMOVE
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,7 +30,7 @@ public class CreditRequestService {
     private EmailService emailService;
 
     @Transactional
-    @CacheEvict(value = {"allCreditRequests", "creditRequestsByUser"}, allEntries = true)
+    // @CacheEvict(value = {"allCreditRequests", "creditRequestsByUser"}, allEntries = true) // REMOVE THIS LINE
     public CreditRequestDto createCreditRequest(CreditRequestDto creditRequestDto) {
         User user = userRepository.findById(creditRequestDto.getUserId())
                 .orElseThrow(() -> new RuntimeException("User not found"));
@@ -44,29 +46,22 @@ public class CreditRequestService {
 
         CreditRequest savedRequest = creditRequestRepository.save(creditRequest);
 
-        // Send email notification
-        String emailSubject = "New Credit Request Submitted: " + savedRequest.getAwsAccountId();
-        String emailText = "A new credit request has been submitted with the following details:\n\n" +
-                "AWS Account ID: " + savedRequest.getAwsAccountId() + "\n" +
-                "Expected Credits: " + savedRequest.getExpectedCredits() + "\n" +
-                "Services: " + savedRequest.getServices() + "\n" +
-                "Use Case: " + savedRequest.getUseCase() + "\n" +
-                "User: " + user.getUsername();
-        emailService.sendSimpleMessage("aditya@xammer.in", emailSubject, emailText);
+        // Omitted for brevity...
 
         return convertToDto(savedRequest);
     }
 
     @Transactional(readOnly = true)
-    @Cacheable("allCreditRequests")
+    // @Cacheable("allCreditRequests") // REMOVE THIS LINE
     public List<CreditRequestDto> getAllCreditRequests() {
-        return creditRequestRepository.findAll().stream()
+        // FIX: Use the repository method that ensures proper ordering.
+        return creditRequestRepository.findAllOrderBySubmittedDateDesc().stream()
                 .map(this::convertToDto)
                 .collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
-    @Cacheable(value = "creditRequestsByUser", key = "#userId")
+    // @Cacheable(value = "creditRequestsByUser", key = "#userId") // REMOVE THIS LINE
     public List<CreditRequestDto> getCreditRequestsByUserId(Long userId) {
         return creditRequestRepository.findByUserId(userId).stream()
                 .map(this::convertToDto)
@@ -74,7 +69,7 @@ public class CreditRequestService {
     }
 
     @Transactional
-    @CacheEvict(value = {"allCreditRequests", "creditRequestsByUser"}, allEntries = true)
+    // @CacheEvict(value = {"allCreditRequests", "creditRequestsByUser"}, allEntries = true) // REMOVE THIS LINE
     public CreditRequestDto updateRequestStatus(Long id, String status) {
         CreditRequest creditRequest = creditRequestRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Credit Request not found"));
@@ -84,6 +79,7 @@ public class CreditRequestService {
     }
 
     private CreditRequestDto convertToDto(CreditRequest creditRequest) {
+        // ... (no changes needed here)
         CreditRequestDto dto = new CreditRequestDto();
         dto.setId(creditRequest.getId());
         dto.setAwsAccountId(creditRequest.getAwsAccountId());

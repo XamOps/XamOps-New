@@ -562,7 +562,7 @@
                     sessionStorage.removeItem(cacheKey);
                 }
 
-                fetch(`/api/cloudguard/alerts?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`)
+                fetch(`/api/xamops/cloudguard/alerts?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`)
                     .then(res => {
                         if (!res.ok) throw new Error('Failed to fetch alert data');
                         return res.json();
