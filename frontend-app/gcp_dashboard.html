@@ -529,6 +529,17 @@
                             </div>
                         </div>
 
+                        <div id="widget-ai-advisor" class="widget chart-container p-6 rounded-xl fade-in">
+                            <div class="flex items-center justify-between mb-6">
+                                <h3 class="text-lg font-bold text-gray-800 flex items-center">
+                                    <i class="fas fa-arrows-alt widget-handle mr-3 text-gray-400"></i>
+                                    <i class="fas fa-robot mr-2 text-blue-500"></i>
+                                    AI Advisor
+                                </h3>
+                                <div id="ai-advisor-content"></div>
+                            </div>
+                        </div>
+
                         <div id="widget-optimization" class="widget chart-container p-6 rounded-xl fade-in">
                             <div class="flex items-center justify-between mb-6">
                                 <h3 class="text-lg font-bold text-gray-800 flex items-center">
@@ -621,7 +632,6 @@
                 });
 
                 if (this.selectedAccountIds.length > 0) {
-                    // MOVE WEBSOCKET CONNECTION HERE
                     this.connectWebSocket(); 
                     this.fetchDashboardData(false);
                 } else {
@@ -630,7 +640,6 @@
             },
 
             connectWebSocket() {
-            // FIX: Use the correct key and get the first ID from the array
             const accountId = this.selectedAccountIds.length > 0 ? this.selectedAccountIds[0] : null;
             if (!accountId) {
                 console.log("No account selected, WebSocket will not connect.");
@@ -656,7 +665,6 @@
 
  initializeDashboardLayout() {
                 const container = document.getElementById('widgets-container');
-                // CORRECTED URL: Added the '/xamops' base path
                 fetch('/api/xamops/dashboard/layout')
                     .then(res => res.json())
                     .then(layout => {
@@ -690,7 +698,6 @@
                     return;
                 }
 
-                // this.connectWebSocket();
                 this.initializeDashboardLayout();
 
                 const cacheKey = `dashboardData-${selectedAccountId}`;
@@ -711,8 +718,8 @@
                     sessionStorage.removeItem(cacheKey); 
                 }
                 
-                // --- CORRECTED ENDPOINT FOR GCP ---
-                let endpoint = `/api/gcp/dashboard?accountId=${selectedAccountId}`;
+
+                let endpoint = `/api/xamops/gcp/dashboard?accountId=${selectedAccountId}`;
                 if (forceRefresh) {
                     endpoint += '&forceRefresh=true';
                 }
@@ -724,6 +731,7 @@
                         const dashboardData = { selectedAccount: data };
                         sessionStorage.setItem(cacheKey, JSON.stringify(dashboardData));
                         this.populatePage(dashboardData);
+                        this.fetchAiRecommendations(selectedAccountId);
                     })
                     .catch(error => {
                         console.error('Failed to fetch GCP dashboard data:', error);
@@ -738,10 +746,35 @@
                     });
             },
             
+            fetchAiRecommendations(accountId) {
+                fetch(`/api/xamops/gcp/ai-advisor/recommendations?accountId=${accountId}`)
+                    .then(res => res.json())
+                    .then(data => {
+                        this.populateAiAdvisor(data);
+                    });
+            },
+
+            populateAiAdvisor(recommendations) {
+                const container = document.getElementById('ai-advisor-content');
+                if (!container) return;
+                
+                if (recommendations && recommendations.length > 0) {
+                    container.innerHTML = recommendations.map(rec => `
+                        <div class="p-4 border-l-4 border-blue-500 bg-blue-50 rounded-lg mb-4">
+                            <p class="font-semibold text-blue-800">${rec.action} on ${rec.resource}</p>
+                            <p class="text-sm text-blue-700">${rec.description}</p>
+                            <p class="text-sm font-bold text-green-600">Savings: ${this.formatCurrency(rec.estimatedMonthlySavings)}</p>
+                        </div>
+                    `).join('');
+                } else {
+                    container.innerHTML = '<p class="text-sm text-gray-500">No AI recommendations at this time.</p>';
+                }
+            },
+            
             saveLayout() {
                 const container = document.getElementById('widgets-container');
                 const widgetOrder = [...container.children].map(w => w.id);
-                fetch('/api/xamops/dashboard/layout', { // Corrected URL
+                fetch('/api/xamops/dashboard/layout', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(widgetOrder)

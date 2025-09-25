@@ -7,17 +7,19 @@ import com.google.api.services.dns.DnsScopes;
 import com.google.api.services.sqladmin.SQLAdmin;
 import com.google.auth.http.HttpCredentialsAdapter;
 import com.google.auth.oauth2.GoogleCredentials;
-// import com.google.cloud.devtools.artifactregistry.v1.ArtifactRegistryClient;
-// import com.google.cloud.devtools.artifactregistry.v1.ArtifactRegistrySettings;
+import com.google.cloud.asset.v1.AssetServiceClient;
+import com.google.cloud.asset.v1.AssetServiceSettings;
 import com.google.cloud.bigquery.BigQuery;
 import com.google.cloud.bigquery.BigQueryOptions;
 import com.google.cloud.billing.budgets.v1.BudgetServiceClient;
 import com.google.cloud.billing.budgets.v1.BudgetServiceSettings;
-import com.google.cloud.devtools.cloudbuild.v1.CloudBuildClient;
-import com.google.cloud.devtools.cloudbuild.v1.CloudBuildSettings;
 import com.google.cloud.compute.v1.*;
 import com.google.cloud.container.v1.ClusterManagerClient;
 import com.google.cloud.container.v1.ClusterManagerSettings;
+// import com.google.cloud.devtools.artifactregistry.v1.ArtifactRegistryClient;
+// import com.google.cloud.devtools.artifactregistry.v1.ArtifactRegistrySettings;
+import com.google.cloud.devtools.cloudbuild.v1.CloudBuildClient;
+import com.google.cloud.devtools.cloudbuild.v1.CloudBuildSettings;
 import com.google.cloud.functions.v2.FunctionServiceClient;
 import com.google.cloud.functions.v2.FunctionServiceSettings;
 import com.google.cloud.iam.admin.v1.IAMClient;
@@ -56,6 +58,14 @@ public class GcpClientProvider {
         this.cloudAccountRepository = cloudAccountRepository;
     }
 
+    public AssetServiceClient createAssetServiceClient(String gcpProjectId) throws IOException {
+        // FIX: The createClient() method is a static method on the client class, not the settings builder.
+        AssetServiceSettings settings = AssetServiceSettings.newBuilder()
+                .setCredentialsProvider(() -> getCredentials(gcpProjectId).orElseThrow())
+                .build();
+        return AssetServiceClient.create(settings);
+    }
+
     private Optional<GoogleCredentials> getCredentials(String gcpProjectId) {
         Optional<CloudAccount> accountOpt = cloudAccountRepository.findByGcpProjectId(gcpProjectId);
         if (accountOpt.isEmpty()) {
@@ -83,6 +93,7 @@ public class GcpClientProvider {
     //             ArtifactRegistrySettings settings = ArtifactRegistrySettings.newBuilder()
     //                     .setCredentialsProvider(() -> credentials)
     //                     .build();
+    //             // FIX: Use the static create() method from the client class.
     //             return ArtifactRegistryClient.create(settings);
     //         } catch (IOException e) {
     //             log.error("Failed to create ArtifactRegistryClient for project ID: {}", gcpProjectId, e);
@@ -104,7 +115,7 @@ public class GcpClientProvider {
             }
         });
     }
-    
+
     public Optional<FunctionServiceClient> getFunctionServiceClient(String gcpProjectId) {
         return getCredentials(gcpProjectId).map(credentials -> {
             try {
@@ -146,7 +157,7 @@ public class GcpClientProvider {
             }
         });
     }
-    
+
     public Optional<RoutersClient> getRoutersClient(String gcpProjectId) {
         return getCredentials(gcpProjectId).map(credentials -> {
             try {
@@ -156,6 +167,20 @@ public class GcpClientProvider {
                 return RoutersClient.create(settings);
             } catch (IOException e) {
                 log.error("Failed to create RoutersClient for project ID: {}", gcpProjectId, e);
+                return null;
+            }
+        });
+    }
+
+    public Optional<RoutesClient> getRoutesClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                RoutesSettings settings = RoutesSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials)
+                        .build();
+                return RoutesClient.create(settings);
+            } catch (IOException e) {
+                log.error("Failed to create RoutesClient for project ID: {}", gcpProjectId, e);
                 return null;
             }
         });
@@ -174,7 +199,7 @@ public class GcpClientProvider {
             }
         });
     }
-    
+
     public Optional<SecurityPoliciesClient> getSecurityPoliciesClient(String gcpProjectId) {
         return getCredentials(gcpProjectId).map(credentials -> {
             try {
@@ -393,7 +418,7 @@ public class GcpClientProvider {
             return Optional.empty();
         }
     }
-    
+
     public Optional<FirewallsClient> getFirewallsClient(String gcpProjectId) {
         return getCredentials(gcpProjectId).map(credentials -> {
             try {
@@ -421,7 +446,7 @@ public class GcpClientProvider {
             }
         });
     }
-    
+
     public Optional<ImagesClient> getImagesClient(String gcpProjectId) {
         return getCredentials(gcpProjectId).map(credentials -> {
             try {

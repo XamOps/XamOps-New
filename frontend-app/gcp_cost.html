@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-                    <script type="module" src="/src/main.js"></script>
+    <script type="module" src="/src/main.js"></script>
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
@@ -53,7 +53,15 @@
                     <div class="glass-card rounded-2xl p-8">
                         <div class="flex flex-wrap items-center justify-between gap-6 mb-8">
                             <h2 class="text-xl font-bold text-gray-800">Cost Breakdown</h2>
-                            <div class="flex items-center space-x-4 bg-white/70 rounded-xl p-4 border"><span class="text-sm font-medium text-gray-700">Group by:</span><select x-model="groupBy" @change="loadCostData(true)" class="form-select text-sm rounded-lg border-gray-300"><option value="SERVICE">Service</option><option value="PROJECT">Project</option></select></div>
+                            <div class="flex items-center space-x-4 bg-white/70 rounded-xl p-4 border">
+                                <span class="text-sm font-medium text-gray-700">Group by:</span>
+                                <select x-model="groupBy" @change="loadCostData(true)" class="form-select text-sm rounded-lg border-gray-300">
+                                    <option value="SERVICE">Service</option>
+                                    <option value="PROJECT">Project</option>
+                                    <option value="TAG">Tag Key</option>
+                                </select>
+                                <input type="text" x-show="groupBy === 'TAG'" x-model="tagKey" @input.debounce.500ms="loadCostData(true)" placeholder="Enter tag key..." class="form-input text-sm rounded-lg border-gray-300">
+                            </div>
                         </div>
                         <div x-show="!isLoading && costData.length > 0" x-cloak class="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
                             <div class="lg:col-span-1 chart-container h-96"><canvas id="costChart"></canvas></div>
@@ -80,33 +88,39 @@
     <script>
         function costManagement() {
             return {
-                isLoading: true, isRefreshing: false, costData: [], groupBy: 'SERVICE', costChart: null, costForecastChart: null,
+                isLoading: true, isRefreshing: false, costData: [], groupBy: 'SERVICE', tagKey: 'owner', costChart: null, costForecastChart: null,
                 forecast: { isLoading: true, service: 'ALL', periods: 30, availableServices: ['ALL'] },
                 init() { this.loadCostData(false); this.loadForecastServices(); this.renderCostForecastChart(); },
                 formatCurrency(value) { return (value || 0).toLocaleString('en-IN', { style: 'currency', currency: 'INR' }); },
                 loadCostData(forceRefresh = false) {
-const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-// GCP pages operate on a single account, so we take the first one.
-const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;                    if (!accountId) { this.isLoading = false; this.costData = []; return; }
+                    const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                    const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
+                    if (!selectedAccountId) { this.isLoading = false; this.costData = []; return; }
                     this.isLoading = !forceRefresh; this.isRefreshing = forceRefresh;
-                    fetch(`/api/gcp/costs/breakdown?accountId=${accountId}&groupBy=${this.groupBy}`)
+                    
+                    let url = `/api/xamops/gcp/costs/breakdown?accountId=${selectedAccountId}&groupBy=${this.groupBy}`;
+                    if (this.groupBy === 'TAG' && this.tagKey) {
+                        url = `/api/xamops/gcp/costs/breakdown-by-tag?accountId=${selectedAccountId}&tagKey=${this.tagKey}`;
+                    }
+
+                    fetch(url)
                         .then(res => res.json()).then(data => { this.costData = data; this.renderChart(); })
                         .finally(() => { this.isLoading = false; this.isRefreshing = false; });
                 },
                 loadForecastServices() {
-const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-// GCP pages operate on a single account, so we take the first one.
-const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;                    if (!accountId) return;
-                    fetch(`/api/gcp/costs/breakdown?accountId=${accountId}&groupBy=SERVICE`)
+                    const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                    const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
+                    if (!selectedAccountId) return;
+                    fetch(`/api/xamops/gcp/costs/breakdown?accountId=${selectedAccountId}&groupBy=SERVICE`)
                         .then(res => res.json()).then(data => { this.forecast.availableServices = ['ALL', ...new Set(data.map(item => item.name))]; });
                 },
                 async renderCostForecastChart() {
                     this.forecast.isLoading = true;
-const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-// GCP pages operate on a single account, so we take the first one.
-const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;                    if (!accountId) { this.forecast.isLoading = false; return; }
+                    const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                    const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
+                    if (!selectedAccountId) { this.forecast.isLoading = false; return; }
                     try {
-                        let url = `/api/gcp/forecast/cost?accountId=${accountId}&periods=${this.forecast.periods}&serviceName=${encodeURIComponent(this.forecast.service)}`;
+                        let url = `/api/xamops/gcp/forecast/cost?accountId=${selectedAccountId}&periods=${this.forecast.periods}&serviceName=${encodeURIComponent(this.forecast.service)}`;
                         const response = await fetch(url);
                         const forecastData = await response.json();
                         const labels = forecastData.map(d => new Date(d.ds).toLocaleDateString());

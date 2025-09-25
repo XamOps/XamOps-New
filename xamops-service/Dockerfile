@@ -27,3 +27,6 @@ COPY --from=build /app/xamops-service/target/*.jar app.jar
 
 # The command to run the application when the container starts
 ENTRYPOINT ["java", "-jar", "app.jar"]
+
+# --- FIX: Add a health check ---
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 CMD wget -q -O - http://localhost:8080/actuator/health | grep UP || exit 1

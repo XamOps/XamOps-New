@@ -3,9 +3,17 @@ package com.xammer.cloud.service.gcp;
 import com.google.cloud.securitycenter.v2.Finding;
 import com.google.cloud.securitycenter.v2.ListFindingsRequest;
 import com.google.cloud.securitycenter.v2.SecurityCenterClient;
+import com.xammer.cloud.dto.gcp.GcpContainerVulnerabilityDto;
+import com.xammer.cloud.dto.gcp.GcpIamPolicyDriftDto;
 import com.xammer.cloud.dto.gcp.GcpSecurityFinding;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+// import com.google.cloud.devtools.containeranalysis.v1.ContainerAnalysisClient;
+// import com.google.cloud.devtools.containeranalysis.v1.grafeas.v1.GrafeasClient;
+// import io.grafeas.v1.Occurrence;
+// import io.grafeas.v1.ProjectName;
+// import io.grafeas.v1.VulnerabilityOccurrence;
+
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -20,10 +28,24 @@ import java.util.stream.Collectors;
 public class GcpSecurityService {
 
     private final GcpClientProvider gcpClientProvider;
+    private static final Map<String, List<GcpIamPolicyDriftDto.DriftDetail>> BASELINE_IAM = Map.of(
+            "roles/owner", List.of(new GcpIamPolicyDriftDto.DriftDetail("user:admin@example.com", "roles/owner", "BASELINE"))
+    );
 
     public GcpSecurityService(GcpClientProvider gcpClientProvider) {
         this.gcpClientProvider = gcpClientProvider;
     }
+
+    public CompletableFuture<List<GcpIamPolicyDriftDto>> getIamPolicyDrift(String gcpProjectId) {
+        // Placeholder implementation
+        return CompletableFuture.completedFuture(new ArrayList<>());
+    }
+    
+    public CompletableFuture<List<GcpContainerVulnerabilityDto>> getContainerScanningResults(String gcpProjectId) {
+        // Placeholder implementation
+        return CompletableFuture.completedFuture(new ArrayList<>());
+    }
+
 
     /**
      * **[FIXED]** This method is now updated to use the Security Command Center V2 API.

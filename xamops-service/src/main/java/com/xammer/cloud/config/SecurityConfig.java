@@ -61,7 +61,7 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("/images/**"),
                                 new AntPathRequestMatcher("/icons/**"),
                                 new AntPathRequestMatcher("/webjars/**"),
-                                new AntPathRequestMatcher("/gcp_dashboard.html"), // Add this line
+    new AntPathRequestMatcher("/gcp_*.html"), // Use this wildcard to match all GCP pages
                             new AntPathRequestMatcher("/azure_dashboard.html") ,// Add this line
                                 new AntPathRequestMatcher("/ws/**")
                         ).permitAll()

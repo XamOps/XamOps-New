@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 @RestController
-@RequestMapping("/api/gcp/forecast")
+@RequestMapping("/api/xamops/gcp/forecast")
 public class GcpForecastingController {
 
     private final ForecastingService forecastingService;

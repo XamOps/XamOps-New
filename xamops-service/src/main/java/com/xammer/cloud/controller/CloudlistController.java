@@ -1,16 +1,20 @@
 package com.xammer.cloud.controller;
 
+import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.ResourceDetailDto;
+import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.service.CloudListService;
 import com.xammer.cloud.service.ResourceDetailService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 @RestController
@@ -21,24 +25,39 @@ public class CloudlistController {
 
     private final CloudListService cloudListService;
     private final ResourceDetailService resourceDetailService;
+    private final CloudAccountRepository cloudAccountRepository;
 
-    public CloudlistController(CloudListService cloudListService, ResourceDetailService resourceDetailService) {
+    public CloudlistController(CloudListService cloudListService, ResourceDetailService resourceDetailService, CloudAccountRepository cloudAccountRepository) {
         this.cloudListService = cloudListService;
         this.resourceDetailService = resourceDetailService;
+        this.cloudAccountRepository = cloudAccountRepository;
     }
 
     @GetMapping("/resources")
     public CompletableFuture<ResponseEntity<List<DashboardData.ServiceGroupDto>>> getAllResources(
-            @RequestParam String accountIds, // <-- FIX: Changed parameter name from accountId to accountIds
+            @RequestParam String accountIds,
             @RequestParam(defaultValue = "false") boolean forceRefresh) {
-        
-        // Handle potentially multiple, comma-separated IDs by using the first one.
-        String accountIdToUse = accountIds.split(",")[0]; 
+
+        String accountIdToUse = accountIds.split(",")[0];
+
+        Optional<CloudAccount> accountOpt = cloudAccountRepository.findByProviderAccountId(accountIdToUse);
+
+        if (accountOpt.isEmpty()) {
+            logger.error("No account found for identifier: {}", accountIdToUse);
+            return CompletableFuture.completedFuture(ResponseEntity.status(HttpStatus.NOT_FOUND).body(Collections.emptyList()));
+        }
+
+        CloudAccount account = accountOpt.get();
+
+        if (!"AWS".equals(account.getProvider())) {
+            logger.warn("Request for cloudlist resources for a non-AWS account ({}) received by AWS controller. Returning empty.", account.getProvider());
+            return CompletableFuture.completedFuture(ResponseEntity.ok(Collections.emptyList()));
+        }
 
         return cloudListService.getAllResourcesGrouped(accountIdToUse, forceRefresh)
                 .thenApply(ResponseEntity::ok)
                 .exceptionally(ex -> {
-                    logger.error("Error fetching grouped resources for account {}", accountIdToUse, ex);
+                    logger.error("Error fetching grouped resources for AWS account {}", accountIdToUse, ex);
                     return ResponseEntity.status(500).body(Collections.emptyList());
                 });
     }

@@ -1,7 +1,6 @@
 package com.xammer.cloud.controller.gcp;
 
 import com.xammer.cloud.dto.gcp.GcpOptimizationRecommendation;
-import com.xammer.cloud.dto.gcp.GcpWasteItem;
 import com.xammer.cloud.service.gcp.GcpOptimizationService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -13,24 +12,18 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 @RestController
-@RequestMapping("/api/xamops/gcp/optimization")
-public class GcpOptimizationController {
+@RequestMapping("/api/xamops/gcp/rightsizing")
+public class GcpRightsizingController {
 
     private final GcpOptimizationService gcpOptimizationService;
 
-    public GcpOptimizationController(GcpOptimizationService gcpOptimizationService) {
+    public GcpRightsizingController(GcpOptimizationService gcpOptimizationService) {
         this.gcpOptimizationService = gcpOptimizationService;
     }
 
-    @GetMapping("/rightsizing-recommendations")
+    @GetMapping("/recommendations")
     public CompletableFuture<ResponseEntity<List<GcpOptimizationRecommendation>>> getRightsizingRecommendations(@RequestParam String accountId) {
         return gcpOptimizationService.getRightsizingRecommendations(accountId)
-                .thenApply(ResponseEntity::ok);
-    }
-
-    @GetMapping("/waste-report")
-    public CompletableFuture<ResponseEntity<List<GcpWasteItem>>> getWasteReport(@RequestParam String accountId) {
-        return gcpOptimizationService.getWasteReport(accountId)
                 .thenApply(ResponseEntity::ok);
     }
 }

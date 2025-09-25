@@ -12,7 +12,7 @@ import java.io.IOException;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/gcp/performance")
+@RequestMapping("/api/xamops/gcp/performance")
 public class GcpPerformanceController {
 
     private final GcpMetricsService gcpMetricsService;

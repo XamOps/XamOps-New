@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 @RestController
-@RequestMapping("/api/gcp/cloudlist")
+@RequestMapping("/api/xamops/gcp/cloudlist")
 public class GcpCloudlistController {
 
     private final GcpDataService gcpDataService;
@@ -26,7 +26,7 @@ public class GcpCloudlistController {
      * @param accountId The GCP Project ID.
      * @return A CompletableFuture with a list of all discovered resources.
      */
-    @GetMapping
+@GetMapping("/resources")
     public CompletableFuture<ResponseEntity<List<GcpResourceDto>>> getAllResources(@RequestParam String accountId) {
         return gcpDataService.getAllResources(accountId)
                 .thenApply(ResponseEntity::ok);

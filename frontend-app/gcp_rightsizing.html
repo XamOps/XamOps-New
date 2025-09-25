@@ -7,7 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
-                <script type="module" src="/src/main.js"></script>
+    <script type="module" src="/src/main.js"></script>
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
@@ -381,9 +381,9 @@ function gcpRightsizing() {
         },
 
         loadRecommendations(forceRefresh = false) {
-const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-// GCP pages operate on a single account, so we take the first one.
-const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;            if (!selectedAccountId) {
+            const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+            const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
+            if (!selectedAccountId) {
                 this.isLoading = false;
                 return;
             }
@@ -406,7 +406,7 @@ const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] 
                 sessionStorage.removeItem(cacheKey);
             }
             
-            fetch(`/api/gcp/optimization/rightsizing-recommendations?accountId=${selectedAccountId}`)
+            fetch(`/api/xamops/gcp/rightsizing/recommendations?accountId=${selectedAccountId}`)
                 .then(res => res.json())
                 .then(data => {
                     this.recommendations = data;
@@ -426,7 +426,7 @@ const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] 
             const term = this.searchTerm.toLowerCase();
             return this.recommendations.filter(rec => {
                 const serviceMatch = this.filter === 'All' || rec.service === this.filter;
-                const searchMatch = term === '' || rec.resourceName.toLowerCase().includes(term);
+                const searchMatch = term === '' || (rec.resourceName && rec.resourceName.toLowerCase().includes(term));
                 return serviceMatch && searchMatch;
             });
         },
