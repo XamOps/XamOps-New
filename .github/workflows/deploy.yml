@@ -78,8 +78,24 @@ jobs:
               "sudo docker stop xamops-service || true && sudo docker rm xamops-service || true",
               "sudo docker stop service-registry || true && sudo docker rm service-registry || true",
               "sudo docker stop frontend-app || true && sudo docker rm frontend-app || true",
-              "sudo docker run -d --name billops --network xamops-network ghcr.io/sahil-remoterepo/billops:latest",
-              "sudo docker run -d --name xamops-service --network xamops-network ghcr.io/sahil-remoterepo/xamops-service:latest",
-              "sudo docker run -d --name service-registry --network xamops-network ghcr.io/sahil-remoterepo/service-registry:latest",
-              "sudo docker run -d --name frontend-app --network xamops-network ghcr.io/sahil-remoterepo/frontend-app:latest",
+              "sudo docker run -d --name service-registry --network xamops-network --restart always \
+                -p 8761:8761 \
+                -e SPRING_PROFILES_ACTIVE=uat \
+                ghcr.io/sahil-remoterepo/service-registry:latest",
+              "sudo docker run -d --name billops --network xamops-network --restart always \
+                -p 8082:8082 \
+                -e SPRING_PROFILES_ACTIVE=uat \
+                -e EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://service-registry:8761/eureka/ \
+                ghcr.io/sahil-remoterepo/billops:latest",
+              "sudo docker run -d --name xamops-service --network xamops-network --restart always \
+                -p 8080:8080 \
+                -e SPRING_PROFILES_ACTIVE=uat \
+                -e DB_HOST=172.17.0.1 \
+                -e DB_USER=app_user_uat \
+                -e DB_PASS=SecurePass123! \
+                -e DB_NAME=xamops_db_uat \
+                -e EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://service-registry:8761/eureka/ \
+                ghcr.io/sahil-remoterepo/xamops-service:latest",
+              "sudo docker run -d --name frontend-app --network xamops-network --restart always \
+                ghcr.io/sahil-remoterepo/frontend-app:latest"
             ]'

@@ -50,7 +50,7 @@
                 },
                 fetchResources() {
                     // Fetch list of Compute Engine VMs to populate dropdown
-                    fetch(`/api/gcp/cloudlist/resources?accountId=${this.accountId}`)
+fetch(`/api/xamops/gcp/cloudlist/resources?accountId=${this.accountId}`)
                         .then(res => res.json())
                         .then(data => {
                             this.resources = data.filter(r => r.type === 'Compute Engine');
@@ -59,7 +59,7 @@
                 fetchMetrics() {
                     if (!this.selectedResource) return;
                     this.isLoading = true;
-                    fetch(`/api/gcp/performance/metrics?accountId=${this.accountId}&resourceId=${this.selectedResource}`)
+fetch(`/api/xamops/gcp/performance/metrics?accountId=${this.accountId}&resourceId=${this.selectedResource}`)
                         .then(res => res.json())
                         .then(data => { this.renderChart(data); })
                         .catch(err => console.error('Failed to load GCP performance metrics:', err))

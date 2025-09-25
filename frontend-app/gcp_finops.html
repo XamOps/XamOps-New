@@ -140,10 +140,16 @@
                         <p class="text-sm text-gray-600">Cloud financial operations dashboard</p>
                     </div>
                 </div>
-                <button @click="loadReport(true)" class="btn-primary flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md" :disabled="isRefreshing">
-                    <i class="fas fa-sync-alt" :class="{ 'fa-spin': isRefreshing }"></i>
-                    <span x-text="isRefreshing ? 'Refreshing...' : 'Refresh Data'"></span>
-                </button>
+                <div>
+                    <button @click="downloadReport()" class="bg-green-600 text-white flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md mr-4">
+                        <i class="fas fa-file-pdf"></i>
+                        <span>Download PDF</span>
+                    </button>
+                    <button @click="loadReport(true)" class="btn-primary flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md" :disabled="isRefreshing">
+                        <i class="fas fa-sync-alt" :class="{ 'fa-spin': isRefreshing }"></i>
+                        <span x-text="isRefreshing ? 'Refreshing...' : 'Refresh Data'"></span>
+                    </button>
+                </div>
             </header>
 
             <div class="flex-1 p-8 space-y-8">
@@ -212,8 +218,8 @@
                             </div>
                         </div>
                         <div class="bg-white/70 rounded-xl p-6 border">
-                             <h4 class="text-lg font-bold text-gray-800 mb-4">Cost Allocation</h4>
-                             <p class="text-sm text-gray-500">Cost allocation by tag is under development for GCP.</p>
+                             <h4 class="text-lg font-bold text-gray-800 mb-4">Cost Allocation by Tag (owner)</h4>
+                             <div class="chart-container h-48"><canvas id="costAllocationChart"></canvas></div>
                         </div>
                     </div>
                 </div>
@@ -312,41 +318,44 @@
             reportData: {
                 billingSummary: [], 
                 costHistory: [], 
-                rightsizingRecommendations: [], // Added for new section
-                wastedResources: [], // Added for new section
+                rightsizingRecommendations: [], 
+                wastedResources: [], 
                 optimizationSummary: { potentialSavings: 0 }, 
                 monthToDateSpend: 0, 
                 lastMonthSpend: 0, 
                 forecastedSpend: 0,
                 budgets: [], 
-                taggingCompliance: { compliancePercentage: 0, untaggedResources: [] }
+                taggingCompliance: { compliancePercentage: 0, untaggedResources: [] },
+                costAllocationByTag: [],
             },
-            charts: { byService: null, costHistory: null },
+            charts: { byService: null, costHistory: null, costAllocation: null },
             init() { this.loadReport(); },
- loadReport(forceRefresh = false) {
-                // --- START: FIX ---
+            downloadReport() {
                 const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-                // GCP pages operate on a single account, so we take the first one.
+                const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
+                if (!selectedAccountId) return;
+                window.open(`/api/xamops/gcp/finops/report/download?accountId=${selectedAccountId}`, '_blank');
+            },
+            loadReport(forceRefresh = false) {
+                const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
                 const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
 
                 if (!selectedAccountId) {
                     this.isLoading = false;
-                    // You can add a user-friendly message here if you want
                     console.warn("No GCP account selected. Cannot load FinOps report.");
                     return;
                 }
-                // --- END: FIX ---
 
                 this.isRefreshing = forceRefresh;
                 this.isLoading = !forceRefresh;
                 
-                // Use the correctly defined 'selectedAccountId' variable
-                fetch(`/api/gcp/finops/report?accountId=${selectedAccountId}`)
+                fetch(`/api/xamops/gcp/finops/report?accountId=${selectedAccountId}`)
                     .then(res => res.json())
                     .then(data => { 
                         this.reportData = data; 
                         if (!this.reportData.rightsizingRecommendations) this.reportData.rightsizingRecommendations = [];
                         if (!this.reportData.wastedResources) this.reportData.wastedResources = [];
+                        if (!this.reportData.costAllocationByTag) this.reportData.costAllocationByTag = [];
                         this.renderCharts(); 
                     })
                     .catch(err => console.error("Failed to load FinOps report:", err))
@@ -365,42 +374,42 @@
 
                 return [
                     { 
-                        label: 'Month-to-Date Spend', 
-                        value: this.formatCurrency(mtdSpend),
-                        icon: 'fa-dollar-sign',
-                        color: { bg: 'bg-blue-100', text: 'text-blue-500' },
-                        trendIcon: mtdTrend >= 0 ? 'fa-arrow-up' : 'fa-arrow-down',
-                        trendColor: mtdTrend >= 0 ? 'text-red-500' : 'text-green-500',
-                        trendText: lastMonthSpend > 0 ? `${Math.abs(mtdTrend).toFixed(1)}% vs last month` : ''
+                        label: 'Month-to-Date Spend', value: this.formatCurrency(mtdSpend), icon: 'fa-dollar-sign',
+                        color: { bg: 'bg-blue-100', text: 'text-blue-500' }, trendIcon: mtdTrend >= 0 ? 'fa-arrow-up' : 'fa-arrow-down',
+                        trendColor: mtdTrend >= 0 ? 'text-red-500' : 'text-green-500', trendText: lastMonthSpend > 0 ? `${Math.abs(mtdTrend).toFixed(1)}% vs last month` : ''
                     },
                     { 
-                        label: 'Forecasted Spend', 
-                        value: this.formatCurrency(forecast),
-                        icon: 'fa-chart-line',
-                        color: { bg: 'bg-yellow-100', text: 'text-yellow-500' },
-                        trendIcon: forecastTrend >= 0 ? 'fa-arrow-up' : 'fa-arrow-down',
-                        trendColor: forecastTrend >= 0 ? 'text-red-500' : 'text-green-500',
-                        trendText: lastMonthSpend > 0 ? `${Math.abs(forecastTrend).toFixed(1)}% vs last month` : ''
+                        label: 'Forecasted Spend', value: this.formatCurrency(forecast), icon: 'fa-chart-line',
+                        color: { bg: 'bg-yellow-100', text: 'text-yellow-500' }, trendIcon: forecastTrend >= 0 ? 'fa-arrow-up' : 'fa-arrow-down',
+                        trendColor: forecastTrend >= 0 ? 'text-red-500' : 'text-green-500', trendText: lastMonthSpend > 0 ? `${Math.abs(forecastTrend).toFixed(1)}% vs last month` : ''
                     },
                     { 
-                        label: 'Last Month Spend', 
-                        value: this.formatCurrency(this.reportData.lastMonthSpend),
-                        icon: 'fa-calendar-alt',
-                        color: { bg: 'bg-gray-100', text: 'text-gray-500' },
-                        trendText: ''
+                        label: 'Last Month Spend', value: this.formatCurrency(this.reportData.lastMonthSpend), icon: 'fa-calendar-alt',
+                        color: { bg: 'bg-gray-100', text: 'text-gray-500' }, trendText: ''
                     },
                     { 
-                        label: 'Potential Savings', 
-                        value: this.formatCurrency(this.reportData.optimizationSummary.potentialSavings),
-                        icon: 'fa-piggy-bank',
-                        color: { bg: 'bg-green-100', text: 'text-green-500' },
-                        trendText: ''
+                        label: 'Potential Savings', value: this.formatCurrency(this.reportData.optimizationSummary.potentialSavings), icon: 'fa-piggy-bank',
+                        color: { bg: 'bg-green-100', text: 'text-green-500' }, trendText: ''
                     }
                 ];
             },
             renderCharts() {
                 this.renderServiceChart();
                 this.renderCostHistoryChart();
+                this.renderCostAllocationChart();
+            },
+            renderCostAllocationChart() {
+                const ctx = document.getElementById('costAllocationChart');
+                if(!ctx || !this.reportData.costAllocationByTag) return;
+                if (this.charts.costAllocation) this.charts.costAllocation.destroy();
+                this.charts.costAllocation = new Chart(ctx, {
+                    type: 'pie',
+                    data: {
+                        labels: this.reportData.costAllocationByTag.map(d => d.name),
+                        datasets: [{ data: this.reportData.costAllocationByTag.map(d => d.amount), backgroundColor: ['#4285F4', '#34A853', '#FBBC05', '#EA4335', '#667eea'] }]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+                });
             },
             renderServiceChart() {
                 const ctx = document.getElementById('costByServiceChart');

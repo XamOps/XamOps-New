@@ -6,6 +6,12 @@ import com.google.api.services.sqladmin.SQLAdmin;
 import com.google.api.services.sqladmin.model.DatabaseInstance;
 // import com.google.cloud.artifactregistry.v1.ArtifactRegistryClient;
 // import com.google.cloud.artifactregistry.v1.Repository;
+import com.google.cloud.asset.v1.AssetServiceClient;
+import com.google.cloud.asset.v1.AssetServiceSettings;
+import com.google.cloud.asset.v1.ContentType;
+import com.google.cloud.asset.v1.ListAssetsRequest;
+import com.google.cloud.asset.v1.ProjectName;
+import com.google.cloud.asset.v1.Asset;
 import com.google.cloud.devtools.cloudbuild.v1.CloudBuildClient;
 // import com.google.cloud.build.v1.BuildTrigger;
 import com.google.cloud.compute.v1.Firewall;
@@ -38,6 +44,7 @@ import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.GcpAccountRequestDto;
 import com.xammer.cloud.dto.gcp.*;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import com.google.cloud.compute.v1.ForwardingRule;
 import com.google.cloud.compute.v1.ForwardingRulesClient;
@@ -65,6 +72,9 @@ public class GcpDataService {
     private final com.xammer.cloud.repository.CloudAccountRepository cloudAccountRepository;
     private final ExecutorService executor = Executors.newCachedThreadPool();
     private final Map<String, double[]> regionCoordinates = loadRegionCoordinates();
+    
+    @Value("${tagging.compliance.required-tags}")
+    private List<String> requiredTags;
 
     public GcpDataService(GcpClientProvider gcpClientProvider,
                           GcpCostService gcpCostService,
@@ -78,6 +88,61 @@ public class GcpDataService {
         this.cloudAccountRepository = cloudAccountRepository;
     }
     
+    public CompletableFuture<TaggingComplianceDto> getTagComplianceReport(String gcpProjectId) {
+        return CompletableFuture.supplyAsync(() -> {
+            log.info("Generating tagging compliance report for project: {}", gcpProjectId);
+            TaggingComplianceDto report = new TaggingComplianceDto();
+            List<TaggingComplianceDto.UntaggedResource> untaggedResources = new ArrayList<>();
+            int totalResourcesScanned = 0;
+
+            try (AssetServiceClient client = gcpClientProvider.createAssetServiceClient(gcpProjectId)) {
+                ProjectName parent = ProjectName.of(gcpProjectId);
+                ListAssetsRequest request = ListAssetsRequest.newBuilder()
+                    .setParent(parent.toString())
+                    .setContentType(ContentType.RESOURCE)
+                    .build();
+
+                AssetServiceClient.ListAssetsPagedResponse response = client.listAssets(request);
+
+                for (Asset asset : response.iterateAll()) {
+                    totalResourcesScanned++;
+                    List<String> missingTags = new ArrayList<>(requiredTags);
+                    
+                    if (asset.getResource().getData().getFieldsMap().containsKey("labels")) {
+                        com.google.protobuf.Value labelsValue = asset.getResource().getData().getFieldsOrThrow("labels");
+                        if (labelsValue.getKindCase() == com.google.protobuf.Value.KindCase.STRUCT_VALUE) {
+                            Map<String, com.google.protobuf.Value> labelsMap = labelsValue.getStructValue().getFieldsMap();
+                            labelsMap.keySet().forEach(missingTags::remove);
+                        }
+                    }
+
+                    if (!missingTags.isEmpty()) {
+                        untaggedResources.add(new TaggingComplianceDto.UntaggedResource(
+                            asset.getName(),
+                            asset.getAssetType(),
+                            asset.getResource().getLocation(),
+                            missingTags
+                        ));
+                    }
+                }
+            } catch (Exception e) {
+                log.error("Failed to generate tagging compliance report for project {}: {}", gcpProjectId, e.getMessage(), e);
+            }
+
+            report.setTotalResourcesScanned(totalResourcesScanned);
+            report.setUntaggedResources(untaggedResources);
+            report.setUntaggedResourcesCount(untaggedResources.size());
+            if (totalResourcesScanned > 0) {
+                double compliance = ((double) (totalResourcesScanned - untaggedResources.size()) / totalResourcesScanned) * 100;
+                report.setCompliancePercentage(compliance);
+            } else {
+                report.setCompliancePercentage(100.0);
+            }
+
+            return report;
+        });
+    }
+
     private Map<String, double[]> loadRegionCoordinates() {
         Map<String, double[]> coords = new java.util.HashMap<>();
         try {
@@ -189,6 +254,7 @@ public class GcpDataService {
                 log.error("Failed to get savings summary for project {}: {}", gcpProjectId, ex.getMessage());
                 return new DashboardData.SavingsSummary(0.0, Collections.emptyList());
             });
+
 
         CompletableFuture<DashboardData.OptimizationSummary> optimizationSummaryFuture = gcpOptimizationService.getOptimizationSummary(gcpProjectId)
             .exceptionally(ex -> {
