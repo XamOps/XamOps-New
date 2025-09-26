@@ -12,6 +12,11 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
+      '/api/ai-advisor': {
+              target: 'http://localhost:8080', // Same as xamops since it's the same service
+              changeOrigin: true,
+              secure: false,
+            },
 
       // Proxy billops service requests
       '/api/billops': {

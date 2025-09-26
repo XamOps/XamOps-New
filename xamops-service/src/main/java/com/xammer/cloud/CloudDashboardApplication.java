@@ -12,7 +12,7 @@ import org.springframework.web.client.RestTemplate;
 @SpringBootApplication
 @EnableCaching
 @EnableAsync
-@EnableDiscoveryClient // Add this annotation
+@EnableDiscoveryClient // Add this annotation-
 public class CloudDashboardApplication {
     public static void main(String[] args) {
         System.setProperty("user.timezone", "UTC");
