@@ -253,6 +253,7 @@
                                     <th class="px-6 py-4 text-left font-bold">Cost Comparison</th>
                                     <th class="px-6 py-4 text-left font-bold">Savings</th>
                                     <th class="px-6 py-4 text-left font-bold">Reason</th>
+                                    <th class="px-6 py-4 text-center font-bold">AI</th>
                                 </tr>
                                 </thead>
                                 <tbody class="divide-y divide-gray-200">
@@ -287,6 +288,11 @@
                                         </td>
                                         <td class="px-6 py-4">
                                             <p class="text-sm text-gray-700 break-words" x-text="rec.recommendationReason"></p>
+                                        </td>
+                                        <td class="px-6 py-4 text-center">
+                                            <button @click="getAiRecommendation(rec)" class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 hover:bg-indigo-200 transition-colors">
+                                                <i class="fas fa-magic"></i>
+                                            </button>
                                         </td>
                                     </tr>
                                 </template>
@@ -328,6 +334,7 @@
                                     <th class="px-6 py-4 text-left font-bold">Projected Max Util</th>
                                     <th class="px-6 py-4 text-left font-bold">Approx. Savings</th>
                                     <th class="px-6 py-4 text-left font-bold">Reason</th>
+                                    <th class="px-6 py-4 text-center font-bold">AI</th>
                                 </tr>
                                 </thead>
                                 <tbody class="divide-y divide-gray-200">
@@ -340,12 +347,25 @@
                                         <td class="px-6 py-4" x-text="rec.projectedMaxUtil"></td>
                                         <td class="px-6 py-4 savings-badge text-center" x-text="rec.approxCostSavings"></td>
                                         <td class="px-6 py-4 text-gray-700" x-text="rec.reason"></td>
+                                        <td class="px-6 py-4 text-center">
+                                            <button @click="getAiRecommendation(rec)" class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 hover:bg-indigo-200 transition-colors">
+                                                <i class="fas fa-magic"></i>
+                                            </button>
+                                        </td>
                                     </tr>
                                 </template>
                                 </tbody>
                             </table>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <div x-show="showAiModal" @keydown.escape.window="showAiModal = false" class="fixed inset-0 z-50 overflow-y-auto bg-gray-800 bg-opacity-50 flex items-center justify-center" x-cloak>
+                <div class="bg-white rounded-lg shadow-xl p-8 max-w-2xl w-full" @click.away="showAiModal = false">
+                    <h2 class="text-xl font-bold mb-4 flex items-center"><i class="fas fa-robot mr-2 text-indigo-500"></i>AI-Powered Recommendation</h2>
+                    <div x-html="aiRecommendation" class="prose max-w-none text-gray-700 whitespace-pre-wrap"></div>
+                    <button @click="showAiModal = false" class="mt-6 px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors">Close</button>
                 </div>
             </div>
         </main>
@@ -364,33 +384,27 @@
             searchTerm: '',
             services: ['All', 'EC2', 'EBS', 'Lambda'],
 
+            showAiModal: false,
+            aiRecommendation: '',
+            isAiLoading: false,
+
             init() {
                 this.loadRecommendations(false);
                 this.loadXamOpsRecommendations();
             },
 
-            // ✅ THIS IS THE FIX 👇: Added the accountId to the fetch request URL
             loadXamOpsRecommendations() {
                 const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
                 const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
-
-                if (!selectedAccountId) {
-                    return; // Do nothing if no account is selected
-                }
+                if (!selectedAccountId) return;
 
                 fetch(`/api/xamops/rightsizing/aws/xamops-recommendations?accountId=${selectedAccountId}`)
                     .then(res => res.json())
-                    .then(data => {
-                        this.xamopsRecommendations = data;
-                    })
-                    .catch(err => {
-                        console.error('Failed to load XamOps rightsizing recommendations:', err);
-                        this.xamopsRecommendations = [];
-                    });
+                    .then(data => { this.xamopsRecommendations = data; })
+                    .catch(err => { console.error('Failed to load XamOps recommendations:', err); });
             },
 
             loadRecommendations(forceRefresh = false) {
-                // ... (existing loadRecommendations function is unchanged)
                 const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
                 const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
 
@@ -433,7 +447,34 @@
                     });
             },
 
-            // ... (existing computed properties and methods are unchanged)
+            getAiRecommendation(recommendation) {
+                this.showAiModal = true;
+                this.isAiLoading = true;
+                this.aiRecommendation = '<div class="flex justify-center items-center"><div class="loading-spinner"></div><span class="ml-2">Analyzing...</span></div>';
+
+                fetch('/api/ai-advisor/rightsizing', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(recommendation)
+                })
+                .then(res => {
+                    if (!res.ok) {
+                        throw new Error(`HTTP error! status: ${res.status}`);
+                    }
+                    return res.text();
+                })
+                .then(text => {
+                    this.aiRecommendation = text;
+                })
+                .catch(err => {
+                    this.aiRecommendation = 'Error: Could not get AI recommendations.';
+                    console.error('Failed to load AI recommendations:', err);
+                })
+                .finally(() => {
+                    this.isAiLoading = false;
+                });
+            },
+
             get filteredRecommendations() {
                 const term = this.searchTerm.toLowerCase();
                 return this.recommendations.filter(rec => {

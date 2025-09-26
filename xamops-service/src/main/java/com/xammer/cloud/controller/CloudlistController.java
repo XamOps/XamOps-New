@@ -40,14 +40,11 @@ public class CloudlistController {
 
         String accountIdToUse = accountIds.split(",")[0];
 
-        Optional<CloudAccount> accountOpt = cloudAccountRepository.findByProviderAccountId(accountIdToUse);
-
-        if (accountOpt.isEmpty()) {
-            logger.error("No account found for identifier: {}", accountIdToUse);
-            return CompletableFuture.completedFuture(ResponseEntity.status(HttpStatus.NOT_FOUND).body(Collections.emptyList()));
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountIdToUse);
+        if (accounts.isEmpty()) {
+            throw new RuntimeException("Account not found: " + accountIdToUse);
         }
-
-        CloudAccount account = accountOpt.get();
+        CloudAccount account = accounts.get(0); // Use the first account
 
         if (!"AWS".equals(account.getProvider())) {
             logger.warn("Request for cloudlist resources for a non-AWS account ({}) received by AWS controller. Returning empty.", account.getProvider());
