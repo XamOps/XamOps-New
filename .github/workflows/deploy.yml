@@ -65,7 +65,7 @@ jobs:
       - name: Deploy containers on EC2
         run: |
           aws ssm send-command \
-            --targets "Key=instanceIds,Values=i-0715da8b0b0b757e7" \
+            --targets "Key=instanceIds,Values=" \
             --document-name "AWS-RunShellScript" \
             --comment "Deploy microservices" \
             --parameters commands='[
