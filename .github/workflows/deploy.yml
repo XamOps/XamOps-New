@@ -58,7 +58,8 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: ghcr.io/sahil-remoterepo/api-gateway:latest
-
+          build-args: |
+            MODULE_NAME=api-gateway
   deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
