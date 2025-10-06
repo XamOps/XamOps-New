@@ -651,31 +651,52 @@
                     return 'bg-gray-100 text-gray-800 border-gray-200';
                 },
 
-                getServiceIcon(serviceType) {
-                    const iconMap = {
-                        'EC2 Instance': 'ec2-instances.png',
-                        'EBS Volume': 'aws-ebs.png',
-                        'RDS Instance': 'rds-instance.png',
-                        'Lambda Function': 'aws-lambda.png',
-                        'S3 Bucket': 's3-bucket.png',
-                        'Load Balancer': 'load-balancer.png',
-                        'Auto Scaling Group': 'autoscaling.png',
-                        'VPC': 'vpc.png',
-                        'Security Group': 'security-group.png',
-                        'Route 53 Zone': 'aws-route53.png',
-                        'EKS Cluster': 'aws-eks.png',
-                        'ECS Cluster': 'aws-ecs.png',
-                        'Certificate Manager': 'certificate-manager.png',
-                        'CloudTrail': 'cloudtrail.png',
-                        'CloudWatch Log Group': 'cloudwatch-log-group.png',
-                        'ECR Repository': 'ecr-repository.png',
-                        'SNS Topic': 'sns-topic.png',
-                        'SQS Queue': 'sqs-queue.png',
-                        'Lightsail Instance': 'lightsail.png',
-                        'Amplify App': 'amplify.png'
-                    };
-                    return iconMap[serviceType] || 'default-icon.png';
-                },
+               getServiceIcon(serviceType) {
+    const iconMap = {
+        'EC2 Instance': 'ec2-instances.png',
+        'EBS Volume': 'aws-ebs.png',
+        'RDS Instance': 'rds-instance.png',
+        'Lambda Function': 'aws-lambda.png',
+        'S3 Bucket': 's3-bucket.png',
+        'Load Balancer': 'load-balanceraws.png',
+        'Auto Scaling Group': 'autoscaling.png',
+        'VPC': 'vpc.png',
+        'Security Group': 'security-group.png',
+        'Route 53 Zone': 'aws-route53.png',
+        'EKS Cluster': 'aws-eks.png',
+        'ECS Cluster': 'aws-ecs.png',
+        'Certificate Manager': 'certificate-manager.png',
+        'CloudTrail': 'cloudtrail.png',
+        'CloudWatch Log Group': 'cloudwatch-log-group.png',
+        'ECR Repository': 'ecr-repository.png',
+        'SNS Topic': 'sns-topic.png',
+        'SQS Queue': 'sqs-queue.png',
+        'Lightsail Instance': 'lightsail.png',
+        'Amplify App': 'amplify.png',
+        'AWS Step Functions': 'step-functions.png',
+        'Amazon ElastiCache': 'elasticache.png',
+        'AWS Config': 'config.png',
+        'AWS Security Hub': 'security-hub.png',
+        'AWS Glue': 'glue.png',
+        'Amazon Athena': 'athena.png',
+        'Amazon Cognito': 'cognito.png',
+        'Amazon CloudWatch Events': 'cloudwatch-events.png',
+        'AWS WAF': 'waf.png',
+        'Amazon CloudFront': 'cloudfront.png',
+        'Amazon DynamoDB': 'dynamodb.png',
+        'Amazon Bedrock': 'bedrock.png',
+        'Amazon Textract': 'textract.png',
+        'Amazon SageMaker': 'sagemaker.png',
+        'Amazon Elastic File System': 'efs.png',
+        'AWS Systems Manager': 'systems-manager.png',
+        'Amazon DataZone': 'datazone.png',
+        'AWS Key Management Service': 'kms.png',
+        'AWS Cloud Map': 'cloud-map.png',
+        'EFS File System': 'efs.png',
+        'SSM Managed Instance': 'ssm.png'
+    };
+    return iconMap[serviceType] || 'default-icon.png';
+},
         };
 
         app.init();
