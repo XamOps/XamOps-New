@@ -30,6 +30,13 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+            <dependency>
+                <groupId>software.amazon.awssdk</groupId>
+                <artifactId>bom</artifactId>
+                <version>2.25.10</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
@@ -114,6 +121,7 @@
             <optional>true</optional>
         </dependency>
 
+
         <dependency><groupId>software.amazon.awssdk</groupId><artifactId>ec2</artifactId></dependency>
         <dependency><groupId>software.amazon.awssdk</groupId><artifactId>servicequotas</artifactId></dependency>
         <dependency><groupId>software.amazon.awssdk</groupId><artifactId>costexplorer</artifactId></dependency>
@@ -141,15 +149,22 @@
         <dependency><groupId>software.amazon.awssdk</groupId><artifactId>sts</artifactId></dependency>
         <dependency><groupId>software.amazon.awssdk</groupId><artifactId>cloudformation</artifactId></dependency>
         <dependency><groupId>software.amazon.awssdk</groupId><artifactId>kms</artifactId></dependency>
-        <dependency>
-            <groupId>software.amazon.awssdk</groupId>
-            <artifactId>lightsail</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>software.amazon.awssdk</groupId>
-            <artifactId>amplify</artifactId>
-        </dependency>
-        
+        <dependency><groupId>software.amazon.awssdk</groupId><artifactId>lightsail</artifactId></dependency>
+        <dependency><groupId>software.amazon.awssdk</groupId><artifactId>amplify</artifactId></dependency>
+        <dependency><groupId>software.amazon.awssdk</groupId><artifactId>athena</artifactId></dependency>
+        <dependency><groupId>software.amazon.awssdk</groupId><artifactId>bedrock</artifactId></dependency>
+        <dependency><groupId>software.amazon.awssdk</groupId><artifactId>cloudfront</artifactId></dependency>
+        <dependency><groupId>software.amazon.awssdk</groupId><artifactId>config</artifactId></dependency>
+        <dependency><groupId>software.amazon.awssdk</groupId><artifactId>glue</artifactId></dependency>
+        <dependency><groupId>software.amazon.awssdk</groupId><artifactId>sagemaker</artifactId></dependency>
+        <dependency><groupId>software.amazon.awssdk</groupId><artifactId>securityhub</artifactId></dependency>
+        <dependency><groupId>software.amazon.awssdk</groupId><artifactId>wafv2</artifactId></dependency>
+        <dependency><groupId>software.amazon.awssdk</groupId><artifactId>cognitoidentityprovider</artifactId></dependency>
+        <dependency><groupId>software.amazon.awssdk</groupId><artifactId>efs</artifactId></dependency>
+        <dependency><groupId>software.amazon.awssdk</groupId><artifactId>ssm</artifactId></dependency>
+        <dependency><groupId>software.amazon.awssdk</groupId><artifactId>sfn</artifactId></dependency>
+
+
         <dependency><groupId>com.google.cloud</groupId><artifactId>google-cloud-storage</artifactId></dependency>
         <dependency><groupId>com.google.auth</groupId><artifactId>google-auth-library-oauth2-http</artifactId></dependency>
         <dependency><groupId>com.google.cloud</groupId><artifactId>google-cloud-compute</artifactId></dependency>
