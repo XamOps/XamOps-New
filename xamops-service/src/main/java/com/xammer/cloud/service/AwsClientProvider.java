@@ -7,20 +7,27 @@ import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.acm.AcmClient;
 import software.amazon.awssdk.services.amplify.AmplifyClient;
+import software.amazon.awssdk.services.athena.AthenaClient;
 import software.amazon.awssdk.services.autoscaling.AutoScalingClient;
+import software.amazon.awssdk.services.bedrock.BedrockClient;
 import software.amazon.awssdk.services.budgets.BudgetsClient;
+import software.amazon.awssdk.services.cloudfront.CloudFrontClient;
 import software.amazon.awssdk.services.cloudtrail.CloudTrailClient;
 import software.amazon.awssdk.services.cloudwatch.CloudWatchClient;
 import software.amazon.awssdk.services.cloudwatchlogs.CloudWatchLogsClient;
+import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient;
 import software.amazon.awssdk.services.computeoptimizer.ComputeOptimizerClient;
+import software.amazon.awssdk.services.config.ConfigClient;
 import software.amazon.awssdk.services.costexplorer.CostExplorerClient;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ecr.EcrClient;
 import software.amazon.awssdk.services.ecs.EcsClient;
+import software.amazon.awssdk.services.efs.EfsClient;
 import software.amazon.awssdk.services.eks.EksClient;
 import software.amazon.awssdk.services.elasticache.ElastiCacheClient;
 import software.amazon.awssdk.services.elasticloadbalancingv2.ElasticLoadBalancingV2Client;
+import software.amazon.awssdk.services.glue.GlueClient;
 import software.amazon.awssdk.services.iam.IamClient;
 import software.amazon.awssdk.services.lambda.LambdaClient;
 import software.amazon.awssdk.services.lightsail.LightsailClient;
@@ -28,13 +35,18 @@ import software.amazon.awssdk.services.pricing.PricingClient;
 import software.amazon.awssdk.services.rds.RdsClient;
 import software.amazon.awssdk.services.route53.Route53Client;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.sagemaker.SageMakerClient;
+import software.amazon.awssdk.services.securityhub.SecurityHubClient;
 import software.amazon.awssdk.services.servicequotas.ServiceQuotasClient;
+import software.amazon.awssdk.services.sfn.SfnClient;
 import software.amazon.awssdk.services.sns.SnsClient;
 import software.amazon.awssdk.services.sqs.SqsClient;
+import software.amazon.awssdk.services.ssm.SsmClient;
 import software.amazon.awssdk.services.sts.StsClient;
 import software.amazon.awssdk.services.kms.KmsClient;
 import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider;
 import software.amazon.awssdk.services.sts.model.AssumeRoleRequest;
+import software.amazon.awssdk.services.wafv2.Wafv2Client;
 
 import java.util.UUID;
 
@@ -227,6 +239,90 @@ public class AwsClientProvider {
 
     public AmplifyClient getAmplifyClient(CloudAccount account, String region) {
         return AmplifyClient.builder()
+                .credentialsProvider(getCredentialsProvider(account))
+                .region(Region.of(region))
+                .build();
+    }
+
+    public ConfigClient getConfigClient(CloudAccount account, String region) {
+        return ConfigClient.builder()
+                .credentialsProvider(getCredentialsProvider(account))
+                .region(Region.of(region))
+                .build();
+    }
+
+    public SecurityHubClient getSecurityHubClient(CloudAccount account, String region) {
+        return SecurityHubClient.builder()
+                .credentialsProvider(getCredentialsProvider(account))
+                .region(Region.of(region))
+                .build();
+    }
+
+    public GlueClient getGlueClient(CloudAccount account, String region) {
+        return GlueClient.builder()
+                .credentialsProvider(getCredentialsProvider(account))
+                .region(Region.of(region))
+                .build();
+    }
+
+    public AthenaClient getAthenaClient(CloudAccount account, String region) {
+        return AthenaClient.builder()
+                .credentialsProvider(getCredentialsProvider(account))
+                .region(Region.of(region))
+                .build();
+    }
+
+    public CognitoIdentityProviderClient getCognitoIdentityProviderClient(CloudAccount account, String region) {
+        return CognitoIdentityProviderClient.builder()
+                .credentialsProvider(getCredentialsProvider(account))
+                .region(Region.of(region))
+                .build();
+    }
+
+    public Wafv2Client getWafv2Client(CloudAccount account, String region) {
+        return Wafv2Client.builder()
+                .credentialsProvider(getCredentialsProvider(account))
+                .region(Region.of(region))
+                .build();
+    }
+
+    public CloudFrontClient getCloudFrontClient(CloudAccount account) {
+        return CloudFrontClient.builder()
+                .credentialsProvider(getCredentialsProvider(account))
+                .region(Region.AWS_GLOBAL) // CloudFront is a global service
+                .build();
+    }
+
+    public BedrockClient getBedrockClient(CloudAccount account, String region) {
+        return BedrockClient.builder()
+                .credentialsProvider(getCredentialsProvider(account))
+                .region(Region.of(region))
+                .build();
+    }
+
+    public SageMakerClient getSageMakerClient(CloudAccount account, String region) {
+        return SageMakerClient.builder()
+                .credentialsProvider(getCredentialsProvider(account))
+                .region(Region.of(region))
+                .build();
+    }
+
+
+    public EfsClient getEfsClient(CloudAccount account, String region) {
+        return EfsClient.builder()
+                .credentialsProvider(getCredentialsProvider(account))
+                .region(Region.of(region))
+                .build();
+    }
+
+    public SsmClient getSsmClient(CloudAccount account, String region) {
+        return SsmClient.builder()
+                .credentialsProvider(getCredentialsProvider(account))
+                .region(Region.of(region))
+                .build();
+    }
+    public SfnClient getSfnClient(CloudAccount account, String region) {
+        return SfnClient.builder()
                 .credentialsProvider(getCredentialsProvider(account))
                 .region(Region.of(region))
                 .build();
