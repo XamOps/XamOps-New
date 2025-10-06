@@ -578,7 +578,26 @@
                     this.loadForecastServices();
                     this.renderCostForecastChart();
                     this.initDropdowns();
+                                    this.connectWebSocket();
+
                 },
+                            connectWebSocket() {
+                if (!this.selectedAccountId) return;
+                const socket = new SockJS('/ws');
+                this.stompClient = Stomp.over(socket);
+                this.stompClient.debug = null;
+                
+                this.stompClient.connect({}, (frame) => {
+                    const accountId = this.selectedAccountId.split(',')[0];
+                    const topic = `/topic/dashboard/${accountId}/cost-breakdown-${this.groupBy}` + (this.groupBy === 'TAG' ? `-${this.tagKey}` : '');
+
+                    this.stompClient.subscribe(topic, (message) => {
+                        this.costData = JSON.parse(message.body);
+                        this.isRefreshing = false;
+                        this.renderChart();
+                    });
+                });
+            },
 
 
                 loadForecastServices() {
@@ -656,52 +675,50 @@
                     const current = items.find(i => i.value == selected);
                     if (current) selectedSpan.textContent = current.label;
                 },
-                loadCostData(forceRefresh = false) {
-                    this.historical.dimension = null;
-                    if (!this.selectedAccountId) {
-                        this.isLoading = false;
+            loadCostData(forceRefresh = false) {
+                if (!this.selectedAccountId) {
+                    this.isLoading = false;
+                    this.costData = [];
+                    return;
+                }
+
+                if (forceRefresh) {
+                    this.isRefreshing = true;
+                } else {
+                    this.isLoading = true;
+                }
+                
+                let url = `/api/xamops/costs/breakdown?accountId=${this.selectedAccountId}&groupBy=${this.groupBy}&forceRefresh=${forceRefresh}`;
+                if (this.groupBy === 'TAG' && this.tagKey) {
+                    url += `&tag=${this.tagKey}`;
+                }
+
+                fetch(url)
+                    .then(res => {
+                        if (res.status === 202) {
+                            console.log('Cost breakdown refresh initiated. Waiting for WebSocket.');
+                            return null;
+                        }
+                        return res.json();
+                    })
+                    .then(data => {
+                        if(data) {
+                           this.costData = data;
+                           this.renderChart();
+                        }
+                    })
+                    .catch(err => {
+                        console.error('Failed to load cost data:', err);
                         this.costData = [];
-                        return;
-                    }
-                    const cacheKey = `costData-${this.selectedAccountId}-${this.groupBy}-${this.tagKey}`;
-                    const cachedData = sessionStorage.getItem(cacheKey);
-
-                    if (cachedData && !forceRefresh) {
-                        this.costData = JSON.parse(cachedData);
+                    })
+                    .finally(() => {
                         this.isLoading = false;
-                        this.renderChart();
-                        return;
-                    }
-                    
-                    if (!cachedData) {
-                        this.isLoading = true;
-                    }
-                    
-                    if (forceRefresh) {
-                        this.isRefreshing = true;
-                        sessionStorage.removeItem(cacheKey);
-                    }
-
-                    let url = `/api/xamops/costs/breakdown?accountId=${this.selectedAccountId}&groupBy=${this.groupBy}&forceRefresh=${forceRefresh}`;
-                    if (this.groupBy === 'TAG' && this.tagKey) {
-                        url += `&tag=${this.tagKey}`;
-                    }
-                    fetch(url)
-                        .then(res => res.json())
-                        .then(data => {
-                            this.costData = data;
-                            sessionStorage.setItem(cacheKey, JSON.stringify(data));
-                            this.renderChart();
-                        })
-                        .catch(err => {
-                            console.error('Failed to load cost data:', err);
-                            this.costData = [];
-                        })
-                        .finally(() => {
-                            this.isLoading = false;
+                        if (!forceRefresh) {
                             this.isRefreshing = false;
-                        });
-                },
+                        }
+                    });
+            },
+            
                 get sortedCostData() {
                     return [...this.costData].sort((a, b) => b.amount - a.amount);
                 },

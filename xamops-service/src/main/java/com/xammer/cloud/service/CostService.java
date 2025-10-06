@@ -11,19 +11,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.costexplorer.CostExplorerClient;
-import software.amazon.awssdk.services.costexplorer.model.DateInterval;
-import software.amazon.awssdk.services.costexplorer.model.GetCostAndUsageRequest;
-import software.amazon.awssdk.services.costexplorer.model.GroupDefinition;
-import software.amazon.awssdk.services.costexplorer.model.GroupDefinitionType;
-import software.amazon.awssdk.services.costexplorer.model.Granularity;
-import software.amazon.awssdk.services.costexplorer.model.Expression;
-import software.amazon.awssdk.services.costexplorer.model.Dimension;
-import software.amazon.awssdk.services.costexplorer.model.DimensionValues;
-import software.amazon.awssdk.services.costexplorer.model.ResultByTime;
+import software.amazon.awssdk.services.costexplorer.model.*;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -33,81 +26,73 @@ import java.util.stream.Collectors;
 public class CostService {
 
     private static final Logger logger = LoggerFactory.getLogger(CostService.class);
-    private final AwsClientProvider awsClientProvider;
+
     private final CloudAccountRepository cloudAccountRepository;
+    private final AwsClientProvider awsClientProvider;
+    private final RedisCacheService redisCache;
 
     @Autowired
-    private DatabaseCacheService dbCache; // Inject the new database cache service
-
-    public CostService(AwsClientProvider awsClientProvider, CloudAccountRepository cloudAccountRepository) {
-        this.awsClientProvider = awsClientProvider;
+    public CostService(CloudAccountRepository cloudAccountRepository, AwsClientProvider awsClientProvider, RedisCacheService redisCache) {
         this.cloudAccountRepository = cloudAccountRepository;
+        this.awsClientProvider = awsClientProvider;
+        this.redisCache = redisCache;
     }
 
     private CloudAccount getAccount(String accountId) {
-        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
-        if (accounts.isEmpty()) {
-            throw new RuntimeException("Account not found: " + accountId);
-        }
-        return accounts.get(0);
+        return cloudAccountRepository.findByAwsAccountId(accountId).stream().findFirst()
+                .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
     }
 
     @Async("awsTaskExecutor")
-    public CompletableFuture<List<CostDto>> getCostBreakdown(String accountId, String groupBy, String tagKey, boolean forceRefresh) {
-        String cacheKey = "costBreakdown-" + accountId + "-" + groupBy + "-" + tagKey;
+    public CompletableFuture<List<CostDto>> getCostBreakdown(String accountId, String groupBy, String tag, boolean forceRefresh) {
+        String cacheKey = "costBreakdown-" + accountId + "-" + groupBy + "-" + (tag != null ? tag : "");
         if (!forceRefresh) {
-            Optional<List<CostDto>> cachedData = dbCache.get(cacheKey, new TypeReference<>() {});
+            Optional<List<CostDto>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {});
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
         }
 
-        logger.info("Fetching cost breakdown for account {}, grouped by: {}", accountId, groupBy);
         CloudAccount account = getAccount(accountId);
-        CostExplorerClient costExplorerClient = awsClientProvider.getCostExplorerClient(account);
+        CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
 
-        try {
-            GroupDefinition groupDefinition;
-            if ("TAG".equalsIgnoreCase(groupBy) && tagKey != null && !tagKey.isBlank()) {
-                groupDefinition = GroupDefinition.builder().type(GroupDefinitionType.TAG).key(tagKey).build();
-            } else {
-                groupDefinition = GroupDefinition.builder().type(GroupDefinitionType.DIMENSION).key(groupBy).build();
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                DateInterval dateInterval = DateInterval.builder()
+                        .start(LocalDate.now().withDayOfMonth(1).toString())
+                        .end(LocalDate.now().plusDays(1).toString())
+                        .build();
+
+                GroupDefinition groupDefinition = "TAG".equalsIgnoreCase(groupBy)
+                        ? GroupDefinition.builder().type(GroupDefinitionType.TAG).key(tag).build()
+                        : GroupDefinition.builder().type(GroupDefinitionType.DIMENSION).key(groupBy).build();
+
+                GetCostAndUsageRequest request = GetCostAndUsageRequest.builder()
+                        .timePeriod(dateInterval)
+                        .granularity(Granularity.MONTHLY)
+                        .metrics("UnblendedCost")
+                        .groupBy(groupDefinition)
+                        .build();
+
+                List<CostDto> costs = ce.getCostAndUsage(request).resultsByTime().get(0).groups().stream()
+                        .map(group -> new CostDto(
+                                group.keys().get(0),
+                                Double.parseDouble(group.metrics().get("UnblendedCost").amount())
+                        ))
+                        .collect(Collectors.toList());
+
+                redisCache.put(cacheKey, costs);
+                return costs;
+            } catch (Exception e) {
+                logger.error("Error fetching cost breakdown for account {}: {}", accountId, e.getMessage());
+                return Collections.emptyList();
             }
-
-            GetCostAndUsageRequest request = GetCostAndUsageRequest.builder()
-                    .timePeriod(DateInterval.builder().start(LocalDate.now().withDayOfMonth(1).toString())
-                            .end(LocalDate.now().plusDays(1).toString()).build())
-                    .granularity(Granularity.MONTHLY)
-                    .metrics("UnblendedCost")
-                    .groupBy(groupDefinition)
-                    .build();
-
-            List<CostDto> result = costExplorerClient.getCostAndUsage(request).resultsByTime()
-                    .stream().flatMap(r -> r.groups().stream())
-                    .map(g -> new CostDto(g.keys().get(0),
-                            Double.parseDouble(g.metrics().get("UnblendedCost").amount())))
-                    // .filter(s -> s.getAmount() > 0.01)
-                    .collect(Collectors.toList());
-            
-            dbCache.put(cacheKey, result); // Save to database cache
-            return CompletableFuture.completedFuture(result);
-        } catch (Exception e) {
-            logger.error("Could not fetch cost breakdown for account {}.", accountId, e);
-            return CompletableFuture.completedFuture(new ArrayList<>());
-        }
+        });
     }
 
     @Async("awsTaskExecutor")
     public CompletableFuture<HistoricalCostDto> getHistoricalCost(
             String accountId, String serviceName, String regionName, int days, boolean forceRefresh) {
-        String cacheKey = "historicalCost-" + accountId + "-" + serviceName + "-" + regionName + "-" + days;
-        if (!forceRefresh) {
-            Optional<HistoricalCostDto> cachedData = dbCache.get(cacheKey, HistoricalCostDto.class);
-            if (cachedData.isPresent()) {
-                return CompletableFuture.completedFuture(cachedData.get());
-            }
-        }
-
         logger.info("Fetching historical cost for account {}, service: {}, region: {}, days: {}",
                 accountId, serviceName, regionName, days);
         CloudAccount account = getAccount(accountId);
@@ -119,6 +104,7 @@ public class CostService {
         try {
             LocalDate endDate = LocalDate.now();
             LocalDate startDate = endDate.minusDays(days);
+            
             Expression.Builder filterBuilder = Expression.builder();
             List<Expression> andExpressions = new ArrayList<>();
 
@@ -160,55 +146,57 @@ public class CostService {
         }
 
         HistoricalCostDto result = new HistoricalCostDto(labels, costs);
-        dbCache.put(cacheKey, result); // Save to database cache
         return CompletableFuture.completedFuture(result);
     }
 
 
     @Async("awsTaskExecutor")
     public CompletableFuture<HistoricalCostDto> getHistoricalCostForDimension(String accountId, String groupBy, String dimensionValue, String tagKey, boolean forceRefresh) {
-        String cacheKey = "historicalCostForDimension-" + accountId + "-" + groupBy + "-" + dimensionValue + "-" + tagKey;
+        String cacheKey = "historicalCost-" + accountId + "-" + groupBy + "-" + dimensionValue + "-" + (tagKey != null ? tagKey : "");
         if (!forceRefresh) {
-            Optional<HistoricalCostDto> cachedData = dbCache.get(cacheKey, HistoricalCostDto.class);
+            Optional<HistoricalCostDto> cachedData = redisCache.get(cacheKey, HistoricalCostDto.class);
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
         }
-        
-        logger.info("Fetching historical cost for account {}, dimension: {}, value: {}", accountId, groupBy, dimensionValue);
+
         CloudAccount account = getAccount(accountId);
         CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
 
-        List<String> labels = new ArrayList<>();
-        List<Double> costs = new ArrayList<>();
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                List<String> labels = new ArrayList<>();
+                List<Double> costs = new ArrayList<>();
 
-        try {
-            LocalDate today = LocalDate.now();
-            LocalDate sixMonthsAgo = today.minusMonths(6).withDayOfMonth(1);
+                for (int i = 5; i >= 0; i--) {
+                    LocalDate month = LocalDate.now().minusMonths(i);
+                    labels.add(month.format(DateTimeFormatter.ofPattern("MMM yyyy")));
 
-            DimensionValues dimension = DimensionValues.builder()
-                    .key("TAG".equalsIgnoreCase(groupBy) ? tagKey : groupBy)
-                    .values(dimensionValue)
-                    .build();
-            Expression filter = Expression.builder().dimensions(dimension).build();
+                    DateInterval dateInterval = DateInterval.builder()
+                            .start(month.withDayOfMonth(1).toString())
+                            .end(month.plusMonths(1).withDayOfMonth(1).toString())
+                            .build();
 
-            GetCostAndUsageRequest request = GetCostAndUsageRequest.builder()
-                    .timePeriod(DateInterval.builder().start(sixMonthsAgo.toString()).end(today.plusDays(1).toString()).build())
-                    .granularity(Granularity.MONTHLY)
-                    .metrics("UnblendedCost")
-                    .filter(filter)
-                    .build();
+                    Expression filter = Expression.builder().dimensions(DimensionValues.builder().key(groupBy).values(dimensionValue).build()).build();
 
-            ce.getCostAndUsage(request).resultsByTime().forEach(result -> {
-                labels.add(LocalDate.parse(result.timePeriod().start()).format(DateTimeFormatter.ofPattern("MMM yyyy")));
-                costs.add(Double.parseDouble(result.total().get("UnblendedCost").amount()));
-            });
-        } catch (Exception e) {
-            logger.error("Could not fetch historical cost for dimension value '{}'", dimensionValue, e);
-        }
-        
-        HistoricalCostDto result = new HistoricalCostDto(labels, costs);
-        dbCache.put(cacheKey, result); // Save to database cache
-        return CompletableFuture.completedFuture(result);
+                    GetCostAndUsageRequest request = GetCostAndUsageRequest.builder()
+                            .timePeriod(dateInterval)
+                            .granularity(Granularity.MONTHLY)
+                            .metrics("UnblendedCost")
+                            .filter(filter)
+                            .build();
+
+                    double cost = Double.parseDouble(ce.getCostAndUsage(request).resultsByTime().get(0).total().get("UnblendedCost").amount());
+                    costs.add(cost);
+                }
+
+                HistoricalCostDto historicalCost = new HistoricalCostDto(labels, costs);
+                redisCache.put(cacheKey, historicalCost);
+                return historicalCost;
+            } catch (Exception e) {
+                logger.error("Error fetching historical cost for account {}: {}", accountId, e.getMessage());
+                return new HistoricalCostDto(Collections.emptyList(), Collections.emptyList());
+            }
+        });
     }
 }

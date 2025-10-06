@@ -56,7 +56,7 @@ public class OptimizationService {
     private final AwsClientProvider awsClientProvider;
     private final PricingService pricingService;
     private final CloudListService cloudListService;
-    private final DatabaseCacheService dbCache;
+    private final RedisCacheService redisCache;
 
     @Autowired
     public OptimizationService(
@@ -64,12 +64,12 @@ public class OptimizationService {
             AwsClientProvider awsClientProvider,
             PricingService pricingService,
             @Lazy CloudListService cloudListService,
-            DatabaseCacheService dbCache) {
+            RedisCacheService redisCache) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.pricingService = pricingService;
         this.cloudListService = cloudListService;
-        this.dbCache = dbCache;
+        this.redisCache = redisCache;
     }
 
     private CloudAccount getAccount(String accountId) {
@@ -85,7 +85,7 @@ public class OptimizationService {
     public CompletableFuture<List<DashboardData.OptimizationRecommendation>> getAllOptimizationRecommendations(String accountId, boolean forceRefresh) {
         String cacheKey = "allRecommendations-" + accountId;
         if (!forceRefresh) {
-            Optional<List<DashboardData.OptimizationRecommendation>> cachedData = dbCache.get(cacheKey, new TypeReference<>() {});
+            Optional<List<DashboardData.OptimizationRecommendation>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {});
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
@@ -93,6 +93,10 @@ public class OptimizationService {
 
         CloudAccount account = getAccount(accountId);
         return cloudListService.getRegionStatusForAccount(account, forceRefresh).thenCompose(activeRegions -> {
+            if (activeRegions == null || activeRegions.isEmpty()) {
+                logger.warn("No active regions found for account {}. Skipping optimization recommendations.", account.getAwsAccountId());
+                return CompletableFuture.completedFuture(Collections.emptyList());
+            }
             logger.info("Fetching all optimization recommendations for account {}...", account.getAwsAccountId());
             CompletableFuture<List<DashboardData.OptimizationRecommendation>> ec2 = getEc2InstanceRecommendations(account, activeRegions, forceRefresh);
             CompletableFuture<List<DashboardData.OptimizationRecommendation>> ebs = getEbsVolumeRecommendations(account, activeRegions, forceRefresh);
@@ -100,7 +104,7 @@ public class OptimizationService {
             return CompletableFuture.allOf(ec2, ebs, lambda).thenApply(v -> {
                 List<DashboardData.OptimizationRecommendation> allRecs = Stream.of(ec2.join(), ebs.join(), lambda.join()).flatMap(List::stream).collect(Collectors.toList());
                 logger.debug("Fetched a total of {} optimization recommendations for account {}", allRecs.size(), accountId);
-                dbCache.put(cacheKey, allRecs);
+                redisCache.put(cacheKey, allRecs);
                 return allRecs;
             });
         });
@@ -110,7 +114,7 @@ public class OptimizationService {
     public CompletableFuture<List<DashboardData.OptimizationRecommendation>> getEc2InstanceRecommendations(CloudAccount account, List<DashboardData.RegionStatus> activeRegions, boolean forceRefresh) {
         String cacheKey = "ec2Recs-" + account.getAwsAccountId();
         if (!forceRefresh) {
-            Optional<List<DashboardData.OptimizationRecommendation>> cachedData = dbCache.get(cacheKey, new TypeReference<>() {});
+            Optional<List<DashboardData.OptimizationRecommendation>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {});
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
@@ -172,7 +176,7 @@ double savings = bestOption.savingsOpportunity() != null && bestOption.savingsOp
             
             return recommendations;
         }, "EC2 Recommendations").thenApply(result -> {
-            dbCache.put(cacheKey, result);
+            redisCache.put(cacheKey, result);
             return result;
         });
     }
@@ -181,7 +185,7 @@ double savings = bestOption.savingsOpportunity() != null && bestOption.savingsOp
     public CompletableFuture<List<DashboardData.OptimizationRecommendation>> getEbsVolumeRecommendations(CloudAccount account, List<DashboardData.RegionStatus> activeRegions, boolean forceRefresh) {
         String cacheKey = "ebsRecs-" + account.getAwsAccountId();
         if (!forceRefresh) {
-            Optional<List<DashboardData.OptimizationRecommendation>> cachedData = dbCache.get(cacheKey, new TypeReference<>() {});
+            Optional<List<DashboardData.OptimizationRecommendation>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {});
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
@@ -226,7 +230,7 @@ double savings = bestOption.savingsOpportunity() != null && bestOption.savingsOp
 
             return recommendations;
         }, "EBS Recommendations").thenApply(result -> {
-            dbCache.put(cacheKey, result);
+            redisCache.put(cacheKey, result);
             return result;
         });
     }
@@ -235,7 +239,7 @@ double savings = bestOption.savingsOpportunity() != null && bestOption.savingsOp
     public CompletableFuture<List<DashboardData.OptimizationRecommendation>> getLambdaFunctionRecommendations(CloudAccount account, List<DashboardData.RegionStatus> activeRegions, boolean forceRefresh) {
         String cacheKey = "lambdaRecs-" + account.getAwsAccountId();
         if (!forceRefresh) {
-            Optional<List<DashboardData.OptimizationRecommendation>> cachedData = dbCache.get(cacheKey, new TypeReference<>() {});
+            Optional<List<DashboardData.OptimizationRecommendation>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {});
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
@@ -282,7 +286,7 @@ double savings = bestOption.savingsOpportunity() != null && bestOption.savingsOp
             }
             return recommendations;
         }, "Lambda Recommendations").thenApply(result -> {
-            dbCache.put(cacheKey, result);
+            redisCache.put(cacheKey, result);
             return result;
         });
     }
@@ -291,10 +295,13 @@ double savings = bestOption.savingsOpportunity() != null && bestOption.savingsOp
     public CompletableFuture<List<DashboardData.WastedResource>> getWastedResources(CloudAccount account, List<DashboardData.RegionStatus> activeRegions, boolean forceRefresh) {
         String cacheKey = "wastedResources-" + account.getAwsAccountId();
         if (!forceRefresh) {
-            Optional<List<DashboardData.WastedResource>> cachedData = dbCache.get(cacheKey, new TypeReference<>() {});
+            Optional<List<DashboardData.WastedResource>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {});
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
+        }
+        if (activeRegions == null) {
+            return CompletableFuture.completedFuture(Collections.emptyList());
         }
 
         logger.info("Fetching wasted resources for account {}...", account.getAwsAccountId());
@@ -316,7 +323,7 @@ double savings = bestOption.savingsOpportunity() != null && bestOption.savingsOp
                             .flatMap(List::stream)
                             .collect(Collectors.toList());
                     logger.debug("... found {} total wasted resources for account {}.", allWasted.size(), account.getAwsAccountId());
-                    dbCache.put(cacheKey, allWasted);
+                    redisCache.put(cacheKey, allWasted);
                     return allWasted;
                 });
     }
@@ -671,6 +678,9 @@ double savings = bestOption.savingsOpportunity() != null && bestOption.savingsOp
     }
     
     private <T> CompletableFuture<List<T>> fetchAllRegionalResources(CloudAccount account, List<DashboardData.RegionStatus> activeRegions, Function<String, List<T>> fetchFunction, String serviceName) {
+        if (activeRegions == null) {
+            return CompletableFuture.completedFuture(Collections.emptyList());
+        }
         List<CompletableFuture<List<T>>> futures = activeRegions.stream()
             .map(regionStatus -> CompletableFuture.supplyAsync(() -> {
                 try {

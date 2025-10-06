@@ -49,7 +49,7 @@ public class DashboardDataService {
     private final SecurityService securityService;
     private final FinOpsService finOpsService;
     private final ReservationService reservationService;
-    private final DatabaseCacheService dbCache;
+    private final RedisCacheService redisCache;
     private final ObjectMapper objectMapper;
 
     @Autowired
@@ -62,7 +62,7 @@ public class DashboardDataService {
             @Lazy SecurityService securityService,
             @Lazy FinOpsService finOpsService,
             @Lazy ReservationService reservationService,
-            DatabaseCacheService dbCache,
+            RedisCacheService redisCache,
             ObjectMapper objectMapper) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
@@ -72,7 +72,7 @@ public class DashboardDataService {
         this.securityService = securityService;
         this.finOpsService = finOpsService;
         this.reservationService = reservationService;
-        this.dbCache = dbCache;
+        this.redisCache = redisCache;
         this.objectMapper = objectMapper;
     }
 
@@ -97,11 +97,11 @@ public class DashboardDataService {
         return accounts.get(0);
     }
 
-    public DashboardData getDashboardData(String accountId, boolean forceRefresh) throws ExecutionException, InterruptedException, IOException {
+    public DashboardData getDashboardData(String accountId, boolean forceRefresh, ClientUserDetails userDetails) throws ExecutionException, InterruptedException, IOException {
         String cacheKey = "dashboardData-" + accountId;
 
         if (!forceRefresh) {
-            Optional<DashboardData> cachedData = dbCache.get(cacheKey, DashboardData.class);
+            Optional<DashboardData> cachedData = redisCache.get(cacheKey, DashboardData.class);
             if (cachedData.isPresent()) {
                 return cachedData.get();
             }
@@ -119,10 +119,10 @@ public class DashboardDataService {
                     .get();
             freshData = mapGcpDataToDashboardData(gcpData, account);
         } else {
-            freshData = getAwsDashboardData(account, forceRefresh);
+            freshData = getAwsDashboardData(account, forceRefresh, userDetails);
         }
 
-        dbCache.put(cacheKey, freshData);
+        redisCache.put(cacheKey, freshData);
         return freshData;
     }
 
@@ -184,107 +184,112 @@ public class DashboardDataService {
     }
 
 
-    private DashboardData getAwsDashboardData(CloudAccount account, boolean forceRefresh) throws ExecutionException, InterruptedException {
+    private DashboardData getAwsDashboardData(CloudAccount account, boolean forceRefresh, ClientUserDetails userDetails) throws ExecutionException, InterruptedException {
         logger.info("--- LAUNCHING OPTIMIZED ASYNC DATA FETCH FROM AWS for account {} ---", account.getAwsAccountId());
 
-        CompletableFuture<List<DashboardData.ServiceGroupDto>> groupedResourcesFuture = cloudListService.getAllResourcesGrouped(account.getAwsAccountId(), forceRefresh);
         CompletableFuture<List<DashboardData.RegionStatus>> activeRegionsFuture = cloudListService.getRegionStatusForAccount(account, forceRefresh);
-        List<DashboardData.RegionStatus> activeRegions = activeRegionsFuture.get();
 
-        CompletableFuture<DashboardData.ResourceInventory> inventoryFuture = getResourceInventory(groupedResourcesFuture);
-        CompletableFuture<DashboardData.CloudWatchStatus> cwStatusFuture = getCloudWatchStatus(account, activeRegions, forceRefresh);
-        CompletableFuture<List<DashboardData.OptimizationRecommendation>> ec2RecsFuture = optimizationService.getEc2InstanceRecommendations(account, activeRegions, forceRefresh);
-        CompletableFuture<List<DashboardData.OptimizationRecommendation>> ebsRecsFuture = optimizationService.getEbsVolumeRecommendations(account, activeRegions, forceRefresh);
-        CompletableFuture<List<DashboardData.OptimizationRecommendation>> lambdaRecsFuture = optimizationService.getLambdaFunctionRecommendations(account, activeRegions, forceRefresh);
-        CompletableFuture<List<DashboardData.WastedResource>> wastedResourcesFuture = optimizationService.getWastedResources(account, activeRegions, forceRefresh);
-        CompletableFuture<List<DashboardData.SecurityFinding>> securityFindingsFuture = securityService.getComprehensiveSecurityFindings(account, activeRegions, forceRefresh);
-        CompletableFuture<List<ReservationInventoryDto>> reservationInventoryFuture = reservationService.getReservationInventory(account, activeRegions, forceRefresh);
-        CompletableFuture<DashboardData.CostHistory> costHistoryFuture = finOpsService.getCostHistory(account, forceRefresh);
-        CompletableFuture<List<DashboardData.BillingSummary>> billingFuture = finOpsService.getBillingSummary(account, forceRefresh);
-        CompletableFuture<DashboardData.IamResources> iamFuture = getIamResources(account, forceRefresh);
-        CompletableFuture<List<DashboardData.CostAnomaly>> anomaliesFuture = finOpsService.getCostAnomalies(account, forceRefresh);
-        CompletableFuture<DashboardData.ReservationAnalysis> reservationFuture = reservationService.getReservationAnalysis(account, forceRefresh);
-        CompletableFuture<List<DashboardData.ReservationPurchaseRecommendation>> reservationPurchaseFuture = reservationService.getReservationPurchaseRecommendations(account, "ONE_YEAR", "NO_UPFRONT", "THIRTY_DAYS", "STANDARD", forceRefresh);
-        CompletableFuture<List<DashboardData.ServiceQuotaInfo>> vpcQuotaInfoFuture = getServiceQuotaInfo(account, activeRegions, groupedResourcesFuture, "vpc", "L-F678F1CE");
+        return activeRegionsFuture.thenCompose(activeRegions -> {
+            if (activeRegions == null) {
+                return CompletableFuture.completedFuture(new DashboardData());
+            }
 
-        CompletableFuture<DashboardData.SavingsSummary> savingsFuture = getSavingsSummary(
-                wastedResourcesFuture, ec2RecsFuture, ebsRecsFuture, lambdaRecsFuture
-        );
+            CompletableFuture<List<DashboardData.ServiceGroupDto>> groupedResourcesFuture = cloudListService.getAllResourcesGrouped(account.getAwsAccountId(), forceRefresh);
 
-        CompletableFuture.allOf(
-                inventoryFuture, cwStatusFuture, ec2RecsFuture, ebsRecsFuture, lambdaRecsFuture,
-                wastedResourcesFuture, securityFindingsFuture, costHistoryFuture, billingFuture,
-                iamFuture, savingsFuture, anomaliesFuture, reservationFuture, reservationPurchaseFuture,
-                reservationInventoryFuture, vpcQuotaInfoFuture
-        ).join();
+            CompletableFuture<DashboardData.ResourceInventory> inventoryFuture = getResourceInventory(groupedResourcesFuture);
+            CompletableFuture<DashboardData.CloudWatchStatus> cwStatusFuture = getCloudWatchStatus(account, activeRegions, forceRefresh);
+            CompletableFuture<List<DashboardData.OptimizationRecommendation>> ec2RecsFuture = optimizationService.getEc2InstanceRecommendations(account, activeRegions, forceRefresh);
+            CompletableFuture<List<DashboardData.OptimizationRecommendation>> ebsRecsFuture = optimizationService.getEbsVolumeRecommendations(account, activeRegions, forceRefresh);
+            CompletableFuture<List<DashboardData.OptimizationRecommendation>> lambdaRecsFuture = optimizationService.getLambdaFunctionRecommendations(account, activeRegions, forceRefresh);
+            CompletableFuture<List<DashboardData.WastedResource>> wastedResourcesFuture = optimizationService.getWastedResources(account, activeRegions, forceRefresh);
+            CompletableFuture<List<DashboardData.SecurityFinding>> securityFindingsFuture = securityService.getComprehensiveSecurityFindings(account, activeRegions, forceRefresh);
+            CompletableFuture<List<ReservationInventoryDto>> reservationInventoryFuture = reservationService.getReservationInventory(account, activeRegions, forceRefresh);
+            CompletableFuture<DashboardData.CostHistory> costHistoryFuture = finOpsService.getCostHistory(account, forceRefresh);
+            CompletableFuture<List<DashboardData.BillingSummary>> billingFuture = finOpsService.getBillingSummary(account, forceRefresh);
+            CompletableFuture<DashboardData.IamResources> iamFuture = getIamResources(account, forceRefresh);
+            CompletableFuture<List<DashboardData.CostAnomaly>> anomaliesFuture = finOpsService.getCostAnomalies(account, forceRefresh);
+            CompletableFuture<DashboardData.ReservationAnalysis> reservationFuture = reservationService.getReservationAnalysis(account, forceRefresh);
+            CompletableFuture<List<DashboardData.ReservationPurchaseRecommendation>> reservationPurchaseFuture = reservationService.getReservationPurchaseRecommendations(account, "ONE_YEAR", "NO_UPFRONT", "THIRTY_DAYS", "STANDARD", forceRefresh);
+            CompletableFuture<List<DashboardData.ServiceQuotaInfo>> vpcQuotaInfoFuture = getServiceQuotaInfo(account, activeRegions, groupedResourcesFuture, "vpc", "L-F678F1CE");
 
-        logger.info("--- ALL ASYNC DATA FETCHES COMPLETE for account {}, assembling DTO ---", account.getAwsAccountId());
+            CompletableFuture<DashboardData.SavingsSummary> savingsFuture = getSavingsSummary(
+                    wastedResourcesFuture, ec2RecsFuture, ebsRecsFuture, lambdaRecsFuture
+            );
 
-        List<DashboardData.WastedResource> wastedResources = wastedResourcesFuture.get();
-        List<DashboardData.OptimizationRecommendation> ec2Recs = ec2RecsFuture.get();
-        List<DashboardData.OptimizationRecommendation> ebsRecs = ebsRecsFuture.get();
-        List<DashboardData.OptimizationRecommendation> lambdaRecs = lambdaRecsFuture.get();
-        List<DashboardData.CostAnomaly> anomalies = anomaliesFuture.get();
-        List<DashboardData.SecurityFinding> securityFindings = securityFindingsFuture.get();
-        List<DashboardData.ServiceQuotaInfo> vpcQuotas = vpcQuotaInfoFuture.get();
+            return CompletableFuture.allOf(
+                    inventoryFuture, cwStatusFuture, ec2RecsFuture, ebsRecsFuture, lambdaRecsFuture,
+                    wastedResourcesFuture, securityFindingsFuture, costHistoryFuture, billingFuture,
+                    iamFuture, savingsFuture, anomaliesFuture, reservationFuture, reservationPurchaseFuture,
+                    reservationInventoryFuture, vpcQuotaInfoFuture
+            ).thenApply(v -> {
+                logger.info("--- ALL ASYNC DATA FETCHES COMPLETE for account {}, assembling DTO ---", account.getAwsAccountId());
 
-        List<DashboardData.SecurityInsight> securityInsights = securityFindings.stream()
-                .collect(Collectors.groupingBy(DashboardData.SecurityFinding::getCategory, Collectors.groupingBy(DashboardData.SecurityFinding::getSeverity, Collectors.counting())))
-                .entrySet().stream()
-                .map(entry -> new DashboardData.SecurityInsight(
-                        String.format("%s has potential issues", entry.getKey()),
-                        entry.getKey(),
-                        entry.getValue().keySet().stream().findFirst().orElse("INFO"),
-                        entry.getValue().values().stream().mapToInt(Long::intValue).sum()
-                )).collect(Collectors.toList());
+                List<DashboardData.WastedResource> wastedResources = wastedResourcesFuture.join();
+                List<DashboardData.OptimizationRecommendation> ec2Recs = ec2RecsFuture.join();
+                List<DashboardData.OptimizationRecommendation> ebsRecs = ebsRecsFuture.join();
+                List<DashboardData.OptimizationRecommendation> lambdaRecs = lambdaRecsFuture.join();
+                List<DashboardData.CostAnomaly> anomalies = anomaliesFuture.join();
+                List<DashboardData.SecurityFinding> securityFindings = securityFindingsFuture.join();
+                List<DashboardData.ServiceQuotaInfo> vpcQuotas = vpcQuotaInfoFuture.join();
 
-        DashboardData.OptimizationSummary optimizationSummary = getOptimizationSummary(
-                wastedResources, ec2Recs, ebsRecs, lambdaRecs, anomalies
-        );
+                List<DashboardData.SecurityInsight> securityInsights = securityFindings.stream()
+                        .collect(Collectors.groupingBy(DashboardData.SecurityFinding::getCategory, Collectors.groupingBy(DashboardData.SecurityFinding::getSeverity, Collectors.counting())))
+                        .entrySet().stream()
+                        .map(entry -> new DashboardData.SecurityInsight(
+                                String.format("%s has potential issues", entry.getKey()),
+                                entry.getKey(),
+                                entry.getValue().keySet().stream().findFirst().orElse("INFO"),
+                                entry.getValue().values().stream().mapToInt(Long::intValue).sum()
+                        )).collect(Collectors.toList());
 
-        int securityScore = calculateSecurityScore(securityFindings);
+                DashboardData.OptimizationSummary optimizationSummary = getOptimizationSummary(
+                        wastedResources, ec2Recs, ebsRecs, lambdaRecs, anomalies
+                );
 
-        DashboardData data = new DashboardData();
-        DashboardData.Account mainAccount = new DashboardData.Account(
-                account.getAwsAccountId(), account.getAccountName(),
-                activeRegions, inventoryFuture.get(), cwStatusFuture.get(), securityInsights,
-                costHistoryFuture.get(), billingFuture.get(), iamFuture.get(), savingsFuture.get(),
-                ec2Recs, anomalies, ebsRecs, lambdaRecs,
-                reservationFuture.get(), reservationPurchaseFuture.get(),
-                optimizationSummary, wastedResources, vpcQuotas,
-                securityScore, 0.0, 0.0, 0.0
-        );
+                int securityScore = calculateSecurityScore(securityFindings);
 
-        data.setSelectedAccount(mainAccount);
+                DashboardData data = new DashboardData();
+                DashboardData.Account mainAccount = new DashboardData.Account(
+                        account.getAwsAccountId(), account.getAccountName(),
+                        activeRegions, inventoryFuture.join(), cwStatusFuture.join(), securityInsights,
+                        costHistoryFuture.join(), billingFuture.join(), iamFuture.join(), savingsFuture.join(),
+                        ec2Recs, anomalies, ebsRecs, lambdaRecs,
+                        reservationFuture.join(), reservationPurchaseFuture.join(),
+                        optimizationSummary, wastedResources, vpcQuotas,
+                        securityScore, 0.0, 0.0, 0.0
+                );
 
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        ClientUserDetails userDetails = (ClientUserDetails) authentication.getPrincipal();
-        boolean isAdmin = userDetails.getAuthorities().stream()
-                .anyMatch(role -> "ROLE_BILLOPS_ADMIN".equals(role.getAuthority()));
+                data.setSelectedAccount(mainAccount);
+                if (userDetails != null) {
+                    boolean isAdmin = userDetails.getAuthorities().stream()
+                            .anyMatch(role -> "ROLE_BILLOPS_ADMIN".equals(role.getAuthority()));
 
-        List<CloudAccount> userAccounts;
-        if (isAdmin) {
-            userAccounts = cloudAccountRepository.findAll();
-        } else {
-            userAccounts = cloudAccountRepository.findByClientId(userDetails.getClientId());
-        }
+                    List<CloudAccount> userAccounts;
+                    if (isAdmin) {
+                        userAccounts = cloudAccountRepository.findAll();
+                    } else {
+                        userAccounts = cloudAccountRepository.findByClientId(userDetails.getClientId());
+                    }
 
-        List<DashboardData.Account> availableAccounts = userAccounts.stream()
-                .map(acc -> new DashboardData.Account(
-                        "AWS".equals(acc.getProvider()) ? acc.getAwsAccountId() : acc.getGcpProjectId(),
-                        acc.getAccountName(),
-                        Collections.emptyList(),
-                        null, null, Collections.emptyList(), null, Collections.emptyList(), null, null,
-                        Collections.emptyList(), Collections.emptyList(), Collections.emptyList(), Collections.emptyList(),
-                        null, Collections.emptyList(), null, Collections.emptyList(), Collections.emptyList(),
-                        100, 0.0, 0.0, 0.0
-                ))
-                .collect(Collectors.toList());
-        data.setAvailableAccounts(availableAccounts);
+                    List<DashboardData.Account> availableAccounts = userAccounts.stream()
+                            .map(acc -> new DashboardData.Account(
+                                    "AWS".equals(acc.getProvider()) ? acc.getAwsAccountId() : acc.getGcpProjectId(),
+                                    acc.getAccountName(),
+                                    Collections.emptyList(),
+                                    null, null, Collections.emptyList(), null, Collections.emptyList(), null, null,
+                                    Collections.emptyList(), Collections.emptyList(), Collections.emptyList(), Collections.emptyList(),
+                                    null, Collections.emptyList(), null, Collections.emptyList(), Collections.emptyList(),
+                                    100, 0.0, 0.0, 0.0
+                            ))
+                            .collect(Collectors.toList());
+                    data.setAvailableAccounts(availableAccounts);
+                }
 
-
-        return data;
+                return data;
+            });
+        }).get();
     }
+
 
     private CompletableFuture<DashboardData.ResourceInventory> getResourceInventory(CompletableFuture<List<DashboardData.ServiceGroupDto>> groupedResourcesFuture) {
         return groupedResourcesFuture.thenApply(groupedResources -> {
@@ -317,14 +322,14 @@ public class DashboardDataService {
     public CompletableFuture<DashboardData.CloudWatchStatus> getCloudWatchStatus(CloudAccount account, List<DashboardData.RegionStatus> activeRegions, boolean forceRefresh) {
         String cacheKey = "cloudwatchStatus-" + account.getAwsAccountId();
         if (!forceRefresh) {
-            Optional<DashboardData.CloudWatchStatus> cachedData = dbCache.get(cacheKey, DashboardData.CloudWatchStatus.class);
+            Optional<DashboardData.CloudWatchStatus> cachedData = redisCache.get(cacheKey, DashboardData.CloudWatchStatus.class);
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
         }
 
         DashboardData.CloudWatchStatus status = new DashboardData.CloudWatchStatus(0, 0, 0);
-        dbCache.put(cacheKey, status);
+        redisCache.put(cacheKey, status);
         return CompletableFuture.completedFuture(status);
     }
 
@@ -378,7 +383,7 @@ public class DashboardDataService {
     public CompletableFuture<DashboardData.IamResources> getIamResources(CloudAccount account, boolean forceRefresh) {
         String cacheKey = "iamResources-" + account.getAwsAccountId();
         if (!forceRefresh) {
-            Optional<DashboardData.IamResources> cachedData = dbCache.get(cacheKey, DashboardData.IamResources.class);
+            Optional<DashboardData.IamResources> cachedData = redisCache.get(cacheKey, DashboardData.IamResources.class);
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
@@ -393,7 +398,7 @@ public class DashboardDataService {
         try { roles = iam.listRoles().roles().size(); } catch (Exception e) { logger.error("IAM check failed for Roles on account {}", account.getAwsAccountId(), e); }
 
         DashboardData.IamResources resources = new DashboardData.IamResources(users, groups, policies, roles);
-        dbCache.put(cacheKey, resources);
+        redisCache.put(cacheKey, resources);
         return CompletableFuture.completedFuture(resources);
     }
 
@@ -446,7 +451,7 @@ public class DashboardDataService {
                 .sum();
 
         double totalSavings = rightsizingSavings + wasteSavings;
-        long criticalAlerts = anomalies.size() + ec2Recs.size() + ebsRecs.size() + lambdaRecs.size();
+        long criticalAlerts = (anomalies != null ? anomalies.size() : 0) + ec2Recs.size() + ebsRecs.size() + lambdaRecs.size();
         return new DashboardData.OptimizationSummary(totalSavings, criticalAlerts);
     }
 

@@ -5,15 +5,18 @@ import com.xammer.cloud.domain.DashboardLayout;
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.DashboardLayoutRepository;
+import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.service.AwsAccountService;
 import com.xammer.cloud.service.CloudListService;
 import com.xammer.cloud.service.DashboardDataService;
+import com.xammer.cloud.service.DashboardRefreshService;
 import com.xammer.cloud.service.OptimizationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
@@ -28,7 +31,6 @@ import java.util.concurrent.ExecutionException;
  * This controller is now a pure backend component, returning JSON data.
  */
 @RestController
-// 1. ADDED A BASE PATH for all XamOps APIs. This is crucial for the API Gateway routing.
 @RequestMapping("/api/xamops")
 public class DashboardController {
 
@@ -40,35 +42,42 @@ public class DashboardController {
     private final AwsAccountService awsAccountService;
     private final CloudAccountRepository cloudAccountRepository;
     private final DashboardLayoutRepository dashboardLayoutRepository;
+    private final DashboardRefreshService dashboardRefreshService;
 
     public DashboardController(DashboardDataService dashboardDataService,
                                OptimizationService optimizationService,
                                CloudListService cloudListService,
                                AwsAccountService awsAccountService,
                                CloudAccountRepository cloudAccountRepository,
-                               DashboardLayoutRepository dashboardLayoutRepository) {
+                               DashboardLayoutRepository dashboardLayoutRepository,
+                               DashboardRefreshService dashboardRefreshService) {
         this.dashboardDataService = dashboardDataService;
         this.optimizationService = optimizationService;
         this.cloudListService = cloudListService;
         this.awsAccountService = awsAccountService;
         this.cloudAccountRepository = cloudAccountRepository;
         this.dashboardLayoutRepository = dashboardLayoutRepository;
+        this.dashboardRefreshService = dashboardRefreshService;
     }
 
     /**
      * Fetches the main dashboard data.
-     * The path is changed to be more descriptive for an API.
      */
     @GetMapping("/dashboard-data")
-    public DashboardData getDashboardData(
+    public ResponseEntity<?> getDashboardData(
             @RequestParam(required = false) boolean force,
-            @RequestParam String accountId) throws ExecutionException, InterruptedException, java.io.IOException {
+            @RequestParam String accountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) throws Exception {
 
         if (force) {
-            awsAccountService.clearAllCaches();
+            // Correctly calls the refresh service, which then calls the data service
+            dashboardRefreshService.triggerDashboardRefresh(accountId, userDetails);
+            return ResponseEntity.accepted().body(Map.of("message", "Dashboard refresh initiated. Updates will be delivered via WebSocket."));
         }
-        // 2. SIMPLIFIED RETURN TYPE: Spring Boot automatically handles the ResponseEntity and serialization.
-        return dashboardDataService.getDashboardData(accountId, force);
+
+        // If not forcing, return the data from cache or a fresh fetch synchronously
+        DashboardData data = dashboardDataService.getDashboardData(accountId, false, userDetails);
+        return ResponseEntity.ok(data);
     }
 
     /**
@@ -76,17 +85,16 @@ public class DashboardController {
      */
      @GetMapping("/waste")
     public CompletableFuture<List<DashboardData.WastedResource>> getWastedResources(
-            @RequestParam String accountIds, // <-- FIX: Changed parameter name
+            @RequestParam String accountIds,
             @RequestParam(defaultValue = "false") boolean forceRefresh) {
         
-        String accountIdToUse = accountIds.split(",")[0]; // Use the first ID
+        String accountIdToUse = accountIds.split(",")[0];
         
-        // MODIFIED: Handle list of accounts to prevent crash
         List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountIdToUse);
         if (accounts.isEmpty()) {
             throw new RuntimeException("Account not found: " + accountIdToUse);
         }
-        CloudAccount account = accounts.get(0); // Use the first account
+        CloudAccount account = accounts.get(0);
 
         return cloudListService.getRegionStatusForAccount(account, forceRefresh)
                 .thenCompose(activeRegions -> optimizationService.getWastedResources(account, activeRegions, forceRefresh))

@@ -68,7 +68,7 @@ public class CloudListService {
 
 
     @Autowired
-    private DatabaseCacheService dbCache; // Inject the new database cache service
+    private RedisCacheService redisCache;
 
     @Autowired
     private EksService eksService;
@@ -122,7 +122,7 @@ public class CloudListService {
     public CompletableFuture<List<DashboardData.ServiceGroupDto>> getAllResourcesGrouped(String accountId, boolean forceRefresh) {
         String cacheKey = "groupedCloudlistResources-" + accountId;
         if (!forceRefresh) {
-            Optional<List<DashboardData.ServiceGroupDto>> cachedData = dbCache.get(cacheKey, new TypeReference<>() {});
+            Optional<List<DashboardData.ServiceGroupDto>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {});
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
@@ -137,7 +137,7 @@ public class CloudListService {
                     .sorted(Comparator.comparing(DashboardData.ServiceGroupDto::getServiceType))
                     .collect(Collectors.toList());
             logger.debug("Grouped Cloudlist resources into {} service groups for account {}", groupedList.size(), accountId);
-            dbCache.put(cacheKey, groupedList);
+            redisCache.put(cacheKey, groupedList);
             return groupedList;
         });
     }
@@ -146,13 +146,18 @@ public class CloudListService {
     public CompletableFuture<List<ResourceDto>> getAllResources(CloudAccount account, boolean forceRefresh) {
         String cacheKey = "cloudlistResources-" + account.getAwsAccountId();
         if (!forceRefresh) {
-            Optional<List<ResourceDto>> cachedData = dbCache.get(cacheKey, new TypeReference<>() {});
+            Optional<List<ResourceDto>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {});
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
         }
 
         return getRegionStatusForAccount(account, forceRefresh).thenCompose(activeRegions -> {
+            if (activeRegions == null || activeRegions.isEmpty()) {
+                logger.warn("No active regions found for account {}. Skipping resource fetching.", account.getAwsAccountId());
+                return CompletableFuture.completedFuture(Collections.emptyList());
+            }
+
             logger.info("Fetching all resources for Cloudlist (flat list) for account {}...", account.getAwsAccountId());
 
             List<CompletableFuture<List<ResourceDto>>> resourceFutures = List.of(
@@ -179,7 +184,7 @@ public class CloudListService {
                                 .flatMap(Collection::stream)
                                 .collect(Collectors.toList());
                         logger.debug("Fetched a total of {} resources for Cloudlist for account {}", allResources.size(), account.getAwsAccountId());
-                        dbCache.put(cacheKey, allResources);
+                        redisCache.put(cacheKey, allResources);
                         return allResources;
                     });
         });
@@ -189,7 +194,7 @@ public class CloudListService {
     public CompletableFuture<List<DashboardData.RegionStatus>> getRegionStatusForAccount(CloudAccount account, boolean forceRefresh) {
         String cacheKey = "regionStatus-" + account.getAwsAccountId();
         if (!forceRefresh) {
-            Optional<List<DashboardData.RegionStatus>> cachedData = dbCache.get(cacheKey, new TypeReference<>() {});
+            Optional<List<DashboardData.RegionStatus>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {});
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
@@ -240,7 +245,7 @@ public class CloudListService {
                     .collect(Collectors.toList());
 
             logger.debug("Successfully fetched {} active region statuses for account {}", regionStatuses.size(), account.getAwsAccountId());
-            dbCache.put(cacheKey, regionStatuses);
+            redisCache.put(cacheKey, regionStatuses);
             return CompletableFuture.completedFuture(regionStatuses);
 
         } catch (Exception e) {
@@ -281,6 +286,10 @@ public class CloudListService {
     }
 
     private <T> CompletableFuture<List<T>> fetchAllRegionalResources(CloudAccount account, List<DashboardData.RegionStatus> activeRegions, Function<String, List<T>> fetchFunction, String serviceName) {
+        if (activeRegions == null || activeRegions.isEmpty()) {
+            logger.warn("activeRegions is null or empty for service {}. Returning empty list.", serviceName);
+            return CompletableFuture.completedFuture(Collections.emptyList());
+        }
         List<CompletableFuture<List<T>>> futures = activeRegions.stream()
                 .map(regionStatus -> CompletableFuture.supplyAsync(() -> {
                     try {

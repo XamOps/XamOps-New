@@ -3,6 +3,7 @@ package com.xammer.cloud.controller;
 import com.xammer.cloud.dto.DashboardData.BudgetDetails;
 import com.xammer.cloud.dto.FinOpsReportDto;
 import com.xammer.cloud.service.CacheService;
+import com.xammer.cloud.service.FinOpsRefreshService;
 import com.xammer.cloud.service.FinOpsService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,25 +24,33 @@ public class FinOpsController {
 
     private final FinOpsService finOpsService;
     private final CacheService cacheService;
+    private final FinOpsRefreshService finOpsRefreshService;
 
-    public FinOpsController(FinOpsService finOpsService, CacheService cacheService) {
+    public FinOpsController(FinOpsService finOpsService, CacheService cacheService, FinOpsRefreshService finOpsRefreshService) {
         this.finOpsService = finOpsService;
         this.cacheService = cacheService;
+        this.finOpsRefreshService = finOpsRefreshService;
     }
 
     @GetMapping("/report")
-    public CompletableFuture<ResponseEntity<FinOpsReportDto>> getFinOpsReport(
+    public ResponseEntity<?> getFinOpsReport(
             @RequestParam String accountId,
             @RequestParam(defaultValue = "false") boolean forceRefresh) {
+
         if (forceRefresh) {
-            cacheService.evictFinOpsReportCache(accountId);
+            finOpsRefreshService.triggerFinOpsReportRefresh(accountId);
+            return ResponseEntity.accepted().body(Map.of("message", "FinOps report refresh initiated. Updates will be delivered via WebSocket."));
         }
-        return finOpsService.getFinOpsReport(accountId, forceRefresh)
-                .thenApply(ResponseEntity::ok)
-                .exceptionally(ex -> {
-                    logger.error("Error fetching FinOps report for account {}", accountId, ex);
-                    return ResponseEntity.status(500).body(null);
-                });
+
+        try {
+            // For non-forced refresh, we now block and wait for the result.
+            FinOpsReportDto report = finOpsService.getFinOpsReport(accountId, false).join();
+            return ResponseEntity.ok(report);
+        } catch (Exception e) {
+            logger.error("Error fetching FinOps report for account {}", accountId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to retrieve FinOps report.", "message", e.getMessage()));
+        }
     }
 
     @GetMapping("/cost-by-tag")

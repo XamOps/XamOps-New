@@ -2,7 +2,7 @@ package com.xammer.cloud.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.xammer.cloud.domain.CloudAccount; // ADDED
+import com.xammer.cloud.domain.CloudAccount;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -11,7 +11,7 @@ import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ec2.model.DescribeSpotPriceHistoryRequest;
 import software.amazon.awssdk.services.ec2.model.SpotPrice;
-import software.amazon.awssdk.services.ec2.model.InstanceType; // ADDED
+import software.amazon.awssdk.services.ec2.model.InstanceType;
 import software.amazon.awssdk.services.pricing.PricingClient;
 import software.amazon.awssdk.services.pricing.model.Filter;
 import software.amazon.awssdk.services.pricing.model.GetProductsRequest;
@@ -21,7 +21,7 @@ import software.amazon.awssdk.services.rds.model.DBInstance;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.Collections;
-import java.util.Comparator; // ADDED
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Optional;
@@ -32,44 +32,40 @@ public class PricingService {
     private static final Logger logger = LoggerFactory.getLogger(PricingService.class);
     private final PricingClient pricingClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private final AwsClientProvider awsClientProvider; // CHANGED
+    private final AwsClientProvider awsClientProvider;
 
     @Value("${pricing.ebs.fallback-price:0.10}")
     private double ebsFallbackPrice;
 
-    // CHANGED: Injected AwsClientProvider instead of a generic Ec2Client
     public PricingService(PricingClient pricingClient, AwsClientProvider awsClientProvider) {
         this.pricingClient = pricingClient;
         this.awsClientProvider = awsClientProvider;
     }
 
     @Cacheable(value = "spotPrice", key = "#account.awsAccountId + '-' + #region + '-' + #instanceType")
-public double getSpotInstancePrice(String instanceType, String region, CloudAccount account) {
-    logger.info("Fetching spot price for instance type: {} in region: {}", instanceType, region);
-    try {
-        // Use the provider to get a correctly configured, region-specific client
-        Ec2Client ec2Client = awsClientProvider.getEc2Client(account, region);
+    public double getSpotInstancePrice(String instanceType, String region, CloudAccount account) {
+        logger.info("Fetching spot price for instance type: {} in region: {}", instanceType, region);
+        try {
+            Ec2Client ec2Client = awsClientProvider.getEc2Client(account, region);
 
-        DescribeSpotPriceHistoryRequest request = DescribeSpotPriceHistoryRequest.builder()
-            .instanceTypes(InstanceType.fromValue(instanceType))
-            .productDescriptions("Linux/UNIX")
-            .startTime(Instant.now().minusSeconds(3600))
-            .endTime(Instant.now())
-            .build();
+            DescribeSpotPriceHistoryRequest request = DescribeSpotPriceHistoryRequest.builder()
+                .instanceTypes(InstanceType.fromValue(instanceType))
+                .productDescriptions("Linux/UNIX")
+                .startTime(Instant.now().minusSeconds(3600))
+                .endTime(Instant.now())
+                .build();
 
-        // Find the most recent spot price from the history
-        Optional<SpotPrice> spotPrice = ec2Client.describeSpotPriceHistory(request).spotPriceHistory().stream()
-            .max(Comparator.comparing(SpotPrice::timestamp));
+            Optional<SpotPrice> spotPrice = ec2Client.describeSpotPriceHistory(request).spotPriceHistory().stream()
+                .max(Comparator.comparing(SpotPrice::timestamp));
 
-        if (spotPrice.isPresent()) {
-            return Double.parseDouble(spotPrice.get().spotPrice());
+            if (spotPrice.isPresent()) {
+                return Double.parseDouble(spotPrice.get().spotPrice());
+            }
+        } catch (Exception e) {
+            logger.error("Failed to fetch spot price for instance type {} in region {}", instanceType, region, e);
         }
-    } catch (Exception e) {
-        logger.error("Failed to fetch spot price for instance type {} in region {}", instanceType, region, e);
+        return 0.0;
     }
-    return 0.0;
-}
-
 
     @Cacheable(value = "ebsPrice", key = "#region + '-' + #volumeType")
     public double getEbsGbMonthPrice(String region, String volumeType) {
@@ -157,28 +153,34 @@ public double getSpotInstancePrice(String instanceType, String region, CloudAcco
     @Cacheable(value = "elasticIpPrice", key = "#region")
     public double getElasticIpMonthlyPrice(String region) {
         logger.info("Fetching live Elastic IP price for region: {}", region);
+
+        // *** CHANGED: Using more specific filters for Elastic IPs ***
         Filter regionFilter = Filter.builder().field("location").value(getRegionDescription(region)).type("TERM_MATCH").build();
-        Filter groupFilter = Filter.builder().field("group").value("Elastic IP Address").type("TERM_MATCH").build();
+        Filter productFamilyFilter = Filter.builder().field("productFamily").value("IP Address").type("TERM_MATCH").build();
+        // This targets unattached (idle) public IPv4 addresses, which is what AWS charges for.
+        Filter usageTypeFilter = Filter.builder().field("usagetype").value(region + "-UnusedAddr").type("TERM_MATCH").build();
+
 
         GetProductsRequest request = GetProductsRequest.builder()
                 .serviceCode("AmazonEC2")
-                .filters(regionFilter, groupFilter)
+                // *** CHANGED: Using the new, more reliable filters ***
+                .filters(regionFilter, productFamilyFilter, usageTypeFilter)
                 .build();
         try {
             GetProductsResponse response = pricingClient.getProducts(request);
             if (response.priceList().isEmpty()) {
                 logger.warn("No price list found for Elastic IP in region {}", region);
-                return 5.0; // Fallback
+                return 0.005 * 720; // Fallback to a common hourly price ($0.005) * 720 hours
             }
             JsonNode priceList = objectMapper.readTree(response.priceList().get(0));
             JsonNode onDemand = priceList.path("terms").path("OnDemand");
             JsonNode priceDimensions = onDemand.elements().next().path("priceDimensions");
             JsonNode pricePerUnit = priceDimensions.elements().next().path("pricePerUnit").path("USD");
             double hourlyPrice = pricePerUnit.asDouble(0.005);
-            return hourlyPrice * 24 * 30;
+            return hourlyPrice * 24 * 30; // Calculate monthly cost
         } catch (Exception e) {
             logger.error("Failed to fetch price for Elastic IP in region {}", region, e);
-            return 5.0; // Fallback
+            return 0.005 * 720; // Fallback
         }
     }
 

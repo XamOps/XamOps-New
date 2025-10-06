@@ -64,6 +64,13 @@ export default defineConfig({
         dashboard: resolve(__dirname, 'dashboard.html'),
         'eks-details': resolve(__dirname, 'eks-details.html'),
         finops: resolve(__dirname, 'finops.html'),
+        rightsizing: resolve(__dirname, 'rightsizing.html'),
+        reservation: resolve(__dirname, 'reservation.html'),
+        waste: resolve(__dirname, 'waste.html'),
+        performance: resolve(__dirname, 'performance.html'),
+
+
+
         _sidebar:resolve(__dirname,'_sidebar.html'),
         security:resolve(__dirname,'security.html'),
         // invoices: resolve(__dirname, 'invoices.html'),

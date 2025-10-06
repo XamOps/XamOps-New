@@ -3,15 +3,16 @@ package com.xammer.billops.domain;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.NoArgsConstructor;
+import java.util.List;
 
 @Entity
 @NoArgsConstructor
 public class CloudAccount {
 
-@Id
-@GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "cloud_account_seq_gen")
-@SequenceGenerator(name = "cloud_account_seq_gen", sequenceName = "cloud_account_id_seq", allocationSize = 1)
-private Long id;
+    @Id
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "cloud_account_seq_gen")
+    @SequenceGenerator(name = "cloud_account_seq_gen", sequenceName = "cloud_account_id_seq", allocationSize = 1)
+    private Long id;
 
     @Column(nullable = false)
     private String accountName;
@@ -75,6 +76,9 @@ private Long id;
     @JoinColumn(name = "client_id", nullable = false)
     @JsonIgnore
     private Client client;
+    
+    @OneToMany(mappedBy = "cloudAccount", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<Invoice> invoices;
 
     public CloudAccount(String accountName, String externalId, String accessType, Client client) {
         this.accountName = accountName;

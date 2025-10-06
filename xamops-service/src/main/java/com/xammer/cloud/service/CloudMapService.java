@@ -34,7 +34,7 @@ public class CloudMapService {
     private final String configuredRegion;
 
     @Autowired
-    private DatabaseCacheService dbCache; // Inject the new database cache service
+    private RedisCacheService redisCache;
 
     @Autowired
     public CloudMapService(
@@ -60,7 +60,7 @@ public class CloudMapService {
     public CompletableFuture<List<ResourceDto>> getVpcListForCloudmap(String accountId, boolean forceRefresh) {
         String cacheKey = "vpcListForCloudmap-" + accountId;
         if (!forceRefresh) {
-            Optional<List<ResourceDto>> cachedData = dbCache.get(cacheKey, new TypeReference<>() {});
+            Optional<List<ResourceDto>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {});
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
@@ -68,24 +68,27 @@ public class CloudMapService {
 
         CloudAccount account = getAccount(accountId);
         logger.info("Fetching list of VPCs for Cloudmap for account {}...", accountId);
-        return cloudListService.getRegionStatusForAccount(account, forceRefresh).thenCompose(activeRegions ->
-                fetchAllRegionalResources(account, activeRegions, regionId -> {
-                    Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
-                    return ec2.describeVpcs().vpcs().stream()
-                            .map(v -> new ResourceDto(v.vpcId(), getTagName(v.tags(), v.vpcId()), "VPC", regionId, v.stateAsString(), null, Map.of("CIDR Block", v.cidrBlock(), "Is Default", v.isDefault().toString())))
-                            .collect(Collectors.toList());
-                }, "VPCs List for Cloudmap").thenApply(vpcList -> {
-                    dbCache.put(cacheKey, vpcList);
-                    return vpcList;
-                })
-        );
+        return cloudListService.getRegionStatusForAccount(account, forceRefresh).thenCompose(activeRegions -> {
+            if (activeRegions == null) {
+                return CompletableFuture.completedFuture(Collections.emptyList());
+            }
+            return fetchAllRegionalResources(account, activeRegions, regionId -> {
+                Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
+                return ec2.describeVpcs().vpcs().stream()
+                        .map(v -> new ResourceDto(v.vpcId(), getTagName(v.tags(), v.vpcId()), "VPC", regionId, v.stateAsString(), null, Map.of("CIDR Block", v.cidrBlock(), "Is Default", v.isDefault().toString())))
+                        .collect(Collectors.toList());
+            }, "VPCs List for Cloudmap").thenApply(vpcList -> {
+                redisCache.put(cacheKey, vpcList);
+                return vpcList;
+            });
+        });
     }
 
     @Async("awsTaskExecutor")
     public CompletableFuture<List<Map<String, Object>>> getGraphData(String accountId, String vpcId, String region, boolean forceRefresh) {
         String cacheKey = "graphData-" + accountId + "-" + vpcId + "-" + region;
         if (!forceRefresh) {
-            Optional<List<Map<String, Object>>> cachedData = dbCache.get(cacheKey, new TypeReference<>() {});
+            Optional<List<Map<String, Object>>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {});
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
@@ -115,7 +118,7 @@ public class CloudMapService {
                         bucketNode.put("data", bucketData);
                         elements.add(bucketNode);
                     });
-                    dbCache.put(cacheKey, elements); // Cache the result
+                    redisCache.put(cacheKey, elements); // Cache the result
                     return elements;
                 }
 
@@ -246,7 +249,7 @@ public class CloudMapService {
                                 elements.add(dbNode);
                             }
                         });
-                dbCache.put(cacheKey, elements); // Cache the result
+                redisCache.put(cacheKey, elements); // Cache the result
             } catch (Exception e) {
                 logger.error("Failed to build graph data for VPC {}", vpcId, e);
                 throw new RuntimeException("Failed to fetch graph data from AWS", e);
@@ -256,6 +259,9 @@ public class CloudMapService {
     }
 
     private <T> CompletableFuture<List<T>> fetchAllRegionalResources(CloudAccount account, List<DashboardData.RegionStatus> activeRegions, Function<String, List<T>> fetchFunction, String serviceName) {
+        if (activeRegions == null) {
+            return CompletableFuture.completedFuture(Collections.emptyList());
+        }
         List<CompletableFuture<List<T>>> futures = activeRegions.stream()
                 .map(regionStatus -> CompletableFuture.supplyAsync(() -> {
                     try {

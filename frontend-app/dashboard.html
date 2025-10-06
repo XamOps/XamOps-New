@@ -634,7 +634,7 @@
             },
         initializeDashboardLayout() {
             const container = document.getElementById('widgets-container');
-            fetch('/api/dashboard/layout')
+            fetch('/api/xamops/dashboard/layout')
                 .then(res => res.json())
                 .then(layout => {
                     if (layout && layout.layoutConfig) {
@@ -731,7 +731,7 @@
         saveLayout() {
             const container = document.getElementById('widgets-container');
             const widgetOrder = [...container.children].map(w => w.id);
-            fetch('/api/dashboard/layout', {
+            fetch('/api/xamops/dashboard/layout', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(widgetOrder)
