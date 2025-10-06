@@ -16,18 +16,34 @@ import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.services.acm.AcmClient;
 import software.amazon.awssdk.services.amplify.AmplifyClient;
+import software.amazon.awssdk.services.athena.AthenaClient;
+import software.amazon.awssdk.services.athena.model.ListWorkGroupsRequest;
 import software.amazon.awssdk.services.autoscaling.AutoScalingClient;
+import software.amazon.awssdk.services.bedrock.BedrockClient;
+import software.amazon.awssdk.services.bedrock.model.ListFoundationModelsRequest;
+import software.amazon.awssdk.services.cloudfront.CloudFrontClient;
+import software.amazon.awssdk.services.cloudfront.model.ListDistributionsRequest;
 import software.amazon.awssdk.services.cloudtrail.CloudTrailClient;
 import software.amazon.awssdk.services.cloudwatchlogs.CloudWatchLogsClient;
+import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient;
+import software.amazon.awssdk.services.cognitoidentityprovider.model.ListUserPoolsRequest;
+import software.amazon.awssdk.services.config.ConfigClient;
+import software.amazon.awssdk.services.config.model.DescribeConfigRulesRequest;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ec2.model.Region;
 import software.amazon.awssdk.services.ec2.model.Tag;
 import software.amazon.awssdk.services.ecr.EcrClient;
 import software.amazon.awssdk.services.ecs.EcsClient;
+import software.amazon.awssdk.services.efs.EfsClient;
+import software.amazon.awssdk.services.efs.model.DescribeFileSystemsRequest;
 import software.amazon.awssdk.services.eks.EksClient;
 import software.amazon.awssdk.services.elasticache.ElastiCacheClient;
 import software.amazon.awssdk.services.elasticloadbalancingv2.ElasticLoadBalancingV2Client;
+import software.amazon.awssdk.services.glue.GlueClient;
+import software.amazon.awssdk.services.glue.model.GetDatabasesRequest;
+import software.amazon.awssdk.services.kms.KmsClient;
+import software.amazon.awssdk.services.kms.model.ListKeysRequest;
 import software.amazon.awssdk.services.lambda.LambdaClient;
 import software.amazon.awssdk.services.lightsail.LightsailClient;
 import software.amazon.awssdk.services.rds.RdsClient;
@@ -35,9 +51,19 @@ import software.amazon.awssdk.services.route53.Route53Client;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.S3Exception;
+import software.amazon.awssdk.services.sagemaker.SageMakerClient;
+import software.amazon.awssdk.services.sagemaker.model.ListNotebookInstancesRequest;
+import software.amazon.awssdk.services.securityhub.SecurityHubClient;
+import software.amazon.awssdk.services.securityhub.model.GetFindingsRequest;
+import software.amazon.awssdk.services.sfn.SfnClient;
+import software.amazon.awssdk.services.sfn.model.ListStateMachinesRequest;
 import software.amazon.awssdk.services.sns.SnsClient;
 import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.sqs.model.QueueAttributeName;
+import software.amazon.awssdk.services.ssm.SsmClient;
+import software.amazon.awssdk.services.ssm.model.DescribeInstanceInformationRequest;
+import software.amazon.awssdk.services.wafv2.Wafv2Client;
+import software.amazon.awssdk.services.wafv2.model.ListWebAcLsRequest;
 
 import java.io.IOException;
 import java.net.URL;
@@ -160,7 +186,8 @@ public class CloudListService {
 
             logger.info("Fetching all resources for Cloudlist (flat list) for account {}...", account.getAwsAccountId());
 
-            List<CompletableFuture<List<ResourceDto>>> resourceFutures = List.of(
+            List<CompletableFuture<List<ResourceDto>>> resourceFutures = new ArrayList<>();
+            resourceFutures.addAll(List.of(
                     fetchEc2InstancesForCloudlist(account, activeRegions), fetchEbsVolumesForCloudlist(account, activeRegions),
                     fetchRdsInstancesForCloudlist(account, activeRegions), fetchLambdaFunctionsForCloudlist(account, activeRegions),
                     fetchVpcsForCloudlist(account, activeRegions), fetchSecurityGroupsForCloudlist(account, activeRegions),
@@ -174,8 +201,20 @@ public class CloudListService {
                     fetchSnsTopicsForCloudlist(account, activeRegions), fetchSqsQueuesForCloudlist(account, activeRegions),
                     fetchEksClustersForCloudlist(account, activeRegions),
                     fetchLightsailInstancesForCloudlist(account, activeRegions),
-                    fetchAmplifyAppsForCloudlist(account, activeRegions)
-            );
+                    fetchAmplifyAppsForCloudlist(account, activeRegions),
+                    fetchEfsFileSystemsForCloudlist(account, activeRegions),
+                    fetchSsmManagedInstancesForCloudlist(account, activeRegions),
+                    fetchStepFunctionsForCloudlist(account, activeRegions),
+                    fetchConfigRulesForCloudlist(account, activeRegions),
+                    fetchSecurityHubFindingsForCloudlist(account, activeRegions),
+                    fetchGlueDatabasesForCloudlist(account, activeRegions),
+                    fetchAthenaWorkgroupsForCloudlist(account, activeRegions),
+                    fetchCognitoUserPoolsForCloudlist(account, activeRegions),
+                    fetchCloudFrontDistributionsForCloudlist(account),
+                    fetchBedrockModelsForCloudlist(account, activeRegions),
+                    fetchSageMakerNotebooksForCloudlist(account, activeRegions),
+                    fetchKmsKeysForCloudlist(account, activeRegions)
+            ));
 
             return CompletableFuture.allOf(resourceFutures.toArray(new CompletableFuture[0]))
                     .thenApply(v -> {
@@ -589,5 +628,125 @@ public class CloudListService {
     public String getTagName(List<Tag> tags, String defaultName) {
         if (tags == null || tags.isEmpty()) return defaultName;
         return tags.stream().filter(t -> "Name".equalsIgnoreCase(t.key())).findFirst().map(Tag::value).orElse(defaultName);
+    }
+    private CompletableFuture<List<ResourceDto>> fetchStepFunctionsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            SfnClient client = awsClientProvider.getSfnClient(account, regionId);
+            return client.listStateMachines(ListStateMachinesRequest.builder().build()).stateMachines().stream()
+                    .map(sm -> new ResourceDto(sm.stateMachineArn(), sm.name(), "AWS Step Functions", regionId, null, sm.creationDate(), Collections.emptyMap()))
+                    .collect(Collectors.toList());
+        }, "AWS Step Functions");
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchConfigRulesForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            ConfigClient client = awsClientProvider.getConfigClient(account, regionId);
+            return client.describeConfigRules(DescribeConfigRulesRequest.builder().build()).configRules().stream()
+                    .map(rule -> new ResourceDto(rule.configRuleArn(), rule.configRuleName(), "AWS Config", regionId, rule.configRuleStateAsString(), null, Collections.emptyMap()))
+                    .collect(Collectors.toList());
+        }, "AWS Config");
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchSecurityHubFindingsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            SecurityHubClient client = awsClientProvider.getSecurityHubClient(account, regionId);
+            return client.getFindings(GetFindingsRequest.builder().build()).findings().stream()
+                    .map(finding -> new ResourceDto(finding.id(), finding.title(), "Security Hub", regionId, null, null, Collections.emptyMap()))
+                    .collect(Collectors.toList());
+        }, "Security Hub");
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchGlueDatabasesForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            GlueClient client = awsClientProvider.getGlueClient(account, regionId);
+            return client.getDatabases(GetDatabasesRequest.builder().build()).databaseList().stream()
+                    .map(db -> new ResourceDto(db.name(), db.name(), "AWS Glue", regionId, null, db.createTime(), Collections.emptyMap()))
+                    .collect(Collectors.toList());
+        }, "AWS Glue");
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchAthenaWorkgroupsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            AthenaClient client = awsClientProvider.getAthenaClient(account, regionId);
+            return client.listWorkGroups(ListWorkGroupsRequest.builder().build()).workGroups().stream()
+                    .map(wg -> new ResourceDto(wg.name(), wg.name(), "Amazon Athena", regionId, wg.stateAsString(), null, Collections.emptyMap()))
+                    .collect(Collectors.toList());
+        }, "Amazon Athena");
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchCognitoUserPoolsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            CognitoIdentityProviderClient client = awsClientProvider.getCognitoIdentityProviderClient(account, regionId);
+            return client.listUserPools(ListUserPoolsRequest.builder().maxResults(10).build()).userPools().stream()
+                    .map(pool -> new ResourceDto(pool.id(), pool.name(), "Amazon Cognito", regionId, null, pool.creationDate(), Collections.emptyMap()))
+                    .collect(Collectors.toList());
+        }, "Amazon Cognito");
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchWafWebAclsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            Wafv2Client client = awsClientProvider.getWafv2Client(account, regionId);
+            return client.listWebACLs(ListWebAcLsRequest.builder().build().builder().scope("REGIONAL").build()).webACLs().stream()
+                    .map(acl -> new ResourceDto(acl.arn(), acl.name(), "WAF", regionId, null, null, Collections.emptyMap()))
+                    .collect(Collectors.toList());
+        }, "WAF");
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchCloudFrontDistributionsForCloudlist(CloudAccount account) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                CloudFrontClient client = awsClientProvider.getCloudFrontClient(account);
+                return client.listDistributions(ListDistributionsRequest.builder().build()).distributionList().items().stream()
+                        .map(dist -> new ResourceDto(dist.id(), dist.domainName(), "CloudFront", "Global", dist.status(), dist.lastModifiedTime(), Collections.emptyMap()))
+                        .collect(Collectors.toList());
+            } catch (Exception e) {
+                logger.error("Cloudlist sub-task failed for account {}: CloudFront Distributions.", account.getAwsAccountId(), e);
+                return Collections.emptyList();
+            }
+        });
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchBedrockModelsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            BedrockClient client = awsClientProvider.getBedrockClient(account, regionId);
+            return client.listFoundationModels(ListFoundationModelsRequest.builder().build()).modelSummaries().stream()
+                    .map(model -> new ResourceDto(model.modelArn(), model.modelName(), "Bedrock", regionId, null, null, Collections.emptyMap()))
+                    .collect(Collectors.toList());
+        }, "Bedrock");
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchSageMakerNotebooksForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            SageMakerClient client = awsClientProvider.getSageMakerClient(account, regionId);
+            return client.listNotebookInstances(ListNotebookInstancesRequest.builder().build()).notebookInstances().stream()
+                    .map(instance -> new ResourceDto(instance.notebookInstanceArn(), instance.notebookInstanceName(), "SageMaker", regionId, instance.notebookInstanceStatusAsString(), instance.creationTime(), Collections.emptyMap()))
+                    .collect(Collectors.toList());
+        }, "SageMaker");
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchKmsKeysForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            KmsClient client = awsClientProvider.getKmsClient(account, regionId);
+            return client.listKeys(ListKeysRequest.builder().build()).keys().stream()
+                    .map(key -> new ResourceDto(key.keyId(), key.keyArn(), "KMS", regionId, null, null, Collections.emptyMap()))
+                    .collect(Collectors.toList());
+        }, "KMS");
+    }
+    private CompletableFuture<List<ResourceDto>> fetchEfsFileSystemsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            EfsClient client = awsClientProvider.getEfsClient(account, regionId);
+            return client.describeFileSystems(DescribeFileSystemsRequest.builder().build()).fileSystems().stream()
+                    .map(fs -> new ResourceDto(fs.fileSystemId(), fs.name(), "EFS File System", regionId, fs.lifeCycleState().toString(), fs.creationTime(), Collections.emptyMap()))
+                    .collect(Collectors.toList());
+        }, "EFS File Systems");
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchSsmManagedInstancesForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            SsmClient client = awsClientProvider.getSsmClient(account, regionId);
+            return client.describeInstanceInformation(DescribeInstanceInformationRequest.builder().build()).instanceInformationList().stream()
+                    .map(i -> new ResourceDto(i.instanceId(), i.name(), "SSM Managed Instance", regionId, i.pingStatus().toString(), i.registrationDate(), Collections.emptyMap()))
+                    .collect(Collectors.toList());
+        }, "SSM Managed Instances");
     }
 }

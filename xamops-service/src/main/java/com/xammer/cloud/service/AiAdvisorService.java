@@ -53,5 +53,4 @@
 //             logger.error("Error calling OpenAI API", e);
 //             return "Error: Could not get AI recommendations at this time. Please check the application logs for more details.";
 //         }
-//     }
-// }
+//
