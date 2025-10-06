@@ -1,6 +1,5 @@
 package com.xammer.cloud.service;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.MetricDto;
@@ -8,6 +7,7 @@ import com.xammer.cloud.repository.CloudAccountRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -37,32 +37,22 @@ public class MetricsService {
     private final CloudAccountRepository cloudAccountRepository;
     private final AwsClientProvider awsClientProvider;
     private final CloudListService cloudListService;
-    private final DatabaseCacheService dbCache;
 
     @Autowired
     public MetricsService(
             CloudAccountRepository cloudAccountRepository,
             AwsClientProvider awsClientProvider,
-            @Lazy CloudListService cloudListService,
-            DatabaseCacheService dbCache) {
+            @Lazy CloudListService cloudListService) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.cloudListService = cloudListService;
-        this.dbCache = dbCache;
     }
 
     private CloudAccount getAccount(String accountId) {
-        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
-        if (accounts.isEmpty()) {
-            throw new RuntimeException("Account not found in database: " + accountId);
-        }
-        return accounts.get(0);
+        return cloudAccountRepository.findByProviderAccountId(accountId)
+                .orElseThrow(() -> new RuntimeException("Account not found in database: " + accountId));
     }
 
-    /**
-     * ✅ NEW: This method provides the maximum CPU utilization for a given EC2 instance.
-     * It's the missing piece that your XamOpsRightsizingService needs.
-     */
     public Optional<Double> getMaxCpuUtilization(String accountId, String instanceId, String region, int lookbackDays) {
         try {
             CloudAccount account = getAccount(accountId);
@@ -104,15 +94,8 @@ public class MetricsService {
 
 
     @Async("awsTaskExecutor")
+    @Cacheable(value = "metrics-ec2", key = "{#accountId, #instanceId}", unless = "#result.get().isEmpty()")
     public CompletableFuture<Map<String, List<MetricDto>>> getEc2InstanceMetrics(String accountId, String instanceId, boolean forceRefresh) {
-        String cacheKey = "metrics-ec2-" + accountId + "-" + instanceId;
-        if (!forceRefresh) {
-            Optional<Map<String, List<MetricDto>>> cachedData = dbCache.get(cacheKey, new TypeReference<>() {});
-            if (cachedData.isPresent()) {
-                return CompletableFuture.completedFuture(cachedData.get());
-            }
-        }
-
         return CompletableFuture.supplyAsync(() -> {
             CloudAccount account = getAccount(accountId);
             String instanceRegion = findInstanceRegion(account, instanceId);
@@ -131,9 +114,7 @@ public class MetricsService {
                 MetricDataResult networkInResult = cwClient.getMetricData(networkInRequest).metricDataResults().get(0);
                 List<MetricDto> networkInDatapoints = buildMetricDtos(networkInResult);
 
-                Map<String, List<MetricDto>> result = Map.of("CPUUtilization", cpuDatapoints, "NetworkIn", networkInDatapoints);
-                dbCache.put(cacheKey, result);
-                return result;
+                return Map.of("CPUUtilization", cpuDatapoints, "NetworkIn", networkInDatapoints);
             } catch (Exception e) {
                 logger.error("Failed to fetch metrics for instance {} in account {}", instanceId, accountId, e);
                 return Collections.emptyMap();
@@ -141,18 +122,9 @@ public class MetricsService {
         });
     }
 
-    // ... (rest of the file is unchanged)
-
     @Async("awsTaskExecutor")
+    @Cacheable(value = "metrics-rds", key = "{#accountId, #instanceId}", unless = "#result.get().isEmpty()")
     public CompletableFuture<Map<String, List<MetricDto>>> getRdsInstanceMetrics(String accountId, String instanceId, boolean forceRefresh) {
-        String cacheKey = "metrics-rds-" + accountId + "-" + instanceId;
-        if (!forceRefresh) {
-            Optional<Map<String, List<MetricDto>>> cachedData = dbCache.get(cacheKey, new TypeReference<>() {});
-            if (cachedData.isPresent()) {
-                return CompletableFuture.completedFuture(cachedData.get());
-            }
-        }
-
         return CompletableFuture.supplyAsync(() -> {
             CloudAccount account = getAccount(accountId);
             String rdsRegion = findResourceRegion(account, "RDS", instanceId);
@@ -175,13 +147,11 @@ public class MetricsService {
                 MetricDataResult writeIopsResult = cwClient.getMetricData(writeIopsRequest).metricDataResults().get(0);
                 List<MetricDto> writeIopsDatapoints = buildMetricDtos(writeIopsResult);
 
-                Map<String, List<MetricDto>> result = Map.of(
+                return Map.of(
                         "DatabaseConnections", connectionsDatapoints,
                         "ReadIOPS", readIopsDatapoints,
                         "WriteIOPS", writeIopsDatapoints
                 );
-                dbCache.put(cacheKey, result);
-                return result;
             } catch (Exception e) {
                 logger.error("Failed to fetch metrics for RDS instance {} in account {}", instanceId, accountId, e);
                 return Collections.emptyMap();
@@ -190,15 +160,8 @@ public class MetricsService {
     }
 
     @Async("awsTaskExecutor")
+    @Cacheable(value = "metrics-s3", key = "{#accountId, #bucketName}", unless = "#result.get().isEmpty()")
     public CompletableFuture<Map<String, List<MetricDto>>> getS3BucketMetrics(String accountId, String bucketName, String region, boolean forceRefresh) {
-        String cacheKey = "metrics-s3-" + accountId + "-" + bucketName;
-        if (!forceRefresh) {
-            Optional<Map<String, List<MetricDto>>> cachedData = dbCache.get(cacheKey, new TypeReference<>() {});
-            if (cachedData.isPresent()) {
-                return CompletableFuture.completedFuture(cachedData.get());
-            }
-        }
-
         return CompletableFuture.supplyAsync(() -> {
             CloudAccount account = getAccount(accountId);
             CloudWatchClient cwClient = awsClientProvider.getCloudWatchClient(account, region);
@@ -212,9 +175,7 @@ public class MetricsService {
                 MetricDataResult objectsResult = cwClient.getMetricData(objectsRequest).metricDataResults().get(0);
                 List<MetricDto> objectsDatapoints = buildMetricDtos(objectsResult);
 
-                Map<String, List<MetricDto>> result = Map.of("BucketSizeBytes", sizeDatapoints, "NumberOfObjects", objectsDatapoints);
-                dbCache.put(cacheKey, result);
-                return result;
+                return Map.of("BucketSizeBytes", sizeDatapoints, "NumberOfObjects", objectsDatapoints);
             } catch (Exception e) {
                 logger.error("Failed to fetch metrics for S3 bucket {} in account {}", bucketName, accountId, e);
                 return Collections.emptyMap();
@@ -223,15 +184,8 @@ public class MetricsService {
     }
 
     @Async("awsTaskExecutor")
+    @Cacheable(value = "metrics-lambda", key = "{#accountId, #functionName}", unless = "#result.get().isEmpty()")
     public CompletableFuture<Map<String, List<MetricDto>>> getLambdaFunctionMetrics(String accountId, String functionName, String region, boolean forceRefresh) {
-        String cacheKey = "metrics-lambda-" + accountId + "-" + functionName;
-        if (!forceRefresh) {
-            Optional<Map<String, List<MetricDto>>> cachedData = dbCache.get(cacheKey, new TypeReference<>() {});
-            if (cachedData.isPresent()) {
-                return CompletableFuture.completedFuture(cachedData.get());
-            }
-        }
-
         return CompletableFuture.supplyAsync(() -> {
             CloudAccount account = getAccount(accountId);
             CloudWatchClient cwClient = awsClientProvider.getCloudWatchClient(account, region);
@@ -249,13 +203,11 @@ public class MetricsService {
                 MetricDataResult durationResult = cwClient.getMetricData(durationRequest).metricDataResults().get(0);
                 List<MetricDto> durationDatapoints = buildMetricDtos(durationResult);
 
-                Map<String, List<MetricDto>> result = Map.of(
+                return Map.of(
                         "Invocations", invocationsDatapoints,
                         "Errors", errorsDatapoints,
                         "Duration", durationDatapoints
                 );
-                dbCache.put(cacheKey, result);
-                return result;
             } catch (Exception e) {
                 logger.error("Failed to fetch metrics for Lambda function {} in account {}", functionName, accountId, e);
                 return Collections.emptyMap();

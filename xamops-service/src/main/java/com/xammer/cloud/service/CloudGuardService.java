@@ -36,7 +36,7 @@ public class CloudGuardService {
 
     private final CloudAccountRepository cloudAccountRepository;
     private final AwsClientProvider awsClientProvider;
-    private final DatabaseCacheService dbCache;
+    private final RedisCacheService redisCache;
     private final CloudListService cloudListService;
     private final FinOpsService finOpsService;
 
@@ -44,13 +44,13 @@ public class CloudGuardService {
     public CloudGuardService(
             CloudAccountRepository cloudAccountRepository,
             AwsClientProvider awsClientProvider,
-            DatabaseCacheService dbCache,
+            RedisCacheService redisCache,
             @Lazy CloudListService cloudListService,
             FinOpsService finOpsService
     ) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
-        this.dbCache = dbCache;
+        this.redisCache = redisCache;
         this.cloudListService = cloudListService;
         this.finOpsService = finOpsService;
     }
@@ -69,9 +69,9 @@ public class CloudGuardService {
         String cacheKey = "vpcQuotaAlerts-" + accountId;
 
         if (!forceRefresh) {
-            Optional<List<DashboardData.ServiceQuotaInfo>> cachedData = dbCache.get(cacheKey, new TypeReference<>() {});
+            Optional<List<DashboardData.ServiceQuotaInfo>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {});
             if (cachedData.isPresent()) {
-                logger.info("--- LOADING FROM DATABASE CACHE (TypeReference): {} ---", cacheKey);
+                logger.info("--- LOADING FROM REDIS CACHE (TypeReference): {} ---", cacheKey);
                 return CompletableFuture.completedFuture(cachedData.get());
             }
         }
@@ -81,6 +81,9 @@ public class CloudGuardService {
         CompletableFuture<List<DashboardData.RegionStatus>> activeRegionsFuture = cloudListService.getRegionStatusForAccount(account, forceRefresh);
 
         return activeRegionsFuture.thenCompose(activeRegions -> {
+            if (activeRegions == null) {
+                return CompletableFuture.completedFuture(Collections.emptyList());
+            }
             CompletableFuture<List<ResourceDto>> vpcResourcesFuture = cloudListService.fetchVpcsForCloudlist(account, activeRegions);
 
             return vpcResourcesFuture.thenApplyAsync(vpcResources -> {
@@ -131,7 +134,7 @@ public class CloudGuardService {
                             .collect(Collectors.toList());
 
                     logger.info("Successfully fetched {} VPC quota alerts for account {}.", allQuotaInfo.size(), accountId);
-                    dbCache.put(cacheKey, allQuotaInfo);
+                    redisCache.put(cacheKey, allQuotaInfo);
                     return allQuotaInfo;
                 } catch (Exception e) {
                     logger.error("Could not fetch VPC quota alerts for account {}.", accountId, e);
@@ -161,6 +164,9 @@ public class CloudGuardService {
                             q.getRegionId()
                     ))
                     .collect(Collectors.toList());
+            if (anomalies == null) {
+                anomalies = Collections.emptyList();
+            }
 
             List<AlertDto> anomalyAlerts = anomalies.stream()
                     .map(a -> new AlertDto(

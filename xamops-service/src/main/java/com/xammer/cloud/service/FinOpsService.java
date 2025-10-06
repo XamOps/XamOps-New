@@ -45,7 +45,7 @@ public class FinOpsService {
     private final CloudListService cloudListService;
     private final OptimizationService optimizationService;
     private final List<String> requiredTags;
-    private final DatabaseCacheService dbCache;
+    private final RedisCacheService redisCache;
 
     @Autowired
     public FinOpsService(
@@ -54,13 +54,13 @@ public class FinOpsService {
             @Lazy CloudListService cloudListService,
             @Lazy OptimizationService optimizationService,
             @Value("${tagging.compliance.required-tags}") List<String> requiredTags,
-            DatabaseCacheService dbCache) {
+            RedisCacheService redisCache) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.cloudListService = cloudListService;
         this.optimizationService = optimizationService;
         this.requiredTags = requiredTags;
-        this.dbCache = dbCache;
+        this.redisCache = redisCache;
     }
 
     private CloudAccount getAccount(String accountId) {
@@ -76,7 +76,7 @@ public class FinOpsService {
     public CompletableFuture<FinOpsReportDto> getFinOpsReport(String accountId, boolean forceRefresh) {
         String cacheKey = "finopsReport-" + accountId;
         if (!forceRefresh) {
-            Optional<FinOpsReportDto> cachedData = dbCache.get(cacheKey, FinOpsReportDto.class);
+            Optional<FinOpsReportDto> cachedData = redisCache.get(cacheKey, FinOpsReportDto.class);
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
@@ -84,6 +84,9 @@ public class FinOpsService {
 
         CloudAccount account = getAccount(accountId);
         return cloudListService.getRegionStatusForAccount(account, forceRefresh).thenCompose(activeRegions -> {
+            if (activeRegions == null) {
+                return CompletableFuture.completedFuture(null);
+            }
             logger.info("--- LAUNCHING ASYNC DATA FETCH FOR FINOPS REPORT for account {}---", account.getAwsAccountId());
 
             CompletableFuture<List<DashboardData.BillingSummary>> billingSummaryFuture = getBillingSummary(account, forceRefresh);
@@ -124,7 +127,7 @@ public class FinOpsService {
                         FinOpsReportDto.CostBreakdown costBreakdown = new FinOpsReportDto.CostBreakdown(costByService, costByRegionFuture.join());
 
                         FinOpsReportDto report = new FinOpsReportDto(kpis, costBreakdown, rightsizingFuture.join(), wastedResourcesFuture.join(), anomaliesFuture.join(), taggingComplianceFuture.join(), budgetsFuture.join());
-                        dbCache.put(cacheKey, report);
+                        redisCache.put(cacheKey, report);
                         return report;
                     });
         });
@@ -134,7 +137,7 @@ public class FinOpsService {
     public CompletableFuture<List<DashboardData.BudgetDetails>> getAccountBudgets(CloudAccount account, boolean forceRefresh) {
         String cacheKey = "budgets-" + account.getAwsAccountId();
         if (!forceRefresh) {
-            Optional<List<DashboardData.BudgetDetails>> cachedData = dbCache.get(cacheKey, new TypeReference<>() {});
+            Optional<List<DashboardData.BudgetDetails>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {});
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
@@ -150,7 +153,7 @@ public class FinOpsService {
                             b.calculatedSpend() != null ? b.calculatedSpend().actualSpend().amount() : BigDecimal.ZERO,
                             b.calculatedSpend() != null && b.calculatedSpend().forecastedSpend() != null ? b.calculatedSpend().forecastedSpend().amount() : BigDecimal.ZERO
                     )).collect(Collectors.toList());
-            dbCache.put(cacheKey, result);
+            redisCache.put(cacheKey, result);
             return CompletableFuture.completedFuture(result);
         } catch (Exception e) {
             logger.error("Failed to fetch AWS Budgets for account {}", account.getAwsAccountId(), e);
@@ -169,7 +172,7 @@ public class FinOpsService {
                     .budgetLimit(Spend.builder().amount(budgetDetails.getBudgetLimit()).unit(budgetDetails.getBudgetUnit()).build()).build();
             CreateBudgetRequest request = CreateBudgetRequest.builder().accountId(account.getAwsAccountId()).budget(budget).build();
             budgetsClient.createBudget(request);
-            dbCache.evict("budgets-" + accountId); 
+            redisCache.evict("budgets-" + accountId); 
         } catch (Exception e) {
             logger.error("Failed to create AWS Budget '{}' for account {}", budgetDetails.getBudgetName(), account.getAwsAccountId(), e);
             throw new RuntimeException("Failed to create budget", e);
@@ -192,8 +195,8 @@ public class FinOpsService {
             logger.error("Failed to delete budget '{}' for account {}", budgetName, accountId, e);
             throw new RuntimeException("Failed to delete budget", e);
         } finally {
-            dbCache.evict("budgets-" + accountId);
-            dbCache.evict("finopsReport-" + accountId);
+            redisCache.evict("budgets-" + accountId);
+            redisCache.evict("finopsReport-" + accountId);
         }
     }
 
@@ -201,7 +204,7 @@ public class FinOpsService {
     public CompletableFuture<DashboardData.TaggingCompliance> getTaggingCompliance(CloudAccount account, boolean forceRefresh) {
         String cacheKey = "taggingCompliance-" + account.getAwsAccountId();
         if (!forceRefresh) {
-            Optional<DashboardData.TaggingCompliance> cachedData = dbCache.get(cacheKey, DashboardData.TaggingCompliance.class);
+            Optional<DashboardData.TaggingCompliance> cachedData = redisCache.get(cacheKey, DashboardData.TaggingCompliance.class);
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
@@ -233,7 +236,7 @@ public class FinOpsService {
             int totalScanned = allResources.size();
             double percentage = (totalScanned > 0) ? ((double) taggedCount / totalScanned) * 100.0 : 100.0;
             DashboardData.TaggingCompliance result = new DashboardData.TaggingCompliance(percentage, totalScanned, untaggedList.size(), untaggedList.stream().limit(20).collect(Collectors.toList()));
-            dbCache.put(cacheKey, result);
+            redisCache.put(cacheKey, result);
             return result;
         });
     }
@@ -242,7 +245,7 @@ public class FinOpsService {
     public CompletableFuture<List<Map<String, Object>>> getCostByTag(String accountId, String tagKey, boolean forceRefresh) {
         String cacheKey = "costByTag-" + accountId + "-" + tagKey;
         if (!forceRefresh) {
-            Optional<List<Map<String, Object>>> cachedData = dbCache.get(cacheKey, new TypeReference<>() {});
+            Optional<List<Map<String, Object>>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {});
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
@@ -268,7 +271,7 @@ public class FinOpsService {
                 })
                 .filter(map -> (double) map.get("cost") > 0.01)
                 .collect(Collectors.toList());
-            dbCache.put(cacheKey, result);
+            redisCache.put(cacheKey, result);
             return CompletableFuture.completedFuture(result);
         } catch (Exception e) {
             logger.error("Could not fetch cost by tag key '{}' for account {}. This tag may not be activated in the billing console.", tagKey, e);
@@ -280,7 +283,7 @@ public class FinOpsService {
     public CompletableFuture<List<Map<String, Object>>> getCostByRegion(CloudAccount account, boolean forceRefresh) {
         String cacheKey = "costByRegion-" + account.getAwsAccountId();
         if (!forceRefresh) {
-            Optional<List<Map<String, Object>>> cachedData = dbCache.get(cacheKey, new TypeReference<>() {});
+            Optional<List<Map<String, Object>>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {});
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
@@ -302,7 +305,7 @@ public class FinOpsService {
                     })
                     .filter(map -> (double) map.get("cost") > 0.01)
                     .collect(Collectors.toList());
-            dbCache.put(cacheKey, result);
+            redisCache.put(cacheKey, result);
             return CompletableFuture.completedFuture(result);
         } catch (Exception e) {
             logger.error("Could not fetch cost by region for account {}", account.getAwsAccountId(), e);
@@ -314,7 +317,7 @@ public class FinOpsService {
     public CompletableFuture<List<DashboardData.BillingSummary>> getBillingSummary(CloudAccount account, boolean forceRefresh) {
         String cacheKey = "billingSummary-" + account.getAwsAccountId();
         if (!forceRefresh) {
-            Optional<List<DashboardData.BillingSummary>> cachedData = dbCache.get(cacheKey, new TypeReference<>() {});
+            Optional<List<DashboardData.BillingSummary>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {});
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
@@ -331,7 +334,7 @@ public class FinOpsService {
                     .stream().flatMap(r -> r.groups().stream())
                     .map(g -> new DashboardData.BillingSummary(g.keys().get(0), Double.parseDouble(g.metrics().get("UnblendedCost").amount())))
                     .filter(s -> s.getMonthToDateCost() > 0.01).collect(Collectors.toList());
-            dbCache.put(cacheKey, result);
+            redisCache.put(cacheKey, result);
             return CompletableFuture.completedFuture(result);
         } catch (Exception e) {
             logger.error("Could not fetch billing summary for account {}", account.getAwsAccountId(), e);
@@ -343,7 +346,7 @@ public class FinOpsService {
     public CompletableFuture<DashboardData.CostHistory> getCostHistory(CloudAccount account, boolean forceRefresh) {
         String cacheKey = "costHistory-" + account.getAwsAccountId();
         if (!forceRefresh) {
-            Optional<DashboardData.CostHistory> cachedData = dbCache.get(cacheKey, DashboardData.CostHistory.class);
+            Optional<DashboardData.CostHistory> cachedData = redisCache.get(cacheKey, DashboardData.CostHistory.class);
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
@@ -381,7 +384,7 @@ public class FinOpsService {
         }
         
         DashboardData.CostHistory result = new DashboardData.CostHistory(labels, costs, anomalies);
-        dbCache.put(cacheKey, result);
+        redisCache.put(cacheKey, result);
         return CompletableFuture.completedFuture(result);
     }
     
@@ -389,7 +392,7 @@ public class FinOpsService {
     public CompletableFuture<List<DashboardData.CostAnomaly>> getCostAnomalies(CloudAccount account, boolean forceRefresh) {
         String cacheKey = "costAnomalies-" + account.getAwsAccountId();
         if (!forceRefresh) {
-            Optional<List<DashboardData.CostAnomaly>> cachedData = dbCache.get(cacheKey, new TypeReference<>() {});
+            Optional<List<DashboardData.CostAnomaly>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {});
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
@@ -410,7 +413,7 @@ public class FinOpsService {
                             a.anomalyEndDate() != null ? LocalDate.parse(a.anomalyEndDate().substring(0, 10)) : LocalDate.now()
                     ))
                     .collect(Collectors.toList());
-            dbCache.put(cacheKey, result);
+            redisCache.put(cacheKey, result);
             return CompletableFuture.completedFuture(result);
         } catch (Exception e) {
             logger.error("Could not fetch Cost Anomalies for account {}. This might be a permissions issue or the service is not enabled.", account.getAwsAccountId(), e);

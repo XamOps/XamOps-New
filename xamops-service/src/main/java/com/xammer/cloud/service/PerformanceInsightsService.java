@@ -46,7 +46,7 @@ public class PerformanceInsightsService {
     private final PricingService pricingService;
     private final CloudListService cloudListService;
     private final EksService eksService;
-    private final DatabaseCacheService dbCache;
+    private final RedisCacheService redisCache;
     private final Map<String, PerformanceInsightDto> archivedInsights = new HashMap<>();
 
     @Autowired
@@ -55,13 +55,13 @@ public class PerformanceInsightsService {
                                       PricingService pricingService,
                                       @Lazy CloudListService cloudListService,
                                       @Lazy EksService eksService,
-                                      DatabaseCacheService dbCache) {
+                                      RedisCacheService redisCache) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.pricingService = pricingService;
         this.cloudListService = cloudListService;
         this.eksService = eksService;
-        this.dbCache = dbCache;
+        this.redisCache = redisCache;
     }
 
         private CloudAccount getAccount(String accountId) {
@@ -77,7 +77,7 @@ public class PerformanceInsightsService {
         String cacheKey = "performanceInsights-" + accountId + "-ALL";
 
         if (!forceRefresh) {
-            Optional<List<PerformanceInsightDto>> cachedData = dbCache.get(cacheKey, new TypeReference<>() {});
+            Optional<List<PerformanceInsightDto>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {});
             if (cachedData.isPresent()) {
                 logger.info("Performance insights found in cache for account {}. Filtering by severity '{}'.", accountId, severity);
                 // If cache hits, filter the results and return immediately.
@@ -91,6 +91,9 @@ public class PerformanceInsightsService {
 
         try {
             List<DashboardData.RegionStatus> activeRegions = cloudListService.getRegionStatusForAccount(account, forceRefresh).get();
+            if (activeRegions == null) {
+                return Collections.emptyList();
+            }
             logger.info("Found {} active regions to scan for performance insights.", activeRegions.size());
 
             List<CompletableFuture<List<PerformanceInsightDto>>> futures = new ArrayList<>();
@@ -121,7 +124,7 @@ public class PerformanceInsightsService {
                     .collect(Collectors.toList());
             
             // Cache the complete, unfiltered dataset.
-            dbCache.put(cacheKey, allInsights);
+            redisCache.put(cacheKey, allInsights);
             logger.info("Total insights generated and cached across all regions: {}", allInsights.size());
 
             // Filter the newly fetched data before returning.
@@ -181,7 +184,7 @@ public class PerformanceInsightsService {
      public CompletableFuture<WhatIfScenarioDto> getWhatIfScenario(String accountId, String resourceId, String targetInstanceType, boolean forceRefresh) {
         String cacheKey = "whatIfScenario-" + accountId + "-" + resourceId + "-" + targetInstanceType;
         if (!forceRefresh) {
-            Optional<WhatIfScenarioDto> cachedData = dbCache.get(cacheKey, WhatIfScenarioDto.class);
+            Optional<WhatIfScenarioDto> cachedData = redisCache.get(cacheKey, WhatIfScenarioDto.class);
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
@@ -214,7 +217,7 @@ public class PerformanceInsightsService {
                     peakCpu, projectedPeakCpu,
                     "Projected peak CPU utilization would be approximately " + String.format("%.1f", projectedPeakCpu) + "%."
             );
-            dbCache.put(cacheKey, result);
+            redisCache.put(cacheKey, result);
             return result;
         });
     }
@@ -222,6 +225,9 @@ public class PerformanceInsightsService {
     private String findInstanceRegion(CloudAccount account, String instanceId) {
         try {
             List<DashboardData.RegionStatus> activeRegions = cloudListService.getRegionStatusForAccount(account, false).get();
+            if (activeRegions == null) {
+                return null;
+            }
             for (DashboardData.RegionStatus region : activeRegions) {
                 Ec2Client ec2Client = awsClientProvider.getEc2Client(account, region.getRegionId());
                 DescribeInstancesResponse response = ec2Client.describeInstances(r -> r.instanceIds(instanceId));
@@ -617,7 +623,7 @@ private List<PerformanceInsightDto> getEC2InsightsForRegion(CloudAccount account
     public Map<String, Object> getInsightsSummary(String accountId, boolean forceRefresh) {
         String cacheKey = "insightsSummary-" + accountId;
         if (!forceRefresh) {
-            Optional<Map<String, Object>> cachedData = dbCache.get(cacheKey, new TypeReference<>() {});
+            Optional<Map<String, Object>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {});
             if (cachedData.isPresent()) {
                 return cachedData.get();
             }
@@ -636,7 +642,7 @@ private List<PerformanceInsightDto> getEC2InsightsForRegion(CloudAccount account
         summary.put("potentialSavings", allInsights.stream().mapToDouble(PerformanceInsightDto::getPotentialSavings).sum());
         summary.put("performanceScore", calculatePerformanceScore(allInsights));
         
-        dbCache.put(cacheKey, summary);
+        redisCache.put(cacheKey, summary);
         return summary;
     }
 
@@ -645,8 +651,8 @@ private List<PerformanceInsightDto> getEC2InsightsForRegion(CloudAccount account
         logger.info("Archived insight: {}", insightId);
         // Evicting all insights caches for simplicity, could be more granular
         cloudAccountRepository.findAll().forEach(account -> {
-            dbCache.evict("performanceInsights-" + account.getAwsAccountId() + "-ALL");
-            dbCache.evict("insightsSummary-" + account.getAwsAccountId());
+            redisCache.evict("performanceInsights-" + account.getAwsAccountId() + "-ALL");
+            redisCache.evict("insightsSummary-" + account.getAwsAccountId());
         });
     }
 

@@ -45,16 +45,16 @@ public class SecurityService {
     private final CloudAccountRepository cloudAccountRepository;
     private final AwsClientProvider awsClientProvider;
     private final String configuredRegion;
-    private final DatabaseCacheService dbCache;
+    private final RedisCacheService redisCache;
 
     @Autowired
     public SecurityService(
             CloudAccountRepository cloudAccountRepository,
             AwsClientProvider awsClientProvider,
-            DatabaseCacheService dbCache) {
+            RedisCacheService redisCache) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
-        this.dbCache = dbCache;
+        this.redisCache = redisCache;
         this.configuredRegion = System.getenv().getOrDefault("AWS_REGION", "us-east-1");
     }
 
@@ -71,10 +71,13 @@ public class SecurityService {
     public CompletableFuture<List<DashboardData.SecurityFinding>> getComprehensiveSecurityFindings(CloudAccount account, List<DashboardData.RegionStatus> activeRegions, boolean forceRefresh) {
         String cacheKey = "securityFindings-" + account.getAwsAccountId();
         if (!forceRefresh) {
-            Optional<List<DashboardData.SecurityFinding>> cachedData = dbCache.get(cacheKey, new TypeReference<>() {});
+            Optional<List<DashboardData.SecurityFinding>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {});
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
+        }
+        if (activeRegions == null) {
+            return CompletableFuture.completedFuture(Collections.emptyList());
         }
 
         logger.info("Starting comprehensive security scan for account {}...", account.getAwsAccountId());
@@ -86,7 +89,7 @@ public class SecurityService {
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
             .thenApply(v -> {
                 List<DashboardData.SecurityFinding> result = futures.stream().map(CompletableFuture::join).flatMap(List::stream).collect(Collectors.toList());
-                dbCache.put(cacheKey, result);
+                redisCache.put(cacheKey, result);
                 return result;
             });
     }
@@ -579,6 +582,9 @@ public class SecurityService {
     }
     
     private <T> CompletableFuture<List<T>> fetchAllRegionalResources(CloudAccount account, List<DashboardData.RegionStatus> activeRegions, Function<String, List<T>> fetchFunction, String serviceName) {
+        if (activeRegions == null) {
+            return CompletableFuture.completedFuture(Collections.emptyList());
+        }
         List<CompletableFuture<List<T>>> futures = activeRegions.stream()
             .map(regionStatus -> CompletableFuture.supplyAsync(() -> {
                 try {

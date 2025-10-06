@@ -8,6 +8,8 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1.5.1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
     <script type="module" src="/src/main.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
@@ -574,10 +576,7 @@
         return {
             isLoading: true,
             isRefreshing: false,
-            isTagLoading: false,
-            isBudgetModalOpen: false,
-            isBudgetCreating: false,
-            tagKey: 'cost-center',
+            stompClient: null,
             reportData: {
                 kpis: {},
                 costBreakdown: { byService: [], byRegion: [] },
@@ -587,55 +586,90 @@
                 taggingCompliance: { compliancePercentage: 0, untaggedResources: [] },
                 budgets: []
             },
-            newBudget: { budgetName: '', budgetLimit: null, budgetUnit: 'USD' },
-            charts: { byService: null, byRegion: null, byTag: null },
-
+            charts: {
+                byService: null,
+                byRegion: null,
+                byTag: null
+            },
+            isBudgetModalOpen: false,
+            isBudgetCreating: false,
+            newBudget: {
+                budgetName: '',
+                budgetLimit: null,
+                budgetUnit: 'USD'
+            },
+            
             init() {
                 this.loadReport(false);
+                this.connectWebSocket();
             },
 
-loadReport(forceRefresh = false) {
-    const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-    const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null; // Use the first ID for this report
+            connectWebSocket() {
+                const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                if (selectedAccountIds.length === 0) return;
 
-    if (!selectedAccountId) {
-        this.isLoading = false;
-        // You can add a message here to prompt the user to select an account
-        return;
-    }
+                const socket = new SockJS('/ws');
+                this.stompClient = Stomp.over(socket);
+                this.stompClient.debug = null; 
+                
+                this.stompClient.connect({}, (frame) => {
+                    selectedAccountIds.forEach(accountId => {
+                        this.stompClient.subscribe(`/topic/dashboard/${accountId}/finops-report`, (message) => {
+                            const updatedReport = JSON.parse(message.body);
+                            this.reportData = { ...this.reportData, ...updatedReport };
+                            this.isRefreshing = false; // Still needed here for when the update arrives
+                            this.renderCharts();
+                        });
+                        this.stompClient.subscribe(`/topic/dashboard/${accountId}/finops-report-error`, (message) => {
+                            console.error('FinOps report refresh failed:', message.body);
+                            this.isRefreshing = false;
+                        });
+                    });
+                });
+            },
 
-                const cacheKey = `finopsReport-${selectedAccountId}`;
-                const cachedData = sessionStorage.getItem(cacheKey);
+            loadReport(forceRefresh = false) {
+                const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
 
-                if (cachedData && !forceRefresh) {
-                    this.reportData = JSON.parse(cachedData);
+                if (!selectedAccountId) {
+                    console.log('No account selected, skipping report load.');
                     this.isLoading = false;
-                    this.renderCharts();
-                    this.getCostByTag();
                     return;
                 }
-                
-                if (!cachedData) {
-                    this.isLoading = true;
-                } else {
+
+                if (forceRefresh) {
                     this.isRefreshing = true;
+                } else {
+                    this.isLoading = true;
                 }
-                
+
                 const url = `/api/xamops/finops/report?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`;
                 fetch(url)
-                    .then(res => res.json())
+                    .then(res => {
+                        if (res.status === 202) {
+                            return null; 
+                        }
+                        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                        return res.json();
+                    })
                     .then(data => {
-                        this.reportData = data;
-                        sessionStorage.setItem(cacheKey, JSON.stringify(data));
-                        this.renderCharts();
-                        this.getCostByTag();
+                        if (data) {
+                            this.reportData = data;
+                            this.renderCharts();
+                        }
                     })
                     .catch(err => console.error("Failed to load FinOps report:", err))
                     .finally(() => {
                         this.isLoading = false;
+                        // --- START OF FIX ---
+                        // Unconditionally set refreshing to false. The websocket will update the data
+                        // when it arrives, but the button state is reset immediately.
                         this.isRefreshing = false;
+                        // --- END OF FIX ---
                     });
             },
+
 
             formatCurrency(value) {
                 return (value || 0).toLocaleString('en-US', {
@@ -686,8 +720,10 @@ loadReport(forceRefresh = false) {
             },
 
             renderCharts() {
-                this.renderServiceChart();
-                this.renderRegionChart();
+                setTimeout(() => {
+                    this.renderServiceChart();
+                    this.renderRegionChart();
+                }, 0);
             },
             
             handleChartClick(event, chart, type) {
@@ -702,10 +738,11 @@ loadReport(forceRefresh = false) {
             },
 
             renderServiceChart() {
-                const ctx = document.getElementById('costByServiceChart').getContext('2d');
+                const ctx = document.getElementById('costByServiceChart');
+                if (!ctx) return;
                 if (this.charts.byService) this.charts.byService.destroy();
-                const data = this.reportData.costBreakdown.byService;
-                this.charts.byService = new Chart(ctx, {
+                const data = this.reportData.costBreakdown?.byService || [];
+                this.charts.byService = new Chart(ctx.getContext('2d'), {
                     type: 'doughnut',
                     data: {
                         labels: data.map(d => d.service),
@@ -736,10 +773,11 @@ loadReport(forceRefresh = false) {
             },
 
             renderRegionChart() {
-                const ctx = document.getElementById('costByRegionChart').getContext('2d');
+                const ctx = document.getElementById('costByRegionChart');
+                if (!ctx) return;
                 if (this.charts.byRegion) this.charts.byRegion.destroy();
-                const data = this.reportData.costBreakdown.byRegion;
-                this.charts.byRegion = new Chart(ctx, {
+                const data = this.reportData.costBreakdown?.byRegion || [];
+                this.charts.byRegion = new Chart(ctx.getContext('2d'), {
                     type: 'bar',
                     data: {
                         labels: data.map(d => d.region),
@@ -785,57 +823,6 @@ loadReport(forceRefresh = false) {
                 });
             },
 
-            getCostByTag() {
-                if (!this.tagKey) return;
-                this.isTagLoading = true;
-                const selectedAccountId = sessionStorage.getItem('selectedAccountId');
-                if (!selectedAccountId) {
-                    console.error("No account selected");
-                    this.isTagLoading = false;
-                    return;
-                }
-                fetch(`/api/finops/cost-by-tag?accountId=${selectedAccountId}&tagKey=${this.tagKey}`)
-                    .then(res => res.json())
-                    .then(data => {
-                        this.renderTagChart(data);
-                    })
-                    .catch(err => console.error("Failed to load cost by tag:", err))
-                    .finally(() => this.isTagLoading = false);
-            },
-
-            renderTagChart(data) {
-                const ctx = document.getElementById('costByTagChart').getContext('2d');
-                if (this.charts.byTag) this.charts.byTag.destroy();
-                this.charts.byTag = new Chart(ctx, {
-                    type: 'pie',
-                    data: {
-                        labels: data.map(d => d.tagValue),
-                        datasets: [{
-                            data: data.map(d => d.cost),
-                            backgroundColor: [
-                                '#10b981', '#34d399', '#6ee7b7', '#a7f3d0',
-                                '#f87171', '#fb923c', '#facc15', '#a855f7',
-                                '#ec4899', '#06b6d4', '#8b5cf6', '#84cc16'
-                            ],
-                            borderWidth: 0
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            legend: {
-                                position: 'right',
-                                labels: {
-                                    usePointStyle: true
-                                }
-                            }
-                        },
-                        onClick: (e) => this.handleChartClick(e, this.charts.byTag, this.tagKey)
-                    }
-                });
-            },
-
             createBudget() {
                 if (!this.newBudget.budgetName || !this.newBudget.budgetLimit) {
                     alert('Please fill out all fields.');
@@ -843,7 +830,9 @@ loadReport(forceRefresh = false) {
                 }
                 this.isBudgetCreating = true;
 
-                const selectedAccountId = sessionStorage.getItem('selectedAccountId');
+                const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
+
                 if (!selectedAccountId) {
                     alert('Error: No account selected.');
                     this.isBudgetCreating = false;
@@ -859,16 +848,14 @@ loadReport(forceRefresh = false) {
                     })
                     .then(res => {
                         if (!res.ok) throw new Error('Failed to create budget.');
-                        this.isBudgetModalOpen = false;
-                        
-                        const newBudgetEntry = { ...this.newBudget, actualSpend: 0, forecastedSpend: 0 };
-                        this.reportData.budgets.push(newBudgetEntry);
-                        
-                        // --- START OF FIX ---
-                        const cacheKey = `finopsReport-${selectedAccountId}`;
-                        sessionStorage.setItem(cacheKey, JSON.stringify(this.reportData));
-                        // --- END OF FIX ---
-
+                        return res.json();
+                    })
+                    .then(createdBudget => {
+                         this.isBudgetModalOpen = false;
+                        if (!this.reportData.budgets) {
+                            this.reportData.budgets = [];
+                        }
+                        this.reportData.budgets.push(createdBudget);
                         this.newBudget = {
                             budgetName: '',
                             budgetLimit: null,
@@ -883,18 +870,15 @@ loadReport(forceRefresh = false) {
                 if (!confirm(`Are you sure you want to delete the budget "${budgetName}"?`)) {
                     return;
                 }
+                const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
 
-                const selectedAccountId = sessionStorage.getItem('selectedAccountId');
                 fetch(`/api/finops/budgets?accountId=${selectedAccountId}&budgetName=${encodeURIComponent(budgetName)}`, {
                     method: 'DELETE'
                 })
                 .then(res => {
                     if (!res.ok) throw new Error('Failed to delete budget.');
-                    
                     this.reportData.budgets = this.reportData.budgets.filter(b => b.budgetName !== budgetName);
-
-                    const cacheKey = `finopsReport-${selectedAccountId}`;
-                    sessionStorage.setItem(cacheKey, JSON.stringify(this.reportData));
                 })
                 .catch(err => alert(err.message));
             }
