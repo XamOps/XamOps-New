@@ -483,43 +483,51 @@ public class SecurityService {
         return findings;
     }
     
-    private List<DashboardData.SecurityFinding> checkSoc2DataClassification(CloudAccount account) {
-        List<DashboardData.SecurityFinding> findings = new ArrayList<>();
-        
-        try {
-            KmsClient kms = awsClientProvider.getKmsClient(account, configuredRegion);
-            kms.listKeys().keys().forEach(key -> {
-                try {
-                    KeyMetadata metadata = kms.describeKey(r -> r.keyId(key.keyId())).keyMetadata();
-                    if ("ENCRYPT_DECRYPT".equals(metadata.keyUsageAsString()) &&
-                        metadata.keySpec() == KeySpec.SYMMETRIC_DEFAULT &&
-                        metadata.originAsString().equals("AWS_KMS")) {
-                        try {
-                            boolean rotationEnabled = kms.getKeyRotationStatus(r -> r.keyId(key.keyId())).keyRotationEnabled();
-                            if (!rotationEnabled) {
-                                findings.add(new DashboardData.SecurityFinding(key.keyId(), configuredRegion, "KMS", "Medium",
-                                    "KMS key does not have automatic rotation enabled, violating SOC2 key management requirements.", "SOC2", "CC6.8"));
-                            }
-                        } catch (Exception e) {
+ private List<DashboardData.SecurityFinding> checkSoc2DataClassification(CloudAccount account) {
+    List<DashboardData.SecurityFinding> findings = new ArrayList<>();
+    
+    try {
+        KmsClient kms = awsClientProvider.getKmsClient(account, configuredRegion);
+        kms.listKeys().keys().forEach(key -> {
+            try {
+                KeyMetadata metadata = kms.describeKey(r -> r.keyId(key.keyId())).keyMetadata();
+                if ("ENCRYPT_DECRYPT".equals(metadata.keyUsageAsString()) &&
+                    metadata.keySpec() == KeySpec.SYMMETRIC_DEFAULT &&
+                    metadata.originAsString().equals("AWS_KMS")) {
+                    
+                    try {
+                        boolean rotationEnabled = kms.getKeyRotationStatus(r -> r.keyId(key.keyId())).keyRotationEnabled();
+                        if (!rotationEnabled) {
+                            findings.add(new DashboardData.SecurityFinding(key.keyId(), configuredRegion, "KMS", "Medium",
+                                "KMS key does not have automatic rotation enabled, violating SOC2 key management requirements.", "SOC2", "CC6.8"));
+                        }
+                    } catch (KmsException e) {
+                        if (e.statusCode() == 403) {
+                            logger.warn("Insufficient permissions to get key rotation status for KMS key {}: {}", key.keyId(), e.awsErrorDetails().errorMessage());
+                        } else {
                             logger.warn("Could not get key rotation status for KMS key {}: {}", key.keyId(), e.getMessage());
                         }
                     }
-                } catch (Exception e) {
+                }
+            } catch (KmsException e) {
+                if (e.statusCode() == 403) {
+                    logger.warn("Insufficient permissions to describe KMS key {}: {}", key.keyId(), e.awsErrorDetails().errorMessage());
+                } else {
                     logger.warn("Could not check KMS key {}: {}", key.keyId(), e.getMessage());
                 }
-            });
-        } catch (KmsException e) {
-            if (e.statusCode() == 400) {
-                 logger.warn("SOC2 data classification check for KMS keys skipped due to insufficient permissions: {}", e.awsErrorDetails().errorMessage());
-            } else {
-                 logger.error("SOC2 data classification check failed for KMS: {}", e.getMessage());
             }
-        } catch (Exception e) {
-             logger.error("SOC2 data classification check failed for KMS: {}", e.getMessage());
+        });
+    } catch (KmsException e) {
+        if (e.statusCode() == 403) {
+            logger.warn("SOC2 data classification check for KMS keys skipped due to insufficient permissions: {}", e.awsErrorDetails().errorMessage());
+        } else {
+            logger.error("SOC2 data classification check failed for KMS: {}", e.getMessage());
         }
-        
-        return findings;
     }
+    
+    return findings;
+}
+
     
     private List<DashboardData.SecurityFinding> checkSoc2LogicalAccessSecurity(CloudAccount account) {
         List<DashboardData.SecurityFinding> findings = new ArrayList<>();
