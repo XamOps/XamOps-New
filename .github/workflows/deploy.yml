@@ -55,7 +55,7 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           context: .
-          file: ./api-gateway/Dockerfile
+          file: ./Dockerfile
           push: true
           tags: ghcr.io/sahil-remoterepo/api-gateway:latest
 
