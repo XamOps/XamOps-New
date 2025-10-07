@@ -31,6 +31,7 @@ import software.amazon.awssdk.services.config.ConfigClient;
 import software.amazon.awssdk.services.config.model.DescribeConfigRulesRequest;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.ec2.Ec2Client;
+import software.amazon.awssdk.services.ec2.model.GroupIdentifier;
 import software.amazon.awssdk.services.ec2.model.Region;
 import software.amazon.awssdk.services.ec2.model.Tag;
 import software.amazon.awssdk.services.ecr.EcrClient;
@@ -46,6 +47,8 @@ import software.amazon.awssdk.services.kms.KmsClient;
 import software.amazon.awssdk.services.kms.model.ListKeysRequest;
 import software.amazon.awssdk.services.lambda.LambdaClient;
 import software.amazon.awssdk.services.lightsail.LightsailClient;
+import software.amazon.awssdk.services.pinpoint.PinpointClient;
+import software.amazon.awssdk.services.pinpoint.model.GetAppsRequest;
 import software.amazon.awssdk.services.rds.RdsClient;
 import software.amazon.awssdk.services.route53.Route53Client;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -157,6 +160,7 @@ public class CloudListService {
         CloudAccount account = getAccount(accountId);
         return getAllResources(account, forceRefresh).thenApply(flatList -> {
             List<DashboardData.ServiceGroupDto> groupedList = flatList.stream()
+                    .filter(r -> r.getType() != null)
                     .collect(Collectors.groupingBy(ResourceDto::getType))
                     .entrySet().stream()
                     .map(e -> new DashboardData.ServiceGroupDto(e.getKey(), e.getValue()))
@@ -213,7 +217,11 @@ public class CloudListService {
                     fetchCloudFrontDistributionsForCloudlist(account),
                     fetchBedrockModelsForCloudlist(account, activeRegions),
                     fetchSageMakerNotebooksForCloudlist(account, activeRegions),
-                    fetchKmsKeysForCloudlist(account, activeRegions)
+                    fetchKmsKeysForCloudlist(account, activeRegions),
+                    //fetchPinpointAppsForCloudlist(account, activeRegions),
+                    fetchSubnetsForCloudlist(account, activeRegions),
+                    fetchInternetGatewaysForCloudlist(account, activeRegions),
+                    fetchNatGatewaysForCloudlist(account, activeRegions)
             ));
 
             return CompletableFuture.allOf(resourceFutures.toArray(new CompletableFuture[0]))
@@ -324,7 +332,7 @@ public class CloudListService {
         return new DashboardData.RegionStatus(region.regionName(), region.regionName(), status, lat, lon);
     }
 
-    private <T> CompletableFuture<List<T>> fetchAllRegionalResources(CloudAccount account, List<DashboardData.RegionStatus> activeRegions, Function<String, List<T>> fetchFunction, String serviceName) {
+    <T> CompletableFuture<List<T>> fetchAllRegionalResources(CloudAccount account, List<DashboardData.RegionStatus> activeRegions, Function<String, List<T>> fetchFunction, String serviceName) {
         if (activeRegions == null || activeRegions.isEmpty()) {
             logger.warn("activeRegions is null or empty for service {}. Returning empty list.", serviceName);
             return CompletableFuture.completedFuture(Collections.emptyList());
@@ -354,16 +362,6 @@ public class CloudListService {
                     logger.debug("Fetched a total of {} {} resources across all regions for account {}", allResources.size(), serviceName, account.getAwsAccountId());
                     return allResources;
                 });
-    }
-
-    private CompletableFuture<List<ResourceDto>> fetchEc2InstancesForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
-        return fetchAllRegionalResources(account, activeRegions, regionId -> {
-            Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
-            return ec2.describeInstances().reservations().stream()
-                    .flatMap(r -> r.instances().stream())
-                    .map(i -> new ResourceDto(i.instanceId(), getTagName(i.tags(), i.instanceId()), "EC2 Instance", i.placement().availabilityZone().replaceAll(".$", ""), i.state().nameAsString(), i.launchTime(), Map.of("Type", i.instanceTypeAsString(), "Image ID", i.imageId(), "VPC ID", i.vpcId(), "Private IP", i.privateIpAddress())))
-                    .collect(Collectors.toList());
-        }, "EC2 Instances");
     }
 
     private CompletableFuture<List<ResourceDto>> fetchEbsVolumesForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
@@ -686,7 +684,7 @@ public class CloudListService {
     private CompletableFuture<List<ResourceDto>> fetchWafWebAclsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
             Wafv2Client client = awsClientProvider.getWafv2Client(account, regionId);
-            return client.listWebACLs(ListWebAcLsRequest.builder().build().builder().scope("REGIONAL").build()).webACLs().stream()
+            return client.listWebACLs(ListWebAcLsRequest.builder().scope(software.amazon.awssdk.services.wafv2.model.Scope.REGIONAL).build()).webACLs().stream()
                     .map(acl -> new ResourceDto(acl.arn(), acl.name(), "WAF", regionId, null, null, Collections.emptyMap()))
                     .collect(Collectors.toList());
         }, "WAF");
@@ -748,5 +746,69 @@ public class CloudListService {
                     .map(i -> new ResourceDto(i.instanceId(), i.name(), "SSM Managed Instance", regionId, i.pingStatus().toString(), i.registrationDate(), Collections.emptyMap()))
                     .collect(Collectors.toList());
         }, "SSM Managed Instances");
+    }
+
+//    private CompletableFuture<List<ResourceDto>> fetchPinpointAppsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+//        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+//            PinpointClient pinpointClient = awsClientProvider.getPinpointClient(account, regionId);
+//            return pinpointClient.getApps(GetAppsRequest.builder().build()).applicationsResponse().item().stream()
+//                    .map(app -> new ResourceDto(app.id(), app.name(), "Pinpoint Application", regionId, "Active", null, Collections.emptyMap()))
+//                    .collect(Collectors.toList());
+//        }, "Pinpoint Applications");
+//    }
+    private CompletableFuture<List<ResourceDto>> fetchEc2InstancesForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
+            return ec2.describeInstances().reservations().stream()
+                    .flatMap(r -> r.instances().stream())
+                    .map(i -> {
+                        // Extracting security group IDs
+                        List<String> securityGroupIds = i.securityGroups().stream()
+                                .map(GroupIdentifier::groupId)
+                                .collect(Collectors.toList());
+
+                        Map<String, Object> details = new HashMap<>();
+                        details.put("Type", i.instanceTypeAsString());
+                        details.put("Image ID", i.imageId());
+                        details.put("VPC ID", i.vpcId());
+                        details.put("Subnet ID", i.subnetId());
+                        details.put("Private IP", i.privateIpAddress());
+                        details.put("Security Groups", securityGroupIds); // Add SG IDs to details
+
+                        return new ResourceDto(
+                        );
+                    })
+                    .collect(Collectors.toList());
+        }, "EC2 Instances");
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchSubnetsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
+            return ec2.describeSubnets().subnets().stream()
+                    .map(s -> new ResourceDto(s.subnetId(), getTagName(s.tags(), s.subnetId()), "Subnet", regionId, s.stateAsString(), null, Map.of("VPC ID", s.vpcId(), "CIDR Block", s.cidrBlock(), "Availability Zone", s.availabilityZone())))
+                    .collect(Collectors.toList());
+        }, "Subnets");
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchInternetGatewaysForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
+            return ec2.describeInternetGateways().internetGateways().stream()
+                    .map(igw -> {
+                        String vpcId = igw.attachments().isEmpty() ? "Detached" : igw.attachments().get(0).vpcId();
+                        return new ResourceDto(igw.internetGatewayId(), getTagName(igw.tags(), igw.internetGatewayId()), "Internet Gateway", regionId, "available", null, Map.of("VPC ID", vpcId));
+                    })
+                    .collect(Collectors.toList());
+        }, "Internet Gateways");
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchNatGatewaysForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
+            return ec2.describeNatGateways().natGateways().stream()
+                    .map(nat -> new ResourceDto(nat.natGatewayId(), getTagName(nat.tags(), nat.natGatewayId()), "NAT Gateway", regionId, nat.stateAsString(), nat.createTime(), Map.of("VPC ID", nat.vpcId(), "Subnet ID", nat.subnetId(), "Private IP", nat.natGatewayAddresses().get(0).privateIp())))
+                    .collect(Collectors.toList());
+        }, "NAT Gateways");
     }
 }

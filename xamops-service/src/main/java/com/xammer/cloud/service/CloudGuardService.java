@@ -18,6 +18,7 @@ import software.amazon.awssdk.services.servicequotas.model.ListServiceQuotasRequ
 import software.amazon.awssdk.services.servicequotas.model.ListServiceQuotasResponse;
 import software.amazon.awssdk.services.servicequotas.model.ServiceQuota;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -39,6 +40,7 @@ public class CloudGuardService {
     private final RedisCacheService redisCache;
     private final CloudListService cloudListService;
     private final FinOpsService finOpsService;
+    private final EmailService emailService;
 
     @Autowired
     public CloudGuardService(
@@ -46,13 +48,15 @@ public class CloudGuardService {
             AwsClientProvider awsClientProvider,
             RedisCacheService redisCache,
             @Lazy CloudListService cloudListService,
-            FinOpsService finOpsService
+            FinOpsService finOpsService,
+            EmailService emailService
     ) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.redisCache = redisCache;
         this.cloudListService = cloudListService;
         this.finOpsService = finOpsService;
+        this.emailService = emailService;
     }
 
     private CloudAccount getAccount(String accountId) {
@@ -151,6 +155,7 @@ public class CloudGuardService {
         CompletableFuture<List<DashboardData.CostAnomaly>> anomaliesFuture = finOpsService.getCostAnomalies(account, forceRefresh);
 
         return quotasFuture.thenCombine(anomaliesFuture, (quotas, anomalies) -> {
+            List<AlertDto> alerts = new ArrayList<>();
             List<AlertDto> quotaAlerts = quotas.stream()
                     .map(q -> new AlertDto(
                             q.getQuotaName() + "-" + q.getRegionId(),
@@ -181,8 +186,18 @@ public class CloudGuardService {
                             "Global"
                     ))
                     .collect(Collectors.toList());
+            alerts.addAll(quotaAlerts);
+            alerts.addAll(anomalyAlerts);
 
-            return Stream.concat(quotaAlerts.stream(), anomalyAlerts.stream()).collect(Collectors.toList());
+            // Send email for each alert
+            for (AlertDto alert : alerts) {
+                String email = account.getClient().getEmail();
+                if (email != null && !email.isEmpty()) {
+                    emailService.sendEmail(email, "New Alert: " + alert.getName(), alert.getDescription());
+                }
+            }
+
+            return alerts;
         });
     }
 }

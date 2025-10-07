@@ -31,6 +31,7 @@ import software.amazon.awssdk.services.glue.GlueClient;
 import software.amazon.awssdk.services.iam.IamClient;
 import software.amazon.awssdk.services.lambda.LambdaClient;
 import software.amazon.awssdk.services.lightsail.LightsailClient;
+import software.amazon.awssdk.services.pinpoint.PinpointClient;
 import software.amazon.awssdk.services.pricing.PricingClient;
 import software.amazon.awssdk.services.rds.RdsClient;
 import software.amazon.awssdk.services.route53.Route53Client;
@@ -323,6 +324,12 @@ public class AwsClientProvider {
     }
     public SfnClient getSfnClient(CloudAccount account, String region) {
         return SfnClient.builder()
+                .credentialsProvider(getCredentialsProvider(account))
+                .region(Region.of(region))
+                .build();
+    }
+    public PinpointClient getPinpointClient(CloudAccount account, String region) {
+        return PinpointClient.builder()
                 .credentialsProvider(getCredentialsProvider(account))
                 .region(Region.of(region))
                 .build();
