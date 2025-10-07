@@ -601,7 +601,7 @@
             
             init() {
                 this.loadReport(false);
-                this.connectWebSocket();
+                // this.connectWebSocket();
             },
 
             connectWebSocket() {
@@ -617,58 +617,54 @@
                         this.stompClient.subscribe(`/topic/dashboard/${accountId}/finops-report`, (message) => {
                             const updatedReport = JSON.parse(message.body);
                             this.reportData = { ...this.reportData, ...updatedReport };
-                            this.isRefreshing = false; // Still needed here for when the update arrives
+                            this.isRefreshing = false; // Data has arrived, stop refreshing.
                             this.renderCharts();
                         });
                         this.stompClient.subscribe(`/topic/dashboard/${accountId}/finops-report-error`, (message) => {
                             console.error('FinOps report refresh failed:', message.body);
-                            this.isRefreshing = false;
+                            this.isRefreshing = false; // Error occurred, stop refreshing.
                         });
                     });
                 });
             },
 
-            loadReport(forceRefresh = false) {
-                const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-                const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
+loadReport(forceRefresh = false) {
+    const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+    const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
 
-                if (!selectedAccountId) {
-                    console.log('No account selected, skipping report load.');
-                    this.isLoading = false;
-                    return;
-                }
+    if (!selectedAccountId) {
+        console.log('No account selected, skipping report load.');
+        this.isLoading = false;
+        return;
+    }
 
-                if (forceRefresh) {
-                    this.isRefreshing = true;
-                } else {
-                    this.isLoading = true;
-                }
+    if (forceRefresh) {
+        this.isRefreshing = true;
+    } else {
+        this.isLoading = true;
+    }
 
-                const url = `/api/xamops/finops/report?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`;
-                fetch(url)
-                    .then(res => {
-                        if (res.status === 202) {
-                            return null; 
-                        }
-                        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-                        return res.json();
-                    })
-                    .then(data => {
-                        if (data) {
-                            this.reportData = data;
-                            this.renderCharts();
-                        }
-                    })
-                    .catch(err => console.error("Failed to load FinOps report:", err))
-                    .finally(() => {
-                        this.isLoading = false;
-                        // --- START OF FIX ---
-                        // Unconditionally set refreshing to false. The websocket will update the data
-                        // when it arrives, but the button state is reset immediately.
-                        this.isRefreshing = false;
-                        // --- END OF FIX ---
-                    });
-            },
+    const url = `/api/xamops/finops/report?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`;
+    fetch(url)
+        .then(res => {
+            if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+            return res.json();
+        })
+        .then(data => {
+            if (data) {
+                this.reportData = data;
+                this.renderCharts();
+            }
+        })
+        .catch(err => {
+            console.error("Failed to load FinOps report:", err);
+        })
+        .finally(() => {
+            // This now correctly stops both the initial loading and the refreshing states.
+            this.isLoading = false;
+            this.isRefreshing = false;
+        });
+},
 
 
             formatCurrency(value) {

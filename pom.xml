@@ -25,8 +25,8 @@
     <modules>
         <module>service-registry</module>
         <module>xamops-service</module>
-            <module>billops</module>
-
+        <module>billops</module>
+        <module>api-gateway</module>
     </modules>
 
     <dependencyManagement>
@@ -68,11 +68,10 @@
                 <artifactId>google-api-services-sqladmin</artifactId>
                 <version>v1-rev20250807-2.0.0</version>
             </dependency>
-            </dependencies>
-
+        </dependencies>
     </dependencyManagement>
 
-        <build>
+    <build>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
