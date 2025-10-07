@@ -756,31 +756,38 @@ public class CloudListService {
 //                    .collect(Collectors.toList());
 //        }, "Pinpoint Applications");
 //    }
-    private CompletableFuture<List<ResourceDto>> fetchEc2InstancesForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
-        return fetchAllRegionalResources(account, activeRegions, regionId -> {
-            Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
-            return ec2.describeInstances().reservations().stream()
-                    .flatMap(r -> r.instances().stream())
-                    .map(i -> {
-                        // Extracting security group IDs
-                        List<String> securityGroupIds = i.securityGroups().stream()
-                                .map(GroupIdentifier::groupId)
-                                .collect(Collectors.toList());
+private CompletableFuture<List<ResourceDto>> fetchEc2InstancesForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+    return fetchAllRegionalResources(account, activeRegions, regionId -> {
+        Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
+        return ec2.describeInstances().reservations().stream()
+                .flatMap(r -> r.instances().stream())
+                .map(i -> {
+                    // Extracting security group IDs
+                    List<String> securityGroupIds = i.securityGroups().stream()
+                            .map(GroupIdentifier::groupId)
+                            .collect(Collectors.toList());
 
-                        Map<String, Object> details = new HashMap<>();
-                        details.put("Type", i.instanceTypeAsString());
-                        details.put("Image ID", i.imageId());
-                        details.put("VPC ID", i.vpcId());
-                        details.put("Subnet ID", i.subnetId());
-                        details.put("Private IP", i.privateIpAddress());
-                        details.put("Security Groups", securityGroupIds); // Add SG IDs to details
+                    Map<String, String> details = new HashMap<>();
+                    details.put("Type", i.instanceTypeAsString());
+                    details.put("Image ID", i.imageId());
+                    details.put("VPC ID", i.vpcId());
+                    details.put("Subnet ID", i.subnetId());
+                    details.put("Private IP", i.privateIpAddress());
+                    details.put("Security Groups", String.join(",", securityGroupIds));
 
-                        return new ResourceDto(
-                        );
-                    })
-                    .collect(Collectors.toList());
-        }, "EC2 Instances");
-    }
+                    return new ResourceDto(
+                        i.instanceId(),
+                        getTagName(i.tags(), i.instanceId()),
+                        "EC2 Instance",
+                        regionId,
+                        i.state().nameAsString(),
+                        i.launchTime(),
+                        details
+                    );
+                })
+                .collect(Collectors.toList());
+    }, "EC2 Instances");
+}
 
     private CompletableFuture<List<ResourceDto>> fetchSubnetsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
