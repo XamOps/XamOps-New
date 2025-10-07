@@ -163,7 +163,10 @@
         <dependency><groupId>software.amazon.awssdk</groupId><artifactId>efs</artifactId></dependency>
         <dependency><groupId>software.amazon.awssdk</groupId><artifactId>ssm</artifactId></dependency>
         <dependency><groupId>software.amazon.awssdk</groupId><artifactId>sfn</artifactId></dependency>
-
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>pinpoint</artifactId>
+        </dependency>
 
         <dependency><groupId>com.google.cloud</groupId><artifactId>google-cloud-storage</artifactId></dependency>
         <dependency><groupId>com.google.auth</groupId><artifactId>google-auth-library-oauth2-http</artifactId></dependency>
@@ -202,6 +205,10 @@
         <dependency>
             <groupId>com.google.cloud</groupId>
             <artifactId>google-iam-admin</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-mail</artifactId>
         </dependency>
         <dependency>
             <groupId>com.google.cloud</groupId>

@@ -17,6 +17,9 @@ public class Client {
     @Column(unique = true, nullable = false)
     private String name;
 
+    @Column(nullable = true)
+    private String email;
+
     // Establishes a one-to-many relationship with users
     @OneToMany(mappedBy = "client", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<User> users;

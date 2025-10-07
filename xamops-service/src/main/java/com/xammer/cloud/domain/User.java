@@ -44,4 +44,6 @@ public class User {
         this.client = client;
         this.role = "USER"; // Default role
     }
+    @Column(nullable = true)
+    private String email;
 }
