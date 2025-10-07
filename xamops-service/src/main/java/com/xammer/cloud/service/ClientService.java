@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
@@ -32,5 +33,18 @@ public class ClientService {
             dto.setEmail(client.getEmail());
             return dto;
         }).collect(Collectors.toList());
+    }
+
+    public Optional<ClientDto> updateClient(Long id, ClientDto clientDto) {
+        return clientRepository.findById(id).map(client -> {
+            client.setName(clientDto.getName());
+            client.setEmail(clientDto.getEmail());
+            client = clientRepository.save(client);
+            ClientDto dto = new ClientDto();
+            dto.setId(client.getId());
+            dto.setName(client.getName());
+            dto.setEmail(client.getEmail());
+            return dto;
+        });
     }
 }
