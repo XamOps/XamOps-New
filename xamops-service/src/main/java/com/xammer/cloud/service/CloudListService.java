@@ -20,7 +20,6 @@ import software.amazon.awssdk.services.athena.AthenaClient;
 import software.amazon.awssdk.services.athena.model.ListWorkGroupsRequest;
 import software.amazon.awssdk.services.autoscaling.AutoScalingClient;
 import software.amazon.awssdk.services.bedrock.BedrockClient;
-import software.amazon.awssdk.services.bedrock.model.ListFoundationModelsRequest;
 import software.amazon.awssdk.services.cloudfront.CloudFrontClient;
 import software.amazon.awssdk.services.cloudfront.model.ListDistributionsRequest;
 import software.amazon.awssdk.services.cloudtrail.CloudTrailClient;
@@ -67,6 +66,7 @@ import software.amazon.awssdk.services.ssm.SsmClient;
 import software.amazon.awssdk.services.ssm.model.DescribeInstanceInformationRequest;
 import software.amazon.awssdk.services.wafv2.Wafv2Client;
 import software.amazon.awssdk.services.wafv2.model.ListWebAcLsRequest;
+import software.amazon.awssdk.services.bedrock.model.ListProvisionedModelThroughputsRequest; // Correct import
 
 import java.io.IOException;
 import java.net.URL;
@@ -93,6 +93,12 @@ public class CloudListService {
             "us-east-1", "us-east-2", "us-west-2", "ap-south-1", "ap-northeast-1",
             "ap-northeast-2", "ap-southeast-1", "ap-southeast-2", "ca-central-1",
             "eu-central-1", "eu-west-1", "eu-west-2", "eu-west-3", "eu-north-1"
+    );
+
+    private static final Set<String> PINPOINT_REGIONS = Set.of(
+            "us-east-1", "us-east-2", "us-west-2", "ap-south-1", "ap-northeast-1",
+            "ap-northeast-2", "ap-southeast-1", "ap-southeast-2", "ca-central-1",
+            "eu-central-1", "eu-west-1", "eu-west-2"
     );
 
 
@@ -218,8 +224,7 @@ public class CloudListService {
                     fetchBedrockModelsForCloudlist(account, activeRegions),
                     fetchSageMakerNotebooksForCloudlist(account, activeRegions),
                     fetchKmsKeysForCloudlist(account, activeRegions),
-                    //fetchPinpointAppsForCloudlist(account, activeRegions),
-                    fetchSubnetsForCloudlist(account, activeRegions),
+                    fetchPinpointAppsForCloudlist(account, activeRegions),
                     fetchInternetGatewaysForCloudlist(account, activeRegions),
                     fetchNatGatewaysForCloudlist(account, activeRegions)
             ));
@@ -399,7 +404,25 @@ public class CloudListService {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
             Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
             return ec2.describeVpcs().vpcs().stream()
-                    .map(v -> new ResourceDto(v.vpcId(), getTagName(v.tags(), v.vpcId()), "VPC", regionId, v.stateAsString(), null, Map.of("CIDR Block", v.cidrBlock(), "Is Default", v.isDefault().toString())))
+                    .map(v -> {
+                        long subnetCount = ec2.describeSubnets(req -> req.filters(f -> f.name("vpc-id").values(v.vpcId())))
+                                .subnets().size();
+
+                        Map<String, String> details = new HashMap<>();
+                        details.put("CIDR Block", v.cidrBlock());
+                        details.put("Is Default", v.isDefault().toString());
+                        details.put("Subnet Count", String.valueOf(subnetCount));
+
+                        return new ResourceDto(
+                                v.vpcId(),
+                                getTagName(v.tags(), v.vpcId()),
+                                "VPC",
+                                regionId,
+                                v.stateAsString(),
+                                null, // VPCs don't have a creation timestamp directly available
+                                details
+                        );
+                    })
                     .collect(Collectors.toList());
         }, "VPCs");
     }
@@ -667,6 +690,7 @@ public class CloudListService {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
             AthenaClient client = awsClientProvider.getAthenaClient(account, regionId);
             return client.listWorkGroups(ListWorkGroupsRequest.builder().build()).workGroups().stream()
+                    .filter(wg -> !wg.name().equals("primary")) // This will filter out the default workgroup
                     .map(wg -> new ResourceDto(wg.name(), wg.name(), "Amazon Athena", regionId, wg.stateAsString(), null, Collections.emptyMap()))
                     .collect(Collectors.toList());
         }, "Amazon Athena");
@@ -706,13 +730,28 @@ public class CloudListService {
 
     private CompletableFuture<List<ResourceDto>> fetchBedrockModelsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
-            BedrockClient client = awsClientProvider.getBedrockClient(account, regionId);
-            return client.listFoundationModels(ListFoundationModelsRequest.builder().build()).modelSummaries().stream()
-                    .map(model -> new ResourceDto(model.modelArn(), model.modelName(), "Bedrock", regionId, null, null, Collections.emptyMap()))
-                    .collect(Collectors.toList());
+            try {
+                BedrockClient client = awsClientProvider.getBedrockClient(account, regionId);
+
+                // This is the correct and final implementation
+                return client.listProvisionedModelThroughputs(ListProvisionedModelThroughputsRequest.builder().build())
+                        .provisionedModelSummaries().stream() // The method is provisionedModelSummaries()
+                        .map(model -> new ResourceDto(
+                                model.provisionedModelArn(),      // Correct method: provisionedModelArn()
+                                model.provisionedModelName(),     // Correct method: provisionedModelName()
+                                "Bedrock Provisioned Model",
+                                regionId,
+                                model.statusAsString(),           // Correct method: statusAsString()
+                                model.creationTime(),             // Correct method: creationTime()
+                                Collections.emptyMap()
+                        ))
+                        .collect(Collectors.toList());
+            } catch (Exception e) {
+                logger.warn("Could not fetch Bedrock provisioned models in region {}: {}. This may be a permissions issue or the service may not be enabled.", regionId, e.getMessage());
+                return Collections.emptyList();
+            }
         }, "Bedrock");
     }
-
     private CompletableFuture<List<ResourceDto>> fetchSageMakerNotebooksForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
             SageMakerClient client = awsClientProvider.getSageMakerClient(account, regionId);
@@ -748,49 +787,48 @@ public class CloudListService {
         }, "SSM Managed Instances");
     }
 
-//    private CompletableFuture<List<ResourceDto>> fetchPinpointAppsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
-//        return fetchAllRegionalResources(account, activeRegions, regionId -> {
-//            PinpointClient pinpointClient = awsClientProvider.getPinpointClient(account, regionId);
-//            return pinpointClient.getApps(GetAppsRequest.builder().build()).applicationsResponse().item().stream()
-//                    .map(app -> new ResourceDto(app.id(), app.name(), "Pinpoint Application", regionId, "Active", null, Collections.emptyMap()))
-//                    .collect(Collectors.toList());
-//        }, "Pinpoint Applications");
-//    }
+    private CompletableFuture<List<ResourceDto>> fetchPinpointAppsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            if (!PINPOINT_REGIONS.contains(regionId)) {
+                return Collections.emptyList();
+            }
+            PinpointClient pinpointClient = awsClientProvider.getPinpointClient(account, regionId);
+            return pinpointClient.getApps(GetAppsRequest.builder().build()).applicationsResponse().item().stream()
+                    .map(app -> new ResourceDto(app.id(), app.name(), "Pinpoint Application", regionId, "Active", null, Collections.emptyMap()))
+                    .collect(Collectors.toList());
+        }, "Pinpoint Applications");
+    }
     private CompletableFuture<List<ResourceDto>> fetchEc2InstancesForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
             Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
             return ec2.describeInstances().reservations().stream()
                     .flatMap(r -> r.instances().stream())
                     .map(i -> {
-                        // Extracting security group IDs
-                        List<String> securityGroupIds = i.securityGroups().stream()
+                        String securityGroups = i.securityGroups().stream()
                                 .map(GroupIdentifier::groupId)
-                                .collect(Collectors.toList());
+                                .collect(Collectors.joining(", "));
 
-                        Map<String, Object> details = new HashMap<>();
+                        Map<String, String> details = new HashMap<>();
                         details.put("Type", i.instanceTypeAsString());
                         details.put("Image ID", i.imageId());
                         details.put("VPC ID", i.vpcId());
                         details.put("Subnet ID", i.subnetId());
                         details.put("Private IP", i.privateIpAddress());
-                        details.put("Security Groups", securityGroupIds); // Add SG IDs to details
+                        details.put("Security Groups", securityGroups);
 
                         return new ResourceDto(
+                                i.instanceId(),
+                                getTagName(i.tags(), i.instanceId()),
+                                "EC2 Instance",
+                                regionId,
+                                i.state().nameAsString(),
+                                i.launchTime(),
+                                details
                         );
                     })
                     .collect(Collectors.toList());
         }, "EC2 Instances");
     }
-
-    private CompletableFuture<List<ResourceDto>> fetchSubnetsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
-        return fetchAllRegionalResources(account, activeRegions, regionId -> {
-            Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
-            return ec2.describeSubnets().subnets().stream()
-                    .map(s -> new ResourceDto(s.subnetId(), getTagName(s.tags(), s.subnetId()), "Subnet", regionId, s.stateAsString(), null, Map.of("VPC ID", s.vpcId(), "CIDR Block", s.cidrBlock(), "Availability Zone", s.availabilityZone())))
-                    .collect(Collectors.toList());
-        }, "Subnets");
-    }
-
     private CompletableFuture<List<ResourceDto>> fetchInternetGatewaysForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
             Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
@@ -812,3 +850,4 @@ public class CloudListService {
         }, "NAT Gateways");
     }
 }
+
