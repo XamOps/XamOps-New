@@ -11,6 +11,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import com.xammer.cloud.dto.DashboardData;
+import org.springframework.web.bind.annotation.*;
+import java.security.Principal;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -63,9 +66,9 @@ public ResponseEntity<?> getFinOpsReport(
     }
 
     @PostMapping("/budgets")
-    public ResponseEntity<Void> createBudget(@RequestParam String accountId, @RequestBody BudgetDetails budgetDetails) {
+    public ResponseEntity<Void> createBudget(@RequestParam String accountId, @RequestBody BudgetDetails budgetDetails, Principal principal) {
         try {
-            finOpsService.createBudget(accountId, budgetDetails);
+            finOpsService.createBudget(accountId, budgetDetails, principal.getName());
             return ResponseEntity.status(HttpStatus.CREATED).build();
         } catch (Exception e) {
             logger.error("Error creating budget for account {}", accountId, e);
