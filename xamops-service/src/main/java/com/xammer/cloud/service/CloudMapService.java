@@ -1,26 +1,18 @@
 package com.xammer.cloud.service;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.xammer.cloud.domain.CloudAccount;
-import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.ResourceDto;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Lazy;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import software.amazon.awssdk.awscore.exception.AwsServiceException;
-import software.amazon.awssdk.services.ec2.Ec2Client;
-import software.amazon.awssdk.services.ec2.model.*;
-import software.amazon.awssdk.services.elasticloadbalancingv2.ElasticLoadBalancingV2Client;
-import software.amazon.awssdk.services.rds.RdsClient;
-import software.amazon.awssdk.services.s3.S3Client;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -28,267 +20,134 @@ public class CloudMapService {
 
     private static final Logger logger = LoggerFactory.getLogger(CloudMapService.class);
 
-    private final CloudAccountRepository cloudAccountRepository;
-    private final AwsClientProvider awsClientProvider;
-    private final CloudListService cloudListService;
-    private final String configuredRegion;
+    @Autowired
+    private CloudListService cloudListService;
 
     @Autowired
-    private RedisCacheService redisCache;
+    private CloudAccountRepository cloudAccountRepository;
 
-    @Autowired
-    public CloudMapService(
-            CloudAccountRepository cloudAccountRepository,
-            AwsClientProvider awsClientProvider,
-            @Lazy CloudListService cloudListService) {
-        this.cloudAccountRepository = cloudAccountRepository;
-        this.awsClientProvider = awsClientProvider;
-        this.cloudListService = cloudListService;
-        this.configuredRegion = System.getenv().getOrDefault("AWS_REGION", "us-east-1");
-    }
-
-    private CloudAccount getAccount(String accountId) {
-        // MODIFIED: Handle list of accounts to prevent crash
-        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
-        if (accounts.isEmpty()) {
-            throw new RuntimeException("Account not found in database: " + accountId);
-        }
-        return accounts.get(0); // Return the first one found
-    }
-
-    @Async("awsTaskExecutor")
     public CompletableFuture<List<ResourceDto>> getVpcListForCloudmap(String accountId, boolean forceRefresh) {
-        String cacheKey = "vpcListForCloudmap-" + accountId;
-        if (!forceRefresh) {
-            Optional<List<ResourceDto>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {});
-            if (cachedData.isPresent()) {
-                return CompletableFuture.completedFuture(cachedData.get());
-            }
-        }
+        CloudAccount account = cloudAccountRepository.findByAwsAccountId(accountId).stream().findFirst()
+                .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
 
-        CloudAccount account = getAccount(accountId);
-        logger.info("Fetching list of VPCs for Cloudmap for account {}...", accountId);
-        return cloudListService.getRegionStatusForAccount(account, forceRefresh).thenCompose(activeRegions -> {
-            if (activeRegions == null) {
-                return CompletableFuture.completedFuture(Collections.emptyList());
-            }
-            return fetchAllRegionalResources(account, activeRegions, regionId -> {
-                Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
-                return ec2.describeVpcs().vpcs().stream()
-                        .map(v -> new ResourceDto(v.vpcId(), getTagName(v.tags(), v.vpcId()), "VPC", regionId, v.stateAsString(), null, Map.of("CIDR Block", v.cidrBlock(), "Is Default", v.isDefault().toString())))
-                        .collect(Collectors.toList());
-            }, "VPCs List for Cloudmap").thenApply(vpcList -> {
-                redisCache.put(cacheKey, vpcList);
-                return vpcList;
-            });
-        });
+        return cloudListService.getAllResources(account, forceRefresh)
+                .thenApply(resources -> resources.stream()
+                        .filter(r -> "VPC".equals(r.getType()))
+                        .map(r -> new ResourceDto(r.getId(), r.getName(), "VPC", r.getRegion(), null, null, Map.of("id", r.getId(), "name", r.getName(), "region", r.getRegion())))
+                        .collect(Collectors.toList()));
     }
 
-    @Async("awsTaskExecutor")
     public CompletableFuture<List<Map<String, Object>>> getGraphData(String accountId, String vpcId, String region, boolean forceRefresh) {
-        String cacheKey = "graphData-" + accountId + "-" + vpcId + "-" + region;
-        if (!forceRefresh) {
-            Optional<List<Map<String, Object>>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {});
-            if (cachedData.isPresent()) {
-                return CompletableFuture.completedFuture(cachedData.get());
-            }
-        }
+        CloudAccount account = cloudAccountRepository.findByAwsAccountId(accountId).stream().findFirst()
+                .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
 
-        CloudAccount account = getAccount(accountId);
-        String effectiveRegion = (region != null && !region.isBlank()) ? region : this.configuredRegion;
+        return cloudListService.getAllResources(account, forceRefresh)
+                .thenApply(allResources -> {
+                    List<Map<String, Object>> elements = new ArrayList<>();
 
-        Ec2Client ec2 = awsClientProvider.getEc2Client(account, effectiveRegion);
-        S3Client s3 = awsClientProvider.getS3Client(account, "us-east-1");
-        RdsClient rds = awsClientProvider.getRdsClient(account, effectiveRegion);
-        ElasticLoadBalancingV2Client elbv2 = awsClientProvider.getElbv2Client(account, effectiveRegion);
+                    if (vpcId != null && !vpcId.isEmpty()) {
+                        // --- VPC-specific view with connections ---
+                        List<ResourceDto> vpcResources = allResources.stream()
+                                .filter(r -> vpcId.equals(r.getDetails().get("VPC ID")) || vpcId.equals(r.getId()))
+                                .collect(Collectors.toList());
 
-        logger.info("Fetching graph data for VPC ID: {} in region {} for account {}", vpcId, effectiveRegion, accountId);
+                        // Add all resource nodes
+                        for (ResourceDto resource : vpcResources) {
+                            String parent = getParent(resource);
+                            elements.add(createNode(resource.getId(), resource.getName(), resource.getType(), parent, resource.getDetails()));
+                        }
 
-        return CompletableFuture.supplyAsync(() -> {
-            List<Map<String, Object>> elements = new ArrayList<>();
-            try {
-                if (vpcId == null || vpcId.isBlank()) {
-                    logger.debug("No VPC selected, fetching S3 buckets for global view.");
-                    s3.listBuckets().buckets().forEach(bucket -> {
-                        Map<String, Object> bucketNode = new HashMap<>();
-                        Map<String, Object> bucketData = new HashMap<>();
-                        bucketData.put("id", bucket.name());
-                        bucketData.put("label", bucket.name());
-                        bucketData.put("type", "S3 Bucket");
-                        bucketNode.put("data", bucketData);
-                        elements.add(bucketNode);
-                    });
-                    redisCache.put(cacheKey, elements); // Cache the result
-                    return elements;
-                }
-
-                logger.debug("Fetching details for VPC: {}", vpcId);
-                Vpc vpc = ec2.describeVpcs(r -> r.vpcIds(vpcId)).vpcs().get(0);
-                Map<String, Object> vpcNode = new HashMap<>();
-                Map<String, Object> vpcData = new HashMap<>();
-                vpcData.put("id", vpc.vpcId());
-                vpcData.put("label", getTagName(vpc.tags(), vpc.vpcId()));
-                vpcData.put("type", "VPC");
-                vpcNode.put("data", vpcData);
-                elements.add(vpcNode);
-
-                DescribeSubnetsRequest subnetsRequest = DescribeSubnetsRequest.builder().filters(f -> f.name("vpc-id").values(vpcId)).build();
-                List<Subnet> subnets = ec2.describeSubnets(subnetsRequest).subnets();
-                subnets.stream().map(Subnet::availabilityZone).distinct().forEach(azName -> {
-                    Map<String, Object> azNode = new HashMap<>();
-                    Map<String, Object> azData = new HashMap<>();
-                    azData.put("id", azName);
-                    azData.put("label", azName);
-                    azData.put("type", "Availability Zone");
-                    azData.put("parent", vpc.vpcId());
-                    azNode.put("data", azData);
-                    elements.add(azNode);
-                });
-
-                subnets.forEach(subnet -> {
-                    Map<String, Object> subnetNode = new HashMap<>();
-                    Map<String, Object> subnetData = new HashMap<>();
-                    subnetData.put("id", subnet.subnetId());
-                    subnetData.put("label", getTagName(subnet.tags(), subnet.subnetId()));
-                    subnetData.put("type", "Subnet");
-                    subnetData.put("parent", subnet.availabilityZone());
-                    subnetNode.put("data", subnetData);
-                    elements.add(subnetNode);
-                });
-
-                ec2.describeInternetGateways(r -> r.filters(f -> f.name("attachment.vpc-id").values(vpcId)))
-                        .internetGateways().forEach(igw -> {
-                    Map<String, Object> igwNode = new HashMap<>();
-                    Map<String, Object> igwData = new HashMap<>();
-                    igwData.put("id", igw.internetGatewayId());
-                    igwData.put("label", getTagName(igw.tags(), igw.internetGatewayId()));
-                    igwData.put("type", "Internet Gateway");
-                    igwData.put("parent", vpc.vpcId());
-                    igwNode.put("data", igwData);
-                    elements.add(igwNode);
-                });
-
-                ec2.describeNatGateways(r -> r.filter(f -> f.name("vpc-id").values(vpcId)))
-                        .natGateways().forEach(nat -> {
-                    Map<String, Object> natNode = new HashMap<>();
-                    Map<String, Object> natData = new HashMap<>();
-                    natData.put("id", nat.natGatewayId());
-                    natData.put("label", getTagName(nat.tags(), nat.natGatewayId()));
-                    natData.put("type", "NAT Gateway");
-                    natData.put("parent", nat.subnetId());
-                    natNode.put("data", natData);
-                    elements.add(natNode);
-                });
-
-                DescribeSecurityGroupsRequest sgsRequest = DescribeSecurityGroupsRequest.builder().filters(f -> f.name("vpc-id").values(vpcId)).build();
-                ec2.describeSecurityGroups(sgsRequest).securityGroups().forEach(sg -> {
-                    Map<String, Object> sgNode = new HashMap<>();
-                    Map<String, Object> sgData = new HashMap<>();
-                    sgData.put("id", sg.groupId());
-                    sgData.put("label", sg.groupName());
-                    sgData.put("type", "Security Group");
-                    sgData.put("parent", vpc.vpcId());
-                    sgNode.put("data", sgData);
-                    elements.add(sgNode);
-                });
-
-                elbv2.describeLoadBalancers().loadBalancers().stream()
-                        .filter(lb -> vpcId.equals(lb.vpcId()))
-                        .forEach(lb -> {
-                            Map<String, Object> lbNode = new HashMap<>();
-                            Map<String, Object> lbData = new HashMap<>();
-                            lbData.put("id", lb.loadBalancerArn());
-                            lbData.put("label", lb.loadBalancerName());
-                            lbData.put("type", "Load Balancer");
-                            if (!lb.availabilityZones().isEmpty() && lb.availabilityZones().get(0).subnetId() != null) {
-                                lbData.put("parent", lb.availabilityZones().get(0).subnetId());
-                            } else {
-                                lbData.put("parent", vpc.vpcId());
+                        // Add all relationship edges (arrows)
+                        for (ResourceDto resource : vpcResources) {
+                            // EBS Volume -> EC2 Instance connection
+                            if ("EBS Volume".equals(resource.getType())) {
+                                String attachedInstance = (String) resource.getDetails().get("Attached to");
+                                if (attachedInstance != null && !attachedInstance.equals("N/A")) {
+                                    elements.add(createEdge(resource.getId(), attachedInstance, "attaches to"));
+                                }
                             }
-                            lbNode.put("data", lbData);
-                            elements.add(lbNode);
-                        });
 
-
-                DescribeInstancesRequest instancesRequest = DescribeInstancesRequest.builder().filters(f -> f.name("vpc-id").values(vpcId)).build();
-                ec2.describeInstances(instancesRequest).reservations().stream()
-                        .flatMap(r -> r.instances().stream())
-                        .filter(instance -> instance.subnetId() != null)
-                        .forEach(instance -> {
-                            Map<String, Object> instanceNode = new HashMap<>();
-                            Map<String, Object> instanceData = new HashMap<>();
-                            instanceData.put("id", instance.instanceId());
-                            instanceData.put("label", getTagName(instance.tags(), instance.instanceId()));
-                            instanceData.put("type", "EC2 Instance");
-                            instanceData.put("parent", instance.subnetId());
-                            instanceNode.put("data", instanceData);
-                            elements.add(instanceNode);
-
-                            instance.securityGroups().forEach(sg -> {
-                                Map<String, Object> edge = new HashMap<>();
-                                Map<String, Object> edgeData = new HashMap<>();
-                                edgeData.put("id", instance.instanceId() + "-" + sg.groupId());
-                                edgeData.put("source", instance.instanceId());
-                                edgeData.put("target", sg.groupId());
-                                edge.put("data", edgeData);
-                                elements.add(edge);
-                            });
-                        });
-
-                rds.describeDBInstances().dbInstances().stream()
-                        .filter(db -> db.dbSubnetGroup() != null && vpcId.equals(db.dbSubnetGroup().vpcId()))
-                        .forEach(db -> {
-                            if (!db.dbSubnetGroup().subnets().isEmpty()) {
-                                Map<String, Object> dbNode = new HashMap<>();
-                                Map<String, Object> dbData = new HashMap<>();
-                                dbData.put("id", db.dbInstanceArn());
-                                dbData.put("label", db.dbInstanceIdentifier());
-                                dbData.put("type", "RDS Instance");
-                                dbData.put("parent", db.dbSubnetGroup().subnets().get(0).subnetIdentifier());
-                                dbNode.put("data", dbData);
-                                elements.add(dbNode);
+                            // EC2 Instance -> Security Group connection
+                            if ("EC2 Instance".equals(resource.getType())) {
+                                Object sgObj = resource.getDetails().get("Security Groups");
+                                List<String> securityGroups = new ArrayList<>();
+                                if (sgObj instanceof List<?>) {
+                                    for (Object o : (List<?>) sgObj) {
+                                        if (o != null) securityGroups.add(o.toString());
+                                    }
+                                } else if (sgObj instanceof String) {
+                                    String sgString = (String) sgObj;
+                                    if (sgString != null && !sgString.isBlank()) {
+                                        String[] parts = sgString.split("\\s*,\\s*");
+                                        for (String part : parts) {
+                                            if (!part.isBlank()) securityGroups.add(part);
+                                        }
+                                    }
+                                }
+                                if (!securityGroups.isEmpty()) {
+                                    for (String sgId : securityGroups) {
+                                        elements.add(createEdge(resource.getId(), sgId, "uses"));
+                                    }
+                                }
                             }
-                        });
-                redisCache.put(cacheKey, elements); // Cache the result
-            } catch (Exception e) {
-                logger.error("Failed to build graph data for VPC {}", vpcId, e);
-                throw new RuntimeException("Failed to fetch graph data from AWS", e);
-            }
-            return elements;
-        });
-    }
+                        }
 
-    private <T> CompletableFuture<List<T>> fetchAllRegionalResources(CloudAccount account, List<DashboardData.RegionStatus> activeRegions, Function<String, List<T>> fetchFunction, String serviceName) {
-        if (activeRegions == null) {
-            return CompletableFuture.completedFuture(Collections.emptyList());
-        }
-        List<CompletableFuture<List<T>>> futures = activeRegions.stream()
-                .map(regionStatus -> CompletableFuture.supplyAsync(() -> {
-                    try {
-                        return fetchFunction.apply(regionStatus.getRegionId());
-                    } catch (AwsServiceException e) {
-                        logger.warn("CloudMap sub-task failed for account {}: {} in region {}. AWS Error: {}", account.getAwsAccountId(), serviceName, regionStatus.getRegionId(), e.awsErrorDetails().errorMessage());
-                        return Collections.<T>emptyList();
-                    } catch (Exception e) {
-                        logger.error("CloudMap sub-task failed for account {}: {} in region {}.", account.getAwsAccountId(), serviceName, regionStatus.getRegionId(), e);
-                        return Collections.<T>emptyList();
+                    } else {
+                        // --- Global view: S3 Buckets ONLY ---
+                        allResources.stream()
+                                .filter(r -> "S3 Bucket".equals(r.getType()))
+                                .forEach(resource -> {
+                                    elements.add(createNode(resource.getId(), resource.getName(), resource.getType(), null, resource.getDetails()));
+                                });
                     }
-                }))
-                .collect(Collectors.toList());
 
-        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                .thenApply(v -> {
-                    List<T> allResources = futures.stream()
-                            .map(CompletableFuture::join)
-                            .flatMap(List::stream)
-                            .collect(Collectors.toList());
-                    logger.debug("Fetched a total of {} {} resources across all regions for account {}", allResources.size(), serviceName, account.getAwsAccountId());
-                    return allResources;
+                    return elements;
                 });
     }
 
-    private String getTagName(List<Tag> tags, String defaultName) {
-        if (tags == null || tags.isEmpty()) return defaultName;
-        return tags.stream().filter(t -> "Name".equalsIgnoreCase(t.key())).findFirst().map(Tag::value).orElse(defaultName);
+    private String getParent(ResourceDto resource) {
+        // Defines the hierarchy for the graph layout
+        if ("Subnet".equals(resource.getType()) || "Internet Gateway".equals(resource.getType())) {
+            return (String) resource.getDetails().get("VPC ID");
+        }
+        String parent = (String) resource.getDetails().get("Subnet ID");
+        if (parent == null) {
+            parent = (String) resource.getDetails().get("VPC ID");
+        }
+        return parent;
+    }
+
+    private Map<String, Object> createNode(String id, String label, String type, String parent, Map<String, String> details) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("id", id);
+        data.put("label", label != null ? label : id);
+        data.put("type", type);
+        if (parent != null && !parent.isBlank()) {
+            data.put("parent", parent);
+        }
+
+        if (details != null) {
+            details.forEach((key, value) -> {
+                if (!data.containsKey(key.toLowerCase())) {
+                    data.put(key, value != null ? value.toString() : "N/A");
+                }
+            });
+        }
+
+        Map<String, Object> node = new HashMap<>();
+        node.put("data", data);
+        return node;
+    }
+
+    private Map<String, Object> createEdge(String source, String target, String label) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("id", source + "_to_" + target);
+        data.put("source", source);
+        data.put("target", target);
+        data.put("label", label);
+
+        Map<String, Object> edge = new HashMap<>();
+        edge.put("data", data);
+        return edge;
     }
 }
