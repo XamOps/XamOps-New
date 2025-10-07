@@ -196,8 +196,7 @@ public class CloudListService {
 
             logger.info("Fetching all resources for Cloudlist (flat list) for account {}...", account.getAwsAccountId());
 
-            List<CompletableFuture<List<ResourceDto>>> resourceFutures = new ArrayList<>();
-            resourceFutures.addAll(List.of(
+            List<CompletableFuture<List<ResourceDto>>> resourceFutures = new ArrayList<>(List.of(
                     fetchEc2InstancesForCloudlist(account, activeRegions), fetchEbsVolumesForCloudlist(account, activeRegions),
                     fetchRdsInstancesForCloudlist(account, activeRegions), fetchLambdaFunctionsForCloudlist(account, activeRegions),
                     fetchVpcsForCloudlist(account, activeRegions), fetchSecurityGroupsForCloudlist(account, activeRegions),
@@ -226,15 +225,31 @@ public class CloudListService {
                     fetchKmsKeysForCloudlist(account, activeRegions),
                     fetchPinpointAppsForCloudlist(account, activeRegions),
                     fetchInternetGatewaysForCloudlist(account, activeRegions),
-                    fetchNatGatewaysForCloudlist(account, activeRegions)
+                    fetchNatGatewaysForCloudlist(account, activeRegions),
+                    fetchSnapshotsForCloudlist(account, activeRegions),
+                    fetchEnisForCloudlist(account, activeRegions),
+                    fetchElasticIpsForCloudlist(account, activeRegions)
             ));
 
-            return CompletableFuture.allOf(resourceFutures.toArray(new CompletableFuture[0]))
+            // ** THE FIX: Create a list of "safe" futures that won't fail the entire operation **
+            List<CompletableFuture<List<ResourceDto>>> safeResourceFutures = resourceFutures.stream()
+                    .map(future -> future.exceptionally(ex -> {
+                        // Log the specific error for debugging, but don't stop the process
+                        logger.error("A CloudList sub-task failed for account {}: {}", account.getAwsAccountId(), ex.getMessage());
+                        // Return an empty list for the failed service
+                        return Collections.emptyList();
+                    }))
+                    .collect(Collectors.toList());
+
+            // Now, wait for all the "safe" futures to complete
+            return CompletableFuture.allOf(safeResourceFutures.toArray(new CompletableFuture[0]))
                     .thenApply(v -> {
-                        List<ResourceDto> allResources = resourceFutures.stream()
-                                .map(future -> future.getNow(Collections.emptyList()))
+                        // Collect the results from all futures (successful ones will have data, failed ones will have an empty list)
+                        List<ResourceDto> allResources = safeResourceFutures.stream()
+                                .map(CompletableFuture::join) // .join() is safe here because we've handled exceptions
                                 .flatMap(Collection::stream)
                                 .collect(Collectors.toList());
+
                         logger.debug("Fetched a total of {} resources for Cloudlist for account {}", allResources.size(), account.getAwsAccountId());
                         redisCache.put(cacheKey, allResources);
                         return allResources;
@@ -848,6 +863,76 @@ public class CloudListService {
                     .map(nat -> new ResourceDto(nat.natGatewayId(), getTagName(nat.tags(), nat.natGatewayId()), "NAT Gateway", regionId, nat.stateAsString(), nat.createTime(), Map.of("VPC ID", nat.vpcId(), "Subnet ID", nat.subnetId(), "Private IP", nat.natGatewayAddresses().get(0).privateIp())))
                     .collect(Collectors.toList());
         }, "NAT Gateways");
+    }
+    private CompletableFuture<List<ResourceDto>> fetchSnapshotsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
+            return ec2.describeSnapshots(req -> req.ownerIds(account.getAwsAccountId())).snapshots().stream()
+                    .map(s -> new ResourceDto(
+                            s.snapshotId(),
+                            getTagName(s.tags(), s.snapshotId()),
+                            "EBS Snapshot",
+                            regionId,
+                            s.stateAsString(),
+                            s.startTime(),
+                            Map.of(
+                                    "Volume ID", s.volumeId() != null ? s.volumeId() : "N/A",
+                                    "Volume Size", s.volumeSize() + " GiB",
+                                    "Description", s.description() != null ? s.description() : "N/A"
+                            )
+                    ))
+                    .collect(Collectors.toList());
+        }, "EBS Snapshots");
+    }
+
+    // Add this method
+    private CompletableFuture<List<ResourceDto>> fetchEnisForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
+            return ec2.describeNetworkInterfaces().networkInterfaces().stream()
+                    .map(eni -> {
+                        // ** FIX: Check for null availabilityZone and fall back to regionId **
+                        String location = eni.availabilityZone() != null ? eni.availabilityZone() : regionId;
+
+                        return new ResourceDto(
+                                eni.networkInterfaceId(),
+                                getTagName(eni.tagSet(), eni.networkInterfaceId()),
+                                "Network Interface (ENI)",
+                                location, // Use the safe location variable
+                                eni.statusAsString(),
+                                null, // ENIs don't have a creation timestamp
+                                Map.of(
+                                        "Subnet ID", eni.subnetId(),
+                                        "VPC ID", eni.vpcId(),
+                                        "Private IP", eni.privateIpAddress() != null ? eni.privateIpAddress() : "N/A",
+                                        "Attached To", eni.attachment() != null && eni.attachment().instanceId() != null ? eni.attachment().instanceId() : "Detached"
+                                )
+                        );
+                    })
+                    .collect(Collectors.toList());
+        }, "Network Interfaces");
+    }
+
+    // Add this method
+    private CompletableFuture<List<ResourceDto>> fetchElasticIpsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
+            return ec2.describeAddresses().addresses().stream()
+                    .map(eip -> new ResourceDto(
+                            eip.allocationId(),
+                            getTagName(eip.tags(), eip.publicIp()),
+                            "Elastic IP",
+                            regionId,
+                            eip.associationId() != null ? "Associated" : "Unassociated",
+                            null, // Elastic IPs don't have a creation timestamp
+                            Map.of(
+                                    "Public IP", eip.publicIp(),
+                                    "Private IP", eip.privateIpAddress() != null ? eip.privateIpAddress() : "N/A",
+                                    "Associated Instance", eip.instanceId() != null ? eip.instanceId() : "N/A"
+                            )
+                    ))
+                    .collect(Collectors.toList());
+        }, "Elastic IPs");
     }
 }
 
