@@ -6,8 +6,9 @@ import lombok.NoArgsConstructor;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
-import java.time.Instant;
-import java.util.Map;
+
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 
 @Data
 @NoArgsConstructor
@@ -74,7 +75,6 @@ public class DashboardData {
         }
     }
 
-    @Data @AllArgsConstructor @NoArgsConstructor public static class BudgetDetails { private String budgetName; private BigDecimal budgetLimit; private String budgetUnit; private BigDecimal actualSpend; private BigDecimal forecastedSpend; }
     @Data @AllArgsConstructor @NoArgsConstructor public static class TaggingCompliance { private double compliancePercentage; private int totalResourcesScanned; private int untaggedResourcesCount; private List<UntaggedResource> untaggedResources; }
     @Data @AllArgsConstructor @NoArgsConstructor public static class UntaggedResource { private String resourceId; private String resourceType; private String region; private List<String> missingTags; }
     @Data @NoArgsConstructor @AllArgsConstructor public static class Account { private String id; private String name; private List<RegionStatus> regionStatus; private ResourceInventory resourceInventory; private CloudWatchStatus cloudWatchStatus; private List<SecurityInsight> securityInsights; private CostHistory costHistory; private List<BillingSummary> billingSummary; private IamResources iamResources; private SavingsSummary savingsSummary; private List<OptimizationRecommendation> ec2Recommendations; private List<CostAnomaly> costAnomalies; private List<OptimizationRecommendation> ebsRecommendations; private List<OptimizationRecommendation> lambdaRecommendations; private ReservationAnalysis reservationAnalysis; private List<ReservationPurchaseRecommendation> reservationPurchaseRecommendations; private OptimizationSummary optimizationSummary; private List<WastedResource> wastedResources; private List<ServiceQuotaInfo> serviceQuotas; private int securityScore; private double monthToDateSpend; private double forecastedSpend; private double lastMonthSpend;}
@@ -159,4 +159,26 @@ public class DashboardData {
     @Data @AllArgsConstructor @NoArgsConstructor public static class WastedResource { private String resourceId; private String resourceName; private String resourceType; private String region; private double monthlySavings; private String reason; }
     @Data @AllArgsConstructor @NoArgsConstructor public static class ServiceGroupDto { private String serviceType; private List<ResourceDto> resources; }
     @Data @AllArgsConstructor @NoArgsConstructor public static class SecurityFinding { private String resourceId; private String region; private String category; private String severity; private String description; private String complianceFramework; private String controlId; }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class BudgetDetails {
+        private String budgetName;
+        private BigDecimal budgetLimit;
+        private String budgetUnit;
+        private BigDecimal actualSpend;
+        private BigDecimal forecastedSpend;
+        private String notificationEmail; // Add this line
+
+        public BudgetDetails(String budgetName, BigDecimal budgetLimit, String budgetUnit, BigDecimal actualSpend, BigDecimal forecastedSpend) {
+            this.budgetName = budgetName;
+            this.budgetLimit = budgetLimit;
+            this.budgetUnit = budgetUnit;
+            this.actualSpend = actualSpend;
+            this.forecastedSpend = forecastedSpend;
+        }
+    }
+
 }

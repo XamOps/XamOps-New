@@ -3,6 +3,7 @@ package com.xammer.cloud.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.DashboardData;
+import com.xammer.cloud.dto.DashboardData.BudgetDetails;
 import com.xammer.cloud.dto.FinOpsReportDto;
 import com.xammer.cloud.dto.ResourceDto;
 import com.xammer.cloud.repository.CloudAccountRepository;
@@ -25,6 +26,15 @@ import software.amazon.awssdk.services.costexplorer.model.Granularity;
 import software.amazon.awssdk.services.costexplorer.model.GroupDefinition;
 import software.amazon.awssdk.services.costexplorer.model.GroupDefinitionType;
 import software.amazon.awssdk.services.costexplorer.model.RootCause;
+import software.amazon.awssdk.services.budgets.model.Notification;
+import software.amazon.awssdk.services.budgets.model.NotificationType;
+import software.amazon.awssdk.services.budgets.model.Subscriber;
+import software.amazon.awssdk.services.budgets.model.SubscriptionType;
+import software.amazon.awssdk.services.budgets.model.ComparisonOperator;
+import com.xammer.cloud.domain.User;
+import com.xammer.cloud.repository.UserRepository;
+import software.amazon.awssdk.services.budgets.model.*;
+import java.security.Principal;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -46,6 +56,7 @@ public class FinOpsService {
     private final OptimizationService optimizationService;
     private final List<String> requiredTags;
     private final RedisCacheService redisCache;
+    private final UserRepository userRepository;
 
     @Autowired
     public FinOpsService(
@@ -54,13 +65,15 @@ public class FinOpsService {
             @Lazy CloudListService cloudListService,
             @Lazy OptimizationService optimizationService,
             @Value("${tagging.compliance.required-tags}") List<String> requiredTags,
-            RedisCacheService redisCache) {
+            RedisCacheService redisCache, UserRepository userRepository) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.cloudListService = cloudListService;
         this.optimizationService = optimizationService;
         this.requiredTags = requiredTags;
         this.redisCache = redisCache;
+        this.userRepository = userRepository; // Initialize
+
     }
 
     private CloudAccount getAccount(String accountId) {
@@ -95,7 +108,7 @@ public class FinOpsService {
             CompletableFuture<List<DashboardData.CostAnomaly>> anomaliesFuture = getCostAnomalies(account, forceRefresh);
             CompletableFuture<DashboardData.CostHistory> costHistoryFuture = getCostHistory(account, forceRefresh);
             CompletableFuture<DashboardData.TaggingCompliance> taggingComplianceFuture = getTaggingCompliance(account, forceRefresh);
-            CompletableFuture<List<DashboardData.BudgetDetails>> budgetsFuture = getAccountBudgets(account, forceRefresh);
+            CompletableFuture<List<BudgetDetails>> budgetsFuture = getAccountBudgets(account, forceRefresh);
             CompletableFuture<List<Map<String, Object>>> costByRegionFuture = getCostByRegion(account, forceRefresh);
 
             return CompletableFuture.allOf(billingSummaryFuture, wastedResourcesFuture, rightsizingFuture, anomaliesFuture, costHistoryFuture, taggingComplianceFuture, budgetsFuture, costByRegionFuture)
@@ -134,10 +147,10 @@ public class FinOpsService {
     }
 
     @Async("awsTaskExecutor")
-    public CompletableFuture<List<DashboardData.BudgetDetails>> getAccountBudgets(CloudAccount account, boolean forceRefresh) {
+    public CompletableFuture<List<BudgetDetails>> getAccountBudgets(CloudAccount account, boolean forceRefresh) {
         String cacheKey = "budgets-" + account.getAwsAccountId();
         if (!forceRefresh) {
-            Optional<List<DashboardData.BudgetDetails>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {});
+            Optional<List<BudgetDetails>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {});
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
@@ -148,7 +161,7 @@ public class FinOpsService {
         try {
             DescribeBudgetsRequest request = DescribeBudgetsRequest.builder().accountId(account.getAwsAccountId()).build();
             List<Budget> budgets = budgetsClient.describeBudgets(request).budgets();
-            List<DashboardData.BudgetDetails> result = budgets.stream().map(b -> new DashboardData.BudgetDetails(
+            List<BudgetDetails> result = budgets.stream().map(b -> new BudgetDetails(
                             b.budgetName(), b.budgetLimit().amount(), b.budgetLimit().unit(),
                             b.calculatedSpend() != null ? b.calculatedSpend().actualSpend().amount() : BigDecimal.ZERO,
                             b.calculatedSpend() != null && b.calculatedSpend().forecastedSpend() != null ? b.calculatedSpend().forecastedSpend().amount() : BigDecimal.ZERO
@@ -160,24 +173,54 @@ public class FinOpsService {
             return CompletableFuture.completedFuture(Collections.emptyList());
         }
     }
-
-    public void createBudget(String accountId, DashboardData.BudgetDetails budgetDetails) {
+    public void createBudget(String accountId, DashboardData.BudgetDetails budgetDetails, String username) {
         CloudAccount account = getAccount(accountId);
         BudgetsClient budgetsClient = awsClientProvider.getBudgetsClient(account);
-        logger.info("Creating new budget: {} for account {}", budgetDetails.getBudgetName(), account.getAwsAccountId());
+
+        // Find the user in the database to get their email
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("User not found: " + username));
+        String userEmail = user.getEmail();
+
+        logger.info("Creating new budget: {} for account {} with notification email for {}", budgetDetails.getBudgetName(), account.getAwsAccountId(), userEmail);
         try {
             Budget budget = Budget.builder()
                     .budgetName(budgetDetails.getBudgetName()).budgetType(BudgetType.COST).timeUnit(TimeUnit.MONTHLY)
                     .timePeriod(TimePeriod.builder().start(Instant.now()).build())
                     .budgetLimit(Spend.builder().amount(budgetDetails.getBudgetLimit()).unit(budgetDetails.getBudgetUnit()).build()).build();
-            CreateBudgetRequest request = CreateBudgetRequest.builder().accountId(account.getAwsAccountId()).budget(budget).build();
-            budgetsClient.createBudget(request);
-            redisCache.evict("budgets-" + accountId); 
+
+            CreateBudgetRequest.Builder requestBuilder = CreateBudgetRequest.builder()
+                    .accountId(account.getAwsAccountId())
+                    .budget(budget);
+
+            // ** Use the user's email from the database **
+            Subscriber emailSubscriber = Subscriber.builder()
+                    .subscriptionType(SubscriptionType.EMAIL)
+                    .address(userEmail)
+                    .build();
+
+            Notification notification = Notification.builder()
+                    .notificationType(NotificationType.ACTUAL)
+                    .comparisonOperator(ComparisonOperator.GREATER_THAN)
+                    .threshold(80.0)
+                    .thresholdType(ThresholdType.PERCENTAGE)
+                    .build();
+
+            requestBuilder.notificationsWithSubscribers(Collections.singletonList(
+                    NotificationWithSubscribers.builder()
+                            .notification(notification)
+                            .subscribers(emailSubscriber)
+                            .build()
+            ));
+
+            budgetsClient.createBudget(requestBuilder.build());
+            redisCache.evict("budgets-" + accountId);
         } catch (Exception e) {
             logger.error("Failed to create AWS Budget '{}' for account {}", budgetDetails.getBudgetName(), account.getAwsAccountId(), e);
             throw new RuntimeException("Failed to create budget", e);
         }
     }
+
 
     public void deleteBudget(String accountId, String budgetName) {
         CloudAccount account = getAccount(accountId);
