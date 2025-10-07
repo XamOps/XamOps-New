@@ -9,7 +9,6 @@ import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.service.AwsAccountService;
 import com.xammer.cloud.service.CloudListService;
 import com.xammer.cloud.service.DashboardDataService;
-import com.xammer.cloud.service.DashboardRefreshService;
 import com.xammer.cloud.service.OptimizationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,67 +41,66 @@ public class DashboardController {
     private final AwsAccountService awsAccountService;
     private final CloudAccountRepository cloudAccountRepository;
     private final DashboardLayoutRepository dashboardLayoutRepository;
-    private final DashboardRefreshService dashboardRefreshService;
 
     public DashboardController(DashboardDataService dashboardDataService,
                                OptimizationService optimizationService,
                                CloudListService cloudListService,
                                AwsAccountService awsAccountService,
                                CloudAccountRepository cloudAccountRepository,
-                               DashboardLayoutRepository dashboardLayoutRepository,
-                               DashboardRefreshService dashboardRefreshService) {
+                               DashboardLayoutRepository dashboardLayoutRepository) {
         this.dashboardDataService = dashboardDataService;
         this.optimizationService = optimizationService;
         this.cloudListService = cloudListService;
         this.awsAccountService = awsAccountService;
         this.cloudAccountRepository = cloudAccountRepository;
         this.dashboardLayoutRepository = dashboardLayoutRepository;
-        this.dashboardRefreshService = dashboardRefreshService;
     }
 
     /**
      * Fetches the main dashboard data.
+     * This endpoint now waits for the data fetching to complete and returns the full payload,
+     * supporting both initial loads and forced refreshes in a single, consistent way.
      */
-    @GetMapping("/dashboard-data")
-    public ResponseEntity<?> getDashboardData(
-            @RequestParam(required = false) boolean force,
+    @GetMapping("/dashboard/data")
+    public ResponseEntity<DashboardData> getDashboardData(
             @RequestParam String accountId,
-            @AuthenticationPrincipal ClientUserDetails userDetails) throws Exception {
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
-        if (force) {
-            // Correctly calls the refresh service, which then calls the data service
-            dashboardRefreshService.triggerDashboardRefresh(accountId, userDetails);
-            return ResponseEntity.accepted().body(Map.of("message", "Dashboard refresh initiated. Updates will be delivered via WebSocket."));
+        try {
+            // The method now directly calls the data service, waits for the result,
+            // and returns the full data payload in the response.
+            DashboardData data = dashboardDataService.getDashboardData(accountId, forceRefresh, userDetails);
+            return ResponseEntity.ok(data);
+        } catch (Exception ex) {
+            logger.error("Error fetching dashboard data for account {}", accountId, ex);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
         }
-
-        // If not forcing, return the data from cache or a fresh fetch synchronously
-        DashboardData data = dashboardDataService.getDashboardData(accountId, false, userDetails);
-        return ResponseEntity.ok(data);
     }
 
     /**
      * Fetches wasted resources data.
      */
      @GetMapping("/waste")
-    public CompletableFuture<List<DashboardData.WastedResource>> getWastedResources(
-            @RequestParam String accountIds,
-            @RequestParam(defaultValue = "false") boolean forceRefresh) {
-        
-        String accountIdToUse = accountIds.split(",")[0];
-        
-        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountIdToUse);
-        if (accounts.isEmpty()) {
-            throw new RuntimeException("Account not found: " + accountIdToUse);
-        }
-        CloudAccount account = accounts.get(0);
+     public CompletableFuture<List<DashboardData.WastedResource>> getWastedResources(
+             @RequestParam String accountIds,
+             @RequestParam(defaultValue = "false") boolean forceRefresh) {
 
-        return cloudListService.getRegionStatusForAccount(account, forceRefresh)
-                .thenCompose(activeRegions -> optimizationService.getWastedResources(account, activeRegions, forceRefresh))
-                .exceptionally(ex -> {
-                    logger.error("Error fetching wasted resources for account {}", accountIdToUse, ex);
-                    return Collections.emptyList();
-                });
-    }
+         String accountIdToUse = accountIds.split(",")[0];
+
+         List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountIdToUse);
+         if (accounts.isEmpty()) {
+             throw new RuntimeException("Account not found: " + accountIdToUse);
+         }
+         CloudAccount account = accounts.get(0);
+
+         return cloudListService.getRegionStatusForAccount(account, forceRefresh)
+                 .thenCompose(activeRegions -> optimizationService.getWastedResources(account, activeRegions, forceRefresh))
+                 .exceptionally(ex -> {
+                     logger.error("Error fetching wasted resources for account {}", accountIdToUse, ex);
+                     return Collections.emptyList();
+                 });
+     }
 
     /**
      * Fetches the user-specific dashboard layout configuration.

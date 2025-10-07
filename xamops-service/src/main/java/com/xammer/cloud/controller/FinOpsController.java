@@ -32,26 +32,22 @@ public class FinOpsController {
         this.finOpsRefreshService = finOpsRefreshService;
     }
 
-    @GetMapping("/report")
-    public ResponseEntity<?> getFinOpsReport(
-            @RequestParam String accountId,
-            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+@GetMapping("/report")
+public ResponseEntity<?> getFinOpsReport(
+        @RequestParam String accountId,
+        @RequestParam(defaultValue = "false") boolean forceRefresh) {
 
-        if (forceRefresh) {
-            finOpsRefreshService.triggerFinOpsReportRefresh(accountId);
-            return ResponseEntity.accepted().body(Map.of("message", "FinOps report refresh initiated. Updates will be delivered via WebSocket."));
-        }
-
-        try {
-            // For non-forced refresh, we now block and wait for the result.
-            FinOpsReportDto report = finOpsService.getFinOpsReport(accountId, false).join();
-            return ResponseEntity.ok(report);
-        } catch (Exception e) {
-            logger.error("Error fetching FinOps report for account {}", accountId, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Failed to retrieve FinOps report.", "message", e.getMessage()));
-        }
+    try {
+        // This method will now wait for the data and return it in the response
+        // for both initial loads and forced refreshes.
+        FinOpsReportDto report = finOpsService.getFinOpsReport(accountId, forceRefresh).join();
+        return ResponseEntity.ok(report);
+    } catch (Exception e) {
+        logger.error("Error fetching FinOps report for account {}", accountId, e);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(Map.of("error", "Failed to retrieve FinOps report.", "message", e.getMessage()));
     }
+}
 
     @GetMapping("/cost-by-tag")
     public CompletableFuture<ResponseEntity<List<Map<String, Object>>>> getCostByTag(
