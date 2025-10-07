@@ -3,704 +3,531 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>XamOps - Cloudmap | Cloud Infrastructure Visualization</title>
-    <meta name="description" content="Visualize and explore your AWS cloud infrastructure with interactive network topology maps">
-    <meta name="author" content="XamOps">
-    <meta name="keywords" content="cloud infrastructure, AWS visualization, network topology, cloudmap, infrastructure mapping">
-
-    <!-- Tailwind CSS -->
+    <title>XamOps - Cloudmap</title>
     <script src="https://cdn.tailwindcss.com"></script>
-
-    <!-- Cytoscape.js -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.33.1/cytoscape.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/dagre@0.8.5/dist/dagre.min.js"></script>
-
-    <!-- Lucide Icons -->
-    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dagre/0.8.5/dagre.min.js"></script>
+    <script src="https://unpkg.com/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
+    <script type="module" src="/src/main.js"></script>
 
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+        :root {
+            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --success-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            --warning-gradient: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            --glass-bg: rgba(255, 255, 255, 0.95);
+            --glass-border: rgba(255, 255, 255, 0.2);
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
             min-height: 100vh;
-            overflow: hidden;
         }
 
         .glass-card {
-            background: rgba(255, 255, 255, 0.95);
+            background: var(--glass-bg);
             backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.15);
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
         }
 
-        .glass-header {
-            background: rgba(255, 255, 255, 0.98);
-            backdrop-filter: blur(20px);
-            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
-            box-shadow: 0 4px 20px 0 rgba(31, 38, 135, 0.1);
+        .header-gradient {
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(229, 231, 235, 0.8);
         }
 
-        .gradient-primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        #cy {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+            border-radius: 12px;
+            border: 1px solid rgba(229, 231, 235, 0.5);
         }
 
-        .gradient-success {
-            background: linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%);
+        #info-panel {
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 10;
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px 0 0 16px;
+            box-shadow: -10px 0 25px -5px rgba(0, 0, 0, 0.1), -4px 0 10px -3px rgba(0, 0, 0, 0.05);
         }
 
-        .gradient-warning {
-            background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+        .btn-primary {
+            background: var(--primary-gradient);
+            border: none;
+            color: white;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
         }
 
-        .pulse-dot {
-            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        .btn-primary::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: left 0.5s ease;
         }
 
-        @keyframes pulse {
-            0%, 100% {
-                opacity: 1;
-            }
-            50% {
-                opacity: 0.5;
-            }
+        .btn-primary:hover::before {
+            left: 100%;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(102, 126, 234, 0.4);
+        }
+
+        .form-select {
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            transition: all 0.3s ease;
+        }
+
+        .form-select:focus {
+            background: rgba(255, 255, 255, 1);
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .loading-spinner {
+            border: 4px solid #f3f4f6;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .fade-in {
+            animation: fadeIn 0.5s ease-in-out;
         }
 
         @keyframes fadeIn {
-            from {
-                opacity: 0;
-                transform: translateY(10px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        .animate-fade-in {
-            animation: fadeIn 0.3s ease-out;
-        }
-
-        @keyframes slideIn {
-            from {
-                transform: translateX(100%);
-            }
-            to {
-                transform: translateX(0);
-            }
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         .slide-in {
             animation: slideIn 0.3s ease-out;
         }
 
-        #cy {
-            width: 100%;
-            height: 100%;
-            background: rgba(255, 255, 255, 0.05);
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
         }
 
-        .btn {
-            padding: 0.5rem 1rem;
-            border-radius: 0.5rem;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.3s;
-            border: none;
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
+        .network-node {
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 8px;
+            transition: all 0.3s ease;
         }
 
-        .btn-primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
-        }
-
-        .btn-primary:hover {
+        .network-node:hover {
+            background: rgba(255, 255, 255, 1);
             transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         }
 
-        .btn-ghost {
-            background: transparent;
-            color: #4b5563;
+        .pulse-dot {
+            animation: pulse-dot 2s infinite;
         }
 
-        .btn-ghost:hover {
-            background: rgba(255, 255, 255, 0.8);
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
         }
 
-        .btn-icon {
-            width: 2.5rem;
-            height: 2.5rem;
-            padding: 0;
-            justify-content: center;
+        .message-overlay {
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            padding: 24px;
+            margin: 24px;
         }
 
-        .select-wrapper {
-            position: relative;
-            display: inline-block;
+        .vpc-badge {
+            background: var(--success-gradient);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
 
-        select {
-            appearance: none;
-            padding: 0.5rem 2.5rem 0.5rem 1rem;
-            border-radius: 0.5rem;
-            border: 1px solid rgba(0, 0, 0, 0.1);
-            background: white;
-            cursor: pointer;
-            font-size: 0.875rem;
-            transition: all 0.2s;
-        }
-
-        select:focus {
-            outline: none;
-            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
-        }
-
-        .info-panel {
-            position: fixed;
-            top: 0;
-            right: 0;
-            width: 24rem;
-            height: 100vh;
-            background: white;
-            box-shadow: -4px 0 20px rgba(0, 0, 0, 0.1);
-            transform: translateX(100%);
-            transition: transform 0.3s ease-out;
-            z-index: 50;
+        .legend {
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            padding: 16px;
+            margin: 16px;
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            z-index: 5;
+            max-height: 40%;
             overflow-y: auto;
-        }
-
-        .info-panel.open {
-            transform: translateX(0);
         }
 
         .legend-item {
             display: flex;
             align-items: center;
-            gap: 0.75rem;
-            padding: 0.5rem;
-            border-radius: 0.5rem;
-            transition: all 0.2s;
-            cursor: default;
+            margin-bottom: 8px;
+            font-size: 12px;
         }
 
-        .legend-item:hover {
-            background: rgba(102, 126, 234, 0.1);
-        }
-
-        .badge {
-            display: inline-flex;
+        .legend-icon {
+            width: 20px;
+            height: 20px;
+            margin-right: 8px;
+            border-radius: 4px;
+            display: flex;
             align-items: center;
-            padding: 0.25rem 0.75rem;
-            border-radius: 9999px;
-            font-size: 0.75rem;
-            font-weight: 500;
+            justify-content: center;
         }
 
-        .badge-primary {
-            background: rgba(102, 126, 234, 0.1);
-            color: #667eea;
-        }
-
-        .overlay {
+        .toolbar {
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            padding: 12px;
+            margin: 16px;
             position: absolute;
-            inset: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 20;
+            top: 0;
+            left: 0;
+            z-index: 5;
         }
 
-        .spinner {
-            animation: spin 1s linear infinite;
+        .toolbar-button {
+            background: rgba(255, 255, 255, 0.8);
+            border: 1px solid var(--glass-border);
+            border-radius: 8px;
+            padding: 8px 12px;
+            margin: 0 4px;
+            font-size: 12px;
+            transition: all 0.3s ease;
         }
 
-        @keyframes spin {
-            from {
-                transform: rotate(0deg);
-            }
-            to {
-                transform: rotate(360deg);
-            }
-        }
-
-        .hidden {
-            display: none !important;
-        }
-
-        .icon-container {
-            width: 2rem;
-            height: 2rem;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 0.5rem;
+        .toolbar-button:hover {
+            background: rgba(255, 255, 255, 1);
+            transform: translateY(-1px);
         }
     </style>
 </head>
-<body>
-<!-- Header -->
-<header id="header" class="glass-header" style="height: auto; display: flex; align-items: center; justify-content: space-between; padding: 1rem 2rem; gap: 1rem; flex-wrap: wrap;">
-    <div style="display: flex; align-items: center; gap: 1rem;">
-        <div class="gradient-primary" style="width: 2.5rem; height: 2.5rem; border-radius: 0.75rem; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);">
-            <i data-lucide="network" style="color: white; width: 1.25rem; height: 1.25rem;"></i>
-        </div>
-        <div>
-            <h1 style="font-size: 1.25rem; font-weight: bold; color: #1f2937;">Cloudmap</h1>
-            <p style="font-size: 0.875rem; color: #6b7280;">Visualize your cloud infrastructure</p>
-        </div>
-    </div>
-    <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
-        <div style="display: flex; align-items: center; gap: 0.5rem;">
-            <div style="width: 0.5rem; height: 0.5rem; background: #10b981; border-radius: 9999px;" class="pulse-dot"></div>
-            <span style="font-size: 0.875rem; color: #6b7280;">Live topology</span>
-        </div>
-        <div class="glass-card" style="display: flex; align-items: center; gap: 0.75rem; border-radius: 0.75rem; padding: 0.75rem;">
-            <label style="font-size: 0.875rem; font-weight: 600; color: #374151;">VPC:</label>
-            <div class="select-wrapper">
-                <select id="vpc-select" style="width: 250px;">
-                    <option value="">🌐 Global & S3</option>
-                </select>
+<body class="bg-gray-100">
+
+<div class="flex h-screen bg-white">
+    <div data-include-sidebar></div>
+
+    <main class="flex-1 flex flex-col">
+        <header class="header-gradient h-auto flex-col sm:flex-row flex items-center justify-between border-b px-8 py-4 gap-4">
+            <div class="flex items-center space-x-4">
+                <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center">
+                    <i class="fas fa-project-diagram text-white text-lg"></i>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold text-gray-800">Cloudmap</h1>
+                    <p class="text-sm text-gray-600">Visualize your cloud infrastructure</p>
+                </div>
             </div>
-        </div>
-        <button id="export-btn" class="btn btn-primary">
-            <i data-lucide="download" style="width: 1rem; height: 1rem;"></i>
-            Export PNG
-        </button>
-    </div>
-</header>
-
-<!-- Main Content -->
-<div style="position: relative; height: calc(100vh - 80px);">
-    <!-- Graph Toolbar -->
-    <div id="toolbar" class="hidden glass-card animate-fade-in" style="position: absolute; top: 1rem; left: 1rem; z-index: 10; border-radius: 0.75rem; padding: 0.75rem; display: flex; gap: 0.5rem;">
-        <button id="fit-btn" class="btn btn-ghost btn-icon" title="Fit to view">
-            <i data-lucide="maximize-2" style="width: 1rem; height: 1rem;"></i>
-        </button>
-        <button id="center-btn" class="btn btn-ghost btn-icon" title="Center view">
-            <i data-lucide="crosshair" style="width: 1rem; height: 1rem;"></i>
-        </button>
-        <button id="zoom-in-btn" class="btn btn-ghost btn-icon" title="Zoom in">
-            <i data-lucide="zoom-in" style="width: 1rem; height: 1rem;"></i>
-        </button>
-        <button id="zoom-out-btn" class="btn btn-ghost btn-icon" title="Zoom out">
-            <i data-lucide="zoom-out" style="width: 1rem; height: 1rem;"></i>
-        </button>
-    </div>
-
-    <!-- Graph Legend -->
-    <div id="legend" class="hidden glass-card animate-fade-in" style="position: absolute; bottom: 1rem; left: 1rem; z-index: 10; border-radius: 0.75rem; padding: 1rem; max-height: 50vh; overflow-y: auto; width: 16rem;">
-        <h3 style="font-size: 0.875rem; font-weight: 600; color: #374151; margin-bottom: 0.75rem;">Node Types</h3>
-        <div id="legend-items"></div>
-    </div>
-
-    <!-- Message Overlay -->
-    <div id="overlay" class="overlay">
-        <div class="glass-card animate-fade-in" style="text-align: center; padding: 2rem; border-radius: 1rem; max-width: 28rem;">
-            <div id="overlay-icon" class="gradient-primary" style="width: 4rem; height: 4rem; border-radius: 9999px; display: flex; align-items: center; justify-content: center; margin: 0 auto 1rem; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);">
-                <i data-lucide="network" style="color: white; width: 1.75rem; height: 1.75rem;"></i>
-            </div>
-            <h3 id="overlay-title" style="font-size: 1.125rem; font-weight: bold; color: #1f2937; margin-bottom: 0.5rem;">Ready to Visualize</h3>
-            <p id="overlay-message" style="color: #6b7280;">Please select a VPC to begin mapping your infrastructure.</p>
-        </div>
-    </div>
-
-    <!-- Cytoscape Graph -->
-    <div id="cy" class="hidden"></div>
-
-    <!-- Info Panel -->
-    <div id="info-panel" class="info-panel">
-        <div style="padding: 1.5rem;">
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem;">
-                <h2 style="font-size: 1.25rem; font-weight: bold; color: #1f2937;">Node Details</h2>
-                <button id="close-panel-btn" class="btn btn-ghost btn-icon">
-                    <i data-lucide="x" style="width: 1.25rem; height: 1.25rem;"></i>
+            <div class="flex items-center space-x-4">
+                <div class="flex items-center space-x-2">
+                    <div class="w-2 h-2 bg-green-500 rounded-full pulse-dot"></div>
+                    <span class="text-sm text-gray-600">Live topology</span>
+                </div>
+                <div class="flex items-center space-x-3 glass-card rounded-xl p-3">
+                    <label for="vpc-selector" class="text-sm font-semibold text-gray-700">VPC:</label>
+                    <select id="vpc-selector" class="form-select text-sm rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200">
+                        <option value="">Loading VPCs...</option>
+                    </select>
+                </div>
+                <button id="save-btn" class="btn-primary px-4 py-2 text-sm font-semibold rounded-lg shadow-md flex items-center space-x-2">
+                    <i class="fas fa-download"></i>
+                    <span>Export PNG</span>
                 </button>
             </div>
-            <div id="panel-content"></div>
+        </header>
+
+        <div class="flex-1 relative" id="cloudmap-container">
+            <div id="graph-container" class="w-full h-full p-4">
+                <div id="message-overlay" class="absolute inset-0 flex items-center justify-center z-20">
+                    <div class="message-overlay text-center">
+                        <div class="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <i class="fas fa-network-wired text-white text-2xl"></i>
+                        </div>
+                        <h3 class="text-lg font-bold text-gray-800 mb-2">Ready to Visualize</h3>
+                        <p class="text-gray-600">Please select a VPC to begin mapping your infrastructure.</p>
+                    </div>
+                </div>
+
+                <div id="cy" class="rounded-xl"></div>
+
+                <div class="toolbar">
+                    <div class="flex items-center space-x-2">
+                        <button class="toolbar-button" onclick="cy && cy.fit()" title="Fit to view"><i class="fas fa-expand-arrows-alt"></i></button>
+                        <button class="toolbar-button" onclick="cy && cy.center()" title="Center view"><i class="fas fa-crosshairs"></i></button>
+                        <button class="toolbar-button" onclick="cy && cy.zoom(cy.zoom() * 1.2)" title="Zoom in"><i class="fas fa-search-plus"></i></button>
+                        <button class="toolbar-button" onclick="cy && cy.zoom(cy.zoom() * 0.8)" title="Zoom out"><i class="fas fa-search-minus"></i></button>
+                    </div>
+                </div>
+
+                <div id="legend" class="legend">
+                    <h4 class="text-sm font-bold text-gray-800 mb-3">Legend</h4>
+                </div>
+            </div>
+
+            <div id="info-panel" class="absolute top-0 right-0 h-full w-96 p-8 border-l transform translate-x-full overflow-y-auto">
+                <button id="close-panel-btn" class="absolute top-6 right-6 text-gray-400 hover:text-gray-600 transition-colors">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+                <div id="info-content" class="mt-4"></div>
+            </div>
         </div>
-    </div>
+    </main>
 </div>
-
 <script>
-    // Initialize Lucide icons
-    lucide.createIcons();
+    document.addEventListener('DOMContentLoaded', function () {
+        const vpcSelector = document.getElementById('vpc-selector');
+        const messageOverlay = document.getElementById('message-overlay');
+        const infoPanel = document.getElementById('info-panel');
+        const infoContent = document.getElementById('info-content');
+        const closePanelBtn = document.getElementById('close-panel-btn');
+        const saveBtn = document.getElementById('save-btn');
+        const legendContainer = document.getElementById('legend');
+        let selectedAccountId = null;
+        let cy;
 
-    // State
-    let cy = null;
-    let vpcs = [];
-    let selectedVpc = '';
-    let accountId = null;
+        cytoscape.use(cytoscapeDagre);
 
-    // Node type configurations
-    const nodeTypeConfig = {
-        'VPC': { icon: 'network', color: '#667eea', category: 'Network' },
-        'Subnet': { icon: 'box', color: '#60a5fa', category: 'Network' },
-        'EC2 Instance': { icon: 'server', color: '#f59e0b', category: 'Compute' },
-        'RDS Database': { icon: 'database', color: '#10b981', category: 'Database' },
-        'Load Balancer': { icon: 'shuffle', color: '#8b5cf6', category: 'Network' },
-        'S3 Bucket': { icon: 'hard-drive', color: '#ec4899', category: 'Storage' },
-        'Lambda Function': { icon: 'zap', color: '#f97316', category: 'Compute' },
-        'Security Group': { icon: 'shield', color: '#ef4444', category: 'Security' },
-        'Route Table': { icon: 'route', color: '#14b8a6', category: 'Network' },
-        'Internet Gateway': { icon: 'globe', color: '#3b82f6', category: 'Network' },
-        'NAT Gateway': { icon: 'arrow-right-left', color: '#6366f1', category: 'Network' }
-    };
+        // --- START OF FIX: Color Mapping ---
+        const tailwindColors = {
+            green: { 100: '#f0fdf4', 500: '#22c55e', 600: '#16a34a' },
+            blue: { 100: '#eff6ff', 500: '#3b82f6', 600: '#2563eb' },
+            emerald: { 100: '#ecfdf5', 500: '#10b981', 600: '#059669' },
+            yellow: { 100: '#fefce8', 500: '#eab308', 600: '#ca8a04' },
+            cyan: { 100: '#ecfeff', 500: '#06b6d4', 600: '#0891b2' },
+            indigo: { 100: '#eef2ff', 500: '#6366f1', 600: '#4f46e5' },
+            orange: { 100: '#fff7ed', 500: '#f97316', 600: '#ea580c' },
+            amber: { 100: '#fffbeb', 500: '#f59e0b', 600: '#d97706' },
+            rose: { 100: '#fff1f2', 500: '#f43f5e', 600: '#e11d48' },
+            slate: { 100: '#f1f5f9', 500: '#64748b', 600: '#475569' },
+            teal: { 100: '#f0fdfa', 500: '#14b8a6', 600: '#0d9488' },
+            gray: { 100: '#f3f4f6', 500: '#6b7280', 600: '#4b5563' },
+            lime: { 100: '#f7fee7', 500: '#84cc16', 600: '#65a30d' },
+            sky: { 100: '#f0f9ff', 500: '#0ea5e9', 600: '#0284c7' },
+            red: { 100: '#fef2f2', 500: '#ef4444', 600: '#dc2626' },
+            purple: { 100: '#faf5ff', 500: '#a855f7', 600: '#9333ea' },
+            pink: { 100: '#fdf2f8', 500: '#ec4899', 600: '#db2777' },
+            fuchsia: { 100: '#fdf4ff', 500: '#d946ef', 600: '#c026d3' },
+            violet: { 100: '#f5f3ff', 500: '#8b5cf6', 600: '#7c3aed' }
+        };
+        // --- END OF FIX ---
 
-    // DOM Elements
-    const vpcSelect = document.getElementById('vpc-select');
-    const exportBtn = document.getElementById('export-btn');
-    const fitBtn = document.getElementById('fit-btn');
-    const centerBtn = document.getElementById('center-btn');
-    const zoomInBtn = document.getElementById('zoom-in-btn');
-    const zoomOutBtn = document.getElementById('zoom-out-btn');
-    const overlay = document.getElementById('overlay');
-    const overlayIcon = document.getElementById('overlay-icon');
-    const overlayTitle = document.getElementById('overlay-title');
-    const overlayMessage = document.getElementById('overlay-message');
-    const cyContainer = document.getElementById('cy');
-    const toolbar = document.getElementById('toolbar');
-    const legend = document.getElementById('legend');
-    const legendItems = document.getElementById('legend-items');
-    const infoPanel = document.getElementById('info-panel');
-    const panelContent = document.getElementById('panel-content');
-    const closePanelBtn = document.getElementById('close-panel-btn');
+        const icons = {
+            'VPC': '/icons/vpc.png', 'EC2 Instance': '/icons/ec2-instances.png', 'EBS Volume': '/icons/ebs.png', 'RDS Instance': '/icons/rds-instance.png', 'Lambda Function': '/icons/lambda.png', 'Security Group': '/icons/security-group.png', 'Load Balancer': '/icons/load-balancer.png', 'Auto Scaling Group': '/icons/autoscaling.png', 'ElastiCache Cluster': '/icons/elasticache.png', 'DynamoDB Table': '/icons/dynamodb.png', 'ECR Repository': '/icons/ecr.png', 'SNS Topic': '/icons/sns.png', 'SQS Queue': '/icons/sqs.png', 'CloudWatch Log Group': '/icons/cloudwatch.png', 'CloudTrail': '/icons/cloudtrail.png', 'S3 Bucket': '/icons/s3-bucket.png', 'Route 53 Zone': '/icons/route53.png', 'Certificate Manager': '/icons/acm.png', 'EKS Cluster': '/icons/eks.png', 'Lightsail Instance': '/icons/lightsail.png', 'Amplify App': '/icons/amplify.png', 'EFS File System': '/icons/efs.png', 'SSM Managed Instance': '/icons/ssm.png', 'AWS Step Functions': '/icons/step-functions.png', 'AWS Config': '/icons/config.png', 'Security Hub': '/icons/security-hub.png', 'AWS Glue': '/icons/glue.png', 'Amazon Athena': '/icons/athena.png', 'Amazon Cognito': '/icons/cognito.png', 'CloudFront': '/icons/cloudfront.png', 'Bedrock': '/icons/bedrock.png', 'SageMaker': '/icons/sagemaker.png', 'KMS': '/icons/kms.png', 'Pinpoint Application': '/icons/pinpoint.png'
+        };
 
-    // Initialize
-    async function init() {
-        // Get account ID from URL or session storage
-        const urlParams = new URLSearchParams(window.location.search);
-        accountId = urlParams.get('account') || sessionStorage.getItem('selectedAccount');
+        const nodeTypeData = {
+            'VPC': { icon: 'cloud', color: 'green', style: 'solid', category: 'Network' }, 'Availability Zone': { icon: 'layer-group', color: 'blue', style: 'dashed', category: 'Network' }, 'Subnet': { icon: 'network-wired', color: 'emerald', style: 'solid', category: 'Network' }, 'Security Group': { icon: 'shield-alt', color: 'yellow', style: 'solid', category: 'Security' }, 'Internet Gateway': { icon: 'globe', color: 'cyan', style: 'solid', category: 'Network' }, 'NAT Gateway': { icon: 'exchange-alt', color: 'indigo', style: 'solid', category: 'Network' }, 'Route 53 Zone': { icon: 'route', color: 'orange', style: 'solid', category: 'Network' }, 'EC2 Instance': { icon: 'server', color: 'orange', style: 'solid', category: 'Compute' }, 'Lambda Function': { icon: 'bolt', color: 'amber', style: 'solid', category: 'Compute' }, 'Auto Scaling Group': { icon: 'expand-arrows-alt', color: 'rose', style: 'solid', category: 'Compute' }, 'EKS Cluster': { icon: 'cubes', color: 'indigo', style: 'solid', category: 'Compute' }, 'Lightsail Instance': { icon: 'lightbulb', color: 'yellow', style: 'solid', category: 'Compute' }, 'SSM Managed Instance': { icon: 'tasks', color: 'slate', style: 'solid', category: 'Management' }, 'S3 Bucket': { icon: 'archive', color: 'teal', style: 'solid', category: 'Storage' }, 'EBS Volume': { icon: 'compact-disc', color: 'gray', style: 'solid', category: 'Storage' }, 'EFS File System': { icon: 'folder-open', color: 'lime', style: 'solid', category: 'Storage' }, 'RDS Instance': { icon: 'database', color: 'sky', style: 'solid', category: 'Database' }, 'DynamoDB Table': { icon: 'table', color: 'blue', style: 'solid', category: 'Database' }, 'ElastiCache Cluster': { icon: 'memory', color: 'red', style: 'solid', category: 'Database' }, 'Load Balancer': { icon: 'balance-scale', color: 'purple', style: 'solid', category: 'Network' }, 'SNS Topic': { icon: 'bullhorn', color: 'pink', style: 'solid', category: 'Messaging' }, 'SQS Queue': { icon: 'list-ol', color: 'fuchsia', style: 'solid', category: 'Messaging' }, 'Amplify App': { icon: 'mobile-alt', color: 'violet', style: 'solid', category: 'Application' }, 'AWS Step Functions': { icon: 'project-diagram', color: 'purple', style: 'solid', category: 'Application' }, 'Pinpoint Application': { icon: 'map-pin', color: 'red', style: 'solid', category: 'Application' }, 'CloudWatch Log Group': { icon: 'file-alt', color: 'gray', style: 'solid', category: 'Management' }, 'CloudTrail': { icon: 'shoe-prints', color: 'gray', style: 'solid', category: 'Management' }, 'Certificate Manager': { icon: 'certificate', color: 'green', style: 'solid', category: 'Security' }, 'AWS Config': { icon: 'cogs', color: 'slate', style: 'solid', category: 'Management' }, 'Security Hub': { icon: 'shield-virus', color: 'red', style: 'solid', category: 'Security' }, 'KMS': { icon: 'key', color: 'amber', style: 'solid', category: 'Security' }, 'AWS Glue': { icon: 'puzzle-piece', color: 'cyan', style: 'solid', category: 'Analytics' }, 'Amazon Athena': { icon: 'feather-alt', color: 'indigo', style: 'solid', category: 'Analytics' }, 'Bedrock': { icon: 'brain', color: 'violet', style: 'solid', category: 'AI/ML' }, 'SageMaker': { icon: 'flask', color: 'emerald', style: 'solid', category: 'AI/ML' }, 'Amazon Cognito': { icon: 'users-cog', color: 'orange', style: 'solid', category: 'Security' }, 'CloudFront': { icon: 'rocket', color: 'blue', style: 'solid', category: 'Network' }, 'ECR Repository': { icon: 'box', color: 'slate', style: 'solid', category: 'Storage' }
+        };
 
-        if (!accountId) {
-            showOverlay('no-account', 'Account Required', 'Please select an account to begin mapping your infrastructure.');
-            return;
-        }
-
-        sessionStorage.setItem('selectedAccount', accountId);
-        await loadVpcs();
-        renderLegend();
-    }
-
-    // Load VPCs
-    async function loadVpcs() {
-        try {
-            showOverlay('loading', 'Loading VPCs', 'Fetching your VPC list...');
-            const response = await fetch(`https://b5tq7xsrwv7hyvbmnzylz3jhmi0rvvvc.lambda-url.us-east-1.on.aws/?account=${accountId}`);
-
-            if (!response.ok) throw new Error('Failed to load VPCs');
-
-            const data = await response.json();
-            vpcs = data.vpcs || [];
-
-            // Populate VPC select
-            vpcSelect.innerHTML = '<option value="">🌐 Global & S3</option>';
-            vpcs.forEach(vpc => {
-                const option = document.createElement('option');
-                option.value = `${vpc.id}|${vpc.region}`;
-                option.textContent = `${vpc.name} (${vpc.id} - ${vpc.region})`;
-                vpcSelect.appendChild(option);
-            });
-
-            showOverlay('ready', 'Ready to Visualize', 'Please select a VPC to begin mapping your infrastructure.');
-        } catch (error) {
-            console.error('Error loading VPCs:', error);
-            showOverlay('error', 'Load Error', 'Could not load VPC data. Please try again.');
-        }
-    }
-
-    // Load graph for VPC
-    async function loadGraph(vpcValue) {
-        try {
-            showOverlay('loading', 'Loading Infrastructure', 'Analyzing your cloud topology...');
-
-            let url = `https://b5tq7xsrwv7hyvbmnzylz3jhmi0rvvvc.lambda-url.us-east-1.on.aws/?account=${accountId}`;
-
-            if (vpcValue) {
-                const [vpcId, region] = vpcValue.split('|');
-                url += `&vpc=${vpcId}&region=${region}`;
-            }
-
-            const response = await fetch(url);
-            if (!response.ok) throw new Error('Failed to load graph');
-
-            const data = await response.json();
-            renderGraph(data);
-            hideOverlay();
-        } catch (error) {
-            console.error('Error loading graph:', error);
-            showOverlay('error', 'Load Error', 'Could not load graph data. Please try again.');
-        }
-    }
-
-    // Render graph
-    function renderGraph(data) {
-        const elements = [];
-
-        // Add nodes
-        if (data.nodes) {
-            data.nodes.forEach(node => {
-                const config = nodeTypeConfig[node.type] || { icon: 'circle', color: '#6b7280' };
-                elements.push({
-                    data: {
-                        id: node.id,
-                        label: node.label,
-                        type: node.type,
-                        ...node.attributes,
-                        color: config.color
-                    }
-                });
-            });
-        }
-
-        // Add edges
-        if (data.edges) {
-            data.edges.forEach(edge => {
-                elements.push({
-                    data: {
-                        id: `${edge.source}-${edge.target}`,
-                        source: edge.source,
-                        target: edge.target,
-                        label: edge.label || ''
-                    }
-                });
-            });
-        }
-
-        // Initialize Cytoscape
-        if (cy) {
-            cy.destroy();
-        }
-
-        cy = cytoscape({
-            container: cyContainer,
-            elements: elements,
-            style: [
+        function renderGraph(graphData) {
+            const style = [
                 {
                     selector: 'node',
-                    style: {
-                        'background-color': 'data(color)',
-                        'label': 'data(label)',
-                        'color': '#1f2937',
-                        'font-size': '12px',
-                        'text-valign': 'bottom',
-                        'text-margin-y': 5,
-                        'width': 50,
-                        'height': 50,
-                        'border-width': 2,
-                        'border-color': '#ffffff',
-                        'box-shadow': '0 4px 15px rgba(0, 0, 0, 0.2)'
-                    }
+                    style: { 'shape': 'rectangle', 'label': 'data(label)', 'font-size': '11px', 'font-weight': '600', 'text-valign': 'bottom', 'text-halign': 'center', 'color': '#374151', 'text-margin-y': 8, 'width': 60, 'height': 60, 'background-opacity': 0, 'background-image': (node) => icons[node.data('type')] || '/icons/default.png', 'background-fit': 'contain', 'background-clip': 'none', 'border-width': 2, 'border-color': '#e5e7eb', 'border-opacity': 0.8 }
                 },
+                {
+                    selector: 'node:selected', // Corrected selector
+                    style: { 'border-color': '#667eea', 'border-width': 4 }
+                },
+                // --- ARROW STYLE FIX ---
                 {
                     selector: 'edge',
                     style: {
-                        'width': 2,
-                        'line-color': '#cbd5e1',
-                        'target-arrow-color': '#cbd5e1',
-                        'target-arrow-shape': 'triangle',
-                        'curve-style': 'bezier',
-                        'label': 'data(label)',
-                        'font-size': '10px',
-                        'color': '#6b7280',
-                        'text-background-color': '#ffffff',
-                        'text-background-opacity': 0.8,
-                        'text-background-padding': '3px'
+                        'width': 2, 'line-color': '#9ca3af', 'target-arrow-color': '#9ca3af', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', 'opacity': 0.8, 'label': 'data(label)', 'font-size': '9px', 'color': '#555', 'text-rotation': 'autorotate'
+                    }
+                },
+                // ---------------------
+                {
+                    selector: ':parent',
+                    style: {
+                        'text-valign': 'top', 'text-halign': 'center', 'font-weight': 'bold', 'color': '#1f2937', 'font-size': '16px', 'background-opacity': 1, 'background-image': 'none', 'padding': '20px'
                     }
                 }
-            ],
-            layout: {
-                name: 'dagre',
-                rankDir: 'TB',
-                nodeSep: 100,
-                rankSep: 150,
-                padding: 50
+            ];
+
+            // --- COLOR STYLING FIX ---
+            for (const [type, data] of Object.entries(nodeTypeData)) {
+                 style.push({
+                    selector: `node[type="${type}"]`,
+                    style: {
+                        'background-color': tailwindColors[data.color]?.[100] || '#f3f4f6',
+                        'border-color': tailwindColors[data.color]?.[500] || '#6b7280',
+                        'border-style': data.style || 'solid'
+                    }
+                });
             }
-        });
+            // -------------------------
 
-        // Event handlers
-        cy.on('tap', 'node', (event) => {
-            const nodeData = event.target.data();
-            showNodeInfo(nodeData);
-        });
 
-        cy.on('tap', (event) => {
-            if (event.target === cy) {
-                closePanel();
-            }
-        });
+            cy = cytoscape({
+                container: document.getElementById('cy'),
+                elements: graphData,
+                layout: { name: 'dagre', nodeSep: 80, edgeSep: 20, rankSep: 100, rankDir: 'TB', align: 'UL', spacingFactor: 1.5 },
+                style: style
+            });
 
-        cyContainer.classList.remove('hidden');
-        toolbar.classList.remove('hidden');
-        legend.classList.remove('hidden');
-    }
+            cy.on('tap', 'node', evt => displayNodeInfo(evt.target.data()));
+            cy.on('tap', evt => { if (evt.target === cy) infoPanel.classList.add('translate-x-full'); });
 
-    // Show node info
-    function showNodeInfo(nodeData) {
-        const config = nodeTypeConfig[nodeData.type] || { icon: 'circle', color: '#6b7280' };
+            cy.fit();
+        }
 
-        let html = `
-            <div style="margin-bottom: 1.5rem;">
-                <div class="icon-container gradient-primary" style="margin-bottom: 1rem;">
-                    <i data-lucide="${config.icon}" style="color: white; width: 1.25rem; height: 1.25rem;"></i>
-                </div>
-                <h3 style="font-size: 1.125rem; font-weight: bold; color: #1f2937; margin-bottom: 0.5rem;">${nodeData.label}</h3>
-                <span class="badge badge-primary">${nodeData.type}</span>
-            </div>
-            <div style="margin-bottom: 1rem;">
-                <p style="font-size: 0.75rem; font-weight: 600; color: #6b7280; text-transform: uppercase; margin-bottom: 0.25rem;">ID</p>
-                <p style="color: #1f2937; font-family: monospace; font-size: 0.875rem;">${nodeData.id}</p>
-            </div>
-        `;
-
-        // Add attributes
-        const excludeKeys = ['id', 'label', 'type', 'color'];
-        const attributes = Object.keys(nodeData).filter(key => !excludeKeys.includes(key));
-
-        if (attributes.length > 0) {
-            html += '<div style="border-top: 1px solid #e5e7eb; padding-top: 1rem;"><h4 style="font-size: 0.875rem; font-weight: 600; color: #1f2937; margin-bottom: 0.75rem;">Attributes</h4>';
-
-            attributes.forEach(key => {
-                const value = nodeData[key];
-                if (value !== undefined && value !== null) {
-                    html += `
-                        <div style="margin-bottom: 0.75rem;">
-                            <p style="font-size: 0.75rem; font-weight: 600; color: #6b7280; text-transform: uppercase; margin-bottom: 0.25rem;">${key}</p>
-                            <p style="color: #1f2937; font-size: 0.875rem;">${value}</p>
-                        </div>
-                    `;
+        function populateLegend() {
+            const categories = [...new Set(Object.values(nodeTypeData).map(d => d.category))];
+            let legendHtml = '<h4 class="text-sm font-bold text-gray-800 mb-3">Legend</h4>';
+            categories.sort().forEach(category => {
+                legendHtml += `<h5 class="text-xs font-semibold text-gray-600 mt-3 mb-1">${category}</h5>`;
+                for (const [type, data] of Object.entries(nodeTypeData)) {
+                    if (data.category === category) {
+                         const bgColor = tailwindColors[data.color]?.[100] || '#f3f4f6';
+                         const borderColor = tailwindColors[data.color]?.[500] || '#6b7280';
+                         const iconColor = tailwindColors[data.color]?.[600] || '#4b5563';
+                        legendHtml += `
+                            <div class="legend-item">
+                                <div class="legend-icon" style="background-color:${bgColor}; border: 1px solid ${borderColor};">
+                                    <i class="fas fa-${data.icon} text-xs" style="color: ${iconColor};"></i>
+                                </div>
+                                <span class="text-gray-700">${type}</span>
+                            </div>
+                        `;
+                    }
                 }
             });
-
-            html += '</div>';
+            legendContainer.innerHTML = legendHtml;
         }
 
-        panelContent.innerHTML = html;
-        infoPanel.classList.add('open');
-        lucide.createIcons();
-    }
+        closePanelBtn.addEventListener('click', () => infoPanel.classList.add('translate-x-full'));
+        vpcSelector.addEventListener('change', () => loadGraphForVpc(vpcSelector.value));
 
-    // Close panel
-    function closePanel() {
-        infoPanel.classList.remove('open');
-    }
-
-    // Render legend
-    function renderLegend() {
-        const categories = {};
-
-        Object.entries(nodeTypeConfig).forEach(([type, config]) => {
-            if (!categories[config.category]) {
-                categories[config.category] = [];
+        saveBtn.addEventListener('click', () => {
+            if(cy) {
+                const png64 = cy.png({ output: 'base64uri', bg: '#f8fafc', full: true, scale: 2 });
+                const link = document.createElement('a');
+                link.download = `cloudmap-${vpcSelector.value || 'global'}-${new Date().toISOString().split('T')[0]}.png`;
+                link.href = png64;
+                link.click();
             }
-            categories[config.category].push({ type, ...config });
         });
 
-        let html = '';
-        Object.entries(categories).forEach(([category, items]) => {
-            html += `<div style="margin-bottom: 1rem;">`;
-            html += `<p style="font-size: 0.75rem; font-weight: 600; color: #6b7280; text-transform: uppercase; margin-bottom: 0.5rem;">${category}</p>`;
-
-            items.forEach(item => {
-                html += `
-                    <div class="legend-item">
-                        <div class="icon-container" style="background: ${item.color};">
-                            <i data-lucide="${item.icon}" style="color: white; width: 1rem; height: 1rem;"></i>
-                        </div>
-                        <span style="font-size: 0.875rem; color: #374151;">${item.type}</span>
-                    </div>
-                `;
-            });
-
-            html += '</div>';
-        });
-
-        legendItems.innerHTML = html;
-        lucide.createIcons();
-    }
-
-    // Show/hide overlay
-    function showOverlay(type, title, message) {
-        const configs = {
-            'ready': { icon: 'network', gradient: 'gradient-primary', spin: false },
-            'loading': { icon: 'loader-2', gradient: 'gradient-primary', spin: true },
-            'error': { icon: 'alert-triangle', gradient: 'from-red-500 to-pink-600', spin: false },
-            'no-account': { icon: 'alert-triangle', gradient: 'from-red-500 to-pink-600', spin: false }
-        };
-
-        const config = configs[type];
-        overlayIcon.className = config.gradient;
-        overlayIcon.style.width = '4rem';
-        overlayIcon.style.height = '4rem';
-        overlayIcon.style.borderRadius = '9999px';
-        overlayIcon.style.display = 'flex';
-        overlayIcon.style.alignItems = 'center';
-        overlayIcon.style.justifyContent = 'center';
-        overlayIcon.style.margin = '0 auto 1rem';
-        overlayIcon.style.boxShadow = '0 4px 15px rgba(102, 126, 234, 0.4)';
-
-        overlayIcon.innerHTML = `<i data-lucide="${config.icon}" style="color: white; width: 1.75rem; height: 1.75rem;" class="${config.spin ? 'spinner' : ''}"></i>`;
-        overlayTitle.textContent = title;
-        overlayMessage.textContent = message;
-
-        overlay.classList.remove('hidden');
-        cyContainer.classList.add('hidden');
-        toolbar.classList.add('hidden');
-        legend.classList.add('hidden');
-
-        lucide.createIcons();
-    }
-
-    function hideOverlay() {
-        overlay.classList.add('hidden');
-    }
-
-    // Event listeners
-    vpcSelect.addEventListener('change', (e) => {
-        selectedVpc = e.target.value;
-        loadGraph(selectedVpc);
-    });
-
-    exportBtn.addEventListener('click', () => {
-        if (cy) {
-            const png = cy.png({ full: true, scale: 2 });
-            const link = document.createElement('a');
-            link.href = png;
-            link.download = `cloudmap-${selectedVpc || 'global'}-${Date.now()}.png`;
-            link.click();
+        function initialize() {
+            populateLegend();
+            const urlParams = new URLSearchParams(window.location.search);
+            selectedAccountId = urlParams.get('accountIds');
+            if (!selectedAccountId) {
+                const storedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                if (storedIds.length > 0) { selectedAccountId = storedIds.join(','); }
+            }
+            if (!selectedAccountId) {
+                vpcSelector.innerHTML = '<option value="">Please select an account</option>';
+                return;
+            }
+            vpcSelector.innerHTML = '<option value="">Loading VPCs...</option>';
+            fetch(`/api/xamops/cloudmap/vpcs?accountId=${selectedAccountId}`)
+                .then(response => {
+                    if (!response.ok) throw new Error('Bad Request');
+                    return response.json();
+                })
+                .then(vpcs => {
+                    vpcSelector.innerHTML = '<option value="">🌐 Global & S3</option>';
+                    if (Array.isArray(vpcs)) {
+                        vpcs.forEach(vpc => {
+                            const option = document.createElement('option');
+                            option.value = `${vpc.id}|${vpc.region}`;
+                            option.textContent = `${vpc.name} (${vpc.id} - ${vpc.region})`;
+                            vpcSelector.appendChild(option);
+                        });
+                    } else { console.error('Expected an array of VPCs, but received:', vpcs); }
+                    loadGraphForVpc("");
+                })
+                .catch(error => {
+                    console.error('Error fetching VPCs:', error);
+                    vpcSelector.innerHTML = '<option value="">❌ Error loading VPCs</option>';
+                });
         }
+
+        function loadGraphForVpc(vpcSelectorValue) {
+            if (cy) cy.destroy();
+            infoPanel.classList.add('translate-x-full');
+            if (!selectedAccountId) {
+                messageOverlay.innerHTML = `<div class="message-overlay text-center"><div class="w-16 h-16 bg-gradient-to-br from-red-500 to-pink-600 rounded-full flex items-center justify-center mx-auto mb-4"><i class="fas fa-exclamation-triangle text-white text-2xl"></i></div><h3 class="text-lg font-bold text-gray-800 mb-2">Account Required</h3><p class="text-gray-600">Please select an account to begin mapping.</p></div>`;
+                return;
+            }
+            const [vpcId, region] = (vpcSelectorValue || '|').split('|');
+            const url = `/api/xamops/cloudmap/graph?accountId=${selectedAccountId}&vpcId=${vpcId || ''}&region=${region || ''}`;
+            messageOverlay.innerHTML = `<div class="message-overlay text-center"><div class="loading-spinner mx-auto mb-4"></div><h3 class="text-lg font-bold text-gray-800 mb-2">Loading Infrastructure</h3><p class="text-gray-600">Analyzing your cloud topology...</p></div>`;
+            messageOverlay.style.display = 'flex';
+            fetch(url)
+                .then(response => response.json())
+                .then(data => {
+                    messageOverlay.style.display = 'none';
+                    renderGraph(data);
+                })
+                .catch(error => {
+                    console.error('Error fetching graph data:', error);
+                    messageOverlay.innerHTML = `<div class="message-overlay text-center"><div class="w-16 h-16 bg-gradient-to-br from-red-500 to-pink-600 rounded-full flex items-center justify-center mx-auto mb-4"><i class="fas fa-exclamation-triangle text-white text-2xl"></i></div><h3 class="text-lg font-bold text-gray-800 mb-2">Load Error</h3><p class="text-gray-600">Could not load graph data. Please try again.</p></div>`;
+                });
+        }
+
+        function displayNodeInfo(data) {
+            const typeInfo = nodeTypeData[data.type] || { icon: 'cube', color: 'gray' };
+            const nodeTypeColors = { 'VPC': 'from-green-500 to-emerald-600', 'EC2 Instance': 'from-orange-500 to-red-600', 'RDS Instance': 'from-blue-500 to-indigo-600', 'Load Balancer': 'from-purple-500 to-pink-600', 'S3 Bucket': 'from-green-500 to-teal-600', 'Security Group': 'from-yellow-500 to-orange-600', 'Internet Gateway': 'from-blue-500 to-cyan-600', 'NAT Gateway': 'from-indigo-500 to-purple-600', 'Auto Scaling Group': 'from-pink-500 to-rose-600', 'Pinpoint Application': 'from-red-500 to-pink-700', };
+            const gradientClass = nodeTypeColors[data.type] || 'from-gray-500 to-gray-600';
+            let contentHtml = `<div class="slide-in"><div class="w-12 h-12 bg-gradient-to-br ${gradientClass} rounded-xl flex items-center justify-center mb-4"><i class="fas fa-${typeInfo.icon} text-white text-lg"></i></div><h2 class="text-2xl font-bold text-gray-800 mb-2">${data.label}</h2><div class="vpc-badge mb-4">${data.type}</div><p class="text-sm text-gray-500 font-mono mb-6 bg-gray-50 p-2 rounded">${data.id}</p><div class="space-y-3">`;
+            const internalKeys = ['id', 'label', 'parent', 'type', 'source', 'target'];
+            for (const [key, value] of Object.entries(data)) {
+                if (!internalKeys.includes(key) && value) {
+                    contentHtml += `<div class="network-node"><div class="flex justify-between items-center"><span class="font-semibold text-gray-700">${key.replace(/([A-Z])/g, ' $1').trim()}</span><span class="font-mono text-gray-900 text-sm">${value}</span></div></div>`;
+                }
+            }
+            contentHtml += `</div></div>`;
+            infoContent.innerHTML = contentHtml;
+            infoPanel.classList.remove('translate-x-full');
+        }
+
+        initialize();
     });
-
-    fitBtn.addEventListener('click', () => {
-        if (cy) cy.fit();
-    });
-
-    centerBtn.addEventListener('click', () => {
-        if (cy) cy.center();
-    });
-
-    zoomInBtn.addEventListener('click', () => {
-        if (cy) cy.zoom(cy.zoom() * 1.2);
-    });
-
-    zoomOutBtn.addEventListener('click', () => {
-        if (cy) cy.zoom(cy.zoom() * 0.8);
-    });
-
-    closePanelBtn.addEventListener('click', closePanel);
-
-    // Initialize app
-    init();
 </script>
+
 </body>
 </html>
