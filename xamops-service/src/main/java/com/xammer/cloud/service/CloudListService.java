@@ -1006,18 +1006,24 @@ public class CloudListService {
 
     private CompletableFuture<List<ResourceDto>> fetchControlTowerControlsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
-            ControlTowerClient ctClient = awsClientProvider.getControlTowerClient(account, regionId);
-            return ctClient.listEnabledControls(ListEnabledControlsRequest.builder().build()).enabledControls().stream()
-                    .map(control -> new ResourceDto(
-                            control.controlIdentifier(),
-                            control.controlIdentifier(),
-                            "Control Tower Control",
-                            regionId, // Control Tower is regional
-                            "Enabled",
-                            null,
-                            Collections.emptyMap()
-                    ))
-                    .collect(Collectors.toList());
+            try {
+                ControlTowerClient ctClient = awsClientProvider.getControlTowerClient(account, regionId);
+                return ctClient.listEnabledControls(ListEnabledControlsRequest.builder().build()).enabledControls().stream()
+                        .map(control -> new ResourceDto(
+                                control.controlIdentifier(),
+                                control.controlIdentifier(),
+                                "Control Tower Control",
+                                regionId,
+                                "Enabled",
+                                null,
+                                Collections.emptyMap()
+                        ))
+                        .collect(Collectors.toList());
+            } catch (software.amazon.awssdk.services.controltower.model.AccessDeniedException e) {
+                // FIX: Gracefully handle when IAM permissions are missing
+                logger.warn("Could not fetch Control Tower controls in region {}: {}", regionId, e.getMessage());
+                return Collections.emptyList();
+            }
         }, "Control Tower Controls");
     }
 
@@ -1043,6 +1049,7 @@ public class CloudListService {
 //        });
 //    }
 
+
     private CompletableFuture<List<ResourceDto>> fetchShieldProtectionsForCloudlist(CloudAccount account) {
         return CompletableFuture.supplyAsync(() -> {
             try {
@@ -1058,6 +1065,10 @@ public class CloudListService {
                                 Map.of("Resource ARN", protection.resourceArn())
                         ))
                         .collect(Collectors.toList());
+            } catch (software.amazon.awssdk.services.shield.model.ResourceNotFoundException e) {
+                // FIX: Gracefully handle when AWS Shield Advanced is not subscribed
+                logger.warn("Could not fetch Shield protections for account {}: {}", account.getAwsAccountId(), e.getMessage());
+                return Collections.emptyList();
             } catch (Exception e) {
                 logger.error("Could not fetch Shield protections for account {}.", account.getAwsAccountId(), e);
                 return Collections.emptyList();
