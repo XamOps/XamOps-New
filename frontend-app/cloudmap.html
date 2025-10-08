@@ -238,7 +238,7 @@
         }
 
         .toolbar-button:hover {
-            background: rgba(255, 255, 255, 1);
+            background: rgba(255, 255, 1);
             transform: translateY(-1px);
         }
     </style>
@@ -353,11 +353,52 @@
         // --- END OF FIX ---
 
         const icons = {
-            'VPC': '/icons/vpc.png', 'EC2 Instance': '/icons/ec2-instances.png', 'EBS Volume': '/icons/ebs.png', 'RDS Instance': '/icons/rds-instance.png', 'Lambda Function': '/icons/lambda.png', 'Security Group': '/icons/security-group.png', 'Load Balancer': '/icons/load-balanceraws.png', 'Auto Scaling Group': '/icons/autoscaling.png', 'ElastiCache Cluster': '/icons/elasticache.png', 'DynamoDB Table': '/icons/dynamodb.png', 'ECR Repository': '/icons/ecr.png', 'SNS Topic': '/icons/sns.png', 'SQS Queue': '/icons/sqs.png', 'CloudWatch Log Group': '/icons/cloudwatch.png', 'CloudTrail': '/icons/cloudtrail.png', 'S3 Bucket': '/icons/s3-bucket.png', 'Route 53 Zone': '/icons/route53.png', 'Certificate Manager': '/icons/acm.png', 'EKS Cluster': '/icons/eks.png', 'Lightsail Instance': '/icons/lightsail.png', 'Amplify App': '/icons/amplify.png', 'EFS File System': '/icons/efs.png', 'SSM Managed Instance': '/icons/ssm.png', 'AWS Step Functions': '/icons/step-functions.png', 'AWS Config': '/icons/config.png', 'Security Hub': '/icons/security-hub.png', 'AWS Glue': '/icons/glue.png', 'Amazon Athena': '/icons/athena.png', 'Amazon Cognito': '/icons/cognito.png', 'CloudFront': '/icons/cloudfront.png', 'Bedrock': '/icons/bedrock.png', 'SageMaker': '/icons/sagemaker.png', 'KMS': '/icons/kms.png', 'Internet Gateway': '/icons/internet-gateway.png', 'NAT Gateway': '/icons/nat-gateway.png','Network Interface (ENI)':'/icons/eni.png','Elastic IP':'/icons/elastic-ip.png'
+            'VPC': '/icons/vpc.png', 'EC2 Instance': '/icons/ec2-instances.png', 'EBS Volume': '/icons/ebs.png',
+            'RDS Instance': '/icons/rds-instance.png', 'Lambda Function': '/icons/lambda.png', 'Security Group': '/icons/security-group.png',
+            'Load Balancer': '/icons/load-balanceraws.png', 'Auto Scaling Group': '/icons/autoscaling.png',
+            'ElastiCache Cluster': '/icons/elasticache.png', 'DynamoDB Table': '/icons/dynamodb.png', 'ECR Repository': '/icons/ecr.png',
+            'SNS Topic': '/icons/sns.png', 'SQS Queue': '/icons/sqs.png', 'CloudWatch Log Group': '/icons/cloudwatch.png',
+            'CloudTrail': '/icons/cloudtrail.png', 'S3 Bucket': '/icons/s3-bucket.png', 'Route 53 Zone': '/icons/route53.png',
+            'Certificate Manager': '/icons/acm.png', 'EKS Cluster': '/icons/eks.png', 'Lightsail Instance': '/icons/lightsail.png',
+            'Amplify App': '/icons/amplify.png', 'EFS File System': '/icons/efs.png', 'SSM Managed Instance': '/icons/ssm.png',
+            'AWS Step Functions': '/icons/step-functions.png', 'AWS Config': '/icons/config.png', 'Security Hub': '/icons/security-hub.png',
+            'AWS Glue': '/icons/glue.png', 'Amazon Athena': '/icons/athena.png', 'Amazon Cognito': '/icons/cognito.png',
+            'CloudFront': '/icons/cloudfront.png', 'Bedrock': '/icons/bedrock.png', 'SageMaker': '/icons/sagemaker.png',
+            'KMS': '/icons/kms.png', 'Internet Gateway': '/icons/internet-gateway.png', 'NAT Gateway': '/icons/nat-gateway.png',
+            'Network Interface (ENI)':'/icons/eni.png',
+            'Elastic IP':'/icons/elastic-ip.png',
+            // ** ADDED ICONS **
+            'CloudFormation Stack': '/icons/cloudformation.png',
+            'DataZone Domain': '/icons/datazone.png',
+            'Textract Project': '/icons/textract.png',
+            'EventBridge Bus': '/icons/eventbridge.png',
+            'Kinesis Stream': '/icons/kinesis.png',
+            'CodePipeline': '/icons/codepipeline.png',
+            'CodeBuild Project': '/icons/codebuild.png',
+            'CodeCommit Repository': '/icons/codecommit.png',
+            'AWS Shield Protection': '/icons/shield.png',
+            'Organization Account': '/icons/organizations.png',
+            'Control Tower Control': '/icons/controltower.png',
+            'Elastic Beanstalk Environment': '/icons/elasticbeanstalk.png',
+            'API Gateway': '/icons/api-gateway.png'
         };
 
         const nodeTypeData = {
-            'VPC': { icon: 'cloud', color: 'green', style: 'solid', category: 'Network' }, 'Availability Zone': { icon: 'layer-group', color: 'blue', style: 'dashed', category: 'Network' }, 'Subnet': { icon: 'network-wired', color: 'emerald', style: 'solid', category: 'Network' }, 'Security Group': { icon: 'shield-alt', color: 'yellow', style: 'solid', category: 'Security' }, 'Internet Gateway': { icon: 'globe', color: 'cyan', style: 'solid', category: 'Network' }, 'NAT Gateway': { icon: 'exchange-alt', color: 'indigo', style: 'solid', category: 'Network' }, 'Route 53 Zone': { icon: 'route', color: 'orange', style: 'solid', category: 'Network' }, 'EC2 Instance': { icon: 'server', color: 'orange', style: 'solid', category: 'Compute' }, 'Lambda Function': { icon: 'bolt', color: 'amber', style: 'solid', category: 'Compute' }, 'Auto Scaling Group': { icon: 'expand-arrows-alt', color: 'rose', style: 'solid', category: 'Compute' }, 'EKS Cluster': { icon: 'cubes', color: 'indigo', style: 'solid', category: 'Compute' }, 'Lightsail Instance': { icon: 'lightbulb', color: 'yellow', style: 'solid', category: 'Compute' }, 'SSM Managed Instance': { icon: 'tasks', color: 'slate', style: 'solid', category: 'Management' }, 'S3 Bucket': { icon: 'archive', color: 'teal', style: 'solid', category: 'Storage' }, 'EBS Volume': { icon: 'compact-disc', color: 'gray', style: 'solid', category: 'Storage' }, 'EFS File System': { icon: 'folder-open', color: 'lime', style: 'solid', category: 'Storage' }, 'RDS Instance': { icon: 'database', color: 'sky', style: 'solid', category: 'Database' }, 'DynamoDB Table': { icon: 'table', color: 'blue', style: 'solid', category: 'Database' }, 'ElastiCache Cluster': { icon: 'memory', color: 'red', style: 'solid', category: 'Database' }, 'Load Balancer': { icon: 'balance-scale', color: 'purple', style: 'solid', category: 'Network' }, 'SNS Topic': { icon: 'bullhorn', color: 'pink', style: 'solid', category: 'Messaging' }, 'SQS Queue': { icon: 'list-ol', color: 'fuchsia', style: 'solid', category: 'Messaging' }, 'Amplify App': { icon: 'mobile-alt', color: 'violet', style: 'solid', category: 'Application' }, 'AWS Step Functions': { icon: 'project-diagram', color: 'purple', style: 'solid', category: 'Application' }, 'Pinpoint Application': { icon: 'map-pin', color: 'red', style: 'solid', category: 'Application' }, 'CloudWatch Log Group': { icon: 'file-alt', color: 'gray', style: 'solid', category: 'Management' }, 'CloudTrail': { icon: 'shoe-prints', color: 'gray', style: 'solid', category: 'Management' }, 'Certificate Manager': { icon: 'certificate', color: 'green', style: 'solid', category: 'Security' }, 'AWS Config': { icon: 'cogs', color: 'slate', style: 'solid', category: 'Management' }, 'Security Hub': { icon: 'shield-virus', color: 'red', style: 'solid', category: 'Security' }, 'KMS': { icon: 'key', color: 'amber', style: 'solid', category: 'Security' }, 'AWS Glue': { icon: 'puzzle-piece', color: 'cyan', style: 'solid', category: 'Analytics' }, 'Amazon Athena': { icon: 'feather-alt', color: 'indigo', style: 'solid', category: 'Analytics' }, 'Bedrock': { icon: 'brain', color: 'violet', style: 'solid', category: 'AI/ML' }, 'SageMaker': { icon: 'flask', color: 'emerald', style: 'solid', category: 'AI/ML' }, 'Amazon Cognito': { icon: 'users-cog', color: 'orange', style: 'solid', category: 'Security' }, 'CloudFront': { icon: 'rocket', color: 'blue', style: 'solid', category: 'Network' }, 'ECR Repository': { icon: 'box', color: 'slate', style: 'solid', category: 'Storage' }
+            'VPC': { icon: 'cloud', color: 'green', style: 'solid', category: 'Network' }, 'Availability Zone': { icon: 'layer-group', color: 'blue', style: 'dashed', category: 'Network' }, 'Subnet': { icon: 'network-wired', color: 'emerald', style: 'solid', category: 'Network' }, 'Security Group': { icon: 'shield-alt', color: 'yellow', style: 'solid', category: 'Security' }, 'Internet Gateway': { icon: 'globe', color: 'cyan', style: 'solid', category: 'Network' }, 'NAT Gateway': { icon: 'exchange-alt', color: 'indigo', style: 'solid', category: 'Network' }, 'Route 53 Zone': { icon: 'route', color: 'orange', style: 'solid', category: 'Network' }, 'EC2 Instance': { icon: 'server', color: 'orange', style: 'solid', category: 'Compute' }, 'Lambda Function': { icon: 'bolt', color: 'amber', style: 'solid', category: 'Compute' }, 'Auto Scaling Group': { icon: 'expand-arrows-alt', color: 'rose', style: 'solid', category: 'Compute' }, 'EKS Cluster': { icon: 'cubes', color: 'indigo', style: 'solid', category: 'Compute' }, 'Lightsail Instance': { icon: 'lightbulb', color: 'yellow', style: 'solid', category: 'Compute' }, 'SSM Managed Instance': { icon: 'tasks', color: 'slate', style: 'solid', category: 'Management' }, 'S3 Bucket': { icon: 'archive', color: 'teal', style: 'solid', category: 'Storage' }, 'EBS Volume': { icon: 'compact-disc', color: 'gray', style: 'solid', category: 'Storage' }, 'EFS File System': { icon: 'folder-open', color: 'lime', style: 'solid', category: 'Storage' }, 'RDS Instance': { icon: 'database', color: 'sky', style: 'solid', category: 'Database' }, 'DynamoDB Table': { icon: 'table', color: 'blue', style: 'solid', category: 'Database' }, 'ElastiCache Cluster': { icon: 'memory', color: 'red', style: 'solid', category: 'Database' }, 'Load Balancer': { icon: 'balance-scale', color: 'purple', style: 'solid', category: 'Network' }, 'SNS Topic': { icon: 'bullhorn', color: 'pink', style: 'solid', category: 'Messaging' }, 'SQS Queue': { icon: 'list-ol', color: 'fuchsia', style: 'solid', category: 'Messaging' }, 'Amplify App': { icon: 'mobile-alt', color: 'violet', style: 'solid', category: 'Application' }, 'AWS Step Functions': { icon: 'project-diagram', color: 'purple', style: 'solid', category: 'Application' }, 'Pinpoint Application': { icon: 'map-pin', color: 'red', style: 'solid', category: 'Application' }, 'CloudWatch Log Group': { icon: 'file-alt', color: 'gray', style: 'solid', category: 'Management' }, 'CloudTrail': { icon: 'shoe-prints', color: 'gray', style: 'solid', category: 'Management' }, 'Certificate Manager': { icon: 'certificate', color: 'green', style: 'solid', category: 'Security' }, 'AWS Config': { icon: 'cogs', color: 'slate', style: 'solid', category: 'Management' }, 'Security Hub': { icon: 'shield-virus', color: 'red', style: 'solid', category: 'Security' }, 'KMS': { icon: 'key', color: 'amber', style: 'solid', category: 'Security' }, 'AWS Glue': { icon: 'puzzle-piece', color: 'cyan', style: 'solid', category: 'Analytics' }, 'Amazon Athena': { icon: 'feather-alt', color: 'indigo', style: 'solid', category: 'Analytics' }, 'Bedrock': { icon: 'brain', color: 'violet', style: 'solid', category: 'AI/ML' }, 'SageMaker': { icon: 'flask', color: 'emerald', style: 'solid', category: 'AI/ML' }, 'Amazon Cognito': { icon: 'users-cog', color: 'orange', style: 'solid', category: 'Security' }, 'CloudFront': { icon: 'rocket', color: 'blue', style: 'solid', category: 'Network' }, 'ECR Repository': { icon: 'box', color: 'slate', style: 'solid', category: 'Storage' },
+            // ** ADDED NODE TYPES **
+            'CloudFormation Stack': { icon: 'cubes', color: 'orange', style: 'solid', category: 'Management' },
+            'DataZone Domain': { icon: 'sitemap', color: 'teal', style: 'solid', category: 'Analytics' },
+            'Textract Project': { icon: 'file-invoice', color: 'indigo', style: 'solid', category: 'AI/ML' },
+            'EventBridge Bus': { icon: 'bus', color: 'rose', style: 'solid', category: 'Application' },
+            'Kinesis Stream': { icon: 'stream', color: 'cyan', style: 'solid', category: 'Analytics' },
+            'CodePipeline': { icon: 'road', color: 'blue', style: 'solid', category: 'DevOps' },
+            'CodeBuild Project': { icon: 'hammer', color: 'slate', style: 'solid', category: 'DevOps' },
+            'CodeCommit Repository': { icon: 'code-branch', color: 'gray', style: 'solid', category: 'DevOps' },
+            'AWS Shield Protection': { icon: 'shield-alt', color: 'green', style: 'solid', category: 'Security' },
+            'Organization Account': { icon: 'sitemap', color: 'indigo', style: 'solid', category: 'Management' },
+            'Control Tower Control': { icon: 'university', color: 'purple', style: 'solid', category: 'Management' },
+            'Elastic Beanstalk Environment': { icon: 'seedling', color: 'lime', style: 'solid', category: 'Compute' },
+            'API Gateway': { icon: 'server', color: 'amber', style: 'solid', category: 'Network' }
         };
 
         function renderGraph(graphData) {
@@ -462,6 +503,7 @@
                 vpcSelector.innerHTML = '<option value="">Please select an account</option>';
                 return;
             }
+
             vpcSelector.innerHTML = '<option value="">Loading VPCs...</option>';
             fetch(`/api/xamops/cloudmap/vpcs?accountId=${selectedAccountId}`)
                 .then(response => {
@@ -469,16 +511,31 @@
                     return response.json();
                 })
                 .then(vpcs => {
-                    vpcSelector.innerHTML = '<option value="">🌐 Global & S3</option>';
-                    if (Array.isArray(vpcs)) {
+                    // ** FIX: Dropdown sorting and default selection logic **
+                    vpcSelector.innerHTML = ''; // Clear the selector first
+
+                    if (Array.isArray(vpcs) && vpcs.length > 0) {
+                        // Add VPCs first
                         vpcs.forEach(vpc => {
                             const option = document.createElement('option');
                             option.value = `${vpc.id}|${vpc.region}`;
                             option.textContent = `${vpc.name} (${vpc.id} - ${vpc.region})`;
                             vpcSelector.appendChild(option);
                         });
-                    } else { console.error('Expected an array of VPCs, but received:', vpcs); }
-                    loadGraphForVpc("");
+                        // Add Global/S3 option last
+                        const globalOption = document.createElement('option');
+                        globalOption.value = "";
+                        globalOption.textContent = "🌐 Global & S3";
+                        vpcSelector.appendChild(globalOption);
+
+                        // Default to loading the first VPC
+                        loadGraphForVpc(vpcSelector.options[0].value);
+                    } else {
+                        // If no VPCs, just show the Global option
+                        vpcSelector.innerHTML = '<option value="">🌐 Global & S3</option>';
+                        console.error('Expected an array of VPCs, but received:', vpcs);
+                        loadGraphForVpc("");
+                    }
                 })
                 .catch(error => {
                     console.error('Error fetching VPCs:', error);

@@ -258,7 +258,7 @@ public class CloudListService {
                     fetchApiGatewaysForCloudlist(account, activeRegions),
                     fetchElasticBeanstalkEnvironmentsForCloudlist(account, activeRegions),
                     fetchControlTowerControlsForCloudlist(account, activeRegions),
-                    fetchOrganizationAccountsForCloudlist(account),
+                    //fetchOrganizationAccountsForCloudlist(account),
                     fetchShieldProtectionsForCloudlist(account),
                     fetchCodeCommitRepositoriesForCloudlist(account, activeRegions),
                     fetchCodeBuildProjectsForCloudlist(account, activeRegions),
@@ -1021,27 +1021,27 @@ public class CloudListService {
         }, "Control Tower Controls");
     }
 
-    private CompletableFuture<List<ResourceDto>> fetchOrganizationAccountsForCloudlist(CloudAccount account) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                OrganizationsClient orgClient = awsClientProvider.getOrganizationsClient(account);
-                return orgClient.listAccounts(ListAccountsRequest.builder().build()).accounts().stream()
-                        .map(acc -> new ResourceDto(
-                                acc.id(),
-                                acc.name(),
-                                "Organization Account",
-                                "Global",
-                                acc.status().toString(),
-                                acc.joinedTimestamp(),
-                                Map.of("Email", acc.email())
-                        ))
-                        .collect(Collectors.toList());
-            } catch (Exception e) {
-                logger.error("Could not fetch Organization accounts for account {}. This account may not be part of an Organization.", account.getAwsAccountId(), e);
-                return Collections.emptyList();
-            }
-        });
-    }
+//    private CompletableFuture<List<ResourceDto>> fetchOrganizationAccountsForCloudlist(CloudAccount account) {
+//        return CompletableFuture.supplyAsync(() -> {
+//            try {
+//                OrganizationsClient orgClient = awsClientProvider.getOrganizationsClient(account);
+//                return orgClient.listAccounts(ListAccountsRequest.builder().build()).accounts().stream()
+//                        .map(acc -> new ResourceDto(
+//                                acc.id(),
+//                                acc.name(),
+//                                "Organization Account",
+//                                "Global",
+//                                acc.status().toString(),
+//                                acc.joinedTimestamp(),
+//                                Map.of("Email", acc.email())
+//                        ))
+//                        .collect(Collectors.toList());
+//            } catch (Exception e) {
+//                logger.error("Could not fetch Organization accounts for account {}. This account may not be part of an Organization.", account.getAwsAccountId(), e);
+//                return Collections.emptyList();
+//            }
+//        });
+//    }
 
     private CompletableFuture<List<ResourceDto>> fetchShieldProtectionsForCloudlist(CloudAccount account) {
         return CompletableFuture.supplyAsync(() -> {
