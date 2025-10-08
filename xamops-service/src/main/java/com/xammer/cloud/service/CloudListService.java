@@ -66,7 +66,33 @@ import software.amazon.awssdk.services.ssm.SsmClient;
 import software.amazon.awssdk.services.ssm.model.DescribeInstanceInformationRequest;
 import software.amazon.awssdk.services.wafv2.Wafv2Client;
 import software.amazon.awssdk.services.wafv2.model.ListWebAcLsRequest;
-import software.amazon.awssdk.services.bedrock.model.ListProvisionedModelThroughputsRequest; // Correct import
+import software.amazon.awssdk.services.bedrock.model.ListProvisionedModelThroughputsRequest;
+import software.amazon.awssdk.services.datazone.DataZoneClient;
+import software.amazon.awssdk.services.datazone.model.ListDomainsRequest;
+import software.amazon.awssdk.services.textract.TextractClient;
+import software.amazon.awssdk.services.textract.model.*;
+import software.amazon.awssdk.services.eventbridge.EventBridgeClient;
+import software.amazon.awssdk.services.eventbridge.model.ListEventBusesRequest;
+import software.amazon.awssdk.services.kinesis.KinesisClient;
+import software.amazon.awssdk.services.kinesis.model.ListStreamsRequest;
+import software.amazon.awssdk.services.codepipeline.CodePipelineClient;
+import software.amazon.awssdk.services.codepipeline.model.ListPipelinesRequest;
+import software.amazon.awssdk.services.codebuild.CodeBuildClient;
+import software.amazon.awssdk.services.codebuild.model.ListProjectsRequest;
+import software.amazon.awssdk.services.codecommit.CodeCommitClient;
+import software.amazon.awssdk.services.codecommit.model.ListRepositoriesRequest;
+import software.amazon.awssdk.services.shield.ShieldClient;
+import software.amazon.awssdk.services.shield.model.ListProtectionsRequest;
+import software.amazon.awssdk.services.organizations.OrganizationsClient;
+import software.amazon.awssdk.services.organizations.model.ListAccountsRequest;
+import software.amazon.awssdk.services.controltower.ControlTowerClient;
+import software.amazon.awssdk.services.controltower.model.ListEnabledControlsRequest;
+import software.amazon.awssdk.services.elasticbeanstalk.ElasticBeanstalkClient;
+import software.amazon.awssdk.services.elasticbeanstalk.model.DescribeEnvironmentsRequest;
+import software.amazon.awssdk.services.apigateway.ApiGatewayClient;
+import software.amazon.awssdk.services.apigateway.model.GetRestApisRequest;
+import software.amazon.awssdk.services.codebuild.model.ListProjectsRequest;
+
 
 import java.io.IOException;
 import java.net.URL;
@@ -228,7 +254,17 @@ public class CloudListService {
                     fetchNatGatewaysForCloudlist(account, activeRegions),
                     fetchSnapshotsForCloudlist(account, activeRegions),
                     fetchEnisForCloudlist(account, activeRegions),
-                    fetchElasticIpsForCloudlist(account, activeRegions)
+                    fetchElasticIpsForCloudlist(account, activeRegions),
+                    fetchApiGatewaysForCloudlist(account, activeRegions),
+                    fetchElasticBeanstalkEnvironmentsForCloudlist(account, activeRegions),
+                    fetchControlTowerControlsForCloudlist(account, activeRegions),
+                    fetchOrganizationAccountsForCloudlist(account),
+                    fetchShieldProtectionsForCloudlist(account),
+                    fetchCodeCommitRepositoriesForCloudlist(account, activeRegions),
+                    fetchCodeBuildProjectsForCloudlist(account, activeRegions),
+                    fetchCodePipelinesForCloudlist(account, activeRegions),
+                    fetchKinesisStreamsForCloudlist(account, activeRegions),
+                    fetchEventBridgeBusesForCloudlist(account, activeRegions)
             ));
 
             // ** THE FIX: Create a list of "safe" futures that won't fail the entire operation **
@@ -934,5 +970,201 @@ public class CloudListService {
                     .collect(Collectors.toList());
         }, "Elastic IPs");
     }
+    private CompletableFuture<List<ResourceDto>> fetchApiGatewaysForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            ApiGatewayClient apiGatewayClient = awsClientProvider.getApiGatewayClient(account, regionId);
+            return apiGatewayClient.getRestApis(GetRestApisRequest.builder().build()).items().stream()
+                    .map(api -> new ResourceDto(
+                            api.id(),
+                            api.name(),
+                            "API Gateway",
+                            regionId,
+                            "Active",
+                            api.createdDate(),
+                            Collections.emptyMap()
+                    ))
+                    .collect(Collectors.toList());
+        }, "API Gateways");
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchElasticBeanstalkEnvironmentsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            ElasticBeanstalkClient ebClient = awsClientProvider.getElasticBeanstalkClient(account, regionId);
+            return ebClient.describeEnvironments(DescribeEnvironmentsRequest.builder().build()).environments().stream()
+                    .map(env -> new ResourceDto(
+                            env.environmentId(),
+                            env.environmentName(),
+                            "Elastic Beanstalk Environment",
+                            regionId,
+                            env.status().toString(),
+                            env.dateCreated(),
+                            Map.of("Application Name", env.applicationName())
+                    ))
+                    .collect(Collectors.toList());
+        }, "Elastic Beanstalk Environments");
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchControlTowerControlsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            ControlTowerClient ctClient = awsClientProvider.getControlTowerClient(account, regionId);
+            return ctClient.listEnabledControls(ListEnabledControlsRequest.builder().build()).enabledControls().stream()
+                    .map(control -> new ResourceDto(
+                            control.controlIdentifier(),
+                            control.controlIdentifier(),
+                            "Control Tower Control",
+                            regionId, // Control Tower is regional
+                            "Enabled",
+                            null,
+                            Collections.emptyMap()
+                    ))
+                    .collect(Collectors.toList());
+        }, "Control Tower Controls");
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchOrganizationAccountsForCloudlist(CloudAccount account) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                OrganizationsClient orgClient = awsClientProvider.getOrganizationsClient(account);
+                return orgClient.listAccounts(ListAccountsRequest.builder().build()).accounts().stream()
+                        .map(acc -> new ResourceDto(
+                                acc.id(),
+                                acc.name(),
+                                "Organization Account",
+                                "Global",
+                                acc.status().toString(),
+                                acc.joinedTimestamp(),
+                                Map.of("Email", acc.email())
+                        ))
+                        .collect(Collectors.toList());
+            } catch (Exception e) {
+                logger.error("Could not fetch Organization accounts for account {}. This account may not be part of an Organization.", account.getAwsAccountId(), e);
+                return Collections.emptyList();
+            }
+        });
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchShieldProtectionsForCloudlist(CloudAccount account) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                ShieldClient shieldClient = awsClientProvider.getShieldClient(account);
+                return shieldClient.listProtections(ListProtectionsRequest.builder().build()).protections().stream()
+                        .map(protection -> new ResourceDto(
+                                protection.id(),
+                                protection.name(),
+                                "AWS Shield Protection",
+                                "Global",
+                                "Enabled",
+                                null,
+                                Map.of("Resource ARN", protection.resourceArn())
+                        ))
+                        .collect(Collectors.toList());
+            } catch (Exception e) {
+                logger.error("Could not fetch Shield protections for account {}.", account.getAwsAccountId(), e);
+                return Collections.emptyList();
+            }
+        });
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchCodeCommitRepositoriesForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            CodeCommitClient codeCommitClient = awsClientProvider.getCodeCommitClient(account, regionId);
+            return codeCommitClient.listRepositories(ListRepositoriesRequest.builder().build()).repositories().stream()
+                    .map(repo -> new ResourceDto(
+                            repo.repositoryId(),
+                            repo.repositoryName(),
+                            "CodeCommit Repository",
+                            regionId,
+                            "Available",
+                            null, // No creation date in summary
+                            Collections.emptyMap()
+                    ))
+                    .collect(Collectors.toList());
+        }, "CodeCommit Repositories");
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchCodeBuildProjectsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            CodeBuildClient codeBuildClient = awsClientProvider.getCodeBuildClient(account, regionId);
+            return codeBuildClient.listProjects(ListProjectsRequest.builder().build()).projects().stream()
+                    .map(projectName -> new ResourceDto(
+                            projectName,
+                            projectName,
+                            "CodeBuild Project",
+                            regionId,
+                            "Available",
+                            null,
+                            Collections.emptyMap()
+                    ))
+                    .collect(Collectors.toList());
+        }, "CodeBuild Projects");
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchCodePipelinesForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            CodePipelineClient codePipelineClient = awsClientProvider.getCodePipelineClient(account, regionId);
+            return codePipelineClient.listPipelines(ListPipelinesRequest.builder().build()).pipelines().stream()
+                    .map(pipeline -> new ResourceDto(
+                            pipeline.name(),
+                            pipeline.name(),
+                            "CodePipeline",
+                            regionId,
+                            "Active",
+                            pipeline.created(),
+                            Collections.emptyMap()
+                    ))
+                    .collect(Collectors.toList());
+        }, "CodePipelines");
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchKinesisStreamsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            KinesisClient kinesisClient = awsClientProvider.getKinesisClient(account, regionId);
+            return kinesisClient.listStreams(ListStreamsRequest.builder().build()).streamNames().stream()
+                    .map(streamName -> new ResourceDto(
+                            streamName,
+                            streamName,
+                            "Kinesis Stream",
+                            regionId,
+                            "Active",
+                            null,
+                            Collections.emptyMap()
+                    ))
+                    .collect(Collectors.toList());
+        }, "Kinesis Streams");
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchEventBridgeBusesForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            EventBridgeClient eventBridgeClient = awsClientProvider.getEventBridgeClient(account, regionId);
+            return eventBridgeClient.listEventBuses(ListEventBusesRequest.builder().build()).eventBuses().stream()
+                    .map(bus -> new ResourceDto(
+                            bus.arn(),
+                            bus.name(),
+                            "EventBridge Bus",
+                            getRegionFromArn(bus.arn()),
+                            "Active",
+                            null,
+                            Collections.emptyMap()
+                    ))
+                    .collect(Collectors.toList());
+        }, "EventBridge Buses");
+    }
+    private CompletableFuture<List<ResourceDto>> fetchDataZoneDomainsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            DataZoneClient dataZoneClient = awsClientProvider.getDataZoneClient(account, regionId);
+            return dataZoneClient.listDomains(ListDomainsRequest.builder().build()).items().stream()
+                    .map(domain -> new ResourceDto(
+                            domain.id(),
+                            domain.name(),
+                            "DataZone Domain",
+                            regionId,
+                            domain.status().toString(),
+                            domain.createdAt(),
+                            Collections.emptyMap()
+                    ))
+                    .collect(Collectors.toList());
+        }, "DataZone Domains");
+    }
+
 }
 
