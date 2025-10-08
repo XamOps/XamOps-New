@@ -257,9 +257,9 @@ public class CloudListService {
                     fetchElasticIpsForCloudlist(account, activeRegions),
                     fetchApiGatewaysForCloudlist(account, activeRegions),
                     fetchElasticBeanstalkEnvironmentsForCloudlist(account, activeRegions),
-                    fetchControlTowerControlsForCloudlist(account, activeRegions),
+                    //fetchControlTowerControlsForCloudlist(account, activeRegions),
                     //fetchOrganizationAccountsForCloudlist(account),
-                    fetchShieldProtectionsForCloudlist(account),
+                    //fetchShieldProtectionsForCloudlist(account),
                     fetchCodeCommitRepositoriesForCloudlist(account, activeRegions),
                     fetchCodeBuildProjectsForCloudlist(account, activeRegions),
                     fetchCodePipelinesForCloudlist(account, activeRegions),
@@ -921,14 +921,19 @@ public class CloudListService {
         }, "EBS Snapshots");
     }
 
-    // Add this method
     private CompletableFuture<List<ResourceDto>> fetchEnisForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
             Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
             return ec2.describeNetworkInterfaces().networkInterfaces().stream()
                     .map(eni -> {
-                        // ** FIX: Check for null availabilityZone and fall back to regionId **
+                        // ** FIX: Safely handle null availabilityZone by falling back to the regionId **
                         String location = eni.availabilityZone() != null ? eni.availabilityZone() : regionId;
+
+                        // ** FIX: Safely handle detached ENIs **
+                        String attachedTo = "Detached";
+                        if (eni.attachment() != null && eni.attachment().instanceId() != null) {
+                            attachedTo = eni.attachment().instanceId();
+                        }
 
                         return new ResourceDto(
                                 eni.networkInterfaceId(),
@@ -938,10 +943,10 @@ public class CloudListService {
                                 eni.statusAsString(),
                                 null, // ENIs don't have a creation timestamp
                                 Map.of(
-                                        "Subnet ID", eni.subnetId(),
-                                        "VPC ID", eni.vpcId(),
+                                        "Subnet ID", eni.subnetId() != null ? eni.subnetId() : "N/A",
+                                        "VPC ID", eni.vpcId() != null ? eni.vpcId() : "N/A",
                                         "Private IP", eni.privateIpAddress() != null ? eni.privateIpAddress() : "N/A",
-                                        "Attached To", eni.attachment() != null && eni.attachment().instanceId() != null ? eni.attachment().instanceId() : "Detached"
+                                        "Attached To", attachedTo
                                 )
                         );
                     })
@@ -1004,28 +1009,28 @@ public class CloudListService {
         }, "Elastic Beanstalk Environments");
     }
 
-    private CompletableFuture<List<ResourceDto>> fetchControlTowerControlsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
-        return fetchAllRegionalResources(account, activeRegions, regionId -> {
-            try {
-                ControlTowerClient ctClient = awsClientProvider.getControlTowerClient(account, regionId);
-                return ctClient.listEnabledControls(ListEnabledControlsRequest.builder().build()).enabledControls().stream()
-                        .map(control -> new ResourceDto(
-                                control.controlIdentifier(),
-                                control.controlIdentifier(),
-                                "Control Tower Control",
-                                regionId,
-                                "Enabled",
-                                null,
-                                Collections.emptyMap()
-                        ))
-                        .collect(Collectors.toList());
-            } catch (software.amazon.awssdk.services.controltower.model.AccessDeniedException e) {
-                // FIX: Gracefully handle when IAM permissions are missing
-                logger.warn("Could not fetch Control Tower controls in region {}: {}", regionId, e.getMessage());
-                return Collections.emptyList();
-            }
-        }, "Control Tower Controls");
-    }
+//    private CompletableFuture<List<ResourceDto>> fetchControlTowerControlsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+//        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+//            try {
+//                ControlTowerClient ctClient = awsClientProvider.getControlTowerClient(account, regionId);
+//                return ctClient.listEnabledControls(ListEnabledControlsRequest.builder().build()).enabledControls().stream()
+//                        .map(control -> new ResourceDto(
+//                                control.controlIdentifier(),
+//                                control.controlIdentifier(),
+//                                "Control Tower Control",
+//                                regionId,
+//                                "Enabled",
+//                                null,
+//                                Collections.emptyMap()
+//                        ))
+//                        .collect(Collectors.toList());
+//            } catch (software.amazon.awssdk.services.controltower.model.AccessDeniedException e) {
+//                // FIX: Gracefully handle when IAM permissions are missing
+//                logger.warn("Could not fetch Control Tower controls in region {}: {}", regionId, e.getMessage());
+//                return Collections.emptyList();
+//            }
+//        }, "Control Tower Controls");
+//    }
 
 //    private CompletableFuture<List<ResourceDto>> fetchOrganizationAccountsForCloudlist(CloudAccount account) {
 //        return CompletableFuture.supplyAsync(() -> {
@@ -1050,31 +1055,31 @@ public class CloudListService {
 //    }
 
 
-    private CompletableFuture<List<ResourceDto>> fetchShieldProtectionsForCloudlist(CloudAccount account) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                ShieldClient shieldClient = awsClientProvider.getShieldClient(account);
-                return shieldClient.listProtections(ListProtectionsRequest.builder().build()).protections().stream()
-                        .map(protection -> new ResourceDto(
-                                protection.id(),
-                                protection.name(),
-                                "AWS Shield Protection",
-                                "Global",
-                                "Enabled",
-                                null,
-                                Map.of("Resource ARN", protection.resourceArn())
-                        ))
-                        .collect(Collectors.toList());
-            } catch (software.amazon.awssdk.services.shield.model.ResourceNotFoundException e) {
-                // FIX: Gracefully handle when AWS Shield Advanced is not subscribed
-                logger.warn("Could not fetch Shield protections for account {}: {}", account.getAwsAccountId(), e.getMessage());
-                return Collections.emptyList();
-            } catch (Exception e) {
-                logger.error("Could not fetch Shield protections for account {}.", account.getAwsAccountId(), e);
-                return Collections.emptyList();
-            }
-        });
-    }
+//    private CompletableFuture<List<ResourceDto>> fetchShieldProtectionsForCloudlist(CloudAccount account) {
+//        return CompletableFuture.supplyAsync(() -> {
+//            try {
+//                ShieldClient shieldClient = awsClientProvider.getShieldClient(account);
+//                return shieldClient.listProtections(ListProtectionsRequest.builder().build()).protections().stream()
+//                        .map(protection -> new ResourceDto(
+//                                protection.id(),
+//                                protection.name(),
+//                                "AWS Shield Protection",
+//                                "Global",
+//                                "Enabled",
+//                                null,
+//                                Map.of("Resource ARN", protection.resourceArn())
+//                        ))
+//                        .collect(Collectors.toList());
+//            } catch (software.amazon.awssdk.services.shield.model.ResourceNotFoundException e) {
+//                // FIX: Gracefully handle when AWS Shield Advanced is not subscribed
+//                logger.warn("Could not fetch Shield protections for account {}: {}", account.getAwsAccountId(), e.getMessage());
+//                return Collections.emptyList();
+//            } catch (Exception e) {
+//                logger.error("Could not fetch Shield protections for account {}.", account.getAwsAccountId(), e);
+//                return Collections.emptyList();
+//            }
+//        });
+//    }
 
     private CompletableFuture<List<ResourceDto>> fetchCodeCommitRepositoriesForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
