@@ -51,15 +51,6 @@ jobs:
           push: true
           tags: ghcr.io/sahil-remoterepo/frontend-app:latest
 
-      - name: Build & Push API Gateway
-        uses: docker/build-push-action@v4
-        with:
-          context: .
-          file: ./Dockerfile
-          push: true
-          tags: ghcr.io/sahil-remoterepo/api-gateway:latest
-          build-args: |
-            MODULE_NAME=api-gateway
   deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
@@ -83,15 +74,12 @@ jobs:
               "sudo docker pull ghcr.io/sahil-remoterepo/xamops-service:latest",
               "sudo docker pull ghcr.io/sahil-remoterepo/service-registry:latest",
               "sudo docker pull ghcr.io/sahil-remoterepo/frontend-app:latest",
-              "sudo docker pull ghcr.io/sahil-remoterepo/api-gateway:latest",
               "sudo docker stop billops || true && sudo docker rm billops || true",
               "sudo docker stop xamops-service || true && sudo docker rm xamops-service || true",
               "sudo docker stop service-registry || true && sudo docker rm service-registry || true",
               "sudo docker stop frontend-app || true && sudo docker rm frontend-app || true",
-              "sudo docker stop api-gateway || true && sudo docker rm api-gateway || true",
               "sudo docker run -d -p 8761:8761 --name service-registry --network xamops-network ghcr.io/sahil-remoterepo/service-registry:latest",
               "sudo docker run -d -p 8082:8082 --name billops --network xamops-network ghcr.io/sahil-remoterepo/billops:latest",
               "sudo docker run -d -p 8080:8080 --name xamops-service --network xamops-network --restart always -e SPRING_PROFILES_ACTIVE=sit -e DB_HOST=172.31.9.24 -e DB_USER=xamops_local_user -e DB_PASS=XamOps@123 -e DB_NAME=xamops_local_db -e EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://service-registry:8761/eureka/ -e REDIS_HOST=redis-sit -e REDIS_PORT=6379 ghcr.io/sahil-remoterepo/xamops-service:latest",
               "sudo docker run -d --name frontend-app --network xamops-network ghcr.io/sahil-remoterepo/frontend-app:latest",
-              "sudo docker run -d -p 80:80 --name api-gateway --network xamops-network --restart always ghcr.io/sahil-remoterepo/api-gateway:latest"
             ]'
