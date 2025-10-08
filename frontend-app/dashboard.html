@@ -597,14 +597,14 @@
 
             init() {
                 console.log('[Map Debug] Initializing dashboardApp...');
-                
+
                 // CRITICAL CHECK: See if Highcharts is available on the window object
                 if (window.Highcharts) {
                     console.log('[Map Debug] Highcharts object found on window.', window.Highcharts);
                 } else {
                     console.error('[Map Debug] CRITICAL: Highcharts object NOT found on window. Map will not render. Check script loading order and for any script errors.');
                 }
-                
+
                 const urlParams = new URLSearchParams(window.location.search);
                 const accountIdsParam = urlParams.get('accountId') || urlParams.get('accountIds');
 
@@ -614,7 +614,7 @@
                 } else {
                     this.selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
                 }
-                
+
                 this.selectedAccountId = this.selectedAccountIds.length > 0 ? this.selectedAccountIds[0] : null;
 
                 window.addEventListener('storage', (event) => {
@@ -622,11 +622,11 @@
                         window.location.reload();
                     }
                 });
-                
+
                 this.initializeDashboardLayout();
                 this.loadDashboardData(false);
             },
-            
+
             connectWebSocket() {
                 if (!this.selectedAccountId || this.stompClient) return;
 
@@ -664,7 +664,7 @@
                         if (data && data.selectedAccount) {
                             this.dashboardData = data;
                             setTimeout(() => {
-                                this.populatePage(data.selectedAccount); 
+                                this.populatePage(data.selectedAccount);
                                 this.renderAllCharts(data.selectedAccount);
                             }, 0);
                         } else {
@@ -684,7 +684,7 @@
                         }
                     });
             },
-            
+
             showNotification(type, message) {
                 const notification = document.getElementById(type + 'Notification');
                  if (notification.querySelector('span')) {
@@ -697,7 +697,7 @@
                     }, 3000);
                 }
             },
-            
+
             initializeDashboardLayout() {
                 const container = document.getElementById('widgets-container');
                 fetch('/api/xamops/dashboard/layout')
@@ -747,7 +747,7 @@
                     }
                 });
             },
-            
+
            renderAllCharts(account) {
                 console.log('[Map Debug] renderAllCharts called.');
                 if (!account) {
@@ -755,7 +755,7 @@
                     return;
                 }
                 this.renderCostHistoryChart(account.costHistory);
-                
+
                 console.log('[Map Debug] Preparing to render map with regionStatus:', account.regionStatus);
                 this.renderHighchartMap(account.regionStatus);
             },
@@ -772,7 +772,7 @@
             populateKpiCards(account) {
                 const kpiContainer = document.getElementById('kpi-cards');
                 if (!kpiContainer || !account || !account.costHistory) return;
-                
+
                 const costHistory = account.costHistory;
                 const mtdSpend = costHistory.costs.length > 0 ? costHistory.costs[costHistory.costs.length - 1] : 0;
                 const lastMonthSpend = costHistory.costs.length > 1 ? costHistory.costs[costHistory.costs.length - 2] : 0;
@@ -1108,92 +1108,102 @@
             },
 
             renderHighchartMap(regionStatus) {
-                console.log('[Map Debug] renderHighchartMap function called.');
+    console.log('[Map Debug] renderHighchartMap function called.');
 
-                const mapContainer = document.getElementById('highcharts-map-container');
-                if (!mapContainer) {
-                    console.error('[Map Debug] Map container #highcharts-map-container not found in the DOM. Aborting map render.');
-                    return;
-                }
-                console.log('[Map Debug] Map container element found:', mapContainer);
-                
-                if (!regionStatus) {
-                    console.warn('[Map Debug] regionStatus data is null or undefined. Aborting map render.');
-                    return;
-                }
-                
-                const statusColors = {
-                    'ACTIVE': '#3b82f6', 'SEMI_ACTIVE': '#ef4444', 'SUSTAINABLE': '#22c55e', 'NON_ACTIVE': '#6b7280'
-                };
+    const mapContainer = document.getElementById('highcharts-map-container');
+    if (!mapContainer) {
+        console.error('[Map Debug] Map container #highcharts-map-container not found in the DOM. Aborting map render.');
+        return;
+    }
+    console.log('[Map Debug] Map container element found:', mapContainer);
 
-                const regionPoints = regionStatus.map(r => ({
-                    name: `${r.regionId}`, fullName: `${r.regionId} (${r.status})`, lat: r.latitude, lon: r.longitude,
-                    color: statusColors[r.status] || '#6b7280', id: r.regionId, status: r.status
-                }));
-                
-                console.log('[Map Debug] Processed region points for map:', regionPoints);
+    if (!regionStatus) {
+        console.warn('[Map Debug] regionStatus data is null or undefined. Aborting map render.');
+        return;
+    }
 
-                try {
-                    console.log('[Map Debug] Attempting to create Highcharts map...');
-                    window.Highcharts.mapChart('highcharts-map-container', {
-                        chart: {
-                            map: 'custom/world',
-                            backgroundColor: 'transparent',
-                            style: { fontFamily: 'Inter, sans-serif' }
-                        },
-                        title: { text: null },
-                        credits: { enabled: false },
-                        mapNavigation: {
-                            enabled: true,
-                            buttonOptions: {
-                                verticalAlign: 'bottom',
-                                theme: { 'stroke-width': 1, stroke: '#4f46e5', r: 4 }
-                            }
-                        },
-                        tooltip: {
-                            useHTML: true,
-                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                            borderColor: 'rgba(79, 70, 229, 0.8)',
-                            borderRadius: 8,
-                            style: { color: 'white' },
-                            pointFormat: '<b>{point.fullName}</b><br/>Click to filter dashboard'
-                        },
-                        plotOptions: {
-                            mappoint: {
-                                point: {
-                                    events: {
-                                        click: (e) => { this.filterByRegion(e.point.id); }
-                                    }
-                                }
-                            }
-                        },
-                        series: [
-                            {
-                                name: 'World',
-                                color: '#f1f5f9',
-                                states: { hover: { color: '#e2e8f0' } },
-                                borderColor: '#e2e8f0',
-                                borderWidth: 1
-                            },
-                            {
-                                type: 'mappoint',
-                                name: 'AWS Regions',
-                                data: regionPoints,
-                                marker: {
-                                    lineWidth: 2,
-                                    lineColor: '#ffffff',
-                                    radius: 8,
-                                    states: { hover: { lineWidth: 3, radius: 10 } }
-                                },
-                                cursor: 'pointer'
-                            }
-                        ]
-                    });
-                    console.log('[Map Debug] Highcharts map creation command sent successfully.');
-                } catch (error) {
-                    console.error('[Map Debug] An error occurred while creating the Highcharts map:', error);
+    const statusColors = {
+        'ACTIVE': '#3b82f6', 'SEMI_ACTIVE': '#ef4444', 'SUSTAINABLE': '#22c55e', 'NON_ACTIVE': '#6b7280'
+    };
+
+    const regionPoints = regionStatus.map(r => ({
+        name: `${r.regionId}`, fullName: `${r.regionId} (${r.status})`, lat: r.latitude, lon: r.longitude,
+        color: statusColors[r.status] || '#6b7280', id: r.regionId, status: r.status
+    }));
+
+    console.log('[Map Debug] Processed region points for map:', regionPoints);
+
+    // Log to confirm map data is loaded
+    console.log('[Map Debug] Checking Highcharts.maps["custom/world"]:', Highcharts.maps['custom/world']);
+
+    try {
+        console.log('[Map Debug] Attempting to create Highcharts map...');
+        window.Highcharts.mapChart('highcharts-map-container', {
+            chart: {
+                map: 'custom/world',
+                backgroundColor: 'transparent',
+                style: { fontFamily: 'Inter, sans-serif' }
+            },
+            accessibility: {
+                enabled: false  // Suppresses the warning; remove if you add accessibility.js later
+            },
+            title: { text: null },
+            credits: { enabled: false },
+            mapNavigation: {
+                enabled: true,
+                buttonOptions: {
+                    verticalAlign: 'bottom',
+                    theme: { 'stroke-width': 1, stroke: '#4f46e5', r: 4 }
                 }
             },
+            tooltip: {
+                useHTML: true,
+                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                borderColor: 'rgba(79, 70, 229, 0.8)',
+                borderRadius: 8,
+                style: { color: 'white' },
+                pointFormat: '<b>{point.fullName}</b><br/>Click to filter dashboard'
+            },
+            plotOptions: {
+                mappoint: {
+                    point: {
+                        events: {
+                            click: (e) => { this.filterByRegion(e.point.id); }
+                        }
+                    }
+                }
+            },
+            series: [
+                {
+                    type: 'map',
+                    name: 'World',
+                    mapData: Highcharts.maps['custom/world'],  // Explicitly set map geometry
+                    data: [],  // Empty data to render basemap without values
+                    nullColor: '#f1f5f9',  // Temporary light blue for testing visibility; revert to '#f1f5f9'
+                    states: { hover: { color: '#e2e8f0' } },
+                    borderColor: '#e2e8f0',  // Temporary blue borders for testing; revert to '#e2e8f0'
+                    borderWidth: 1,
+                    showInLegend: false
+                },
+                {
+                    type: 'mappoint',
+                    name: 'AWS Regions',
+                    data: regionPoints,
+                    marker: {
+                        lineWidth: 2,
+                        lineColor: '#ffffff',
+                        radius: 8,
+                        states: { hover: { lineWidth: 3, radius: 10 } }
+                    },
+                    cursor: 'pointer'
+                }
+            ]
+        });
+        console.log('[Map Debug] Highcharts map creation command sent successfully.');
+    } catch (error) {
+        console.error('[Map Debug] An error occurred while creating the Highcharts map:', error);
+    }
+},
 
             hexToRgba(hex, alpha) {
                 const r = parseInt(hex.slice(1, 3), 16);
