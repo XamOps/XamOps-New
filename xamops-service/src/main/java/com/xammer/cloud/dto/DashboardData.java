@@ -16,6 +16,8 @@ public class DashboardData {
     private List<Account> availableAccounts;
     private Account selectedAccount;
     private String error; // <-- CRITICAL FIX: This field was missing
+    private static double potentialSavings;
+
 
     @Data
     @AllArgsConstructor
@@ -155,7 +157,12 @@ public class DashboardData {
         private String generation;
         private boolean sizeFlex;
     }
-    @Data @AllArgsConstructor @NoArgsConstructor public static class OptimizationSummary { private double totalPotentialSavings; private long criticalAlertsCount; }
+    @Data @AllArgsConstructor @NoArgsConstructor public static class OptimizationSummary { private double totalPotentialSavings; private long criticalAlertsCount;
+
+        public double getPotentialSavings() {
+            return potentialSavings;
+        }
+    }
     @Data @AllArgsConstructor @NoArgsConstructor public static class WastedResource { private String resourceId; private String resourceName; private String resourceType; private String region; private double monthlySavings; private String reason; }
     @Data @AllArgsConstructor @NoArgsConstructor public static class ServiceGroupDto { private String serviceType; private List<ResourceDto> resources; }
     @Data @AllArgsConstructor @NoArgsConstructor public static class SecurityFinding { private String resourceId; private String region; private String category; private String severity; private String description; private String complianceFramework; private String controlId; }
@@ -179,6 +186,7 @@ public class DashboardData {
             this.actualSpend = actualSpend;
             this.forecastedSpend = forecastedSpend;
         }
+
     }
 
 }

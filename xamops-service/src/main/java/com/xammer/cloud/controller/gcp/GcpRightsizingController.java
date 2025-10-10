@@ -23,7 +23,6 @@ public class GcpRightsizingController {
 
     @GetMapping("/recommendations")
     public CompletableFuture<ResponseEntity<List<GcpOptimizationRecommendation>>> getRightsizingRecommendations(@RequestParam String accountId) {
-        return gcpOptimizationService.getRightsizingRecommendations(accountId)
-                .thenApply(ResponseEntity::ok);
+        return CompletableFuture.supplyAsync(() -> ResponseEntity.ok(gcpOptimizationService.getRightsizingRecommendations(accountId)));
     }
 }

@@ -6,17 +6,17 @@
     <title>XamOps - GCP Cloudmap</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
+
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dagre/0.8.5/dagre.min.js"></script>
     <script src="https://unpkg.com/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
-                <script type="module" src="/src/main.js"></script>
+    <script type="module" src="/src/main.js"></script>
 
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-        
+
         :root {
             --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             --success-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
@@ -25,47 +25,47 @@
             --glass-border: rgba(255, 255, 255, 0.2);
         }
 
-        body { 
-            font-family: 'Inter', sans-serif; 
+        body {
+            font-family: 'Inter', sans-serif;
             background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
             min-height: 100vh;
         }
-        
+
         .glass-card {
             background: var(--glass-bg);
             backdrop-filter: blur(10px);
             border: 1px solid var(--glass-border);
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
         }
-        
+
         .header-gradient {
             background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%);
             backdrop-filter: blur(10px);
             border-bottom: 1px solid rgba(229, 231, 235, 0.8);
         }
-        
-        #cy { 
-            width: 100%; 
-            height: 100%; 
-            position: absolute; 
-            top: 0; 
-            left: 0; 
-            z-index: 1; 
+
+        #cy {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
             background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
             border-radius: 12px;
             border: 1px solid rgba(229, 231, 235, 0.5);
         }
-        
-        #info-panel { 
-            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
-            z-index: 10; 
+
+        #info-panel {
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 10;
             background: var(--glass-bg);
             backdrop-filter: blur(10px);
             border: 1px solid var(--glass-border);
             border-radius: 16px 0 0 16px;
             box-shadow: -10px 0 25px -5px rgba(0, 0, 0, 0.1), -4px 0 10px -3px rgba(0, 0, 0, 0.05);
         }
-        
+
         .btn-primary {
             background: var(--primary-gradient);
             border: none;
@@ -74,7 +74,7 @@
             position: relative;
             overflow: hidden;
         }
-        
+
         .btn-primary::before {
             content: '';
             position: absolute;
@@ -85,29 +85,29 @@
             background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
             transition: left 0.5s ease;
         }
-        
+
         .btn-primary:hover::before {
             left: 100%;
         }
-        
+
         .btn-primary:hover {
             transform: translateY(-2px);
             box-shadow: 0 10px 15px -3px rgba(102, 126, 234, 0.4);
         }
-        
+
         .form-select {
             background: var(--glass-bg);
             backdrop-filter: blur(10px);
             border: 1px solid var(--glass-border);
             transition: all 0.3s ease;
         }
-        
+
         .form-select:focus {
             background: rgba(255, 255, 255, 1);
             border-color: #667eea;
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
         }
-        
+
         .loading-spinner {
             border: 4px solid #f3f4f6;
             border-top: 4px solid #667eea;
@@ -116,30 +116,30 @@
             height: 60px;
             animation: spin 1s linear infinite;
         }
-        
+
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
-        
+
         .fade-in {
             animation: fadeIn 0.5s ease-in-out;
         }
-        
+
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(20px); }
             to { opacity: 1; transform: translateY(0); }
         }
-        
+
         .slide-in {
             animation: slideIn 0.3s ease-out;
         }
-        
+
         @keyframes slideIn {
             from { transform: translateX(100%); opacity: 0; }
             to { transform: translateX(0); opacity: 1; }
         }
-        
+
         .network-node {
             background: var(--glass-bg);
             backdrop-filter: blur(10px);
@@ -149,22 +149,22 @@
             margin-bottom: 8px;
             transition: all 0.3s ease;
         }
-        
+
         .network-node:hover {
             background: rgba(255, 255, 255, 1);
             transform: translateY(-2px);
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         }
-        
+
         .pulse-dot {
             animation: pulse-dot 2s infinite;
         }
-        
+
         @keyframes pulse-dot {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.5; }
         }
-        
+
         .message-overlay {
             background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%);
             backdrop-filter: blur(10px);
@@ -173,7 +173,7 @@
             padding: 24px;
             margin: 24px;
         }
-        
+
         .vpc-badge {
             background: var(--success-gradient);
             color: white;
@@ -184,7 +184,7 @@
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
-        
+
         .legend {
             background: var(--glass-bg);
             backdrop-filter: blur(10px);
@@ -197,14 +197,14 @@
             left: 0;
             z-index: 5;
         }
-        
+
         .legend-item {
             display: flex;
             align-items: center;
             margin-bottom: 8px;
             font-size: 12px;
         }
-        
+
         .legend-icon {
             width: 20px;
             height: 20px;
@@ -214,7 +214,7 @@
             align-items: center;
             justify-content: center;
         }
-        
+
         .toolbar {
             background: var(--glass-bg);
             backdrop-filter: blur(10px);
@@ -227,7 +227,7 @@
             left: 0;
             z-index: 5;
         }
-        
+
         .toolbar-button {
             background: rgba(255, 255, 255, 0.8);
             border: 1px solid var(--glass-border);
@@ -237,7 +237,7 @@
             font-size: 12px;
             transition: all 0.3s ease;
         }
-        
+
         .toolbar-button:hover {
             background: rgba(255, 255, 255, 1);
             transform: translateY(-1px);
@@ -289,9 +289,9 @@
                         <p class="text-gray-600">Please select a VPC to begin mapping your infrastructure.</p>
                     </div>
                 </div>
-                
+
                 <div id="cy" class="rounded-xl"></div>
-                
+
                 <div class="toolbar">
                     <div class="flex items-center space-x-2">
                         <button class="toolbar-button" onclick="cy && cy.fit()" title="Fit to view">
@@ -308,7 +308,7 @@
                         </button>
                     </div>
                 </div>
-                
+
                 <div class="legend">
                     <h4 class="text-sm font-bold text-gray-800 mb-3">Legend</h4>
                     <div class="legend-item">
@@ -337,7 +337,7 @@
                     </div>
                 </div>
             </div>
-            
+
             <div id="info-panel" class="absolute top-0 right-0 h-full w-96 p-8 border-l transform translate-x-full">
                 <button id="close-panel-btn" class="absolute top-6 right-6 text-gray-400 hover:text-gray-600 transition-colors">
                     <i class="fas fa-times text-xl"></i>
@@ -349,308 +349,318 @@
 </div>
 
 <script>
-document.addEventListener('DOMContentLoaded', function () {
-    const vpcSelector = document.getElementById('vpc-selector');
-    const messageOverlay = document.getElementById('message-overlay');
-    const infoPanel = document.getElementById('info-panel');
-    const infoContent = document.getElementById('info-content');
-    const closePanelBtn = document.getElementById('close-panel-btn');
-    const saveBtn = document.getElementById('save-btn');
-    let cy;
+    document.addEventListener('DOMContentLoaded', function () {
+        const vpcSelector = document.getElementById('vpc-selector');
+        const messageOverlay = document.getElementById('message-overlay');
+        const infoPanel = document.getElementById('info-panel');
+        const infoContent = document.getElementById('info-content');
+        const closePanelBtn = document.getElementById('close-panel-btn');
+        const saveBtn = document.getElementById('save-btn');
+        const graphContainer = document.getElementById('graph-container');
+        let cy;
 
-    const appState = {
-        selectedAccountIds: [],
-        get selectedAccountId() {
-            return this.selectedAccountIds.length > 0 ? this.selectedAccountIds[0] : null;
-        }
-    };
+        const appState = {
+            selectedAccountIds: [],
+            get selectedAccountId() {
+                return this.selectedAccountIds.length > 0 ? this.selectedAccountIds[0] : null;
+            }
+        };
 
-    cytoscape.use(cytoscapeDagre);
+        cytoscape.use(cytoscapeDagre);
 
-    const icons = {
-        'VPC': '/icons/gcp-vpc.png',
-        'Instance': '/icons/gcp-compute-engine.png',
-        'Subnet': '/icons/gcp-vpc.png',
-        'Firewall': '/icons/gcp-firewall.png',
-        'Region': '/icons/gcp-icon.png',
-    };
+        const icons = {
+            'VPC': '/icons/gcp-vpc.png',
+            'Instance': '/icons/gcp-compute-engine.png',
+            'Subnet': '/icons/gcp-vpc.png',
+            'Firewall': '/icons/gcp-firewall.png',
+            'Region': '/icons/gcp-icon.png',
+        };
 
-    closePanelBtn.addEventListener('click', () => infoPanel.classList.add('translate-x-full'));
-    vpcSelector.addEventListener('change', () => loadGraphForVpc(vpcSelector.value));
-    
-    saveBtn.addEventListener('click', () => {
-        if(cy) {
-            const png64 = cy.png({ output: 'base64uri', bg: '#fff', full: true });
-            const link = document.createElement('a');
-            link.download = `gcp-cloudmap-${vpcSelector.value || 'global'}-${new Date().toISOString().split('T')[0]}.png`;
-            link.href = png64;
-            link.click();
-        }
-    });
+        closePanelBtn.addEventListener('click', () => infoPanel.classList.add('translate-x-full'));
+        vpcSelector.addEventListener('change', () => loadGraphForVpc(vpcSelector.value));
 
-    function initialize() {
-        const urlParams = new URLSearchParams(window.location.search);
-        const accountIdsParam = urlParams.get('accountIds');
+        saveBtn.addEventListener('click', () => {
+            if(cy) {
+                const png64 = cy.png({ output: 'base64uri', bg: '#fff', full: true });
+                const link = document.createElement('a');
+                link.download = `gcp-cloudmap-${vpcSelector.value || 'global'}-${new Date().toISOString().split('T')[0]}.png`;
+                link.href = png64;
+                link.click();
+            }
+        });
 
-        if (accountIdsParam) {
-            appState.selectedAccountIds = accountIdsParam.split(',');
-            sessionStorage.setItem('selectedAccountIds', JSON.stringify(appState.selectedAccountIds));
-        } else {
-            appState.selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-        }
-        
-        if (!appState.selectedAccountId) {
-            vpcSelector.innerHTML = '<option value="">Please select a GCP account</option>';
-            messageOverlay.innerHTML = `
-                <div class="message-overlay text-center">
-                    <div class="w-16 h-16 bg-gradient-to-br from-red-500 to-pink-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <i class="fas fa-exclamation-triangle text-white text-2xl"></i>
-                    </div>
-                    <h3 class="text-lg font-bold text-gray-800 mb-2">Account Required</h3>
-                    <p class="text-gray-600">Please select a GCP account to begin mapping the infrastructure.</p>
-                </div>
-            `;
-            messageOverlay.style.display = 'flex';
-            return;
-        }
+        function initialize() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const accountIdsParam = urlParams.get('accountIds');
 
-        loadVpcs();
-    }
+            if (accountIdsParam) {
+                appState.selectedAccountIds = accountIdsParam.split(',');
+                sessionStorage.setItem('selectedAccountIds', JSON.stringify(appState.selectedAccountIds));
+            } else {
+                appState.selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+            }
 
-    function loadVpcs() {
-        vpcSelector.innerHTML = '<option value="">Loading VPCs...</option>';
-        fetch(`/api/xamops/gcp/cloudmap/vpcs?accountId=${appState.selectedAccountId}`)
-            .then(response => {
-                if (!response.ok) throw new Error('Bad Request');
-                return response.json();
-            })
-            .then(vpcs => {
-                vpcSelector.innerHTML = '<option value="">🌐 Global & Unattached</option>';
-                if (Array.isArray(vpcs)) {
-                    vpcs.forEach(vpc => {
-                        const option = document.createElement('option');
-                        option.value = vpc.id;
-                        option.textContent = `${vpc.name} (${vpc.id})`;
-                        vpcSelector.appendChild(option);
-                    });
-                }
-                loadGraphForVpc(""); // Load global view by default
-            })
-            .catch(error => {
-                console.error('Error fetching VPCs:', error);
-                vpcSelector.innerHTML = '<option value="">❌ Error loading VPCs</option>';
-            });
-    }
-
-    function loadGraphForVpc(vpcId) {
-        if (cy) cy.destroy();
-        infoPanel.classList.add('translate-x-full');
-        
-        if (!appState.selectedAccountId) {
-            console.error("No account ID found in app state for loading graph.");
-            return;
-        }
-
-        const url = `/api/xamops/gcp/cloudmap/graph?accountId=${appState.selectedAccountId}&vpcId=${vpcId || ''}`;
-        
-        messageOverlay.innerHTML = `
-            <div class="message-overlay text-center">
-                <div class="loading-spinner mx-auto mb-4"></div>
-                <h3 class="text-lg font-bold text-gray-800 mb-2">Loading Infrastructure</h3>
-                <p class="text-gray-600">Analyzing your GCP topology...</p>
-            </div>
-        `;
-        messageOverlay.style.display = 'flex';
-        
-        fetch(url)
-            .then(response => response.json())
-            .then(data => {
-                messageOverlay.style.display = 'none';
-                renderGraph(data);
-            })
-            .catch(error => {
-                console.error('Error fetching graph data:', error);
+            if (!appState.selectedAccountId) {
+                vpcSelector.innerHTML = '<option value="">Please select a GCP account</option>';
                 messageOverlay.innerHTML = `
                     <div class="message-overlay text-center">
                         <div class="w-16 h-16 bg-gradient-to-br from-red-500 to-pink-600 rounded-full flex items-center justify-center mx-auto mb-4">
                             <i class="fas fa-exclamation-triangle text-white text-2xl"></i>
                         </div>
-                        <h3 class="text-lg font-bold text-gray-800 mb-2">Load Error</h3>
-                        <p class="text-gray-600">Could not load graph data. Please try again.</p>
+                        <h3 class="text-lg font-bold text-gray-800 mb-2">Account Required</h3>
+                        <p class="text-gray-600">Please select a GCP account to begin mapping the infrastructure.</p>
                     </div>
                 `;
-            });
-    }
+                messageOverlay.style.display = 'flex';
+                return;
+            }
 
-    function renderGraph(graphData) {
-        cy = cytoscape({
-            container: document.getElementById('cy'),
-            elements: graphData,
-            layout: {
-                name: 'dagre',
-                nodeSep: 80,
-                edgeSep: 20,
-                rankSep: 100,
-                rankDir: 'TB',
-                align: 'UL',
-                spacingFactor: 1.5,
-            },
-            style: [
-                {
-                    selector: 'node',
-                    style: {
-                        'shape': 'rectangle',
-                        'label': 'data(label)',
-                        'font-size': '11px',
-                        'font-weight': '600',
-                        'text-valign': 'bottom',
-                        'text-halign': 'center',
-                        'color': '#374151',
-                        'text-margin-y': 8,
-                        'width': 60, 
-                        'height': 60,
-                        'background-opacity': 0,
-                        'background-image': (node) => icons[node.data('type')] || '/icons/gcp-icon.png',
-                        'background-fit': 'contain',
-                        'background-clip': 'none',
-                        'border-width': 2,
-                        'border-color': '#e5e7eb',
-                        'border-opacity': 0.8,
-                        'transition-property': 'background-color, border-color, width, height',
-                        'transition-duration': '0.3s'
-                    }
-                },
-                {
-                    selector: 'node:hover',
-                    style: {
-                        'width': 70,
-                        'height': 70,
-                        'border-color': '#667eea',
-                        'border-width': 3
-                    }
-                },
-                {
-                    selector: 'edge',
-                    style: { 
-                        'width': 2, 
-                        'line-color': '#9ca3af', 
-                        'target-arrow-color': '#9ca3af', 
-                        'target-arrow-shape': 'triangle', 
-                        'curve-style': 'bezier',
-                        'opacity': 0.8
-                    }
-                },
-                {
-                    selector: ':parent',
-                    style: {
-                        'text-valign': 'top', 
-                        'text-halign': 'center', 
-                        'font-weight': 'bold',
-                        'color': '#1f2937',
-                        'font-size': '16px',
-                        'background-opacity': 1,
-                        'background-image': 'none',
-                        'padding': '20px'
-                    }
-                },
-                {
-                    selector: 'node[type="VPC"]',
-                    style: {
-                        'background-color': '#f0fdf4',
-                        'border-width': 3,
-                        'border-color': '#10b981',
-                        'border-style': 'solid'
-                    }
-                },
-                {
-                    selector: 'node[type="Region"]',
-                    style: {
-                        'background-color': '#f0f9ff',
-                        'border-width': 2,
-                        'border-color': '#60a5fa',
-                        'border-style': 'dashed'
-                    }
-                },
-                {
-                    selector: 'node[type="Subnet"]',
-                    style: {
-                        'background-color': '#ecfdf5',
-                        'border-width': 2,
-                        'border-color': '#6ee7b7',
-                        'border-style': 'solid'
-                    }
-                },
-                { 
-                    selector: 'node[type="Firewall"]', 
-                    style: { 
-                        'width': 40, 
-                        'height': 40,
-                        'background-color': '#fef3c7',
-                        'border-color': '#f59e0b'
-                    } 
-                }, 
-            ]
-        });
+            loadVpcs();
+        }
 
-        cy.on('tap', 'node', evt => displayNodeInfo(evt.target.data()));
-        cy.on('tap', evt => { if (evt.target === cy) infoPanel.classList.add('translate-x-full'); });
-        
-        cy.fit();
-    }
+        function loadVpcs() {
+            vpcSelector.innerHTML = '<option value="">Loading VPCs...</option>';
+            fetch(`/api/xamops/gcp/cloudmap/vpcs?accountId=${appState.selectedAccountId}`)
+                .then(response => {
+                    if (!response.ok) throw new Error('Bad Request');
+                    return response.json();
+                })
+                .then(vpcs => {
+                    vpcSelector.innerHTML = '<option value="">🌐 Global & Unattached</option>';
+                    if (Array.isArray(vpcs)) {
+                        vpcs.forEach(vpc => {
+                            const option = document.createElement('option');
+                            option.value = vpc.id;
+                            option.textContent = `${vpc.name} (${vpc.id})`;
+                            vpcSelector.appendChild(option);
+                        });
+                    }
+                    loadGraphForVpc(""); // Load global view by default
+                })
+                .catch(error => {
+                    console.error('Error fetching VPCs:', error);
+                    vpcSelector.innerHTML = '<option value="">❌ Error loading VPCs</option>';
+                });
+        }
 
-    function displayNodeInfo(data) {
-        const nodeTypeColors = {
-            'VPC': 'from-green-500 to-emerald-600',
-            'Instance': 'from-orange-500 to-red-600',
-            'Subnet': 'from-blue-500 to-indigo-600',
-            'Firewall': 'from-yellow-500 to-orange-600'
-        };
+        function loadGraphForVpc(vpcId) {
+            if (cy) cy.destroy();
+            infoPanel.classList.add('translate-x-full');
 
-        const gradientClass = nodeTypeColors[data.type] || 'from-gray-500 to-gray-600';
-        
-        let contentHtml = `
-            <div class="slide-in">
-                <div class="w-12 h-12 bg-gradient-to-br ${gradientClass} rounded-xl flex items-center justify-center mb-4">
-                    <i class="fas fa-${getIconForType(data.type)} text-white text-lg"></i>
+            if (!appState.selectedAccountId) {
+                console.error("No account ID found in app state for loading graph.");
+                return;
+            }
+
+            const url = `/api/xamops/gcp/cloudmap/graph?accountId=${appState.selectedAccountId}&vpcId=${vpcId || ''}`;
+
+            messageOverlay.innerHTML = `
+                <div class="message-overlay text-center">
+                    <div class="loading-spinner mx-auto mb-4"></div>
+                    <h3 class="text-lg font-bold text-gray-800 mb-2">Loading Infrastructure</h3>
+                    <p class="text-gray-600">Analyzing your GCP topology...</p>
                 </div>
-                <h2 class="text-2xl font-bold text-gray-800 mb-2">${data.label}</h2>
-                <div class="vpc-badge mb-4">${data.type}</div>
-                <p class="text-sm text-gray-500 font-mono mb-6 bg-gray-50 p-2 rounded">${data.id}</p>
-                <div class="space-y-3">
-        `;
+            `;
+            messageOverlay.style.display = 'flex';
 
-        const internalKeys = ['id', 'label', 'parent', 'type'];
-        for (const [key, value] of Object.entries(data)) {
-            if (!internalKeys.includes(key) && value) {
-                contentHtml += `
-                    <div class="network-node">
-                        <div class="flex justify-between items-center">
-                            <span class="font-semibold text-gray-700">${key.replace(/([A-Z])/g, ' $1').trim()}</span>
-                            <span class="font-mono text-gray-900 text-sm">${value}</span>
+            fetch(url)
+                .then(response => response.json())
+                .then(data => {
+                    messageOverlay.style.display = 'none';
+                    renderGraph(data);
+                })
+                .catch(error => {
+                    console.error('Error fetching graph data:', error);
+                    messageOverlay.innerHTML = `
+                        <div class="message-overlay text-center">
+                            <div class="w-16 h-16 bg-gradient-to-br from-red-500 to-pink-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <i class="fas fa-exclamation-triangle text-white text-2xl"></i>
+                            </div>
+                            <h3 class="text-lg font-bold text-gray-800 mb-2">Load Error</h3>
+                            <p class="text-gray-600">Could not load graph data. Please try again.</p>
                         </div>
-                    </div>
-                `;
+                    `;
+                });
+        }
+
+        function renderGraph(graphData) {
+            try {
+                cy = cytoscape({
+                    container: document.getElementById('cy'),
+                    elements: graphData,
+                    layout: {
+                        name: 'dagre',
+                        nodeSep: 80,
+                        edgeSep: 20,
+                        rankSep: 100,
+                        rankDir: 'TB',
+                        align: 'UL',
+                        spacingFactor: 1.5,
+                    },
+                    style: [
+                        {
+                            selector: 'node',
+                            style: {
+                                'shape': 'rectangle',
+                                'label': 'data(label)',
+                                'font-size': '11px',
+                                'font-weight': '600',
+                                'text-valign': 'bottom',
+                                'text-halign': 'center',
+                                'color': '#374151',
+                                'text-margin-y': 8,
+                                'width': 60,
+                                'height': 60,
+                                'background-opacity': 0,
+                                'background-image': (node) => icons[node.data('type')] || '/icons/gcp-icon.png',
+                                'background-fit': 'contain',
+                                'background-clip': 'none',
+                                'border-width': 2,
+                                'border-color': '#e5e7eb',
+                                'border-opacity': 0.8,
+                                'transition-property': 'background-color, border-color, width, height',
+                                'transition-duration': '0.3s'
+                            }
+                        },
+                        {
+                            selector: 'edge',
+                            style: {
+                                'width': 2,
+                                'line-color': '#9ca3af',
+                                'target-arrow-color': '#9ca3af',
+                                'target-arrow-shape': 'triangle',
+                                'curve-style': 'bezier',
+                                'opacity': 0.8
+                            }
+                        },
+                        {
+                            selector: ':parent',
+                            style: {
+                                'text-valign': 'top',
+                                'text-halign': 'center',
+                                'font-weight': 'bold',
+                                'color': '#1f2937',
+                                'font-size': '16px',
+                                'background-opacity': 1,
+                                'background-image': 'none',
+                                'padding': '20px'
+                            }
+                        },
+                        {
+                            selector: 'node[type="VPC"]',
+                            style: {
+                                'background-color': '#f0fdf4',
+                                'border-width': 3,
+                                'border-color': '#10b981',
+                                'border-style': 'solid'
+                            }
+                        },
+                        {
+                            selector: 'node[type="Region"]',
+                            style: {
+                                'background-color': '#f0f9ff',
+                                'border-width': 2,
+                                'border-color': '#60a5fa',
+                                'border-style': 'dashed'
+                            }
+                        },
+                        {
+                            selector: 'node[type="Subnet"]',
+                            style: {
+                                'background-color': '#ecfdf5',
+                                'border-width': 2,
+                                'border-color': '#6ee7b7',
+                                'border-style': 'solid'
+                            }
+                        },
+                        {
+                            selector: 'node[type="Firewall"]',
+                            style: {
+                                'width': 40,
+                                'height': 40,
+                                'background-color': '#fef3c7',
+                                'border-color': '#f59e0b'
+                            }
+                        },
+                    ]
+                });
+
+                cy.on('tap', 'node', evt => displayNodeInfo(evt.target.data()));
+                cy.on('tap', evt => { if (evt.target === cy) infoPanel.classList.add('translate-x-full'); });
+
+                cy.on('mouseover', 'node', (event) => {
+                    event.target.style({
+                        'border-width': 3,
+                        'border-color': '#6366f1'
+                    });
+                    graphContainer.style.cursor = 'pointer';
+                });
+
+                cy.on('mouseout', 'node', (event) => {
+                    event.target.removeStyle('border-width');
+                    event.target.removeStyle('border-color');
+                    graphContainer.style.cursor = 'default';
+                });
+
+                cy.fit();
+            } catch (error) {
+                console.error("Error rendering graph:", error);
             }
         }
-        contentHtml += `</div></div>`;
-        
-        infoContent.innerHTML = contentHtml;
-        infoPanel.classList.remove('translate-x-full');
-    }
 
-    function getIconForType(type) {
-        const iconMap = {
-            'VPC': 'cloud',
-            'Instance': 'server',
-            'Subnet': 'network-wired',
-            'Firewall': 'shield-alt',
-            'Region': 'layer-group'
-        };
-        return iconMap[type] || 'cube';
-    }
+        function displayNodeInfo(data) {
+            const nodeTypeColors = {
+                'VPC': 'from-green-500 to-emerald-600',
+                'Instance': 'from-orange-500 to-red-600',
+                'Subnet': 'from-blue-500 to-indigo-600',
+                'Firewall': 'from-yellow-500 to-orange-600'
+            };
 
-    initialize();
-});
+            const gradientClass = nodeTypeColors[data.type] || 'from-gray-500 to-gray-600';
+
+            let contentHtml = `
+                <div class="slide-in">
+                    <div class="w-12 h-12 bg-gradient-to-br ${gradientClass} rounded-xl flex items-center justify-center mb-4">
+                        <i class="fas fa-${getIconForType(data.type)} text-white text-lg"></i>
+                    </div>
+                    <h2 class="text-2xl font-bold text-gray-800 mb-2">${data.label}</h2>
+                    <div class="vpc-badge mb-4">${data.type}</div>
+                    <p class="text-sm text-gray-500 font-mono mb-6 bg-gray-50 p-2 rounded">${data.id}</p>
+                    <div class="space-y-3">
+            `;
+
+            const internalKeys = ['id', 'label', 'parent', 'type'];
+            for (const [key, value] of Object.entries(data)) {
+                if (!internalKeys.includes(key) && value) {
+                    contentHtml += `
+                        <div class="network-node">
+                            <div class="flex justify-between items-center">
+                                <span class="font-semibold text-gray-700">${key.replace(/([A-Z])/g, ' $1').trim()}</span>
+                                <span class="font-mono text-gray-900 text-sm">${value}</span>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+            contentHtml += `</div></div>`;
+
+            infoContent.innerHTML = contentHtml;
+            infoPanel.classList.remove('translate-x-full');
+        }
+
+        function getIconForType(type) {
+            const iconMap = {
+                'VPC': 'cloud',
+                'Instance': 'server',
+                'Subnet': 'network-wired',
+                'Firewall': 'shield-alt',
+                'Region': 'layer-group'
+            };
+            return iconMap[type] || 'cube';
+        }
+
+        initialize();
+    });
 </script>
 
 </body>

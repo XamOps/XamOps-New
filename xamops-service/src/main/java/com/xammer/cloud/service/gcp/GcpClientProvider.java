@@ -5,8 +5,12 @@ import com.google.api.client.json.gson.GsonFactory;
 import com.google.api.services.dns.Dns;
 import com.google.api.services.dns.DnsScopes;
 import com.google.api.services.sqladmin.SQLAdmin;
+import com.google.appengine.v1.ServicesClient;
+import com.google.appengine.v1.ServicesSettings;
 import com.google.auth.http.HttpCredentialsAdapter;
 import com.google.auth.oauth2.GoogleCredentials;
+import com.google.cloud.apigateway.v1.ApiGatewayServiceClient;
+import com.google.cloud.apigateway.v1.ApiGatewayServiceSettings;
 import com.google.cloud.asset.v1.AssetServiceClient;
 import com.google.cloud.asset.v1.AssetServiceSettings;
 import com.google.cloud.bigquery.BigQuery;
@@ -16,8 +20,6 @@ import com.google.cloud.billing.budgets.v1.BudgetServiceSettings;
 import com.google.cloud.compute.v1.*;
 import com.google.cloud.container.v1.ClusterManagerClient;
 import com.google.cloud.container.v1.ClusterManagerSettings;
-// import com.google.cloud.devtools.artifactregistry.v1.ArtifactRegistryClient;
-// import com.google.cloud.devtools.artifactregistry.v1.ArtifactRegistrySettings;
 import com.google.cloud.devtools.cloudbuild.v1.CloudBuildClient;
 import com.google.cloud.devtools.cloudbuild.v1.CloudBuildSettings;
 import com.google.cloud.functions.v2.FunctionServiceClient;
@@ -26,6 +28,8 @@ import com.google.cloud.iam.admin.v1.IAMClient;
 import com.google.cloud.iam.admin.v1.IAMSettings;
 import com.google.cloud.kms.v1.KeyManagementServiceClient;
 import com.google.cloud.kms.v1.KeyManagementServiceSettings;
+import com.google.cloud.logging.v2.ConfigClient;
+import com.google.cloud.logging.v2.ConfigSettings;
 import com.google.cloud.monitoring.v3.MetricServiceClient;
 import com.google.cloud.monitoring.v3.MetricServiceSettings;
 import com.google.cloud.recommender.v1.RecommenderClient;
@@ -41,6 +45,7 @@ import com.google.cloud.storage.StorageOptions;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayInputStream;
@@ -58,14 +63,21 @@ public class GcpClientProvider {
         this.cloudAccountRepository = cloudAccountRepository;
     }
 
-    public AssetServiceClient createAssetServiceClient(String gcpProjectId) throws IOException {
-        // FIX: The createClient() method is a static method on the client class, not the settings builder.
-        AssetServiceSettings settings = AssetServiceSettings.newBuilder()
-                .setCredentialsProvider(() -> getCredentials(gcpProjectId).orElseThrow())
-                .build();
-        return AssetServiceClient.create(settings);
+    public Optional<AssetServiceClient> getAssetServiceClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                AssetServiceSettings settings = AssetServiceSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials)
+                        .build();
+                return AssetServiceClient.create(settings);
+            } catch (IOException e) {
+                log.error("Failed to create AssetServiceClient for project ID: {}", gcpProjectId, e);
+                return null;
+            }
+        });
     }
 
+    @Cacheable(value = "gcpCredentials", key = "#gcpProjectId")
     private Optional<GoogleCredentials> getCredentials(String gcpProjectId) {
         Optional<CloudAccount> accountOpt = cloudAccountRepository.findByGcpProjectId(gcpProjectId);
         if (accountOpt.isEmpty()) {
@@ -79,28 +91,13 @@ public class GcpClientProvider {
                 return Optional.empty();
             }
             return Optional.of(GoogleCredentials.fromStream(
-                    new ByteArrayInputStream(account.getGcpServiceAccountKey().getBytes()))
+                            new ByteArrayInputStream(account.getGcpServiceAccountKey().getBytes()))
                     .createScoped("https://www.googleapis.com/auth/cloud-platform"));
         } catch (IOException e) {
             log.error("Failed to create GoogleCredentials for project ID: {}", gcpProjectId, e);
             return Optional.empty();
         }
     }
-
-    // public Optional<ArtifactRegistryClient> getArtifactRegistryClient(String gcpProjectId) {
-    //     return getCredentials(gcpProjectId).map(credentials -> {
-    //         try {
-    //             ArtifactRegistrySettings settings = ArtifactRegistrySettings.newBuilder()
-    //                     .setCredentialsProvider(() -> credentials)
-    //                     .build();
-    //             // FIX: Use the static create() method from the client class.
-    //             return ArtifactRegistryClient.create(settings);
-    //         } catch (IOException e) {
-    //             log.error("Failed to create ArtifactRegistryClient for project ID: {}", gcpProjectId, e);
-    //             return null;
-    //         }
-    //     });
-    // }
 
     public Optional<CloudBuildClient> getCloudBuildClient(String gcpProjectId) {
         return getCredentials(gcpProjectId).map(credentials -> {
@@ -367,10 +364,15 @@ public class GcpClientProvider {
         }
     }
 
-    public Storage createStorageClient(String serviceAccountKey) throws IOException {
-        GoogleCredentials credentials = GoogleCredentials.fromStream(new ByteArrayInputStream(serviceAccountKey.getBytes()))
-                .createScoped("https://www.googleapis.com/auth/cloud-platform");
-        return StorageOptions.newBuilder().setCredentials(credentials).build().getService();
+    public Optional<Storage> createStorageClient(String serviceAccountKey) {
+        try {
+            GoogleCredentials credentials = GoogleCredentials.fromStream(new ByteArrayInputStream(serviceAccountKey.getBytes()))
+                    .createScoped("https://www.googleapis.com/auth/cloud-platform");
+            return Optional.of(StorageOptions.newBuilder().setCredentials(credentials).build().getService());
+        } catch (IOException e) {
+            log.error("Failed to create Storage client", e);
+            return Optional.empty();
+        }
     }
 
     public Optional<Dns> getDnsZonesClient(String gcpProjectId) {
@@ -390,33 +392,32 @@ public class GcpClientProvider {
         }
     }
 
-    public BudgetServiceClient getBudgetServiceClient(String gcpProjectId) throws IOException {
-        Optional<GoogleCredentials> credsOpt = getCredentials(gcpProjectId);
-        if (credsOpt.isEmpty()) {
-            throw new IOException("GoogleCredentials not found for project ID: " + gcpProjectId);
-        }
-        BudgetServiceSettings budgetServiceSettings = BudgetServiceSettings.newBuilder()
-                .setCredentialsProvider(com.google.api.gax.core.FixedCredentialsProvider.create(credsOpt.get()))
-                .build();
-        return BudgetServiceClient.create(budgetServiceSettings);
+    public Optional<BudgetServiceClient> getBudgetServiceClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                BudgetServiceSettings settings = BudgetServiceSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials)
+                        .build();
+                return BudgetServiceClient.create(settings);
+            } catch (IOException e) {
+                log.error("Failed to create BudgetServiceClient for project ID: {}", gcpProjectId, e);
+                return null;
+            }
+        });
     }
-    public Optional<ForwardingRulesClient> getForwardingRulesClient(String gcpProjectId) {
-        Optional<GoogleCredentials> credentialsOpt = getCredentials(gcpProjectId);
-        if (credentialsOpt.isEmpty()) {
-            log.error("Failed to get credentials for project {}", gcpProjectId);
-            return Optional.empty();
-        }
 
-        try {
-            GoogleCredentials credentials = credentialsOpt.get();
-            ForwardingRulesSettings settings = ForwardingRulesSettings.newBuilder()
-                    .setCredentialsProvider(() -> credentials)
-                    .build();
-            return Optional.of(ForwardingRulesClient.create(settings));
-        } catch (IOException e) {
-            log.error("Failed to create ForwardingRulesClient for project {}", gcpProjectId, e);
-            return Optional.empty();
-        }
+    public Optional<ForwardingRulesClient> getForwardingRulesClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                ForwardingRulesSettings settings = ForwardingRulesSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials)
+                        .build();
+                return ForwardingRulesClient.create(settings);
+            } catch (IOException e) {
+                log.error("Failed to create ForwardingRulesClient for project ID: {}", gcpProjectId, e);
+                return null;
+            }
+        });
     }
 
     public Optional<FirewallsClient> getFirewallsClient(String gcpProjectId) {
@@ -456,6 +457,48 @@ public class GcpClientProvider {
                 return ImagesClient.create(settings);
             } catch (IOException e) {
                 log.error("Failed to create ImagesClient for project ID: {}", gcpProjectId, e);
+                return null;
+            }
+        });
+    }
+
+    public Optional<ApiGatewayServiceClient> getApiGatewayServiceClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                ApiGatewayServiceSettings settings = ApiGatewayServiceSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials)
+                        .build();
+                return ApiGatewayServiceClient.create(settings);
+            } catch (IOException e) {
+                log.error("Failed to create ApiGatewayServiceClient for project ID: {}", gcpProjectId, e);
+                return null;
+            }
+        });
+    }
+
+    public Optional<ServicesClient> getAppEngineServicesClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                ServicesSettings settings = ServicesSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials)
+                        .build();
+                return ServicesClient.create(settings);
+            } catch (IOException e) {
+                log.error("Failed to create ServicesClient for project ID: {}", gcpProjectId, e);
+                return null;
+            }
+        });
+    }
+
+    public Optional<ConfigClient> getConfigClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                ConfigSettings settings = ConfigSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials)
+                        .build();
+                return ConfigClient.create(settings);
+            } catch (IOException e) {
+                log.error("Failed to create ConfigClient for project ID: {}", gcpProjectId, e);
                 return null;
             }
         });

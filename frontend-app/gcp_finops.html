@@ -8,11 +8,12 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-                <script type="module" src="/src/main.js"></script>
-
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1.5.1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+    <script type="module" src="/src/main.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-        
+
         :root {
             --primary-gradient: linear-gradient(135deg, #4285F4 0%, #34A853 100%);
             --success-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
@@ -22,14 +23,14 @@
             --glass-border: rgba(255, 255, 255, 0.2);
         }
 
-        body { 
-            font-family: 'Inter', sans-serif; 
+        body {
+            font-family: 'Inter', sans-serif;
             background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
             min-height: 100vh;
         }
-        
+
         [x-cloak] { display: none !important; }
-        
+
         .glass-card {
             background: var(--glass-bg);
             backdrop-filter: blur(10px);
@@ -38,7 +39,7 @@
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             border-radius: 1.5rem; /* 24px */
         }
-        
+
         .kpi-card {
             position: relative;
             overflow: hidden;
@@ -53,16 +54,16 @@
             transform: translateY(-4px) scale(1.02);
             box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
         }
-        
-        .progress-bar { 
+
+        .progress-bar {
             background: linear-gradient(90deg, #e5e7eb 0%, #f3f4f6 100%);
-            border-radius: 9999px; 
+            border-radius: 9999px;
             overflow: hidden;
             box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
         }
-        
-        .progress-bar-fill { 
-            height: 100%; 
+
+        .progress-bar-fill {
+            height: 100%;
             transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
             border-radius: 9999px;
             background: var(--success-gradient);
@@ -70,7 +71,7 @@
 
         .progress-bar-warning { background: var(--warning-gradient); }
         .progress-bar-danger { background: var(--error-gradient); }
-        
+
         .btn-primary {
             background-color: #4285F4;
             color: white;
@@ -89,7 +90,7 @@
             border-radius: 8px;
             overflow: hidden;
         }
-        
+
         .table-enhanced thead {
             background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
         }
@@ -102,12 +103,12 @@
             font-size: 11px;
             font-weight: 600;
         }
-        
+
         .trend-up {
             background: rgba(239, 68, 68, 0.1);
             color: #dc2626;
         }
-        
+
         .trend-down {
             background: rgba(16, 185, 129, 0.1);
             color: #059669;
@@ -116,24 +117,35 @@
         .fade-in {
             animation: fadeIn 0.5s ease-in-out;
         }
-        
+
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(20px); }
             to { opacity: 1; transform: translateY(0); }
+        }
+
+        .skeleton {
+            background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+        }
+
+        @keyframes shimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
         }
     </style>
 </head>
 <body class="bg-gray-50">
 <div class="flex">
-       <aside class="fixed top-0 left-0 h-screen w-64 bg-white border-r border-gray-200">
-            <div data-include-sidebar></div>
-        </aside>
-<div class="ml-64 flex-1">
-    <main class="flex-1 flex flex-col min-h-screen" x-data="finopsReport()">
-        <header class="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-10">
-            <div class="flex items-center space-x-4">
-                <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-green-500 rounded-xl flex items-center justify-center">
-                    <i class="fas fa-chart-pie text-white text-xl"></i>
+    <aside class="fixed top-0 left-0 h-screen w-64 bg-white border-r border-gray-200">
+        <div data-include-sidebar></div>
+    </aside>
+    <div class="ml-64 flex-1">
+        <main class="flex-1 flex flex-col min-h-screen" x-data="finopsReport()">
+            <header class="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-10">
+                <div class="flex items-center space-x-4">
+                    <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-green-500 rounded-xl flex items-center justify-center">
+                        <i class="fas fa-chart-pie text-white text-xl"></i>
                     </div>
                     <div>
                         <h1 class="text-2xl font-bold text-gray-800">GCP FinOps Report</h1>
@@ -141,10 +153,6 @@
                     </div>
                 </div>
                 <div>
-                    <button @click="downloadReport()" class="bg-green-600 text-white flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md mr-4">
-                        <i class="fas fa-file-pdf"></i>
-                        <span>Download PDF</span>
-                    </button>
                     <button @click="loadReport(true)" class="btn-primary flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md" :disabled="isRefreshing">
                         <i class="fas fa-sync-alt" :class="{ 'fa-spin': isRefreshing }"></i>
                         <span x-text="isRefreshing ? 'Refreshing...' : 'Refresh Data'"></span>
@@ -156,23 +164,31 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                     <template x-for="kpi in kpis" :key="kpi.label">
                         <div class="kpi-card p-6 fade-in">
-                            <div class="flex justify-between items-start mb-4">
-                                <h3 class="text-gray-600 text-sm font-medium" x-text="kpi.label"></h3>
-                                <div class="p-3 rounded-xl" :class="kpi.color.bg">
-                                    <i class="fas text-xl" :class="[kpi.icon, kpi.color.text]"></i>
+                            <div x-show="isLoading" class="skeleton h-28 w-full rounded-lg"></div>
+                            <div x-show="!isLoading" x-cloak>
+                                <div class="flex justify-between items-start mb-4">
+                                    <h3 class="text-gray-600 text-sm font-medium" x-text="kpi.label"></h3>
+                                    <div class="p-3 rounded-xl" :class="kpi.color.bg">
+                                        <i class="fas text-xl" :class="[kpi.icon, kpi.color.text]"></i>
+                                    </div>
                                 </div>
-                            </div>
-                            <p class="text-3xl font-bold text-gray-900 mb-2" x-text="kpi.value"></p>
-                            <div class="trend-indicator" :class="kpi.trendColor.includes('red') ? 'trend-up' : 'trend-down'" x-show="kpi.trendText">
-                                <i class="fas mr-1" :class="kpi.trendIcon"></i>
-                                <span x-text="kpi.trendText"></span>
+                                <p class="text-3xl font-bold text-gray-900 mb-2" x-text="kpi.value"></p>
+                                <div class="trend-indicator" :class="kpi.trendColor.includes('red') ? 'trend-up' : 'trend-down'" x-show="kpi.trendText">
+                                    <i class="fas mr-1" :class="kpi.trendIcon"></i>
+                                    <span x-text="kpi.trendText"></span>
+                                </div>
                             </div>
                         </div>
                     </template>
                 </div>
-                
+
                 <div class="glass-card p-8 fade-in">
                     <h3 class="text-xl font-bold text-gray-800 mb-4">Budgets & Alerts</h3>
+                    <div x-show="isLoading" class="skeleton h-32 w-full rounded-xl"></div>
+                    <div x-show="!isLoading && (!reportData.budgets || reportData.budgets.length === 0)" x-cloak class="empty-state text-center py-12 rounded-2xl">
+                        <h4 class="text-lg font-bold text-gray-800 mb-2">No Budgets Found</h4>
+                        <p class="text-gray-600">Set up budgets to track and control your cloud spending.</p>
+                    </div>
                     <div x-show="!isLoading && reportData.budgets && reportData.budgets.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         <template x-for="budget in reportData.budgets" :key="budget.budgetName">
                             <div class="bg-white/70 rounded-xl p-6 border hover:shadow-lg transition-shadow">
@@ -191,116 +207,99 @@
                             </div>
                         </template>
                     </div>
-                    <div x-show="!isLoading && (!reportData.budgets || reportData.budgets.length === 0)">
-                        <p class="text-sm text-gray-500">No budget data available for this GCP billing account.</p>
-                    </div>
                 </div>
 
-                <div class="glass-card p-8 fade-in">
-                    <h3 class="text-xl font-bold text-gray-800 mb-4">Governance & Cost Allocation</h3>
-                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                        <div class="bg-white/70 rounded-xl p-6 border">
-                            <h4 class="text-lg font-bold text-gray-800 mb-4">Tagging Compliance (cost-center)</h4>
-                            <div x-show="!isLoading && reportData.taggingCompliance" class="flex items-center space-x-4">
-                                <div class="text-center">
-                                    <p class="text-4xl font-bold text-green-600" x-text="(reportData.taggingCompliance.compliancePercentage || 0).toFixed(1) + '%'"></p>
-                                    <p class="text-sm text-gray-600">Compliance</p>
-                                </div>
-                                <div class="flex-1">
-                                    <div class="progress-bar h-4 mb-2">
-                                        <div class="progress-bar-fill" :style="`width: ${reportData.taggingCompliance.compliancePercentage || 0}%`"></div>
-                                    </div>
-                                    <div class="flex justify-between text-sm text-gray-600">
-                                        <span>Tagged</span>
-                                        <span x-text="`${(reportData.taggingCompliance.totalResourcesScanned || 0) - (reportData.taggingCompliance.untaggedResourcesCount || 0)}/${reportData.taggingCompliance.totalResourcesScanned || 0}`"></span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="bg-white/70 rounded-xl p-6 border">
-                             <h4 class="text-lg font-bold text-gray-800 mb-4">Cost Allocation by Tag (owner)</h4>
-                             <div class="chart-container h-48"><canvas id="costAllocationChart"></canvas></div>
-                        </div>
-                    </div>
-                </div>
-                
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
                     <div class="glass-card p-8 fade-in">
                         <h3 class="text-lg font-bold text-gray-800 mb-4">Cost by Service</h3>
-                        <div class="chart-container h-80"><canvas id="costByServiceChart"></canvas></div>
+                        <div x-show="isLoading" class="skeleton h-80 w-full rounded-lg"></div>
+                        <div x-show="!isLoading" x-cloak class="chart-container h-80"><canvas id="costByServiceChart"></canvas></div>
                     </div>
                     <div class="glass-card p-8 fade-in">
-                        <h3 class="text-lg font-bold text-gray-800 mb-4">Cost History</h3>
-                        <div class="chart-container h-80"><canvas id="costHistoryChart"></canvas></div>
+                        <h3 class="text-lg font-bold text-gray-800 mb-4">Cost by Region</h3>
+                        <div x-show="isLoading" class="skeleton h-80 w-full rounded-lg"></div>
+                        <div x-show="!isLoading" x-cloak class="chart-container h-80"><canvas id="costByRegionChart"></canvas></div>
                     </div>
                 </div>
-                
-                <div class="glass-card p-8 fade-in" x-show="!isLoading && (reportData.rightsizingRecommendations.length > 0 || reportData.wastedResources.length > 0)">
-                    <div class="flex items-center space-x-3 mb-6">
-                        <div class="w-10 h-10 bg-gradient-to-br from-yellow-500 to-orange-600 rounded-xl flex items-center justify-center">
-                            <i class="fas fa-lightbulb text-white"></i>
-                        </div>
-                        <div>
-                            <h3 class="text-xl font-bold text-gray-800">Insights & Opportunities</h3>
-                            <p class="text-sm text-gray-600">Optimize your cloud spending</p>
-                        </div>
-                    </div>
 
-                    <div x-show="reportData.rightsizingRecommendations.length > 0" x-cloak class="mb-8">
-                        <h4 class="text-lg font-semibold text-gray-800 mb-4 flex items-center">
-                            <i class="fas fa-cogs text-green-500 mr-2"></i> Rightsizing Recommendations
-                        </h4>
+                <div class="glass-card p-8 fade-in" x-show="!isLoading && (reportData.rightsizingRecommendations.length > 0 || reportData.wastedResources.length > 0 || reportData.costAnomalies.length > 0)">
+                    <h3 class="text-xl font-bold text-gray-800 mb-6">Insights & Opportunities</h3>
+
+                    <div x-show="reportData.costAnomalies.length > 0" x-cloak class="mb-8">
+                        <h4 class="text-lg font-semibold text-gray-800 mb-4"><i class="fas fa-exclamation-triangle text-red-500 mr-2"></i> Cost Anomaly Detection</h4>
                         <div class="table-enhanced overflow-x-auto">
                             <table class="w-full text-sm text-left text-gray-600">
                                 <thead class="text-xs text-gray-700 uppercase">
-                                    <tr>
-                                        <th class="px-6 py-4">Resource ID</th>
-                                        <th class="px-6 py-4">Service</th>
-                                        <th class="px-6 py-4">Current</th>
-                                        <th class="px-6 py-4">Recommended</th>
-                                        <th class="px-6 py-4">Savings</th>
-                                    </tr>
+                                <tr>
+                                    <th class="px-6 py-4">Service</th>
+                                    <th class="px-6 py-4">Date Range</th>
+                                    <th class="px-6 py-4">Unexpected Spend</th>
+                                </tr>
                                 </thead>
                                 <tbody class="divide-y divide-gray-200">
-                                    <template x-for="rec in reportData.rightsizingRecommendations" :key="rec.resourceId">
-                                        <tr class="hover:bg-gray-50">
-                                            <td class="px-6 py-4 font-mono text-xs" x-text="rec.resourceId"></td>
-                                            <td class="px-6 py-4" x-text="rec.service"></td>
-                                            <td class="px-6 py-4" x-text="rec.currentType"></td>
-                                            <td class="px-6 py-4 text-green-700 font-semibold" x-text="rec.recommendedType"></td>
-                                            <td class="px-6 py-4 text-green-700 font-bold" x-text="formatCurrency(rec.estimatedMonthlySavings)"></td>
-                                        </tr>
-                                    </template>
+                                <template x-for="anomaly in reportData.costAnomalies" :key="anomaly.anomalyId">
+                                    <tr class="hover:bg-gray-50">
+                                        <td class="px-6 py-4 font-semibold" x-text="anomaly.service"></td>
+                                        <td class="px-6 py-4" x-text="`${anomaly.startDate} to ${anomaly.endDate}`"></td>
+                                        <td class="px-6 py-4 text-red-600 font-bold" x-text="formatCurrency(anomaly.unexpectedSpend)"></td>
+                                    </tr>
+                                </template>
                                 </tbody>
                             </table>
                         </div>
                     </div>
-                    
-                    <div x-show="reportData.wastedResources.length > 0" x-cloak>
-                        <h4 class="text-lg font-semibold text-gray-800 mb-4 flex items-center">
-                            <i class="fas fa-trash-alt text-red-500 mr-2"></i> Wasted Resources
-                        </h4>
+
+                    <div x-show="reportData.rightsizingRecommendations.length > 0" x-cloak class="mb-8">
+                        <h4 class="text-lg font-semibold text-gray-800 mb-4"><i class="fas fa-cogs text-green-500 mr-2"></i> Rightsizing Recommendations</h4>
                         <div class="table-enhanced overflow-x-auto">
                             <table class="w-full text-sm text-left text-gray-600">
                                 <thead class="text-xs text-gray-700 uppercase">
-                                    <tr>
-                                        <th class="px-6 py-4">Resource ID</th>
-                                        <th class="px-6 py-4">Type</th>
-                                        <th class="px-6 py-4">Region</th>
-                                        <th class="px-6 py-4">Reason</th>
-                                        <th class="px-6 py-4">Savings</th>
-                                    </tr>
+                                <tr>
+                                    <th class="px-6 py-4">Resource ID</th>
+                                    <th class="px-6 py-4">Service</th>
+                                    <th class="px-6 py-4">Current</th>
+                                    <th class="px-6 py-4">Recommended</th>
+                                    <th class="px-6 py-4">Savings</th>
+                                </tr>
                                 </thead>
                                 <tbody class="divide-y divide-gray-200">
-                                    <template x-for="res in reportData.wastedResources" :key="res.resourceId">
-                                        <tr class="hover:bg-gray-50">
-                                            <td class="px-6 py-4 font-mono text-xs" x-text="res.resourceId"></td>
-                                            <td class="px-6 py-4" x-text="res.resourceType"></td>
-                                            <td class="px-6 py-4" x-text="res.region"></td>
-                                            <td class="px-6 py-4" x-text="res.reason"></td>
-                                            <td class="px-6 py-4 text-red-600 font-bold" x-text="formatCurrency(res.monthlySavings)"></td>
-                                        </tr>
-                                    </template>
+                                <template x-for="rec in reportData.rightsizingRecommendations" :key="rec.resourceId">
+                                    <tr class="hover:bg-gray-50">
+                                        <td class="px-6 py-4 font-mono text-xs" x-text="rec.resourceId"></td>
+                                        <td class="px-6 py-4" x-text="rec.service"></td>
+                                        <td class="px-6 py-4" x-text="rec.currentType"></td>
+                                        <td class="px-6 py-4 text-green-700 font-semibold" x-text="rec.recommendedType"></td>
+                                        <td class="px-6 py-4 text-green-700 font-bold" x-text="formatCurrency(rec.estimatedMonthlySavings)"></td>
+                                    </tr>
+                                </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div x-show="reportData.wastedResources.length > 0" x-cloak>
+                        <h4 class="text-lg font-semibold text-gray-800 mb-4"><i class="fas fa-trash-alt text-red-500 mr-2"></i> Wasted Resources</h4>
+                        <div class="table-enhanced overflow-x-auto">
+                            <table class="w-full text-sm text-left text-gray-600">
+                                <thead class="text-xs text-gray-700 uppercase">
+                                <tr>
+                                    <th class="px-6 py-4">Resource ID</th>
+                                    <th class="px-6 py-4">Type</th>
+                                    <th class="px-6 py-4">Region</th>
+                                    <th class="px-6 py-4">Reason</th>
+                                    <th class="px-6 py-4">Savings</th>
+                                </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200">
+                                <template x-for="res in reportData.wastedResources" :key="res.resourceId">
+                                    <tr class="hover:bg-gray-50">
+                                        <td class="px-6 py-4 font-mono text-xs" x-text="res.resourceId"></td>
+                                        <td class="px-6 py-4" x-text="res.resourceType"></td>
+                                        <td class="px-6 py-4" x-text="res.region"></td>
+                                        <td class="px-6 py-4" x-text="res.reason"></td>
+                                        <td class="px-6 py-4 text-red-600 font-bold" x-text="formatCurrency(res.monthlySavings)"></td>
+                                    </tr>
+                                </template>
                                 </tbody>
                             </table>
                         </div>
@@ -314,28 +313,23 @@
 <script>
     function finopsReport() {
         return {
-            isLoading: true, isRefreshing: false,
+            isLoading: true,
+            isRefreshing: false,
             reportData: {
-                billingSummary: [], 
-                costHistory: [], 
-                rightsizingRecommendations: [], 
-                wastedResources: [], 
-                optimizationSummary: { potentialSavings: 0 }, 
-                monthToDateSpend: 0, 
-                lastMonthSpend: 0, 
-                forecastedSpend: 0,
-                budgets: [], 
-                taggingCompliance: { compliancePercentage: 0, untaggedResources: [] },
-                costAllocationByTag: [],
+                kpis: {},
+                costBreakdown: { byService: [], byRegion: [] },
+                rightsizingRecommendations: [],
+                wastedResources: [],
+                costAnomalies: [],
+                budgets: []
             },
-            charts: { byService: null, costHistory: null, costAllocation: null },
+            charts: {
+                byService: null,
+                byRegion: null
+            },
+
             init() { this.loadReport(); },
-            downloadReport() {
-                const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-                const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
-                if (!selectedAccountId) return;
-                window.open(`/api/xamops/gcp/finops/report/download?accountId=${selectedAccountId}`, '_blank');
-            },
+
             loadReport(forceRefresh = false) {
                 const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
                 const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
@@ -348,93 +342,104 @@
 
                 this.isRefreshing = forceRefresh;
                 this.isLoading = !forceRefresh;
-                
+
                 fetch(`/api/xamops/gcp/finops/report?accountId=${selectedAccountId}`)
                     .then(res => res.json())
-                    .then(data => { 
-                        this.reportData = data; 
+                    .then(data => {
+                        this.reportData = data;
                         if (!this.reportData.rightsizingRecommendations) this.reportData.rightsizingRecommendations = [];
                         if (!this.reportData.wastedResources) this.reportData.wastedResources = [];
-                        if (!this.reportData.costAllocationByTag) this.reportData.costAllocationByTag = [];
-                        this.renderCharts(); 
+                        if (!this.reportData.costAnomalies) this.reportData.costAnomalies = [];
+                        this.renderCharts();
                     })
                     .catch(err => console.error("Failed to load FinOps report:", err))
                     .finally(() => { this.isLoading = false; this.isRefreshing = false; });
             },
+
             formatCurrency(value) {
-                return (value || 0).toLocaleString('en-IN', { style: 'currency', currency: 'INR' });
+                return (value || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
             },
+
             get kpis() {
-                const mtdSpend = this.reportData.monthToDateSpend || 0;
-                const lastMonthSpend = this.reportData.lastMonthSpend || 0;
-                const forecast = this.reportData.forecastedSpend || 0;
-                
+                const k = this.reportData.kpis || {};
+                const mtdSpend = k.monthToDateSpend || 0;
+                const lastMonthSpend = k.lastMonthSpend || 0;
+                const forecast = k.forecastedSpend || 0;
+                const potentialSavings = k.potentialSavings || 0;
+
                 const mtdTrend = lastMonthSpend > 0 ? ((mtdSpend - lastMonthSpend) / lastMonthSpend) * 100 : 0;
                 const forecastTrend = lastMonthSpend > 0 ? ((forecast - lastMonthSpend) / lastMonthSpend) * 100 : 0;
 
-                return [
-                    { 
-                        label: 'Month-to-Date Spend', value: this.formatCurrency(mtdSpend), icon: 'fa-dollar-sign',
-                        color: { bg: 'bg-blue-100', text: 'text-blue-500' }, trendIcon: mtdTrend >= 0 ? 'fa-arrow-up' : 'fa-arrow-down',
-                        trendColor: mtdTrend >= 0 ? 'text-red-500' : 'text-green-500', trendText: lastMonthSpend > 0 ? `${Math.abs(mtdTrend).toFixed(1)}% vs last month` : ''
-                    },
-                    { 
-                        label: 'Forecasted Spend', value: this.formatCurrency(forecast), icon: 'fa-chart-line',
-                        color: { bg: 'bg-yellow-100', text: 'text-yellow-500' }, trendIcon: forecastTrend >= 0 ? 'fa-arrow-up' : 'fa-arrow-down',
-                        trendColor: forecastTrend >= 0 ? 'text-red-500' : 'text-green-500', trendText: lastMonthSpend > 0 ? `${Math.abs(forecastTrend).toFixed(1)}% vs last month` : ''
-                    },
-                    { 
-                        label: 'Last Month Spend', value: this.formatCurrency(this.reportData.lastMonthSpend), icon: 'fa-calendar-alt',
-                        color: { bg: 'bg-gray-100', text: 'text-gray-500' }, trendText: ''
-                    },
-                    { 
-                        label: 'Potential Savings', value: this.formatCurrency(this.reportData.optimizationSummary.potentialSavings), icon: 'fa-piggy-bank',
-                        color: { bg: 'bg-green-100', text: 'text-green-500' }, trendText: ''
-                    }
-                ];
+                return [{
+                    label: 'Month-to-Date Spend',
+                    value: this.formatCurrency(mtdSpend),
+                    icon: 'fa-dollar-sign',
+                    color: { bg: 'bg-blue-100', text: 'text-blue-500' },
+                    trendIcon: mtdTrend >= 0 ? 'fa-arrow-up' : 'fa-arrow-down',
+                    trendColor: mtdTrend >= 0 ? 'text-red-500' : 'text-green-500',
+                    trendText: lastMonthSpend > 0 ? `${Math.abs(mtdTrend).toFixed(1)}% vs last month` : ''
+                }, {
+                    label: 'Forecasted Spend',
+                    value: this.formatCurrency(forecast),
+                    icon: 'fa-chart-line',
+                    color: { bg: 'bg-yellow-100', text: 'text-yellow-500' },
+                    trendIcon: forecastTrend >= 0 ? 'fa-arrow-up' : 'fa-arrow-down',
+                    trendColor: forecastTrend >= 0 ? 'text-red-500' : 'text-green-500',
+                    trendText: lastMonthSpend > 0 ? `${Math.abs(forecastTrend).toFixed(1)}% vs last month` : ''
+                }, {
+                    label: 'Last Month Spend',
+                    value: this.formatCurrency(lastMonthSpend),
+                    icon: 'fa-calendar-alt',
+                    color: { bg: 'bg-gray-100', text: 'text-gray-500' },
+                    trendIcon: '', trendColor: '', trendText: ''
+                }, {
+                    label: 'Potential Savings',
+                    value: this.formatCurrency(potentialSavings),
+                    icon: 'fa-piggy-bank',
+                    color: { bg: 'bg-green-100', text: 'text-green-500' },
+                    trendIcon: '', trendColor: '', trendText: ''
+                }];
             },
+
             renderCharts() {
                 this.renderServiceChart();
-                this.renderCostHistoryChart();
-                this.renderCostAllocationChart();
+                this.renderRegionChart();
             },
-            renderCostAllocationChart() {
-                const ctx = document.getElementById('costAllocationChart');
-                if(!ctx || !this.reportData.costAllocationByTag) return;
-                if (this.charts.costAllocation) this.charts.costAllocation.destroy();
-                this.charts.costAllocation = new Chart(ctx, {
-                    type: 'pie',
-                    data: {
-                        labels: this.reportData.costAllocationByTag.map(d => d.name),
-                        datasets: [{ data: this.reportData.costAllocationByTag.map(d => d.amount), backgroundColor: ['#4285F4', '#34A853', '#FBBC05', '#EA4335', '#667eea'] }]
-                    },
-                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
-                });
-            },
+
             renderServiceChart() {
                 const ctx = document.getElementById('costByServiceChart');
-                if(!ctx || !this.reportData.billingSummary) return;
+                if (!ctx) return;
                 if (this.charts.byService) this.charts.byService.destroy();
-                this.charts.byService = new Chart(ctx, {
+                const data = this.reportData.costBreakdown?.byService || [];
+                this.charts.byService = new Chart(ctx.getContext('2d'), {
                     type: 'doughnut',
                     data: {
-                        labels: this.reportData.billingSummary.map(d => d.name),
-                        datasets: [{ data: this.reportData.billingSummary.map(d => d.amount), backgroundColor: ['#4285F4', '#34A853', '#FBBC05', '#EA4335', '#667eea', '#764ba2'] }]
+                        labels: data.map(d => d.name),
+                        datasets: [{ data: data.map(d => d.amount), backgroundColor: ['#4285F4', '#34A853', '#FBBC05', '#EA4335', '#667eea', '#764ba2'] }]
                     },
                     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } }
                 });
             },
-            renderCostHistoryChart() {
-                const ctx = document.getElementById('costHistoryChart');
-                 if(!ctx || !this.reportData.costHistory) return;
-                if (this.charts.costHistory) this.charts.costHistory.destroy();
-                this.charts.costHistory = new Chart(ctx, {
+
+            renderRegionChart() {
+                const ctx = document.getElementById('costByRegionChart');
+                if (!ctx) return;
+                if (this.charts.byRegion) this.charts.byRegion.destroy();
+                const data = this.reportData.costBreakdown?.byRegion || [];
+                this.charts.byRegion = new Chart(ctx.getContext('2d'), {
                     type: 'bar',
                     data: {
-                        labels: this.reportData.costHistory.map(d => d.name),
-                        datasets: [{ label: 'Monthly Cost', data: this.reportData.costHistory.map(d => d.amount), backgroundColor: '#4285F4', borderRadius: 4 }]
+                        labels: data.map(d => d.name),
+                        datasets: [{
+                            label: 'Cost by Region',
+                            data: data.map(d => d.amount),
+                            backgroundColor: 'rgba(251, 146, 60, 0.8)',
+                            borderColor: 'rgba(251, 146, 60, 1)',
+                            borderWidth: 2,
+                            borderRadius: 8
+                        }]
                     },
-                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+                    options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { display: false } } }
                 });
             }
         }

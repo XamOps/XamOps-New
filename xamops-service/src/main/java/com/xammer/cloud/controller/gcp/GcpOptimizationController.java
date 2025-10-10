@@ -24,13 +24,11 @@ public class GcpOptimizationController {
 
     @GetMapping("/rightsizing-recommendations")
     public CompletableFuture<ResponseEntity<List<GcpOptimizationRecommendation>>> getRightsizingRecommendations(@RequestParam String accountId) {
-        return gcpOptimizationService.getRightsizingRecommendations(accountId)
-                .thenApply(ResponseEntity::ok);
+        return CompletableFuture.supplyAsync(() -> ResponseEntity.ok(gcpOptimizationService.getRightsizingRecommendations(accountId)));
     }
 
     @GetMapping("/waste-report")
     public CompletableFuture<ResponseEntity<List<GcpWasteItem>>> getWasteReport(@RequestParam String accountId) {
-        return gcpOptimizationService.getWasteReport(accountId)
-                .thenApply(ResponseEntity::ok);
+        return CompletableFuture.supplyAsync(() -> ResponseEntity.ok(gcpOptimizationService.getWasteReport(accountId)));
     }
 }

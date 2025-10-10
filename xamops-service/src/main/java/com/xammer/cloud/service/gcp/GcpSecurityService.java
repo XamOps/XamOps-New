@@ -7,6 +7,7 @@ import com.xammer.cloud.dto.gcp.GcpContainerVulnerabilityDto;
 import com.xammer.cloud.dto.gcp.GcpIamPolicyDriftDto;
 import com.xammer.cloud.dto.gcp.GcpSecurityFinding;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 // import com.google.cloud.devtools.containeranalysis.v1.ContainerAnalysisClient;
 // import com.google.cloud.devtools.containeranalysis.v1.grafeas.v1.GrafeasClient;
@@ -36,11 +37,13 @@ public class GcpSecurityService {
         this.gcpClientProvider = gcpClientProvider;
     }
 
+    @Cacheable(value = "gcpIamPolicyDrift", key = "'gcp:iam-policy-drift:' + #gcpProjectId")
     public CompletableFuture<List<GcpIamPolicyDriftDto>> getIamPolicyDrift(String gcpProjectId) {
         // Placeholder implementation
         return CompletableFuture.completedFuture(new ArrayList<>());
     }
-    
+
+    @Cacheable(value = "gcpContainerScanningResults", key = "'gcp:container-scanning-results:' + #gcpProjectId")
     public CompletableFuture<List<GcpContainerVulnerabilityDto>> getContainerScanningResults(String gcpProjectId) {
         // Placeholder implementation
         return CompletableFuture.completedFuture(new ArrayList<>());
@@ -50,6 +53,7 @@ public class GcpSecurityService {
     /**
      * **[FIXED]** This method is now updated to use the Security Command Center V2 API.
      */
+    @Cacheable(value = "gcpSecurityFindings", key = "'gcp:security-findings:' + #gcpProjectId")
     public CompletableFuture<List<GcpSecurityFinding>> getSecurityFindings(String gcpProjectId) {
         return CompletableFuture.supplyAsync(() -> {
             // Use the new V2 client from the provider
@@ -65,11 +69,11 @@ public class GcpSecurityService {
                 // Using '-' as a wildcard for the source ID gets findings from all available sources.
                 String parent = String.format("projects/%s/sources/-", gcpProjectId);
                 log.info("Fetching security findings for project {} from parent {} using V2 API", gcpProjectId, parent);
-                
+
                 ListFindingsRequest request = ListFindingsRequest.newBuilder()
-                    .setParent(parent)
-                    .setFilter("state=\"ACTIVE\"") // Filter for active findings
-                    .build();
+                        .setParent(parent)
+                        .setFilter("state=\"ACTIVE\"") // Filter for active findings
+                        .build();
 
                 // Iterate through all pages of results and map them to our DTO
                 for (com.google.cloud.securitycenter.v2.ListFindingsResponse.ListFindingsResult result : client.listFindings(request).iterateAll()) {
@@ -85,24 +89,24 @@ public class GcpSecurityService {
             return findings;
         });
     }
-    
+
     public int calculateSecurityScore(List<GcpSecurityFinding> findings) {
         if (findings == null || findings.isEmpty()) {
             return 100;
         }
         Map<String, Long> counts = findings.stream()
-            .collect(Collectors.groupingBy(GcpSecurityFinding::getSeverity, Collectors.counting()));
+                .collect(Collectors.groupingBy(GcpSecurityFinding::getSeverity, Collectors.counting()));
 
         long criticalWeight = 5;
         long highWeight = 2;
         long mediumWeight = 1;
 
         long weightedScore = (counts.getOrDefault("CRITICAL", 0L) * criticalWeight) +
-                              (counts.getOrDefault("HIGH", 0L) * highWeight) +
-                              (counts.getOrDefault("MEDIUM", 0L) * mediumWeight);
+                (counts.getOrDefault("HIGH", 0L) * highWeight) +
+                (counts.getOrDefault("MEDIUM", 0L) * mediumWeight);
 
         double score = 100.0 / (1 + 0.1 * weightedScore);
-        
+
         return Math.max(0, (int) Math.round(score));
     }
 

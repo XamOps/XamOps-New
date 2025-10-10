@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import software.amazon.awssdk.services.servicequotas.ServiceQuotasClient;
 import software.amazon.awssdk.services.servicequotas.model.ListServiceQuotasRequest;
 import software.amazon.awssdk.services.servicequotas.model.ListServiceQuotasResponse;
@@ -149,6 +150,7 @@ public class CloudGuardService {
     }
 
     @Async("awsTaskExecutor")
+    @Transactional(readOnly = true)
     public CompletableFuture<List<AlertDto>> getAlerts(String accountId, boolean forceRefresh) {
         CloudAccount account = getAccount(accountId);
         CompletableFuture<List<DashboardData.ServiceQuotaInfo>> quotasFuture = getVpcQuotaAlerts(accountId, forceRefresh);
