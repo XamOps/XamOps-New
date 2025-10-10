@@ -17,4 +17,7 @@ public class GcpCommittedUseDiscountDto {
     private String term; // e.g., "1-year"
     private BigDecimal commitmentAmount;
     private String commitmentUnit;
+    private String id;
+    private String description;
+    private String plan;
 }

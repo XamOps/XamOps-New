@@ -54,6 +54,10 @@ private Long id;
     @Column
     private String billingExportTable;
 
+    @Column(name = "gcp_billing_account_id")
+    private String gcpBillingAccountId;
+
+
     @Column(name = "azure_tenant_id")
     private String azureTenantId;
 
@@ -70,6 +74,18 @@ private Long id;
     @JoinColumn(name = "client_id", nullable = false)
     @JsonIgnore
     private Client client;
+
+    @Column(name = "grafana_ip")
+    private String grafanaIp;
+
+    // Also, add the getter and setter for this new field
+    public String getGrafanaIp() {
+        return grafanaIp;
+    }
+
+    public void setGrafanaIp(String grafanaIp) {
+        this.grafanaIp = grafanaIp;
+    }
 
     public CloudAccount(String accountName, String externalId, String accessType, Client client) {
         this.accountName = accountName;
@@ -92,4 +108,5 @@ private Long id;
                 return null;
         }
     }
+
 }

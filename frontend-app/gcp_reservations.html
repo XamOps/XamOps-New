@@ -33,62 +33,162 @@
                     </div>
                     <div>
                         <h1 class="text-2xl font-bold text-gray-800">GCP Committed Use Discounts</h1>
-                        <p class="text-sm text-gray-600">Analyze your GCP commitments</p>
+                        <p class="text-sm text-gray-600">Analyze your GCP commitments & recommendations</p>
                     </div>
                 </div>
-                <button @click="loadCuds(true)" class="bg-indigo-600 text-white flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md" :disabled="isRefreshing">
+                <button @click="refreshAll()" class="bg-indigo-600 text-white flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md hover:bg-indigo-700 transition-colors" :disabled="isRefreshing">
                     <i class="fas fa-sync-alt" :class="{ 'fa-spin': isRefreshing }"></i>
                     <span x-text="isRefreshing ? 'Refreshing...' : 'Refresh Data'"></span>
                 </button>
             </header>
 
             <div class="flex-1 p-8 space-y-8">
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- Summary Cards -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                     <div class="glass-card rounded-2xl p-6">
-                        <h3 class="text-gray-600 text-sm font-medium mb-2">Total Commitments</h3>
-                        <p class="text-4xl font-bold text-indigo-600" x-text="cuds.length"></p>
+                        <div class="flex items-center justify-between mb-2">
+                            <h3 class="text-gray-600 text-sm font-medium">Active CUDs</h3>
+                            <i class="fas fa-check-circle text-green-500"></i>
+                        </div>
+                        <p class="text-4xl font-bold text-indigo-600" x-text="activeCuds?.length || 0"></p>
+                        <p class="text-xs text-gray-500 mt-1">Current commitments</p>
                     </div>
+
                     <div class="glass-card rounded-2xl p-6">
-                        <h3 class="text-gray-600 text-sm font-medium mb-2">Total Commitment Amount</h3>
+                        <div class="flex items-center justify-between mb-2">
+                            <h3 class="text-gray-600 text-sm font-medium">Total Commitment</h3>
+                            <i class="fas fa-dollar-sign text-blue-500"></i>
+                        </div>
                         <p class="text-4xl font-bold text-indigo-600" x-text="formatCurrency(totalCommitmentAmount)"></p>
+                        <p class="text-xs text-gray-500 mt-1">Monthly commitment value</p>
                     </div>
+
                     <div class="glass-card rounded-2xl p-6">
-                        <h3 class="text-gray-600 text-sm font-medium mb-2">Overall Utilization</h3>
-                        <p class="text-4xl font-bold text-green-600">95.2%</p> </div>
+                        <div class="flex items-center justify-between mb-2">
+                            <h3 class="text-gray-600 text-sm font-medium">Recommendations</h3>
+                            <i class="fas fa-lightbulb text-yellow-500"></i>
+                        </div>
+                        <p class="text-4xl font-bold text-orange-600" x-text="cudRecommendations?.length || 0"></p>
+                        <p class="text-xs text-gray-500 mt-1">New opportunities</p>
+                    </div>
+
+                    <div class="glass-card rounded-2xl p-6">
+                        <div class="flex items-center justify-between mb-2">
+                            <h3 class="text-gray-600 text-sm font-medium">Potential Savings</h3>
+                            <i class="fas fa-piggy-bank text-green-500"></i>
+                        </div>
+                        <p class="text-4xl font-bold text-green-600" x-text="formatCurrency(totalPotentialSavings)"></p>
+                        <p class="text-xs text-gray-500 mt-1">Monthly if purchased</p>
+                    </div>
                 </div>
 
+                <!-- Active CUDs Section -->
                 <div class="glass-card rounded-2xl p-8">
-                    <h2 class="text-xl font-bold text-gray-800 mb-6">Active Commitments</h2>
-                    <div x-show="isLoading" class="space-y-4">
-                        <div class="skeleton h-16 rounded-lg" x-for="i in 5"></div>
+                    <div class="flex items-center justify-between mb-6">
+                        <h2 class="text-xl font-bold text-gray-800">Active Committed Use Discounts</h2>
+                        <span class="px-3 py-1 bg-green-100 text-green-800 text-xs font-semibold rounded-full">
+                            <span x-text="activeCuds?.length || 0"></span> Active
+                        </span>
                     </div>
-                    <div x-show="!isLoading && cuds.length === 0" class="text-center py-12">
+
+                    <!-- Loading State -->
+                    <div x-show="isLoadingActive" class="space-y-4">
+                        <div class="skeleton h-16 rounded-lg"></div>
+                        <div class="skeleton h-16 rounded-lg"></div>
+                        <div class="skeleton h-16 rounded-lg"></div>
+                    </div>
+
+                    <!-- Empty State -->
+                    <div x-show="!isLoadingActive && (!activeCuds || activeCuds.length === 0)" class="text-center py-12">
                         <i class="fas fa-info-circle text-4xl text-gray-400 mb-4"></i>
                         <p class="text-gray-600">No active Committed Use Discounts found for this account.</p>
+                        <p class="text-gray-500 text-sm mt-2">Purchase CUDs to save on consistent workloads.</p>
                     </div>
-                    <div x-show="!isLoading && cuds.length > 0" class="overflow-x-auto">
+
+                    <!-- Active CUDs Table -->
+                    <div x-show="!isLoadingActive && activeCuds && activeCuds.length > 0" class="overflow-x-auto">
                         <table class="w-full text-sm">
                             <thead class="text-xs text-gray-700 uppercase bg-gray-50">
-                                <tr>
-                                    <th class="px-6 py-3 text-left">Commitment Name</th>
-                                    <th class="px-6 py-3 text-left">Type</th>
-                                    <th class="px-6 py-3 text-left">Status</th>
-                                    <th class="px-6 py-3 text-left">Term</th>
-                                    <th class="px-6 py-3 text-left">Region</th>
-                                    <th class="px-6 py-3 text-right">Amount</th>
-                                </tr>
+                            <tr>
+                                <th class="px-6 py-3 text-left">Name</th>
+                                <th class="px-6 py-3 text-left">Type</th>
+                                <th class="px-6 py-3 text-left">Status</th>
+                                <th class="px-6 py-3 text-left">Term</th>
+                                <th class="px-6 py-3 text-left">Region</th>
+                                <th class="px-6 py-3 text-right">Amount</th>
+                            </tr>
                             </thead>
                             <tbody class="divide-y divide-gray-200">
-                                <template x-for="cud in cuds" :key="cud.name">
-                                    <tr class="hover:bg-gray-50">
-                                        <td class="px-6 py-4 font-mono text-xs font-medium" x-text="cud.name"></td>
-                                        <td class="px-6 py-4" x-text="cud.type"></td>
-                                        <td class="px-6 py-4"><span class="px-2 py-1 text-xs font-semibold rounded-full" :class="cud.status === 'ACTIVE' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'" x-text="cud.status"></span></td>
-                                        <td class="px-6 py-4" x-text="cud.term"></td>
-                                        <td class="px-6 py-4" x-text="cud.region"></td>
-                                        <td class="px-6 py-4 text-right font-semibold" x-text="formatCurrency(cud.commitmentAmount) + ' ' + cud.commitmentUnit"></td>
-                                    </tr>
-                                </template>
+                            <template x-for="(cud, index) in activeCuds" :key="index">
+                                <tr class="hover:bg-gray-50">
+                                    <td class="px-6 py-4 font-medium text-gray-900" x-text="cud.name || 'N/A'"></td>
+                                    <td class="px-6 py-4 text-gray-600" x-text="cud.commitmentUnit || cud.type || 'N/A'"></td>
+                                    <td class="px-6 py-4">
+                                            <span class="px-2 py-1 text-xs font-semibold rounded-full"
+                                                  :class="cud.status === 'ACTIVE' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'"
+                                                  x-text="cud.status || 'ACTIVE'"></span>
+                                    </td>
+                                    <td class="px-6 py-4 text-gray-600" x-text="cud.term || cud.plan || 'N/A'"></td>
+                                    <td class="px-6 py-4 text-gray-600" x-text="cud.region || 'Global'"></td>
+                                    <td class="px-6 py-4 text-right font-semibold text-indigo-600"
+                                        x-text="formatNumber(cud.commitmentAmount) + ' ' + (cud.commitmentUnit || '')"></td>
+                                </tr>
+                            </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- CUD Recommendations Section -->
+                <div class="glass-card rounded-2xl p-8">
+                    <div class="flex items-center justify-between mb-6">
+                        <h2 class="text-xl font-bold text-gray-800">CUD Recommendations</h2>
+                        <span class="px-3 py-1 bg-orange-100 text-orange-800 text-xs font-semibold rounded-full">
+                            <span x-text="cudRecommendations?.length || 0"></span> Recommendations
+                        </span>
+                    </div>
+
+                    <!-- Loading State -->
+                    <div x-show="isLoadingRecommendations" class="space-y-4">
+                        <div class="skeleton h-16 rounded-lg"></div>
+                        <div class="skeleton h-16 rounded-lg"></div>
+                        <div class="skeleton h-16 rounded-lg"></div>
+                    </div>
+
+                    <!-- Empty State -->
+                    <div x-show="!isLoadingRecommendations && (!cudRecommendations || cudRecommendations.length === 0)" class="text-center py-12">
+                        <i class="fas fa-lightbulb text-4xl text-yellow-400 mb-4"></i>
+                        <p class="text-gray-600 font-semibold mb-2">No CUD Recommendations Available</p>
+                        <p class="text-gray-500 text-sm">Google Cloud hasn't generated any commitment recommendations yet.</p>
+                        <p class="text-gray-500 text-sm mt-1">This typically requires consistent usage patterns over time.</p>
+                    </div>
+
+                    <!-- Recommendations Table -->
+                    <div x-show="!isLoadingRecommendations && cudRecommendations && cudRecommendations.length > 0" class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead class="text-xs text-gray-700 uppercase bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left">Resource</th>
+                                <th class="px-6 py-3 text-left">Commitment Type</th>
+                                <th class="px-6 py-3 text-left">Recommendation</th>
+                                <th class="px-6 py-3 text-left">Service</th>
+                                <th class="px-6 py-3 text-right">Monthly Savings</th>
+                            </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-200">
+                            <template x-for="(rec, index) in cudRecommendations" :key="index">
+                                <tr class="hover:bg-gray-50 cursor-pointer">
+                                    <td class="px-6 py-4 font-medium text-gray-900" x-text="rec.resourceName || 'CUD Recommendation'"></td>
+                                    <td class="px-6 py-4 text-gray-600" x-text="rec.currentMachineType || 'N/A'"></td>
+                                    <td class="px-6 py-4 text-sm text-gray-600" x-text="rec.recommendedMachineType || 'Purchase CUD'"></td>
+                                    <td class="px-6 py-4">
+                                            <span class="px-2 py-1 text-xs font-semibold rounded-full bg-purple-100 text-purple-800"
+                                                  x-text="rec.serviceType || 'Commitment'"></span>
+                                    </td>
+                                    <td class="px-6 py-4 text-right font-bold text-green-600"
+                                        x-text="formatCurrency(rec.monthlySavings || 0)"></td>
+                                </tr>
+                            </template>
                             </tbody>
                         </table>
                     </div>
@@ -101,37 +201,106 @@
 <script>
     function gcpReservations() {
         return {
-            isLoading: true,
+            isLoadingActive: true,
+            isLoadingRecommendations: true,
             isRefreshing: false,
-            cuds: [],
-            init() {
-                this.loadCuds(false);
-            },
-            loadCuds(forceRefresh) {
-                const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-                const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
-                if (!selectedAccountId) {
-                    this.isLoading = false;
-                    return;
-                }
-                this.isLoading = !forceRefresh;
-                this.isRefreshing = forceRefresh;
+            activeCuds: [],
+            cudRecommendations: [],
 
-                fetch(`/api/xamops/gcp/reservations/cuds?accountId=${selectedAccountId}`)
+            init() {
+                this.loadActiveCuds();
+                this.loadCudRecommendations();
+            },
+
+            refreshAll() {
+                this.isRefreshing = true;
+                this.isLoadingActive = true;
+                this.isLoadingRecommendations = true;
+
+                // Re-fetch both active CUDs and recommendations in parallel
+                Promise.all([
+                    this.loadActiveCuds(),
+                    this.loadCudRecommendations()
+                ]).finally(() => {
+                    this.isRefreshing = false;
+                });
+            },
+
+            loadActiveCuds() {
+                const urlParams = new URLSearchParams(window.location.search);
+                const accountIds = urlParams.get('accountIds') || 'xamops';
+                const accountId = accountIds.split(',')[0];
+
+                if (!accountId) {
+                    this.isLoadingActive = false;
+                    return Promise.resolve();
+                }
+
+                return fetch(`/api/xamops/gcp/optimization/${accountId}/committed-use-discounts`)
                     .then(res => res.json())
                     .then(data => {
-                        this.cuds = data;
+                        console.log('Active CUDs received:', data);
+                        this.activeCuds = Array.isArray(data) ? data : [];
+                    })
+                    .catch(err => {
+                        console.error('Failed to load active CUDs:', err);
+                        this.activeCuds = [];
                     })
                     .finally(() => {
-                        this.isLoading = false;
-                        this.isRefreshing = false;
+                        this.isLoadingActive = false;
                     });
             },
-            get totalCommitmentAmount() {
-                return this.cuds.reduce((sum, cud) => sum + (cud.commitmentAmount || 0), 0);
+
+            loadCudRecommendations() {
+                const urlParams = new URLSearchParams(window.location.search);
+                const accountIds = urlParams.get('accountIds') || 'xamops';
+                const accountId = accountIds.split(',')[0];
+
+                if (!accountId) {
+                    this.isLoadingRecommendations = false;
+                    return Promise.resolve();
+                }
+
+                return fetch(`/api/xamops/gcp/reservations/cuds?accountId=${accountId}`)
+                    .then(res => {
+                        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                        return res.json();
+                    })
+                    .then(data => {
+                        console.log('CUD Recommendations received:', data);
+                        this.cudRecommendations = Array.isArray(data) ? data : [];
+                    })
+                    .catch(err => {
+                        console.error('Failed to load CUD recommendations:', err);
+                        this.cudRecommendations = [];
+                    })
+                    .finally(() => {
+                        this.isLoadingRecommendations = false;
+                    });
             },
+
+            get totalCommitmentAmount() {
+                if (!this.activeCuds || !Array.isArray(this.activeCuds)) return 0;
+                return this.activeCuds.reduce((sum, cud) => sum + (parseFloat(cud.commitmentAmount) || 0), 0);
+            },
+
+            get totalPotentialSavings() {
+                if (!this.cudRecommendations || !Array.isArray(this.cudRecommendations)) return 0;
+                return this.cudRecommendations.reduce((sum, rec) => sum + (parseFloat(rec.monthlySavings) || 0), 0);
+            },
+
             formatCurrency(value) {
-                return (value || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+                if (value === null || value === undefined || isNaN(value)) return '$0.00';
+                return new Intl.NumberFormat('en-US', {
+                    style: 'currency',
+                    currency: 'USD',
+                    minimumFractionDigits: 2
+                }).format(value);
+            },
+
+            formatNumber(value) {
+                if (value === null || value === undefined || isNaN(value)) return '0';
+                return new Intl.NumberFormat('en-US').format(value);
             }
         }
     }
