@@ -116,4 +116,5 @@ String forecastJson = restTemplate.postForObject("http://forecast:5002/forecast/
             }
         });
     }
+
 }

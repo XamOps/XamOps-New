@@ -1,6 +1,5 @@
 package com.xammer.cloud.service;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.DashboardData;
@@ -14,8 +13,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import software.amazon.awssdk.services.iam.IamClient;
@@ -111,7 +108,7 @@ public class DashboardDataService {
         DashboardData freshData;
 
         if ("GCP".equals(account.getProvider())) {
-            GcpDashboardData gcpData = gcpDataService.getDashboardData(account.getGcpProjectId())
+            GcpDashboardData gcpData = gcpDataService.getDashboardData(account.getGcpProjectId(), forceRefresh)
                     .exceptionally(ex -> {
                         logger.error("Failed to get a complete GCP dashboard data object for account {}. Returning partial data.", account.getGcpProjectId(), ex);
                         return new GcpDashboardData(); // Return empty DTO on failure

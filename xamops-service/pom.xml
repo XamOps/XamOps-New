@@ -37,6 +37,13 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+            <dependency>
+                <groupId>com.google.cloud</groupId>
+                <artifactId>libraries-bom</artifactId>
+                <version>26.64.0</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
@@ -250,6 +257,11 @@
             <groupId>com.google.cloud</groupId>
             <artifactId>google-cloud-functions</artifactId>
         </dependency>
+        <!-- https://mvnrepository.com/artifact/com.google.cloud/google-cloud-api-gateway -->
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-api-gateway</artifactId>
+        </dependency>
         <dependency>
             <groupId>com.google.cloud</groupId>
             <artifactId>google-iam-admin</artifactId>
@@ -270,6 +282,16 @@
             <groupId>com.google.apis</groupId>
             <artifactId>google-api-services-sqladmin</artifactId>
             <version>v1-rev20250807-2.0.0</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-appengine-admin</artifactId>
+            <version>2.32.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-logging</artifactId>
         </dependency>
 
         <dependency>
@@ -317,7 +339,7 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
-        
+
         <dependency>
             <groupId>com.azure</groupId>
             <artifactId>azure-identity</artifactId>
@@ -340,6 +362,14 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
             </plugin>
         </plugins>
     </build>

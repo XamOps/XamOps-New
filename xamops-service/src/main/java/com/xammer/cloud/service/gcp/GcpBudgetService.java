@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
@@ -28,12 +29,17 @@ public class GcpBudgetService {
                 log.warn("GCP Billing Account ID is not configured. Skipping budget fetch.");
                 return Collections.emptyList();
             }
-            try (BudgetServiceClient client = gcpClientProvider.getBudgetServiceClient(billingAccountId)) {
+            Optional<BudgetServiceClient> clientOpt = gcpClientProvider.getBudgetServiceClient(billingAccountId);
+            if (clientOpt.isEmpty()) {
+                log.error("Failed to create BudgetServiceClient for billing account {}", billingAccountId);
+                return Collections.emptyList();
+            }
+            try (BudgetServiceClient client = clientOpt.get()) {
                 String parent = "billingAccounts/" + billingAccountId;
                 ListBudgetsRequest request = ListBudgetsRequest.newBuilder().setParent(parent).build();
                 return StreamSupport.stream(client.listBudgets(request).iterateAll().spliterator(), false)
                     .map(this::mapToDto)
-                    .collect(Collectors.toList());
+                    .toList();
             } catch (Exception e) {
                 log.error("Failed to fetch GCP budgets for billing account {}: {}", billingAccountId, e.getMessage());
                 return Collections.emptyList();

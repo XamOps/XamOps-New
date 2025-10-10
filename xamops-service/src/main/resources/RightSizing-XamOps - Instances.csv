@@ -253,3 +253,72 @@ r7i.2xlarge,10-20%,r6i.2xlarge ($0.504/h),r7a.2xlarge (~$0.4536/h),~40-60%,~50% 
 r7i.2xlarge,20-35%,r7i.xlarge ($0.252/h),r7a.xlarge (~$0.2268/h),~60-70%,~50% / ~55%,"1-step downsize, Balanced preset."
 r7i.2xlarge,35-50%,Stay r7i.2xlarge ($0.504/h est.),"r7a.2xlarge (~$0.4536/h, switch)",~50%,0% / ~10%,No downsize; AMD switch.
 ...,,,,,,(Pattern extends for r7i/r7a up to 24xlarge)
+"--- G4dn Series (Graphics/ML Inference, NVIDIA T4 GPUs, Intel Xeon) ---",,,,,,
+g4dn.xlarge,0-10%,g4dn.xlarge ($0.526/h),"g4ad.xlarge (~$0.473/h, switch)",~40%,0% / ~10%,"Retain smallest size or switch to AMD G4ad for low utilization, ensuring <70% GPU/CPU utilization with headroom."
+g4dn.xlarge,10-20%,g4dn.xlarge ($0.526/h),"g4ad.xlarge (~$0.473/h, switch)",~40-60%,0% / ~10%,"Retain for <40% utilization, maintaining GPU performance for ML inference; switch to AMD for ~10% savings."
+g4dn.xlarge,20-35%,g4dn.xlarge ($0.526/h),"g4ad.xlarge (~$0.473/h, switch)",~60-70%,0% / ~10%,Retain for mid-range utilization to provide 20-30% headroom below 70% GPU/CPU.
+g4dn.xlarge,35-50%,g4dn.xlarge ($0.526/h),"g4ad.xlarge (~$0.473/h, switch)",~50%,0% / ~10%,No downsizing for critical range to accommodate GPU-intensive load spikes; AMD switch for cost efficiency.
+g4dn.2xlarge,0-10%,g4dn.xlarge ($0.526/h),g4ad.xlarge (~$0.473/h),~40%,~50% / ~55%,Aggressive one-step downsize to halve vCPUs/GPUs for very low utilization.
+g4dn.2xlarge,10-20%,g4dn.xlarge ($0.526/h),g4ad.xlarge (~$0.473/h),~40-60%,~50% / ~55%,"Standard one-step downsize for <40% utilization, ensuring GPU performance for graphics/ML."
+g4dn.2xlarge,20-35%,g4dn.2xlarge ($0.752/h),"g4ad.2xlarge (~$0.677/h, switch)",~60-70%,0% / ~10%,Retain for mid-range utilization to maintain <70% utilization with headroom.
+g4dn.2xlarge,35-50%,g4dn.2xlarge ($0.752/h),"g4ad.2xlarge (~$0.677/h, switch)",~50%,0% / ~10%,No downsizing for critical range to support potential ML training spikes; AMD switch for savings.
+g4dn.4xlarge,0-10%,g4dn.xlarge ($0.526/h),g4ad.xlarge (~$0.473/h),~40%,~75% / ~80%,"Aggressive two-step downsize for very low utilization, halving GPUs/vCPUs."
+g4dn.4xlarge,10-20%,g4dn.2xlarge ($0.752/h),g4ad.2xlarge (~$0.677/h),~40-60%,~50% / ~55%,"Standard one-step downsize for <40% utilization, maintaining GPU throughput."
+g4dn.4xlarge,20-35%,g4dn.2xlarge ($0.752/h),g4ad.2xlarge (~$0.677/h),~60-70%,~50% / ~55%,Conservative one-step downsize to maintain <70% utilization with 20-30% headroom.
+g4dn.4xlarge,35-50%,g4dn.4xlarge ($1.104/h),"g4ad.4xlarge (~$0.994/h, switch)",~50%,0% / ~10%,No downsizing for critical range to ensure GPU stability for graphics workloads.
+g4dn.8xlarge,0-10%,g4dn.2xlarge ($0.752/h),g4ad.2xlarge (~$0.677/h),~40%,~75% / ~80%,Aggressive two-step downsize for very low utilization.
+g4dn.8xlarge,10-20%,g4dn.4xlarge ($1.104/h),g4ad.4xlarge (~$0.994/h),~40-60%,~50% / ~55%,"Standard one-step downsize for <40% utilization, ensuring high GPU performance."
+g4dn.8xlarge,20-35%,g4dn.4xlarge ($1.104/h),g4ad.4xlarge (~$0.994/h),~60-70%,~50% / ~55%,Conservative one-step downsize to maintain <70% utilization with headroom.
+g4dn.8xlarge,35-50%,g4dn.8xlarge ($1.96/h),"g4ad.8xlarge (~$1.764/h, switch)",~50%,0% / ~10%,No downsizing for critical range to support ML inference spikes.
+g4dn.12xlarge,0-10%,g4dn.4xlarge ($1.104/h),g4ad.4xlarge (~$0.994/h),~40%,~67% / ~72%,Aggressive 1.5-step downsize for low utilization.
+g4dn.12xlarge,10-20%,g4dn.8xlarge ($1.96/h),g4ad.8xlarge (~$1.764/h),~40-60%,~33% / ~38%,"Standard downsize to nearest size for <40% utilization, maintaining GPU capacity."
+g4dn.12xlarge,20-35%,g4dn.8xlarge ($1.96/h),g4ad.8xlarge (~$1.764/h),~60-70%,~33% / ~38%,Conservative downsize to nearest size for mid-range utilization.
+g4dn.12xlarge,35-50%,g4dn.12xlarge ($2.736/h),"g4ad.12xlarge (~$2.462/h, switch)",~50%,0% / ~10%,No downsizing for critical range to ensure GPU throughput for graphics.
+g4dn.16xlarge,0-10%,g4dn.4xlarge ($1.104/h),g4ad.4xlarge (~$0.994/h),~40%,~75% / ~80%,Aggressive two-step downsize for very low utilization.
+g4dn.16xlarge,10-20%,g4dn.8xlarge ($1.96/h),g4ad.8xlarge (~$1.764/h),~40-60%,~50% / ~55%,"Standard one-step downsize for <40% utilization, ensuring high GPU performance."
+g4dn.16xlarge,20-35%,g4dn.12xlarge ($2.736/h),g4ad.12xlarge (~$2.462/h),~60-70%,~25% / ~30%,Conservative downsize to nearest size to maintain <70% utilization with headroom.
+g4dn.16xlarge,35-50%,g4dn.16xlarge ($3.512/h),"g4ad.16xlarge (~$3.16/h, switch)",~50%,0% / ~10%,No downsizing for critical range to support large-scale ML training.
+"--- G5 Series (Graphics/ML Training, NVIDIA A10G GPUs, Intel Xeon) ---",,,,,,
+g5.xlarge,0-10%,g5.xlarge ($0.656/h),"g4ad.xlarge (~$0.473/h, switch)",~40%,0% / ~28%,Retain smallest size or switch to AMD G4ad for low utilization.
+g5.xlarge,10-20%,g5.xlarge ($0.656/h),"g4ad.xlarge (~$0.473/h, switch)",~40-60%,0% / ~28%,"Retain for <40% utilization, maintaining GPU performance for ML training; switch to AMD for savings."
+g5.xlarge,20-35%,g5.xlarge ($0.656/h),"g4ad.xlarge (~$0.473/h, switch)",~60-70%,0% / ~28%,Retain for mid-range utilization to provide 20-30% headroom.
+g5.xlarge,35-50%,g5.xlarge ($0.656/h),"g4ad.xlarge (~$0.473/h, switch)",~50%,0% / ~28%,No downsizing for critical range to accommodate GPU-intensive spikes; AMD switch for cost efficiency.
+g5.2xlarge,0-10%,g5.xlarge ($0.656/h),g4ad.2xlarge (~$0.677/h),~40%,~50% / ~ -3%,Aggressive one-step downsize to halve vCPUs/GPUs for very low utilization.
+g5.2xlarge,10-20%,g5.xlarge ($0.656/h),g4ad.2xlarge (~$0.677/h),~40-60%,~50% / ~ -3%,"Standard one-step downsize for <40% utilization, ensuring GPU performance."
+g5.2xlarge,20-35%,g5.2xlarge ($0.912/h),"g4ad.2xlarge (~$0.677/h, switch)",~60-70%,0% / ~26%,Retain for mid-range utilization to maintain <70% utilization with headroom.
+g5.2xlarge,35-50%,g5.2xlarge ($0.912/h),"g4ad.2xlarge (~$0.677/h, switch)",~50%,0% / ~26%,No downsizing for critical range to support ML training spikes; AMD switch for savings.
+g5.4xlarge,0-10%,g5.xlarge ($0.656/h),g4ad.xlarge (~$0.473/h),~40%,~75% / ~80%,"Aggressive two-step downsize for very low utilization, halving GPUs/vCPUs."
+g5.4xlarge,10-20%,g5.2xlarge ($0.912/h),g4ad.2xlarge (~$0.677/h),~40-60%,~50% / ~55%,"Standard one-step downsize for <40% utilization, maintaining GPU throughput."
+g5.4xlarge,20-35%,g5.2xlarge ($0.912/h),g4ad.2xlarge (~$0.677/h),~60-70%,~50% / ~55%,Conservative one-step downsize to maintain <70% utilization with headroom.
+g5.4xlarge,35-50%,g5.4xlarge ($1.376/h),"g4ad.4xlarge (~$0.994/h, switch)",~50%,0% / ~28%,No downsizing for critical range to ensure GPU stability for graphics.
+g5.8xlarge,0-10%,g5.2xlarge ($0.912/h),g4ad.2xlarge (~$0.677/h),~40%,~75% / ~80%,Aggressive two-step downsize for very low utilization.
+g5.8xlarge,10-20%,g5.4xlarge ($1.376/h),g4ad.4xlarge (~$0.994/h),~40-60%,~50% / ~55%,"Standard one-step downsize for <40% utilization, ensuring high GPU performance."
+g5.8xlarge,20-35%,g5.4xlarge ($1.376/h),g4ad.4xlarge (~$0.994/h),~60-70%,~50% / ~55%,Conservative one-step downsize to maintain <70% utilization with headroom.
+g5.8xlarge,35-50%,g5.8xlarge ($2.208/h),"g4ad.8xlarge (~$1.588/h, switch)",~50%,0% / ~28%,No downsizing for critical range to support large-scale ML training.
+g5.12xlarge,0-10%,g5.4xlarge ($1.376/h),g4ad.4xlarge (~$0.994/h),~40%,~67% / ~72%,Aggressive 1.5-step downsize for low utilization.
+g5.12xlarge,10-20%,g5.8xlarge ($2.208/h),g4ad.8xlarge (~$1.588/h),~40-60%,~33% / ~38%,"Standard downsize to nearest size for <40% utilization, maintaining GPU capacity."
+g5.12xlarge,20-35%,g5.8xlarge ($2.208/h),g4ad.8xlarge (~$1.588/h),~60-70%,~33% / ~38%,Conservative downsize to nearest size for mid-range utilization.
+g5.12xlarge,35-50%,g5.12xlarge ($3.072/h),"g4ad.12xlarge (~$2.212/h, switch)",~50%,0% / ~28%,No downsizing for critical range to ensure GPU throughput for graphics.
+g5.16xlarge,0-10%,g5.4xlarge ($1.376/h),g4ad.4xlarge (~$0.994/h),~40%,~75% / ~80%,Aggressive two-step downsize for very low utilization.
+g5.16xlarge,10-20%,g5.8xlarge ($2.208/h),g4ad.8xlarge (~$1.588/h),~40-60%,~50% / ~55%,"Standard one-step downsize for <40% utilization, ensuring high GPU performance."
+g5.16xlarge,20-35%,g5.12xlarge ($3.072/h),g4ad.12xlarge (~$2.212/h),~60-70%,~25% / ~30%,Conservative downsize to nearest size to maintain <70% utilization with headroom.
+g5.16xlarge,35-50%,g5.16xlarge ($4.096/h),"g4ad.16xlarge (~$2.949/h, switch)",~50%,0% / ~28%,No downsizing for critical range to support large-scale ML training.
+g5.24xlarge,0-10%,g5.8xlarge ($2.208/h),g4ad.8xlarge (~$1.588/h),~40%,~67% / ~72%,Aggressive 1.5-step downsize for low utilization.
+g5.24xlarge,10-20%,g5.12xlarge ($3.072/h),g4ad.12xlarge (~$2.212/h),~40-60%,~33% / ~38%,"Standard downsize to nearest size for <40% utilization, maintaining GPU capacity."
+g5.24xlarge,20-35%,g5.16xlarge ($4.096/h),g4ad.16xlarge (~$2.949/h),~60-70%,~25% / ~30%,Conservative downsize to nearest size for mid-range utilization.
+g5.24xlarge,35-50%,g5.24xlarge ($6.144/h),"g4ad.24xlarge (~$4.424/h, switch)",~50%,0% / ~28%,No downsizing for critical range to ensure GPU throughput for graphics.
+g5.48xlarge,0-10%,g5.16xlarge ($4.096/h),g4ad.16xlarge (~$2.949/h),~40%,~67% / ~72%,Aggressive 1.5-step downsize for low utilization.
+g5.48xlarge,10-20%,g5.24xlarge ($6.144/h),g4ad.24xlarge (~$4.424/h),~40-60%,~33% / ~38%,"Standard downsize to nearest size for <40% utilization, ensuring high GPU performance."
+g5.48xlarge,20-35%,g5.24xlarge ($6.144/h),g4ad.24xlarge (~$4.424/h),~60-70%,~33% / ~38%,Conservative downsize to nearest size to maintain <70% utilization with headroom.
+g5.48xlarge,35-50%,g5.48xlarge ($12.288/h),"g4ad.48xlarge (~$8.848/h, switch)",~50%,0% / ~28%,No downsizing for critical range to support large-scale ML training.
+"--- G5xn Series (ML Training, NVIDIA A10G GPUs, Intel Xeon) ---",,,,,,
+g5xn.xlarge,0-10%,g5xn.xlarge ($0.656/h),"g4ad.xlarge (~$0.473/h, switch)",~40%,0% / ~28%,Retain smallest size or switch to AMD G4ad for low utilization.
+g5xn.xlarge,10-20%,g5xn.xlarge ($0.656/h),"g4ad.xlarge (~$0.473/h, switch)",~40-60%,0% / ~28%,"Retain for <40% utilization, maintaining GPU performance for ML training; switch to AMD for savings."
+g5xn.xlarge,20-35%,g5xn.xlarge ($0.656/h),"g4ad.xlarge (~$0.473/h, switch)",~60-70%,0% / ~28%,Retain for mid-range utilization to provide 20-30% headroom.
+g5xn.xlarge,35-50%,g5xn.xlarge ($0.656/h),"g4ad.xlarge (~$0.473/h, switch)",~50%,0% / ~28%,No downsizing for critical range to accommodate GPU-intensive spikes; AMD switch for cost efficiency.
+g5xn.2xlarge,0-10%,g5xn.xlarge ($0.656/h),g4ad.2xlarge (~$0.677/h),~40%,~50% / ~ -3%,Aggressive one-step downsize to halve vCPUs/GPUs for very low utilization.
+g5xn.2xlarge,10-20%,g5xn.xlarge ($0.656/h),g4ad.2xlarge (~$0.677/h),~40-60%,~50% / ~ -3%,"Standard one-step downsize for <40% utilization, ensuring GPU performance."
+g5xn.2xlarge,20-35%,g5xn.2xlarge ($0.912/h),"g4ad.2xlarge (~$0.677/h, switch)",~60-70%,0% / ~26%,Retain for mid-range utilization to maintain <70% utilization with headroom.
+g5xn.2xlarge,35-50%,g5xn.2xlarge ($0.912/h),"g4ad.2xlarge (~$0.677/h, switch)",~50%,0% / ~26%,No downsizing for critical range to support ML training spikes; AMD switch for savings.
+g5xn.4xlarge,0-10%,g5xn.xlarge ($0.656/h),g4ad.xlarge (~$0.473/h),~40%,~75% / ~80%,"Aggressive two-step downsize for very low utilization, halving GPUs/vCPUs."
+g5xn.4xlarge,10-20%,g5xn.2xlarge ($0.912/h),g4ad.2xlarge (~$0.677/h),~40-60%,~50% / ~55%,"Standard one-step downsize for <40% utilization, maintaining GPU throughput."

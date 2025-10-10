@@ -3,6 +3,7 @@ package com.xammer.cloud.dto.gcp;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import java.util.Map;
 
 /**
  * DTO for representing a generic GCP resource in a list.
@@ -11,17 +12,6 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class GcpResourceDto {
-    /**
-     * The tags associated with the resource (key-value pairs).
-     */
-    private java.util.Map<String, String> tags;
-
-    public java.util.Map<String, String> getTags() {
-        return tags;
-    }
-    public void setTags(java.util.Map<String, String> tags) {
-        this.tags = tags;
-    }
     /**
      * The unique identifier of the resource (e.g., instance ID, bucket name).
      */
@@ -46,4 +36,9 @@ public class GcpResourceDto {
      * The current status of the resource (e.g., "RUNNING", "TERMINATED").
      */
     private String status;
+
+    /**
+     * The tags associated with the resource (key-value pairs).
+     */
+    private Map<String, String> tags;
 }

@@ -1,43 +1,16 @@
 package com.xammer.cloud.service.gcp;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.api.services.sqladmin.SQLAdmin;
-import com.google.api.services.sqladmin.model.DatabaseInstance;
-// import com.google.cloud.artifactregistry.v1.ArtifactRegistryClient;
-// import com.google.cloud.artifactregistry.v1.Repository;
-import com.google.cloud.asset.v1.AssetServiceClient;
-import com.google.cloud.asset.v1.AssetServiceSettings;
-import com.google.cloud.asset.v1.ContentType;
-import com.google.cloud.asset.v1.ListAssetsRequest;
-import com.google.cloud.asset.v1.ProjectName;
-import com.google.cloud.asset.v1.Asset;
-import com.google.cloud.devtools.cloudbuild.v1.CloudBuildClient;
-// import com.google.cloud.build.v1.BuildTrigger;
-import com.google.cloud.compute.v1.Firewall;
-import com.google.cloud.compute.v1.FirewallsClient;
-import com.google.cloud.compute.v1.Instance;
-import com.google.cloud.compute.v1.InstancesClient;
-import com.google.api.services.dns.model.ManagedZone;
-import com.google.cloud.compute.v1.Network;
-import com.google.cloud.compute.v1.NetworksClient;
 import com.google.cloud.compute.v1.Router;
 import com.google.cloud.compute.v1.RoutersClient;
 import com.google.cloud.compute.v1.SecurityPolicy;
 import com.google.cloud.compute.v1.SecurityPoliciesClient;
-import com.google.cloud.compute.v1.Subnetwork;
-import com.google.cloud.compute.v1.SubnetworksClient;
 import com.google.cloud.functions.v2.FunctionServiceClient;
 import com.google.cloud.kms.v1.CryptoKey;
 import com.google.cloud.kms.v1.KeyManagementServiceClient;
 import com.google.cloud.secretmanager.v1.Secret;
 import com.google.cloud.secretmanager.v1.SecretManagerServiceClient;
-import com.google.cloud.storage.Bucket;
 import com.google.cloud.storage.Storage;
-import com.google.container.v1.Cluster;
-import com.google.cloud.container.v1.ClusterManagerClient;
-import com.google.cloud.resourcemanager.v3.Project;
-import com.google.cloud.resourcemanager.v3.ProjectsClient;
+import com.google.logging.v2.LogBucket;
 import com.xammer.cloud.domain.Client;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.DashboardData;
@@ -45,12 +18,18 @@ import com.xammer.cloud.dto.GcpAccountRequestDto;
 import com.xammer.cloud.dto.gcp.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
-import com.google.cloud.compute.v1.ForwardingRule;
-import com.google.cloud.compute.v1.ForwardingRulesClient;
+// Correct imports
+import com.google.cloud.logging.v2.ConfigClient;
+import com.google.cloud.apigateway.v1.Api;
+import com.google.cloud.apigateway.v1.ApiGatewayServiceClient;
+//import com.google.cloud.appengine.v1.Application;
+//import com.google.cloud.appengine.v1.ApplicationsClient;
+import com.google.cloud.bigquery.BigQuery;
+import com.google.cloud.bigquery.Dataset;
 
 import java.io.IOException;
-import java.net.URL;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -72,7 +51,7 @@ public class GcpDataService {
     private final com.xammer.cloud.repository.CloudAccountRepository cloudAccountRepository;
     private final ExecutorService executor = Executors.newCachedThreadPool();
     private final Map<String, double[]> regionCoordinates = loadRegionCoordinates();
-    
+
     @Value("${tagging.compliance.required-tags}")
     private List<String> requiredTags;
 
@@ -86,61 +65,6 @@ public class GcpDataService {
         this.gcpOptimizationService = gcpOptimizationService;
         this.gcpSecurityService = gcpSecurityService;
         this.cloudAccountRepository = cloudAccountRepository;
-    }
-    
-    public CompletableFuture<TaggingComplianceDto> getTagComplianceReport(String gcpProjectId) {
-        return CompletableFuture.supplyAsync(() -> {
-            log.info("Generating tagging compliance report for project: {}", gcpProjectId);
-            TaggingComplianceDto report = new TaggingComplianceDto();
-            List<TaggingComplianceDto.UntaggedResource> untaggedResources = new ArrayList<>();
-            int totalResourcesScanned = 0;
-
-            try (AssetServiceClient client = gcpClientProvider.createAssetServiceClient(gcpProjectId)) {
-                ProjectName parent = ProjectName.of(gcpProjectId);
-                ListAssetsRequest request = ListAssetsRequest.newBuilder()
-                    .setParent(parent.toString())
-                    .setContentType(ContentType.RESOURCE)
-                    .build();
-
-                AssetServiceClient.ListAssetsPagedResponse response = client.listAssets(request);
-
-                for (Asset asset : response.iterateAll()) {
-                    totalResourcesScanned++;
-                    List<String> missingTags = new ArrayList<>(requiredTags);
-                    
-                    if (asset.getResource().getData().getFieldsMap().containsKey("labels")) {
-                        com.google.protobuf.Value labelsValue = asset.getResource().getData().getFieldsOrThrow("labels");
-                        if (labelsValue.getKindCase() == com.google.protobuf.Value.KindCase.STRUCT_VALUE) {
-                            Map<String, com.google.protobuf.Value> labelsMap = labelsValue.getStructValue().getFieldsMap();
-                            labelsMap.keySet().forEach(missingTags::remove);
-                        }
-                    }
-
-                    if (!missingTags.isEmpty()) {
-                        untaggedResources.add(new TaggingComplianceDto.UntaggedResource(
-                            asset.getName(),
-                            asset.getAssetType(),
-                            asset.getResource().getLocation(),
-                            missingTags
-                        ));
-                    }
-                }
-            } catch (Exception e) {
-                log.error("Failed to generate tagging compliance report for project {}: {}", gcpProjectId, e.getMessage(), e);
-            }
-
-            report.setTotalResourcesScanned(totalResourcesScanned);
-            report.setUntaggedResources(untaggedResources);
-            report.setUntaggedResourcesCount(untaggedResources.size());
-            if (totalResourcesScanned > 0) {
-                double compliance = ((double) (totalResourcesScanned - untaggedResources.size()) / totalResourcesScanned) * 100;
-                report.setCompliancePercentage(compliance);
-            } else {
-                report.setCompliancePercentage(100.0);
-            }
-
-            return report;
-        });
     }
 
     private Map<String, double[]> loadRegionCoordinates() {
@@ -174,106 +98,111 @@ public class GcpDataService {
         return coords;
     }
 
+    public List<String> getAllKnownRegions() {
+        return new ArrayList<>(regionCoordinates.keySet());
+    }
+
     public CompletableFuture<List<DashboardData.RegionStatus>> getRegionStatusForGcp(List<GcpResourceDto> resources) {
         return CompletableFuture.supplyAsync(() -> {
             Set<String> activeRegions = resources.stream()
-                .map(GcpResourceDto::getLocation)
-                .filter(Objects::nonNull)
-                .map(loc -> {
-                    String[] parts = loc.split("-");
-                    if (parts.length > 2) {
-                        return parts[0] + "-" + parts[1];
-                    }
-                    return loc;
-                })
-                .filter(regionCoordinates::containsKey)
-                .collect(Collectors.toSet());
+                    .map(GcpResourceDto::getLocation)
+                    .filter(Objects::nonNull)
+                    .map(loc -> {
+                        String[] parts = loc.split("-");
+                        if (parts.length > 2) {
+                            return parts[0] + "-" + parts[1];
+                        }
+                        return loc;
+                    })
+                    .filter(regionCoordinates::containsKey)
+                    .collect(Collectors.toSet());
 
             log.info("Found {} active GCP regions with deployed resources: {}", activeRegions.size(), activeRegions);
 
             return activeRegions.stream().map(regionId -> {
                 double[] coords = regionCoordinates.get(regionId);
-                return new DashboardData.RegionStatus(regionId, regionId, "ACTIVE", coords[0], coords[1]);
+                return new DashboardData.RegionStatus(regionId, "ACTIVE", "ACTIVE", coords[0], coords[1]);
             }).collect(Collectors.toList());
         });
     }
 
-    public CompletableFuture<GcpDashboardData> getDashboardData(String gcpProjectId) {
+    @Cacheable(value = "gcpDashboardData", key = "'gcp:dashboard:' + #gcpProjectId")
+    public CompletableFuture<GcpDashboardData> getDashboardData(String gcpProjectId, boolean forceRefresh) {
         log.info("--- LAUNCHING EXPANDED ASYNC DATA AGGREGATION FOR GCP project {} ---", gcpProjectId);
 
         CompletableFuture<List<GcpResourceDto>> resourcesFuture = getAllResources(gcpProjectId)
-            .exceptionally(ex -> {
-                log.error("Failed to get all resources for project {}: {}", gcpProjectId, ex.getMessage());
-                return Collections.emptyList();
-            });
+                .exceptionally(ex -> {
+                    log.error("Failed to get all resources for project {}: {}", gcpProjectId, ex.getMessage());
+                    return Collections.emptyList();
+                });
 
         CompletableFuture<List<GcpSecurityFinding>> securityFindingsFuture = gcpSecurityService.getSecurityFindings(gcpProjectId)
-            .exceptionally(ex -> {
-                log.error("Failed to get security findings for project {}: {}", gcpProjectId, ex.getMessage());
-                return Collections.emptyList();
-            });
-        
+                .exceptionally(ex -> {
+                    log.error("Failed to get security findings for project {}: {}", gcpProjectId, ex.getMessage());
+                    return Collections.emptyList();
+                });
+
         CompletableFuture<DashboardData.IamResources> iamResourcesFuture = getIamResources(gcpProjectId)
-            .exceptionally(ex -> {
-                log.error("Failed to get IAM resources for project {}: {}", gcpProjectId, ex.getMessage());
-                return new DashboardData.IamResources(0, 0, 0, 0);
-            });
+                .exceptionally(ex -> {
+                    log.error("Failed to get IAM resources for project {}: {}", gcpProjectId, ex.getMessage());
+                    return new DashboardData.IamResources(0, 0, 0, 0);
+                });
 
         CompletableFuture<Double> unfilteredMtdSpendFuture = gcpCostService.getUnfilteredMonthToDateSpend(gcpProjectId)
-            .exceptionally(ex -> {
-                log.error("Failed to get unfiltered MTD spend for project {}: {}", gcpProjectId, ex.getMessage());
-                return 0.0;
-            });
-        
+                .exceptionally(ex -> {
+                    log.error("Failed to get unfiltered MTD spend for project {}: {}", gcpProjectId, ex.getMessage());
+                    return 0.0;
+                });
+
         CompletableFuture<List<GcpCostDto>> costHistoryFuture = gcpCostService.getHistoricalCosts(gcpProjectId)
-            .exceptionally(ex -> {
-                log.error("Failed to get cost history for project {}: {}", gcpProjectId, ex.getMessage());
-                return Collections.emptyList();
-            });
+                .exceptionally(ex -> {
+                    log.error("Failed to get cost history for project {}: {}", gcpProjectId, ex.getMessage());
+                    return Collections.emptyList();
+                });
 
         CompletableFuture<List<GcpCostDto>> billingSummaryFuture = gcpCostService.getBillingSummary(gcpProjectId)
-             .exceptionally(ex -> {
-                log.error("Failed to get billing summary for project {}: {}", gcpProjectId, ex.getMessage());
-                return Collections.emptyList();
-            });
+                .exceptionally(ex -> {
+                    log.error("Failed to get billing summary for project {}: {}", gcpProjectId, ex.getMessage());
+                    return Collections.emptyList();
+                });
 
-        CompletableFuture<List<GcpWasteItem>> wasteReportFuture = gcpOptimizationService.getWasteReport(gcpProjectId)
-             .exceptionally(ex -> {
-                log.error("Failed to get waste report for project {}: {}", gcpProjectId, ex.getMessage());
-                return Collections.emptyList();
-            });
+        CompletableFuture<List<GcpWasteItem>> wasteReportFuture = CompletableFuture.supplyAsync(() -> gcpOptimizationService.getWasteReport(gcpProjectId), executor)
+                .exceptionally(ex -> {
+                    log.error("Failed to get waste report for project {}: {}", gcpProjectId, ex.getMessage());
+                    return Collections.emptyList();
+                });
 
-        CompletableFuture<List<GcpOptimizationRecommendation>> rightsizingFuture = gcpOptimizationService.getRightsizingRecommendations(gcpProjectId)
-             .exceptionally(ex -> {
-                log.error("Failed to get rightsizing recommendations for project {}: {}", gcpProjectId, ex.getMessage());
-                return Collections.emptyList();
-            });
+        CompletableFuture<List<GcpOptimizationRecommendation>> rightsizingFuture = CompletableFuture.supplyAsync(() -> gcpOptimizationService.getRightsizingRecommendations(gcpProjectId), executor)
+                .exceptionally(ex -> {
+                    log.error("Failed to get rightsizing recommendations for project {}: {}", gcpProjectId, ex.getMessage());
+                    return Collections.emptyList();
+                });
 
-        CompletableFuture<DashboardData.SavingsSummary> savingsSummaryFuture = gcpOptimizationService.getSavingsSummary(gcpProjectId)
-             .exceptionally(ex -> {
-                log.error("Failed to get savings summary for project {}: {}", gcpProjectId, ex.getMessage());
-                return new DashboardData.SavingsSummary(0.0, Collections.emptyList());
-            });
+        CompletableFuture<DashboardData.SavingsSummary> savingsSummaryFuture = CompletableFuture.supplyAsync(() -> gcpOptimizationService.getSavingsSummary(gcpProjectId), executor)
+                .exceptionally(ex -> {
+                    log.error("Failed to get savings summary for project {}: {}", gcpProjectId, ex.getMessage());
+                    return new DashboardData.SavingsSummary(0.0, Collections.emptyList());
+                });
 
 
-        CompletableFuture<DashboardData.OptimizationSummary> optimizationSummaryFuture = gcpOptimizationService.getOptimizationSummary(gcpProjectId)
-            .exceptionally(ex -> {
-                log.error("Failed to get optimization summary for project {}: {}", gcpProjectId, ex.getMessage());
-                return new DashboardData.OptimizationSummary(0.0, 0);
-            });
+        CompletableFuture<DashboardData.OptimizationSummary> optimizationSummaryFuture = CompletableFuture.supplyAsync(() -> gcpOptimizationService.getOptimizationSummary(gcpProjectId), executor)
+                .exceptionally(ex -> {
+                    log.error("Failed to get optimization summary for project {}: {}", gcpProjectId, ex.getMessage());
+                    return new DashboardData.OptimizationSummary(0.0, 0);
+                });
 
 
         CompletableFuture<List<DashboardData.RegionStatus>> regionStatusFuture = resourcesFuture.thenCompose(this::getRegionStatusForGcp);
 
         return CompletableFuture.allOf(
-            resourcesFuture, securityFindingsFuture, iamResourcesFuture, costHistoryFuture,
-            billingSummaryFuture, wasteReportFuture, rightsizingFuture, savingsSummaryFuture,
-            optimizationSummaryFuture, regionStatusFuture, unfilteredMtdSpendFuture
+                resourcesFuture, securityFindingsFuture, iamResourcesFuture, costHistoryFuture,
+                billingSummaryFuture, wasteReportFuture, rightsizingFuture, savingsSummaryFuture,
+                optimizationSummaryFuture, regionStatusFuture, unfilteredMtdSpendFuture
         ).thenApply(v -> {
             log.info("--- ALL EXPANDED GCP ASYNC DATA FETCHES COMPLETE, assembling DTO for project {} ---", gcpProjectId);
 
             GcpDashboardData data = new GcpDashboardData();
-            
+
             data.setRegionStatus(regionStatusFuture.join());
             data.setCostHistory(costHistoryFuture.join());
             data.setBillingSummary(billingSummaryFuture.join());
@@ -302,10 +231,10 @@ public class GcpDataService {
             inventory.setCloudArmorPolicies((int) counts.getOrDefault("Cloud Armor", 0L).longValue());
 
             data.setResourceInventory(inventory);
-            
+
             double currentMtdSpend = unfilteredMtdSpendFuture.join();
             data.setMonthToDateSpend(currentMtdSpend);
-            
+
             data.setForecastedSpend(calculateForecastedSpend(currentMtdSpend));
 
             String lastMonthStr = LocalDate.now().minusMonths(1).format(DateTimeFormatter.ofPattern("yyyy-MM"));
@@ -314,26 +243,29 @@ public class GcpDataService {
                     .mapToDouble(GcpCostDto::getAmount)
                     .findFirst().orElse(0.0);
             data.setLastMonthSpend(lastMonthSpend);
-            
+
             data.setSecurityScore(gcpSecurityService.calculateSecurityScore(securityFindings));
-           List<DashboardData.SecurityInsight> securityInsights = securityFindings.stream()
-                .collect(Collectors.groupingBy(GcpSecurityFinding::getCategory, Collectors.counting()))
-                .entrySet().stream()
-                .map(entry -> {
-                    // ADD THIS NULL CHECK
-                    String category = entry.getKey() != null ? entry.getKey() : "Uncategorized";
-                    return new DashboardData.SecurityInsight(
-                        String.format("%s has potential issues", category),
-                        category, // Use the safe category variable
-                        "High",
-                        entry.getValue().intValue()
-                    );
-                }).collect(Collectors.toList());
+            List<DashboardData.SecurityInsight> securityInsights = securityFindings.stream()
+                    .collect(Collectors.groupingBy(GcpSecurityFinding::getCategory, Collectors.counting()))
+                    .entrySet().stream()
+                    .map(entry -> {
+                        String category = entry.getKey() != null ? entry.getKey() : "Uncategorized";
+                        return new DashboardData.SecurityInsight(
+                                String.format("%s has potential issues", category),
+                                category,
+                                "High",
+                                entry.getValue().intValue()
+                        );
+                    }).collect(Collectors.toList());
             data.setSecurityInsights(securityInsights);
             data.setIamResources(iamResourcesFuture.join());
 
             return data;
         });
+    }
+
+    private double calculateForecastedSpend(double currentMtdSpend) {
+        return currentMtdSpend;
     }
 
     private GcpResourceDto mapInstanceToDto(com.google.cloud.compute.v1.Instance instance) {
@@ -427,7 +359,7 @@ public class GcpDataService {
     //     dto.setStatus("ACTIVE");
     //     return dto;
     // }
-    
+
     private GcpResourceDto mapKmsKeyToDto(CryptoKey key) {
         GcpResourceDto dto = new GcpResourceDto();
         dto.setId(key.getName());
@@ -443,7 +375,6 @@ public class GcpDataService {
         dto.setId(function.getName());
         dto.setName(function.getName());
         dto.setType("Cloud Function");
-        // Extract location from function name, e.g., "projects/{project}/locations/{location}/functions/{function}"
         String[] nameParts = function.getName().split("/");
         String location = (nameParts.length >= 4) ? nameParts[3] : "global";
         dto.setLocation(location);
@@ -481,33 +412,83 @@ public class GcpDataService {
         return dto;
     }
 
+    // --- ADDED MISSING MAPPER METHODS ---
+    private GcpResourceDto mapApiGatewayToDto(Api api) {
+        GcpResourceDto dto = new GcpResourceDto();
+        String[] nameParts = api.getName().split("/");
+        dto.setId(nameParts[nameParts.length - 1]);
+        dto.setName(api.getDisplayName() != null ? api.getDisplayName() : nameParts[nameParts.length - 1]);
+        dto.setType("API Gateway");
+        dto.setLocation(nameParts[3]);
+        dto.setStatus(api.getState().toString());
+        return dto;
+    }
+
+//    private GcpResourceDto mapAppEngineToDto(Application app) {
+//        GcpResourceDto dto = new GcpResourceDto();
+//        dto.setId(app.getName());
+//        dto.setName(app.getName());
+//        dto.setType("App Engine");
+//        dto.setLocation(app.getLocationId());
+//        dto.setStatus(app.getServingStatus().name());
+//        return dto;
+//    }
+
+    private GcpResourceDto mapBigQueryDatasetToDto(Dataset dataset) {
+        GcpResourceDto dto = new GcpResourceDto();
+        dto.setId(dataset.getDatasetId().getDataset());
+        dto.setName(dataset.getFriendlyName() != null ? dataset.getFriendlyName() : dataset.getDatasetId().getDataset());
+        dto.setType("BigQuery Dataset");
+        dto.setLocation(dataset.getLocation());
+        dto.setStatus("ACTIVE");
+        return dto;
+    }
+
+    private GcpResourceDto mapLogBucketToDto(LogBucket bucket) {
+        GcpResourceDto dto = new GcpResourceDto();
+        String[] nameParts = bucket.getName().split("/");
+        dto.setId(nameParts[nameParts.length - 1]);
+        dto.setName(nameParts[nameParts.length - 1]);
+        dto.setType("Logging Bucket");
+        dto.setLocation(nameParts[3]);
+        dto.setStatus(bucket.getLifecycleState().name());
+        return dto;
+    }
+
+
+    @Cacheable(value = "gcpAllResources", key = "'gcp:all-resources:' + #gcpProjectId")
     public CompletableFuture<List<GcpResourceDto>> getAllResources(String gcpProjectId) {
         log.info("Starting to fetch all GCP resources for project: {}", gcpProjectId);
         List<CompletableFuture<List<GcpResourceDto>>> futures = List.of(
-            CompletableFuture.supplyAsync(() -> getComputeInstances(gcpProjectId), executor),
-            CompletableFuture.supplyAsync(() -> getStorageBuckets(gcpProjectId), executor),
-            CompletableFuture.supplyAsync(() -> getGkeClusters(gcpProjectId), executor),
-            CompletableFuture.supplyAsync(() -> getCloudSqlInstances(gcpProjectId), executor),
-            CompletableFuture.supplyAsync(() -> getVpcNetworks(gcpProjectId), executor),
-            CompletableFuture.supplyAsync(() -> getDnsZones(gcpProjectId), executor),
-            CompletableFuture.supplyAsync(() -> getLoadBalancers(gcpProjectId), executor),
-            CompletableFuture.supplyAsync(() -> getFirewallRules(gcpProjectId), executor),
-            CompletableFuture.supplyAsync(() -> getCloudNatRouters(gcpProjectId), executor),
-            // CompletableFuture.supplyAsync(() -> getArtifactRepositories(gcpProjectId), executor),
-            CompletableFuture.supplyAsync(() -> getKmsKeys(gcpProjectId), executor),
-            CompletableFuture.supplyAsync(() -> getCloudFunctions(gcpProjectId), executor),
-            // CompletableFuture.supplyAsync(() -> getCloudBuildTriggers(gcpProjectId), executor),
-            CompletableFuture.supplyAsync(() -> getSecretManagerSecrets(gcpProjectId), executor),
-            CompletableFuture.supplyAsync(() -> getCloudArmorPolicies(gcpProjectId), executor)
+                CompletableFuture.supplyAsync(() -> getComputeInstances(gcpProjectId), executor),
+                CompletableFuture.supplyAsync(() -> getStorageBuckets(gcpProjectId), executor),
+                CompletableFuture.supplyAsync(() -> getGkeClusters(gcpProjectId), executor),
+                CompletableFuture.supplyAsync(() -> getCloudSqlInstances(gcpProjectId), executor),
+                CompletableFuture.supplyAsync(() -> getVpcNetworks(gcpProjectId), executor),
+                CompletableFuture.supplyAsync(() -> getDnsZones(gcpProjectId), executor),
+                CompletableFuture.supplyAsync(() -> getLoadBalancers(gcpProjectId), executor),
+                CompletableFuture.supplyAsync(() -> getFirewallRules(gcpProjectId), executor),
+                CompletableFuture.supplyAsync(() -> getCloudNatRouters(gcpProjectId), executor),
+                // CompletableFuture.supplyAsync(() -> getArtifactRepositories(gcpProjectId), executor),
+                CompletableFuture.supplyAsync(() -> getKmsKeys(gcpProjectId), executor),
+                CompletableFuture.supplyAsync(() -> getCloudFunctions(gcpProjectId), executor),
+                // CompletableFuture.supplyAsync(() -> getCloudBuildTriggers(gcpProjectId), executor),
+                CompletableFuture.supplyAsync(() -> getSecretManagerSecrets(gcpProjectId), executor),
+                CompletableFuture.supplyAsync(() -> getCloudArmorPolicies(gcpProjectId), executor),
+                CompletableFuture.supplyAsync(() -> getApiGateways(gcpProjectId), executor),
+                //CompletableFuture.supplyAsync(() -> getAppEngineApplications(gcpProjectId), executor),
+                CompletableFuture.supplyAsync(() -> getBigQueryDatasets(gcpProjectId), executor),
+                CompletableFuture.supplyAsync(() -> getLoggingBuckets(gcpProjectId), executor)
         );
 
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-            .thenApply(v -> futures.stream()
-                .map(CompletableFuture::join)
-                .flatMap(List::stream)
-                .collect(Collectors.toList()));
+                .thenApply(v -> futures.stream()
+                        .map(CompletableFuture::join)
+                        .flatMap(List::stream)
+                        .collect(Collectors.toList()));
     }
 
+    @Cacheable(value = "gcpIamResources", key = "'gcp:iam-resources:' + #gcpProjectId")
     public CompletableFuture<DashboardData.IamResources> getIamResources(String gcpProjectId) {
         log.info("Attempting to get IAM resources for project: {}", gcpProjectId);
         return CompletableFuture.supplyAsync(() -> {
@@ -528,8 +509,12 @@ public class GcpDataService {
 
     public void createGcpAccount(GcpAccountRequestDto request, Client client) throws IOException {
         try {
-            com.google.cloud.storage.Storage storage = gcpClientProvider.createStorageClient(request.getServiceAccountKey());
-            storage.list(com.google.cloud.storage.Storage.BucketListOption.pageSize(1));
+            Optional<Storage> storageOpt = gcpClientProvider.createStorageClient(request.getServiceAccountKey());
+            if (storageOpt.isEmpty()) {
+                throw new IllegalStateException("Failed to create GCP Storage client");
+            }
+            Storage storage = storageOpt.get();
+            storage.list(Storage.BucketListOption.pageSize(1));
             CloudAccount account = new CloudAccount();
             account.setAccountName(request.getAccountName());
             account.setProvider("GCP");
@@ -541,8 +526,6 @@ public class GcpDataService {
             account.setExternalId(request.getProjectId());
             account.setGcpProjectId(request.getProjectId());
             cloudAccountRepository.save(account);
-        } catch (IOException e) {
-            throw new RuntimeException("GCP connection error: " + e.getMessage(), e);
         } catch (Exception e) {
             throw new RuntimeException("GCP error: " + e.getMessage(), e);
         }
@@ -560,76 +543,77 @@ public class GcpDataService {
             List<com.google.cloud.compute.v1.Network> allNetworks = getRawVpcNetworks(gcpProjectId);
 
             if (vpcId == null || vpcId.isBlank()) {
-                 allNetworks.forEach(network -> {
-                    Map<String, Object> node = new HashMap<>();
-                    Map<String, Object> data = new HashMap<>();
-                    data.put("id", String.valueOf(network.getId()));
-                    data.put("label", network.getName());
-                    data.put("type", "VPC Network");
-                    node.put("data", data);
-                    elements.add(node);
-                });
+                allNetworks.forEach(network -> elements.add(createNode(String.valueOf(network.getId()), network.getName(), "VPC")));
             } else {
                 allNetworks.stream()
-                    .filter(n -> String.valueOf(n.getId()).equals(vpcId))
-                    .forEach(network -> {
-                        Map<String, Object> vpcNode = new HashMap<>();
-                        Map<String, Object> vpcData = new HashMap<>();
-                        vpcData.put("id", String.valueOf(network.getId()));
-                        vpcData.put("label", network.getName());
-                        vpcData.put("type", "VPC Network");
-                        vpcNode.put("data", vpcData);
-                        elements.add(vpcNode);
+                        .filter(n -> String.valueOf(n.getId()).equals(vpcId))
+                        .forEach(network -> {
+                            // Add VPC node
+                            elements.add(createNode(String.valueOf(network.getId()), network.getName(), "VPC"));
 
-                        allSubnetworks.stream()
-                            .filter(sn -> sn.getNetwork().endsWith("/" + network.getName()))
-                            .forEach(subnet -> {
-                                String region = subnet.getRegion().substring(subnet.getRegion().lastIndexOf('/') + 1);
-                                String regionNodeId = "region-" + region;
+                            Set<String> addedRegions = new HashSet<>();
 
-                                if (elements.stream().noneMatch(el -> ((Map<String,Object>)el.get("data")).get("id").equals(regionNodeId))) {
-                                    Map<String, Object> regionNode = new HashMap<>();
-                                    Map<String, Object> regionData = new HashMap<>();
-                                    regionData.put("id", regionNodeId);
-                                    regionData.put("label", region);
-                                    regionData.put("type", "Region");
-                                    regionData.put("parent", String.valueOf(network.getId()));
-                                    regionNode.put("data", regionData);
-                                    elements.add(regionNode);
-                                }
+                            allSubnetworks.stream()
+                                    .filter(sn -> sn.getNetwork().endsWith("/" + network.getName()))
+                                    .forEach(subnet -> {
+                                        String region = subnet.getRegion().substring(subnet.getRegion().lastIndexOf('/') + 1);
+                                        String regionNodeId = "region-" + region;
 
-                                Map<String, Object> subnetNode = new HashMap<>();
-                                Map<String, Object> subnetData = new HashMap<>();
-                                subnetData.put("id", String.valueOf(subnet.getId()));
-                                subnetData.put("label", subnet.getName());
-                                subnetData.put("type", "Subnetwork");
-                                subnetData.put("parent", regionNodeId);
-                                subnetNode.put("data", subnetData);
-                                elements.add(subnetNode);
-                            });
+                                        // Add Region node if it hasn't been added yet
+                                        if (addedRegions.add(regionNodeId)) {
+                                            elements.add(createNode(regionNodeId, region, "Region"));
+                                            elements.add(createEdge(regionNodeId + "-" + network.getId(), regionNodeId, String.valueOf(network.getId())));
+                                        }
 
-                        allInstances.stream()
-                            .filter(inst -> inst.getNetworkInterfacesList().stream()
-                                .anyMatch(ni -> ni.getNetwork().endsWith("/" + network.getName())))
-                            .forEach(instance -> {
-                                String subnetworkUrl = instance.getNetworkInterfaces(0).getSubnetwork();
-                                Optional<com.google.cloud.compute.v1.Subnetwork> parentSubnet = allSubnetworks.stream().filter(sn -> sn.getSelfLink().equals(subnetworkUrl)).findFirst();
-                                
-                                if(parentSubnet.isPresent()){
-                                    Map<String, Object> instanceNode = new HashMap<>();
-                                    Map<String, Object> instanceData = new HashMap<>();
-                                    instanceData.put("id", String.valueOf(instance.getId()));
-                                    instanceData.put("label", instance.getName());
-                                    instanceData.put("type", "Compute Engine");
-                                    instanceData.put("parent", String.valueOf(parentSubnet.get().getId()));
-                                    instanceNode.put("data", instanceData);
-                                    elements.add(instanceNode);
-                                }
-                            });
-                    });
+                                        // Add Subnet node
+                                        elements.add(createNode(String.valueOf(subnet.getId()), subnet.getName(), "Subnet"));
+                                        // Add edge from Subnet to Region
+                                        elements.add(createEdge(subnet.getId() + "-" + regionNodeId, String.valueOf(subnet.getId()), regionNodeId));
+                                    });
+
+                            allInstances.stream()
+                                    .filter(inst -> inst.getNetworkInterfacesList().stream()
+                                            .anyMatch(ni -> ni.getNetwork().endsWith("/" + network.getName())))
+                                    .forEach(instance -> {
+                                        String subnetworkUrl = instance.getNetworkInterfaces(0).getSubnetwork();
+                                        allSubnetworks.stream()
+                                                .filter(sn -> sn.getSelfLink().equals(subnetworkUrl))
+                                                .findFirst()
+                                                .ifPresent(parentSubnet -> {
+                                                    // Add Instance node
+                                                    elements.add(createNode(String.valueOf(instance.getId()), instance.getName(), "Instance"));
+                                                    // Add edge from Instance to Subnet
+                                                    elements.add(createEdge(instance.getId() + "-" + parentSubnet.getId(), String.valueOf(instance.getId()), String.valueOf(parentSubnet.getId())));
+                                                });
+                                    });
+                        });
             }
             return elements;
         });
+    }
+
+    private Map<String, Object> createNode(String id, String label, String type) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("id", id);
+        data.put("label", label);
+        data.put("type", type);
+
+        Map<String, Object> node = new HashMap<>();
+        node.put("group", "nodes");
+        node.put("data", data);
+        return node;
+    }
+
+    private Map<String, Object> createEdge(String id, String source, String target) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("id", id);
+        data.put("source", source);
+        data.put("target", target);
+
+        Map<String, Object> edge = new HashMap<>();
+        edge.put("group", "edges");
+        edge.put("data", data);
+        return edge;
     }
 
     private List<com.google.cloud.compute.v1.Network> getRawVpcNetworks(String gcpProjectId) {
@@ -648,16 +632,16 @@ public class GcpDataService {
         Optional<com.google.cloud.compute.v1.SubnetworksClient> clientOpt = gcpClientProvider.getSubnetworksClient(gcpProjectId);
         if (clientOpt.isEmpty()) return List.of();
         try (com.google.cloud.compute.v1.SubnetworksClient client = clientOpt.get()) {
-             return StreamSupport.stream(client.aggregatedList(gcpProjectId).iterateAll().spliterator(), false)
-                     .flatMap(entry -> entry.getValue().getSubnetworksList().stream())
-                     .collect(Collectors.toList());
+            return StreamSupport.stream(client.aggregatedList(gcpProjectId).iterateAll().spliterator(), false)
+                    .flatMap(entry -> entry.getValue().getSubnetworksList().stream())
+                    .collect(Collectors.toList());
         } catch (Exception e) {
             log.error("Error fetching raw Subnetworks for project: {}", gcpProjectId, e);
             return List.of();
         }
     }
 
-     private List<com.google.cloud.compute.v1.Instance> getRawComputeInstances(String gcpProjectId) {
+    private List<com.google.cloud.compute.v1.Instance> getRawComputeInstances(String gcpProjectId) {
         Optional<com.google.cloud.compute.v1.InstancesClient> clientOpt = gcpClientProvider.getInstancesClient(gcpProjectId);
         if (clientOpt.isEmpty()) return List.of();
         try (com.google.cloud.compute.v1.InstancesClient client = clientOpt.get()) {
@@ -669,10 +653,10 @@ public class GcpDataService {
             return List.of();
         }
     }
-    
+
     private List<GcpResourceDto> getComputeInstances(String gcpProjectId) {
         return getRawComputeInstances(gcpProjectId).stream()
-            .map(this::mapInstanceToDto).collect(Collectors.toList());
+                .map(this::mapInstanceToDto).collect(Collectors.toList());
     }
 
     private List<GcpResourceDto> getStorageBuckets(String gcpProjectId) {
@@ -680,11 +664,9 @@ public class GcpDataService {
         Optional<com.google.cloud.storage.Storage> clientOpt = gcpClientProvider.getStorageClient(gcpProjectId);
         if (clientOpt.isEmpty()) return List.of();
         try {
-            List<GcpResourceDto> buckets = StreamSupport.stream(clientOpt.get().list().iterateAll().spliterator(), false)
+            return StreamSupport.stream(clientOpt.get().list().iterateAll().spliterator(), false)
                     .map(this::mapBucketToDto)
                     .collect(Collectors.toList());
-            log.info("Found {} Cloud Storage buckets.", buckets.size());
-            return buckets;
         } catch (Exception e) {
             log.error("Error fetching Storage Buckets for project: {}", gcpProjectId, e);
             return List.of();
@@ -698,7 +680,6 @@ public class GcpDataService {
         try (com.google.cloud.container.v1.ClusterManagerClient client = clientOpt.get()) {
             String parent = "projects/" + gcpProjectId + "/locations/-";
             List<com.google.container.v1.Cluster> clusters = client.listClusters(parent).getClustersList();
-            log.info("Found {} Kubernetes Engine clusters.", clusters.size());
             return clusters.stream()
                     .map(this::mapGkeToDto)
                     .collect(Collectors.toList());
@@ -720,7 +701,6 @@ public class GcpDataService {
                     .execute()
                     .getItems();
             if (instances == null) return List.of();
-            log.info("Found {} Cloud SQL instances.", instances.size());
             return instances.stream().map(this::mapSqlToDto).collect(Collectors.toList());
         } catch (IOException e) {
             log.error("Error fetching Cloud SQL instances for project: {}", gcpProjectId, e);
@@ -742,7 +722,6 @@ public class GcpDataService {
             com.google.api.services.dns.Dns.ManagedZones.List request = dns.managedZones().list(gcpProjectId);
             List<com.google.api.services.dns.model.ManagedZone> zones = request.execute().getManagedZones();
             if (zones == null) return List.of();
-            log.info("Found {} Cloud DNS zones.", zones.size());
             return zones.stream()
                     .map(this::mapDnsToDto)
                     .collect(Collectors.toList());
@@ -751,16 +730,7 @@ public class GcpDataService {
             return List.of();
         }
     }
-    
-    public double calculateForecastedSpend(double monthToDateSpend) {
-        LocalDate today = LocalDate.now();
-        int daysInMonth = today.lengthOfMonth();
-        int currentDay = today.getDayOfMonth();
-        if (currentDay > 0) {
-            return (monthToDateSpend / currentDay) * daysInMonth;
-        }
-        return 0.0;
-    }
+
     private List<GcpResourceDto> getLoadBalancers(String gcpProjectId) {
         log.info("Fetching Load Balancers for project: {}", gcpProjectId);
         Optional<com.google.cloud.compute.v1.ForwardingRulesClient> clientOpt = gcpClientProvider.getForwardingRulesClient(gcpProjectId);
@@ -796,10 +766,10 @@ public class GcpDataService {
         if (clientOpt.isEmpty()) return List.of();
         try (RoutersClient client = clientOpt.get()) {
             return StreamSupport.stream(client.aggregatedList(gcpProjectId).iterateAll().spliterator(), false)
-                .flatMap(entry -> entry.getValue().getRoutersList().stream())
-                .filter(router -> !router.getNatsList().isEmpty())
-                .map(this::mapNatRouterToDto)
-                .collect(Collectors.toList());
+                    .flatMap(entry -> entry.getValue().getRoutersList().stream())
+                    .filter(router -> !router.getNatsList().isEmpty())
+                    .map(this::mapNatRouterToDto)
+                    .collect(Collectors.toList());
         } catch (Exception e) {
             log.error("Error fetching Cloud NAT routers for project: {}", gcpProjectId, e);
             return List.of();
@@ -825,22 +795,21 @@ public class GcpDataService {
         log.info("Fetching KMS keys for project: {}", gcpProjectId);
         Optional<KeyManagementServiceClient> clientOpt = gcpClientProvider.getKeyManagementServiceClient(gcpProjectId);
         if (clientOpt.isEmpty()) return List.of();
-        
+
         try (KeyManagementServiceClient client = clientOpt.get()) {
-            // Correctly iterate through locations (regions)
-            return this.getRegionStatusForGcp(new ArrayList<>()).join().stream()
-                .flatMap(region -> {
-                    try {
-                        String parent = "projects/" + gcpProjectId + "/locations/" + region.getRegionId();
-                        return StreamSupport.stream(client.listKeyRings(parent).iterateAll().spliterator(), false)
-                            .flatMap(keyRing -> StreamSupport.stream(client.listCryptoKeys(keyRing.getName()).iterateAll().spliterator(), false))
-                            .map(this::mapKmsKeyToDto);
-                    } catch (Exception e) {
-                        log.warn("Could not fetch KMS keys for region {}: {}", region.getRegionId(), e.getMessage());
-                        return Stream.empty();
-                    }
-                })
-                .collect(Collectors.toList());
+            return getAllKnownRegions().stream()
+                    .flatMap(region -> {
+                        try {
+                            String parent = "projects/" + gcpProjectId + "/locations/" + region;
+                            return StreamSupport.stream(client.listKeyRings(parent).iterateAll().spliterator(), false)
+                                    .flatMap(keyRing -> StreamSupport.stream(client.listCryptoKeys(keyRing.getName()).iterateAll().spliterator(), false))
+                                    .map(this::mapKmsKeyToDto);
+                        } catch (Exception e) {
+                            log.warn("Could not fetch KMS keys for region {}: {}", region, e.getMessage());
+                            return Stream.empty();
+                        }
+                    })
+                    .collect(Collectors.toList());
         } catch (Exception e) {
             log.error("Error fetching KMS keys for project: {}", gcpProjectId, e);
             return List.of();
@@ -854,8 +823,8 @@ public class GcpDataService {
         try (FunctionServiceClient client = clientOpt.get()) {
             String parent = "projects/" + gcpProjectId + "/locations/-";
             return StreamSupport.stream(client.listFunctions(parent).iterateAll().spliterator(), false)
-                .map(this::mapCloudFunctionToDto)
-                .collect(Collectors.toList());
+                    .map(this::mapCloudFunctionToDto)
+                    .collect(Collectors.toList());
         } catch (Exception e) {
             log.error("Error fetching Cloud Functions for project: {}", gcpProjectId, e);
             return List.of();
@@ -883,22 +852,22 @@ public class GcpDataService {
         try (SecretManagerServiceClient client = clientOpt.get()) {
             String parent = "projects/" + gcpProjectId;
             return StreamSupport.stream(client.listSecrets(parent).iterateAll().spliterator(), false)
-                .map(this::mapSecretToDto)
-                .collect(Collectors.toList());
+                    .map(this::mapSecretToDto)
+                    .collect(Collectors.toList());
         } catch (Exception e) {
             log.error("Error fetching secrets from Secret Manager for project: {}", gcpProjectId, e);
             return List.of();
         }
     }
-    
+
     private List<GcpResourceDto> getCloudArmorPolicies(String gcpProjectId) {
         log.info("Fetching Cloud Armor policies for project: {}", gcpProjectId);
         Optional<SecurityPoliciesClient> clientOpt = gcpClientProvider.getSecurityPoliciesClient(gcpProjectId);
         if (clientOpt.isEmpty()) return List.of();
         try (SecurityPoliciesClient client = clientOpt.get()) {
             return StreamSupport.stream(client.list(gcpProjectId).iterateAll().spliterator(), false)
-                .map(this::mapCloudArmorPolicyToDto)
-                .collect(Collectors.toList());
+                    .map(this::mapCloudArmorPolicyToDto)
+                    .collect(Collectors.toList());
         } catch (Exception e) {
             log.error("Error fetching Cloud Armor policies for project: {}", gcpProjectId, e);
             return List.of();
@@ -911,9 +880,69 @@ public class GcpDataService {
         dto.setName(forwardingRule.getName());
         dto.setType("Load Balancer");
         String regionUrl = forwardingRule.getRegion();
-        String region = regionUrl.substring(regionUrl.lastIndexOf('/') + 1);
+        String region = regionUrl != null ? regionUrl.substring(regionUrl.lastIndexOf('/') + 1) : "global";
         dto.setLocation(region);
         dto.setStatus("ACTIVE");
         return dto;
     }
+    private List<GcpResourceDto> getApiGateways(String gcpProjectId) {
+        log.info("Fetching API Gateways for project: {}", gcpProjectId);
+        Optional<ApiGatewayServiceClient> clientOpt = gcpClientProvider.getApiGatewayServiceClient(gcpProjectId);
+        if (clientOpt.isEmpty()) return List.of();
+        try (ApiGatewayServiceClient client = clientOpt.get()) {
+            String parent = "projects/" + gcpProjectId + "/locations/-";
+            return StreamSupport.stream(client.listApis(parent).iterateAll().spliterator(), false)
+                    .map(this::mapApiGatewayToDto)
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            log.error("Error fetching API Gateways for project {}: {}", gcpProjectId, e.getMessage(), e);
+            return List.of();
+        }
+    }
+
+//    private List<GcpResourceDto> getAppEngineApplications(String gcpProjectId) {
+//        log.info("Fetching App Engine applications for project: {}", gcpProjectId);
+//        Optional<ApplicationsClient> clientOpt = gcpClientProvider.getAppsClient(gcpProjectId);
+//        if (clientOpt.isEmpty()) return List.of();
+//        try (ApplicationsClient client = clientOpt.get()) {
+//            Application app = client.getApplication("apps/" + gcpProjectId);
+//            if (app != null) {
+//                return List.of(mapAppEngineToDto(app));
+//            }
+//            return List.of();
+//        } catch (Exception e) {
+//            log.error("Error fetching App Engine application for project {}: {}", gcpProjectId, e.getMessage());
+//            return List.of();
+//        }
+//    }
+
+    private List<GcpResourceDto> getBigQueryDatasets(String gcpProjectId) {
+        log.info("Fetching BigQuery datasets for project: {}", gcpProjectId);
+        Optional<BigQuery> bqOpt = gcpClientProvider.getBigQueryClient(gcpProjectId);
+        if (bqOpt.isEmpty()) return List.of();
+        try {
+            return StreamSupport.stream(bqOpt.get().listDatasets(gcpProjectId).iterateAll().spliterator(), false)
+                    .map(this::mapBigQueryDatasetToDto)
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            log.error("Error fetching BigQuery datasets for project {}: {}", gcpProjectId, e.getMessage(), e);
+            return List.of();
+        }
+    }
+
+    private List<GcpResourceDto> getLoggingBuckets(String gcpProjectId) {
+        log.info("Fetching Logging buckets for project: {}", gcpProjectId);
+        Optional<ConfigClient> clientOpt = gcpClientProvider.getConfigClient(gcpProjectId);
+        if (clientOpt.isEmpty()) return List.of();
+        try (ConfigClient client = clientOpt.get()) {
+            String parent = String.format("projects/%s/locations/-", gcpProjectId);
+            return StreamSupport.stream(client.listBuckets(parent).iterateAll().spliterator(), false)
+                    .map(this::mapLogBucketToDto)
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            log.error("Error fetching Logging buckets for project {}: {}", gcpProjectId, e.getMessage(), e);
+            return List.of();
+        }
+    }
+
 }

@@ -33,12 +33,15 @@ public class GcpDashboardController {
      * even in case of an error.
      *
      * @param accountId The GCP account ID.
+     * @param forceRefresh A boolean to indicate whether to bypass the cache.
      * @return A CompletableFuture containing a ResponseEntity with the dashboard data or an error message.
      */
     @GetMapping
-    public CompletableFuture<ResponseEntity<?>> getDashboardData(@RequestParam String accountId) {
+    public CompletableFuture<ResponseEntity<?>> getDashboardData(
+            @RequestParam String accountId,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
         // Asynchronously fetch the data from the service
-        return gcpDataService.getDashboardData(accountId)
+        return gcpDataService.getDashboardData(accountId, forceRefresh) // <-- PARAMETER PASSED
                 // If the future completes successfully, wrap the data in a 200 OK response.
                 .<ResponseEntity<?>>thenApply(ResponseEntity::ok)
                 // If any exception occurs during the future's execution...

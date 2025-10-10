@@ -14,6 +14,7 @@ import com.xammer.cloud.dto.gcp.GcpCudUtilizationDto;
 import com.xammer.cloud.dto.gcp.GcpOptimizationRecommendation;
 import com.xammer.cloud.dto.gcp.GcpWasteItem;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
@@ -40,45 +41,61 @@ public class GcpOptimizationService {
         this.gcpClientProvider = gcpClientProvider;
         this.gcpDataService = gcpDataService;
     }
-    
-    public CompletableFuture<List<GcpCommittedUseDiscountDto>> getCommittedUseDiscounts(String gcpProjectId) {
+
+    @Cacheable(value = "gcpCommittedUseDiscounts", key = "'gcp:committed-use-discounts:' + #gcpProjectId")
+    public List<GcpCommittedUseDiscountDto> getCommittedUseDiscountsSync(String gcpProjectId) {
         // Placeholder implementation
-        return CompletableFuture.completedFuture(new ArrayList<>());
-    }
-    
-    public CompletableFuture<GcpCudUtilizationDto> getCudUtilization(String gcpProjectId, String cudId) {
-        // Placeholder implementation
-        return CompletableFuture.completedFuture(new GcpCudUtilizationDto());
+        return new ArrayList<>();
     }
 
-    public CompletableFuture<List<GcpOptimizationRecommendation>> getRightsizingRecommendations(String gcpProjectId) {
+    public CompletableFuture<List<GcpCommittedUseDiscountDto>> getCommittedUseDiscounts(String gcpProjectId) {
+        return CompletableFuture.supplyAsync(() -> getCommittedUseDiscountsSync(gcpProjectId), executor);
+    }
+
+    @Cacheable(value = "gcpCudUtilization", key = "'gcp:cud-utilization:' + #gcpProjectId + ':' + #cudId")
+    public GcpCudUtilizationDto getCudUtilizationSync(String gcpProjectId, String cudId) {
+        // Placeholder implementation (replace with actual sync logic using cudId)
+        return new GcpCudUtilizationDto();
+    }
+
+    public CompletableFuture<GcpCudUtilizationDto> getCudUtilization(String gcpProjectId, String cudId) {
+        return CompletableFuture.supplyAsync(() -> getCudUtilizationSync(gcpProjectId, cudId), executor);
+    }
+
+    @Cacheable(value = "gcpRightsizingRecommendations", key = "'gcp:rightsizing-recommendations:' + #gcpProjectId")
+    public List<GcpOptimizationRecommendation> getRightsizingRecommendations(String gcpProjectId) {
         log.info("Fetching rightsizing recommendations for GCP project: {}", gcpProjectId);
 
-        return gcpDataService.getRegionStatusForGcp(new ArrayList<>()).thenCompose(regions -> {
-            List<String> locations = regions.stream().map(DashboardData.RegionStatus::getRegionId).collect(Collectors.toList());
-            locations.add("global");
+        List<DashboardData.RegionStatus> regions = gcpDataService.getRegionStatusForGcp(new ArrayList<>()).join();
+        List<String> locations = regions.stream().map(DashboardData.RegionStatus::getRegionId).collect(Collectors.toList());
+        locations.add("global");
 
-            List<CompletableFuture<List<GcpOptimizationRecommendation>>> futures = new ArrayList<>();
+        List<CompletableFuture<List<GcpOptimizationRecommendation>>> futures = new ArrayList<>();
 
-            futures.add(getRecommendationsForRecommender(gcpProjectId, "google.compute.instance.MachineTypeRecommender", "global", this::mapToRightsizingDto));
-            futures.add(getRecommendationsForRecommender(gcpProjectId, "google.compute.instanceGroupManager.MachineTypeRecommender", "global", this::mapToRightsizingDto));
+        futures.add(getRecommendationsForRecommender(gcpProjectId, "google.compute.instance.MachineTypeRecommender", "global", this::mapToRightsizingDto));
+        futures.add(getRecommendationsForRecommender(gcpProjectId, "google.compute.instanceGroupManager.MachineTypeRecommender", "global", this::mapToRightsizingDto));
 
-            for (String location : locations) {
-                if (!location.equals("global")) {
-                    futures.add(getRecommendationsForRecommender(gcpProjectId, "google.cloudsql.instance.OverprovisionedRecommender", location, this::mapToSqlRightsizingDto));
-                    // Add other location-specific recommenders here if needed
-                }
+        for (String location : locations) {
+            if (!location.equals("global")) {
+                futures.add(getRecommendationsForRecommender(gcpProjectId, "google.cloudsql.instance.OverprovisionedRecommender", location, this::mapToSqlRightsizingDto));
+                // Add other location-specific recommenders here if needed
             }
+        }
 
-            return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                    .thenApply(v -> futures.stream()
-                            .map(CompletableFuture::join)
-                            .flatMap(List::stream)
-                            .collect(Collectors.toList()));
-        });
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
+        return futures.stream()
+                .map(CompletableFuture::join)
+                .flatMap(List::stream)
+                .collect(Collectors.toList());
     }
 
-    public CompletableFuture<List<GcpWasteItem>> getWasteReport(String gcpProjectId) {
+    /**
+     * This method correctly returns a CompletableFuture, ensuring that the calling service
+     * can handle the asynchronous operation properly.
+     */
+    @Cacheable(value = "gcpWasteReport", key = "'gcp:waste-report:' + #gcpProjectId")
+    public List<GcpWasteItem> getWasteReport(String gcpProjectId) {
         log.info("Starting waste report generation for GCP project: {}", gcpProjectId);
 
         List<CompletableFuture<List<GcpWasteItem>>> futures = new ArrayList<>();
@@ -93,39 +110,38 @@ public class GcpOptimizationService {
         futures.add(findUnusedFirewallRules(gcpProjectId));
         futures.add(findOldSqlSnapshots(gcpProjectId));
 
-        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                .thenApply(v -> futures.stream()
-                        .map(CompletableFuture::join)
-                        .flatMap(List::stream)
-                        .collect(Collectors.toList()));
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
+        return futures.stream()
+                .map(CompletableFuture::join)
+                .flatMap(List::stream)
+                .collect(Collectors.toList());
     }
 
-    public CompletableFuture<DashboardData.SavingsSummary> getSavingsSummary(String gcpProjectId) {
-        CompletableFuture<List<GcpWasteItem>> wasteFuture = getWasteReport(gcpProjectId);
-        CompletableFuture<List<GcpOptimizationRecommendation>> rightsizingFuture = getRightsizingRecommendations(gcpProjectId);
+    @Cacheable(value = "gcpSavingsSummary", key = "'gcp:savings-summary:' + #gcpProjectId")
+    public DashboardData.SavingsSummary getSavingsSummary(String gcpProjectId) {
+        List<GcpWasteItem> waste = getWasteReport(gcpProjectId);
+        List<GcpOptimizationRecommendation> rightsizing = getRightsizingRecommendations(gcpProjectId);
 
-        return CompletableFuture.allOf(wasteFuture, rightsizingFuture).thenApply(v -> {
-            double wasteSavings = wasteFuture.join().stream().mapToDouble(GcpWasteItem::getMonthlySavings).sum();
-            double rightsizingSavings = rightsizingFuture.join().stream().mapToDouble(GcpOptimizationRecommendation::getMonthlySavings).sum();
+        double wasteSavings = waste.stream().mapToDouble(GcpWasteItem::getMonthlySavings).sum();
+        double rightsizingSavings = rightsizing.stream().mapToDouble(GcpOptimizationRecommendation::getMonthlySavings).sum();
 
-            List<DashboardData.SavingsSuggestion> suggestions = new ArrayList<>();
-            if (rightsizingSavings > 0) suggestions.add(new DashboardData.SavingsSuggestion("Rightsizing", rightsizingSavings));
-            if (wasteSavings > 0) suggestions.add(new DashboardData.SavingsSuggestion("Waste Elimination", wasteSavings));
+        List<DashboardData.SavingsSuggestion> suggestions = new ArrayList<>();
+        if (rightsizingSavings > 0) suggestions.add(new DashboardData.SavingsSuggestion("Rightsizing", rightsizingSavings));
+        if (wasteSavings > 0) suggestions.add(new DashboardData.SavingsSuggestion("Waste Elimination", wasteSavings));
 
-            return new DashboardData.SavingsSummary(wasteSavings + rightsizingSavings, suggestions);
-        });
+        return new DashboardData.SavingsSummary(wasteSavings + rightsizingSavings, suggestions);
     }
 
-    public CompletableFuture<DashboardData.OptimizationSummary> getOptimizationSummary(String gcpProjectId) {
-        CompletableFuture<List<GcpWasteItem>> wasteFuture = getWasteReport(gcpProjectId);
-        CompletableFuture<List<GcpOptimizationRecommendation>> rightsizingFuture = getRightsizingRecommendations(gcpProjectId);
+    @Cacheable(value = "gcpOptimizationSummary", key = "'gcp:optimization-summary:' + #gcpProjectId")
+    public DashboardData.OptimizationSummary getOptimizationSummary(String gcpProjectId) {
+        List<GcpWasteItem> waste = getWasteReport(gcpProjectId);
+        List<GcpOptimizationRecommendation> rightsizing = getRightsizingRecommendations(gcpProjectId);
 
-        return CompletableFuture.allOf(wasteFuture, rightsizingFuture).thenApply(v -> {
-            double totalSavings = wasteFuture.join().stream().mapToDouble(GcpWasteItem::getMonthlySavings).sum()
-                    + rightsizingFuture.join().stream().mapToDouble(GcpOptimizationRecommendation::getMonthlySavings).sum();
-            long criticalAlerts = rightsizingFuture.join().size();
-            return new DashboardData.OptimizationSummary(totalSavings, criticalAlerts);
-        });
+        double totalSavings = waste.stream().mapToDouble(GcpWasteItem::getMonthlySavings).sum()
+                + rightsizing.stream().mapToDouble(GcpOptimizationRecommendation::getMonthlySavings).sum();
+        long criticalAlerts = rightsizing.size();
+        return new DashboardData.OptimizationSummary(totalSavings, criticalAlerts);
     }
 
     private CompletableFuture<List<GcpOptimizationRecommendation>> getRecommendationsForRecommender(String gcpProjectId, String recommenderId, String location, java.util.function.Function<Recommendation, GcpOptimizationRecommendation> mapper) {
@@ -146,7 +162,7 @@ public class GcpOptimizationService {
                 log.error("Failed to get recommendations from {} for project {} in location {}", recommenderId, gcpProjectId, location, e);
                 return List.of();
             }
-        });
+        }, executor);
     }
 
     private CompletableFuture<List<GcpWasteItem>> findOldSqlSnapshots(String gcpProjectId) {
@@ -194,7 +210,6 @@ public class GcpOptimizationService {
                 log.info("Found {} old Cloud SQL backups for project {}.", wasteItems.size(), gcpProjectId);
                 return wasteItems;
             } catch (Exception e) {
-                // Corrected logging: Pass the exception object 'e' as the last argument
                 log.error("Failed to list Cloud SQL backups for project {}:", gcpProjectId, e);
                 return List.of();
             }
