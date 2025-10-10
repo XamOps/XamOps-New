@@ -30,4 +30,8 @@ public interface CloudAccountRepository extends JpaRepository<CloudAccount, Long
 
     Optional<CloudAccount> findByAzureSubscriptionId(String subscriptionId);
 
+    Optional<CloudAccount> findByGcpBillingAccountId(String gcpBillingAccountId);
+    Optional<CloudAccount> findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(String awsAccountId, String gcpProjectId, String azureSubscriptionId);
+
+
 }

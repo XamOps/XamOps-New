@@ -11,6 +11,7 @@ public class AccountDto {
     private String roleArn;
     private String externalId;
     private String provider;
+    private String grafanaIp;
 
     public AccountDto() {}
 
@@ -44,4 +45,11 @@ public class AccountDto {
     public void setExternalId(String externalId) { this.externalId = externalId; }
     public String getProvider() { return provider; }
     public void setProvider(String provider) { this.provider = provider; }
+    public String getGrafanaIp() {
+        return grafanaIp;
+    }
+
+    public void setGrafanaIp(String grafanaIp) {
+        this.grafanaIp = grafanaIp;
+    }
 }

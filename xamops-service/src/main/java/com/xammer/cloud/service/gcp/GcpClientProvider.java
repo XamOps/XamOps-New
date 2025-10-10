@@ -17,6 +17,10 @@ import com.google.cloud.bigquery.BigQuery;
 import com.google.cloud.bigquery.BigQueryOptions;
 import com.google.cloud.billing.budgets.v1.BudgetServiceClient;
 import com.google.cloud.billing.budgets.v1.BudgetServiceSettings;
+import com.google.cloud.billing.v1.CloudBillingClient;
+import com.google.cloud.billing.v1.CloudBillingSettings;
+import com.google.cloud.billing.v1.ProjectBillingInfo;
+import com.google.cloud.billing.v1.ProjectName;
 import com.google.cloud.compute.v1.*;
 import com.google.cloud.container.v1.ClusterManagerClient;
 import com.google.cloud.container.v1.ClusterManagerSettings;
@@ -95,6 +99,32 @@ public class GcpClientProvider {
                     .createScoped("https://www.googleapis.com/auth/cloud-platform"));
         } catch (IOException e) {
             log.error("Failed to create GoogleCredentials for project ID: {}", gcpProjectId, e);
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Get credentials for billing account access
+     * Uses the same service account key but can be used for billing account scope operations
+     */
+    @Cacheable(value = "gcpCredentialsByBillingAccount", key = "#billingAccountId")
+    private Optional<GoogleCredentials> getCredentialsByBillingAccount(String billingAccountId) {
+        Optional<CloudAccount> accountOpt = cloudAccountRepository.findByGcpBillingAccountId(billingAccountId);
+        if (accountOpt.isEmpty()) {
+            log.error("GCP account not found for billing account ID: {}", billingAccountId);
+            return Optional.empty();
+        }
+        try {
+            CloudAccount account = accountOpt.get();
+            if (account.getGcpServiceAccountKey() == null || account.getGcpServiceAccountKey().isBlank()) {
+                log.error("Credentials for billing account ID: {} are missing.", billingAccountId);
+                return Optional.empty();
+            }
+            return Optional.of(GoogleCredentials.fromStream(
+                            new ByteArrayInputStream(account.getGcpServiceAccountKey().getBytes()))
+                    .createScoped("https://www.googleapis.com/auth/cloud-platform"));
+        } catch (IOException e) {
+            log.error("Failed to create GoogleCredentials for billing account ID: {}", billingAccountId, e);
             return Optional.empty();
         }
     }
@@ -211,6 +241,9 @@ public class GcpClientProvider {
         });
     }
 
+    /**
+     * Get RecommenderClient for project scope
+     */
     public Optional<RecommenderClient> getRecommenderClient(String gcpProjectId) {
         return getCredentials(gcpProjectId).map(credentials -> {
             try {
@@ -220,6 +253,28 @@ public class GcpClientProvider {
                 return RecommenderClient.create(settings);
             } catch (IOException e) {
                 log.error("Failed to create RecommenderClient for project ID: {}", gcpProjectId, e);
+                return null;
+            }
+        });
+    }
+
+    /**
+     * Get RecommenderClient for billing account scope
+     * Required for fetching CUD recommendations at billing account level
+     *
+     * The service account must have the 'Billing Account Viewer' role
+     * or 'recommender.billingAccountCudRecommendations.list' permission
+     */
+    public Optional<RecommenderClient> getRecommenderClientForBillingAccount(String billingAccountId) {
+        return getCredentialsByBillingAccount(billingAccountId).map(credentials -> {
+            try {
+                RecommenderSettings settings = RecommenderSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials)
+                        .build();
+                log.info("Created RecommenderClient for billing account: {}", billingAccountId);
+                return RecommenderClient.create(settings);
+            } catch (IOException e) {
+                log.error("Failed to create RecommenderClient for billing account ID: {}", billingAccountId, e);
                 return null;
             }
         });
@@ -364,6 +419,59 @@ public class GcpClientProvider {
         }
     }
 
+    /**
+     * Get Cloud Billing client (modern library)
+     * Uses google-cloud-billing instead of google-api-services-cloudbilling
+     */
+    public Optional<CloudBillingClient> getCloudBillingClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                CloudBillingSettings settings = CloudBillingSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials)
+                        .build();
+                return CloudBillingClient.create(settings);
+            } catch (IOException e) {
+                log.error("Failed to create CloudBillingClient for project ID: {}", gcpProjectId, e);
+                return null;
+            }
+        });
+    }
+
+    /**
+     * Fetch billing account ID for a GCP project
+     * This method automatically retrieves the billing account ID from GCP Billing API
+     */
+    public Optional<String> getBillingAccountIdForProject(String gcpProjectId) {
+        try {
+            Optional<CloudBillingClient> billingClientOpt = getCloudBillingClient(gcpProjectId);
+            if (billingClientOpt.isEmpty()) {
+                log.error("CloudBillingClient not available for project {}", gcpProjectId);
+                return Optional.empty();
+            }
+
+            try (CloudBillingClient billingClient = billingClientOpt.get()) {
+                ProjectName projectName = ProjectName.of(gcpProjectId);
+
+                ProjectBillingInfo billingInfo = billingClient.getProjectBillingInfo(projectName);
+
+                if (billingInfo.getBillingEnabled() && !billingInfo.getBillingAccountName().isEmpty()) {
+                    // billingAccountName format: "billingAccounts/01B1D1-936E5A-E97A8C"
+                    String billingAccountName = billingInfo.getBillingAccountName();
+                    String billingAccountId = billingAccountName.replace("billingAccounts/", "");
+
+                    log.info("Retrieved billing account ID {} for project {}", billingAccountId, gcpProjectId);
+                    return Optional.of(billingAccountId);
+                } else {
+                    log.warn("Billing not enabled or no billing account for project {}", gcpProjectId);
+                    return Optional.empty();
+                }
+            }
+        } catch (Exception e) {
+            log.error("Failed to get billing account ID for project {}", gcpProjectId, e);
+            return Optional.empty();
+        }
+    }
+
     public Optional<Storage> createStorageClient(String serviceAccountKey) {
         try {
             GoogleCredentials credentials = GoogleCredentials.fromStream(new ByteArrayInputStream(serviceAccountKey.getBytes()))
@@ -499,6 +607,20 @@ public class GcpClientProvider {
                 return ConfigClient.create(settings);
             } catch (IOException e) {
                 log.error("Failed to create ConfigClient for project ID: {}", gcpProjectId, e);
+                return null;
+            }
+        });
+    }
+
+    public Optional<RegionCommitmentsClient> getRegionCommitmentsClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                RegionCommitmentsSettings settings = RegionCommitmentsSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials)
+                        .build();
+                return RegionCommitmentsClient.create(settings);
+            } catch (IOException e) {
+                log.error("Failed to create RegionCommitmentsClient for project ID: {}", gcpProjectId, e);
                 return null;
             }
         });

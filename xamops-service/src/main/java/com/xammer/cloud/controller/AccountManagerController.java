@@ -129,8 +129,7 @@ public class AccountManagerController {
                 accountIdentifier = "N/A";
                 break;
         }
-
-        return new AccountDto(
+        AccountDto dto = new AccountDto(
                 account.getId(),
                 account.getAccountName(),
                 accountIdentifier,
@@ -139,9 +138,11 @@ public class AccountManagerController {
                 account.getStatus(),
                 account.getRoleArn(),
                 account.getExternalId(),
-                account.getProvider()
-        );
+                account.getProvider());
+        dto.setGrafanaIp(account.getGrafanaIp()); // <-- This is the new line you must add
+        return dto;
     }
+
 
     @PostMapping("/azure")
     public ResponseEntity<?> addAzureAccount(@RequestBody AzureAccountRequestDto request, @AuthenticationPrincipal ClientUserDetails userDetails) {
@@ -169,4 +170,29 @@ public class AccountManagerController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("An unexpected error occurred while adding the account.");
         }
     }
+    @PostMapping("/accounts/{accountId}/monitoring")
+    public ResponseEntity<?> updateMonitoringEndpoint(@PathVariable String accountId,
+                                                      @RequestBody Map<String, String> payload) {
+        String grafanaIp = payload.get("grafanaIp");
+        if (grafanaIp == null || grafanaIp.trim().isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("message", "grafanaIp is required in the request body."));
+        }
+
+        // Find account by AWS Account ID, GCP Project ID, or Azure Subscription ID
+        CloudAccount account = cloudAccountRepository
+                .findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(accountId, accountId, accountId)
+                .orElse(null);
+
+        if (account == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("message", "Account not found with ID: " + accountId));
+        }
+
+        account.setGrafanaIp(grafanaIp);
+        cloudAccountRepository.save(account);
+
+        return ResponseEntity.ok()
+                .body(Map.of("message", "Monitoring endpoint updated successfully for account: " + accountId));
+    }
+
 }

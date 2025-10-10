@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XamOps - Grafana Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script type="module" src="/src/main.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+        body { font-family: 'Inter', sans-serif; background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); }
+        .header-gradient { background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%); backdrop-filter: blur(10px); border-bottom: 1px solid rgba(229, 231, 235, 0.8); }
+        .fade-in { animation: fadeIn 0.5s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    </style>
+</head>
+<body class="bg-gray-50">
+
+<div class="flex">
+    <aside class="fixed top-0 left-0 h-screen w-64 bg-white border-r border-gray-200">
+        <div data-include-sidebar></div>
+    </aside>
+
+    <div class="ml-64 flex-1">
+        <main class="flex-1 flex flex-col min-h-screen">
+            <header class="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-10">
+                <div class="flex items-center space-x-4">
+                    <div class="w-12 h-12 bg-gradient-to-br from-orange-400 to-orange-600 rounded-xl flex items-center justify-center">
+                        <i class="fas fa-chart-line text-white text-xl"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-2xl font-bold text-gray-800">Infrastructure Monitoring</h1>
+                        <p id="dashboard-subtitle" class="text-sm text-gray-600">Live Grafana Dashboard</p>
+                    </div>
+                </div>
+                <a id="view-in-grafana-link" href="#" target="_blank" class="hidden items-center space-x-2 px-4 py-2 text-sm font-semibold text-gray-700 bg-white rounded-lg border hover:bg-gray-50 transition-all">
+                    <span>View in Grafana</span>
+                    <i class="fas fa-external-link-alt text-xs"></i>
+                </a>
+            </header>
+
+            <div class="flex-1 p-2 bg-gray-200">
+                <iframe id="grafana-iframe" class="w-full h-[calc(100vh-6rem)] border-0 rounded-lg fade-in"></iframe>
+            </div>
+        </main>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const dashboardUid = 'a953939e-450f-4835-9190-26514f77a760';
+        const iframe = document.getElementById('grafana-iframe');
+        const subtitle = document.getElementById('dashboard-subtitle');
+        const externalLink = document.getElementById('view-in-grafana-link');
+
+        // --- START: Hardcoded Fallback Map ---
+        // This map will be used if the API doesn't provide an IP.
+        // IMPORTANT: Keep this updated with your Terraform output IPs.
+        const grafanaIpFallbackMap = {
+            'xammermarketplace': '13.232.109.53',
+            'xammer1': '13.233.143.19'
+            // Add other account names and their IPs here as needed
+        };
+        // --- END: Hardcoded Fallback Map ---
+
+        const selectedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+        
+        if (selectedIds.length > 0) {
+            fetch('/api/xamops/account-manager/accounts')
+                .then(res => {
+                    if (!res.ok) throw new Error(`API returned status ${res.status}`);
+                    // Handle both XML and JSON responses gracefully
+                    const contentType = res.headers.get("content-type");
+                    if (contentType && contentType.includes("application/json")) {
+                        return res.json();
+                    }
+                    // If it's not JSON, it might be the XML you provided. We can't parse XML here.
+                    // Let's assume for now the backend will be fixed to send JSON.
+                    // If not, this is where a more complex XML parser would be needed.
+                    // For now, we will rely on the fallback.
+                    return res.json(); 
+                })
+                .then(accounts => {
+                    sessionStorage.setItem('accounts', JSON.stringify(accounts));
+                    const selectedAccount = accounts.find(acc => acc.id === selectedIds[0]);
+                    if (selectedAccount) {
+                        loadDashboardFor(selectedAccount);
+                    } else {
+                        showError('Selected account not found.');
+                    }
+                }).catch(() => showError('Could not load account details. Please check the API.'));
+        } else {
+            showError('No account selected. Please choose an account from the sidebar.');
+        }
+
+        function loadDashboardFor(account) {
+            let grafanaIp = account.grafanaIp; // 1. Try to get the IP from the API response
+
+            // 2. If the API value is empty, use the fallback map
+            if (!grafanaIp) {
+                console.warn(`Grafana IP for "${account.name}" is missing from API. Using fallback map.`);
+                // Find a key in the map that matches the account name (case-insensitive)
+                const fallbackKey = Object.keys(grafanaIpFallbackMap).find(key => 
+                    account.name.toLowerCase().includes(key)
+                );
+                grafanaIp = grafanaIpFallbackMap[fallbackKey];
+            }
+            
+            if (grafanaIp) {
+                // Build and set the iframe URL
+                const iframeUrl = new URL(`http://${grafanaIp}:3000/d/${dashboardUid}/aws-infrastructure-overview`);
+                iframeUrl.searchParams.append('orgId', '1');
+                iframeUrl.searchParams.append('kiosk', 'true');
+                iframe.src = iframeUrl.toString();
+
+                // Build and set the external link URL
+                const externalUrl = new URL(`http://${grafanaIp}:3000/d/${dashboardUid}/aws-infrastructure-overview`);
+                externalUrl.searchParams.append('orgId', '1');
+                externalUrl.searchParams.append('refresh', '10s');
+                externalLink.href = externalUrl.toString();
+                
+                // Update text and make the link visible
+                subtitle.textContent = `Live Grafana Dashboard for ${account.name}`;
+                externalLink.classList.remove('hidden', 'items-center', 'space-x-2');
+                externalLink.style.display = 'flex'; // Use style to ensure it becomes a flex container
+            } else {
+                showError(`No Grafana instance is configured for the account: "${account.name}".`);
+            }
+        }
+
+        function showError(message) {
+            subtitle.textContent = message;
+            subtitle.classList.add('text-red-500', 'font-semibold');
+            iframe.src = 'about:blank'; // Clear the iframe
+            externalLink.classList.add('hidden');
+        }
+    });
+</script>
+
+</body>
+</html>
