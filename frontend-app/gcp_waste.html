@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-                <script type="module" src="/src/main.js"></script>
+    <script type="module" src="/src/main.js"></script>
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
@@ -43,7 +43,11 @@
             background: var(--primary-gradient); border: none; color: white; transition: all 0.3s ease;
         }
         .btn-primary:hover {
-             box-shadow: 0 10px 15px -3px rgba(66, 133, 244, 0.4);
+            box-shadow: 0 10px 15px -3px rgba(66, 133, 244, 0.4);
+        }
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
         }
         .service-group {
             background: var(--glass-bg); backdrop-filter: blur(10px);
@@ -55,42 +59,47 @@
         }
         .fade-in { animation: fadeIn 0.5s ease-in-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .skeleton { background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
+        @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
     </style>
 </head>
 <body class="bg-gray-50">
 
 <div class="flex">
-       <aside class="fixed top-0 left-0 h-screen w-64 bg-white border-r border-gray-200">
-            <div data-include-sidebar></div>
-        </aside>
+    <aside class="fixed top-0 left-0 h-screen w-64 bg-white border-r border-gray-200">
+        <div data-include-sidebar></div>
+    </aside>
     <div class="ml-64 flex-1">
         <main class="flex-1 flex flex-col min-h-screen" x-data="gcpWaste()">
             <header class="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-10">
-                 <div class="flex items-center space-x-4">
-                     <div class="w-12 h-12 bg-gradient-to-br from-red-500 to-yellow-500 rounded-xl flex items-center justify-center">
-                         <i class="fas fa-recycle text-white text-xl"></i>
-                     </div>
-                     <div>
-                         <h1 class="text-2xl font-bold text-gray-800">GCP Waste Management</h1>
-                         <p class="text-sm text-gray-600">Identify and eliminate unused cloud resources</p>
-                     </div>
-                 </div>
-                 <button @click="fetchWasteReport(true)" class="btn-primary flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md" :disabled="isRefreshing">
-                     <i class="fas fa-sync-alt" :class="{ 'fa-spin': isRefreshing }"></i>
-                     <span x-text="isRefreshing ? 'Scanning...' : 'Scan Resources'"></span>
-                 </button>
+                <div class="flex items-center space-x-4">
+                    <div class="w-12 h-12 bg-gradient-to-br from-red-500 to-yellow-500 rounded-xl flex items-center justify-center">
+                        <i class="fas fa-recycle text-white text-xl"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-2xl font-bold text-gray-800">GCP Waste Management</h1>
+                        <p class="text-sm text-gray-600">Identify and eliminate unused cloud resources</p>
+                    </div>
+                </div>
+                <button @click="fetchWasteReport(true)" class="btn-primary flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md" :disabled="isRefreshing">
+                    <i class="fas fa-sync-alt" :class="{ 'fa-spin': isRefreshing }"></i>
+                    <span x-text="isRefreshing ? 'Scanning...' : 'Scan Resources'"></span>
+                </button>
             </header>
 
             <div class="flex-1 p-8 space-y-8">
+                <!-- KPI Cards -->
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     <div class="kpi-card p-6 fade-in">
                         <h3 class="text-gray-600 text-sm font-medium mb-2">Potential Savings</h3>
-                        <p class="text-4xl font-bold text-red-600 mb-1" x-text="isLoading ? '...' : formatCurrency(totalSavings)"></p>
+                        <div x-show="isLoading" class="skeleton h-12 w-32 rounded"></div>
+                        <p x-show="!isLoading" class="text-4xl font-bold text-red-600 mb-1" x-text="formatCurrency(totalSavings)"></p>
                         <p class="text-xs text-gray-500">per month</p>
                     </div>
                     <div class="kpi-card p-6 fade-in">
                         <h3 class="text-gray-600 text-sm font-medium mb-2">Wasted Resources</h3>
-                        <p class="text-4xl font-bold text-red-600 mb-1" x-text="isLoading ? '...' : wasteItems.length"></p>
+                        <div x-show="isLoading" class="skeleton h-12 w-20 rounded"></div>
+                        <p x-show="!isLoading" class="text-4xl font-bold text-red-600 mb-1" x-text="wasteItems.length"></p>
                         <p class="text-xs text-gray-500">items found</p>
                     </div>
                     <div class="kpi-card p-6 fade-in">
@@ -99,11 +108,19 @@
                     </div>
                 </div>
 
+                <!-- Loading State -->
+                <div x-show="isLoading && wasteItems.length === 0" class="space-y-4">
+                    <div class="skeleton h-24 rounded-2xl"></div>
+                    <div class="skeleton h-24 rounded-2xl"></div>
+                    <div class="skeleton h-24 rounded-2xl"></div>
+                </div>
+
+                <!-- Waste Resources -->
                 <div class="space-y-6">
                     <div x-show="!isLoading && groupedResources.length === 0" x-cloak class="text-center py-20 px-8 rounded-2xl bg-white/80">
-                         <div class="w-24 h-24 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6">
-                             <i class="fas fa-leaf text-white text-3xl"></i>
-                         </div>
+                        <div class="w-24 h-24 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                            <i class="fas fa-leaf text-white text-3xl"></i>
+                        </div>
                         <h3 class="text-2xl font-bold text-gray-800 mb-2">No Waste Found!</h3>
                         <p class="text-gray-600">Your GCP environment is looking clean and optimized.</p>
                     </div>
@@ -113,8 +130,8 @@
                             <div @click="group.open = !group.open" class="flex items-center justify-between p-6 cursor-pointer">
                                 <div class="flex items-center space-x-4 flex-1">
                                     <i class="fas fa-chevron-right text-gray-400 w-5 text-center transition-all" :class="{'rotate-90': group.open}"></i>
-                                    <div class="w-12 h-12 flex items-center justify-center rounded-xl">
-                                        <img :src="'/icons/' + getServiceIcon(group.type)" :alt="group.type" class="w-full h-full rounded-xl object-cover">
+                                    <div class="w-12 h-12 flex items-center justify-center rounded-xl bg-blue-50">
+                                        <i class="fas fa-cloud text-blue-500 text-2xl"></i>
                                     </div>
                                     <h3 class="font-bold text-gray-800 text-lg" x-text="group.type"></h3>
                                     <div class="bg-blue-100 text-blue-800 text-xs font-semibold px-3 py-1 rounded-full" x-text="group.resources.length + ' items'"></div>
@@ -128,10 +145,12 @@
                                             <div class="col-span-6">
                                                 <p class="font-bold text-gray-800" x-text="resource.resourceName"></p>
                                             </div>
-                                            <div class="col-span-3 text-gray-600" x-text="resource.location"></div>
+                                            <div class="col-span-3 text-gray-600" x-text="resource.location || 'N/A'"></div>
                                             <div class="col-span-2 font-semibold text-green-600" x-text="formatCurrency(resource.monthlySavings)"></div>
                                             <div class="col-span-1 text-right">
-                                                <button title="Delete" class="px-3 py-2 text-xs font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700"><i class="fas fa-trash-alt"></i></button>
+                                                <button title="Delete" class="px-3 py-2 text-xs font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700">
+                                                    <i class="fas fa-trash-alt"></i>
+                                                </button>
                                             </div>
                                         </div>
                                     </div>
@@ -143,113 +162,225 @@
             </div>
         </main>
     </div>
+</div>
+
 <script>
-function gcpWaste() {
-    return {
-        isLoading: true,
-        isRefreshing: false,
-        accountId: '',
-        wasteItems: [],
-        savingsChart: null,
-        get totalSavings() {
-            return this.wasteItems.reduce((sum, item) => sum + item.monthlySavings, 0);
-        },
-        init() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const accountIdsParam = urlParams.get('accountIds');
-            if (accountIdsParam) {
-                this.accountId = accountIdsParam.split(',')[0];
-            } else {
-                this.accountId = JSON.parse(sessionStorage.getItem('selectedAccountIds'))[0];
-            }
-            this.fetchWasteReport();
-        },
-        fetchWasteReport(forceRefresh = false) {
-            if (!this.accountId) {
-                console.error("No accountId found. Cannot fetch waste report.");
-                this.isLoading = false;
-                return;
-            }
-            this.isRefreshing = forceRefresh;
-            this.isLoading = !forceRefresh;
-            fetch(`/api/xamops/gcp/optimization/waste-report?accountId=${this.accountId}`)
-                .then(res => res.json())
-                .then(data => { 
-                    this.wasteItems = data.map(item => ({ ...item, detailsOpen: false }));
-                    this.renderSavingsChart();
-                })
-                .catch(err => console.error('Failed to load GCP waste report:', err))
-                .finally(() => {
-                    this.isLoading = false;
-                    this.isRefreshing = false;
-                });
-        },
-        get groupedResources() {
-            if (!this.wasteItems) return [];
-            const groups = this.wasteItems.reduce((acc, res) => {
-                const key = res.type || 'Other';
-                if (!acc[key]) {
-                    acc[key] = { type: key, resources: [], open: true, totalSavings: 0 };
-                }
-                acc[key].resources.push(res);
-                acc[key].totalSavings += res.monthlySavings;
-                return acc;
-            }, {});
-            return Object.values(groups).sort((a, b) => b.totalSavings - a.totalSavings);
-        },
-        formatCurrency(value) {
-            return (value || 0).toLocaleString('en-IN', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 });
-        },
-        getServiceIcon(serviceType) {
-            const iconMap = {
-                'Unused IP Address': 'gcp-icon.png',
-                'Idle Cloud SQL Instance': 'gcp-cloud-sql.png',
-                'Unattached Persistent Disk': 'gcp-compute-engine.png',
-                'Idle Load Balancer': 'gcp-load-balancer.png',
-                'Idle Cloud Function': 'gcp-cloud-functions.png',
-                'Unused Secret': 'gcp-secret-manager.png',
-                'Unused Artifact Repository': 'gcp-artifact-registry.png',
-                'Idle NAT Router': 'gcp-nat.png',
-                'Unused Cloud Build Trigger': 'gcp-cloud-build.png',
-                'Unattached Cloud Armor Policy': 'gcp-cloud-armor.png'
-            };
-            return iconMap[serviceType] || 'default-icon.png';
-        },
-        renderSavingsChart() {
-            const savingsByCategory = this.wasteItems.reduce((acc, resource) => {
-                acc[resource.type] = (acc[resource.type] || 0) + resource.monthlySavings;
-                return acc;
-            }, {});
+    function gcpWaste() {
+        return {
+            isLoading: true,
+            isRefreshing: false,
+            accountId: '',
+            wasteItems: [],
+            savingsChart: null,
 
-            const labels = Object.keys(savingsByCategory);
-            const data = Object.values(savingsByCategory);
+            get totalSavings() {
+                if (!this.wasteItems || !Array.isArray(this.wasteItems)) return 0;
+                return this.wasteItems.reduce((sum, item) => sum + (item.monthlySavings || 0), 0);
+            },
 
-            const ctx = document.getElementById('savingsChart');
-            if (!ctx) return;
-            if (this.savingsChart) this.savingsChart.destroy();
-            
-            this.savingsChart = new Chart(ctx, {
-                type: 'doughnut',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        data: data,
-                        backgroundColor: ['#EA4335', '#FBBC05', '#34A853', '#4285F4', '#9333ea', '#ec4899'],
-                        borderWidth: 0,
-                        hoverOffset: 6
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } }
+            init() {
+                console.log('Initializing GCP Waste Management...');
+
+                // Load from cache first
+                this.loadFromCache();
+
+                // Get account ID
+                const urlParams = new URLSearchParams(window.location.search);
+                const accountIdsParam = urlParams.get('accountIds');
+                if (accountIdsParam) {
+                    this.accountId = accountIdsParam.split(',')[0];
+                } else {
+                    try {
+                        const storedIds = sessionStorage.getItem('selectedAccountIds');
+                        if (storedIds) {
+                            this.accountId = JSON.parse(storedIds)[0] || 'xamops';
+                        } else {
+                            this.accountId = 'xamops';
+                        }
+                    } catch (e) {
+                        this.accountId = 'xamops';
                     }
                 }
-            });
+
+                console.log('Account ID:', this.accountId);
+
+                // Fetch fresh data
+                this.fetchWasteReport(false);
+            },
+
+            loadFromCache() {
+                try {
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const accountId = (urlParams.get('accountIds') || 'xamops').split(',')[0];
+
+                    const cached = localStorage.getItem(`waste_report_${accountId}`);
+                    if (cached) {
+                        this.wasteItems = JSON.parse(cached);
+                        this.$nextTick(() => this.renderSavingsChart());
+                        console.log('Loaded waste report from cache:', this.wasteItems.length, 'items');
+                    }
+                } catch (err) {
+                    console.error('Failed to load from cache:', err);
+                }
+            },
+
+            fetchWasteReport(forceRefresh = false) {
+                if (!this.accountId) {
+                    console.error("No accountId found. Cannot fetch waste report.");
+                    this.isLoading = false;
+                    return;
+                }
+
+                // On force refresh, always fetch from API
+                if (forceRefresh) {
+                    this.isRefreshing = true;
+                    this.isLoading = true;
+
+                    // Clear cache
+                    localStorage.removeItem(`waste_report_${this.accountId}`);
+                    localStorage.removeItem(`waste_report_${this.accountId}_expiry`);
+
+                    console.log('Force refresh - clearing cache');
+                } else {
+                    // Check cache expiry
+                    const cacheExpiry = localStorage.getItem(`waste_report_${this.accountId}_expiry`);
+                    const isCacheExpired = !cacheExpiry || Date.now() > parseInt(cacheExpiry);
+
+                    // If cache is valid, skip API call
+                    if (!isCacheExpired && localStorage.getItem(`waste_report_${this.accountId}`)) {
+                        console.log('Using cached data');
+                        this.isLoading = false;
+                        return;
+                    }
+
+                    this.isLoading = true;
+                }
+
+                console.log(`Fetching waste report for account: ${this.accountId}, forceRefresh: ${forceRefresh}`);
+
+                fetch(`/api/xamops/gcp/optimization/waste-report?accountId=${this.accountId}`)
+                    .then(res => {
+                        console.log('API Response status:', res.status);
+                        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                        return res.json();
+                    })
+                    .then(data => {
+                        console.log('Waste report received:', data);
+                        this.wasteItems = Array.isArray(data) ? data.map(item => ({
+                            ...item,
+                            detailsOpen: false
+                        })) : [];
+
+                        // Cache the data
+                        localStorage.setItem(`waste_report_${this.accountId}`, JSON.stringify(this.wasteItems));
+
+                        // Set expiry (24 hours)
+                        const expiry = Date.now() + (24 * 60 * 60 * 1000);
+                        localStorage.setItem(`waste_report_${this.accountId}_expiry`, expiry.toString());
+
+                        this.$nextTick(() => this.renderSavingsChart());
+                    })
+                    .catch(err => {
+                        console.error('Failed to load GCP waste report:', err);
+                        this.wasteItems = [];
+                    })
+                    .finally(() => {
+                        this.isLoading = false;
+                        this.isRefreshing = false;
+                        console.log('Fetch complete');
+                    });
+            },
+
+            get groupedResources() {
+                if (!this.wasteItems || !Array.isArray(this.wasteItems)) return [];
+
+                const groups = this.wasteItems.reduce((acc, res) => {
+                    const key = res.type || 'Other';
+                    if (!acc[key]) {
+                        acc[key] = { type: key, resources: [], open: true, totalSavings: 0 };
+                    }
+                    acc[key].resources.push(res);
+                    acc[key].totalSavings += (res.monthlySavings || 0);
+                    return acc;
+                }, {});
+
+                return Object.values(groups).sort((a, b) => b.totalSavings - a.totalSavings);
+            },
+
+            formatCurrency(value) {
+                if (value === null || value === undefined || isNaN(value)) return '₹0.00';
+                return new Intl.NumberFormat('en-IN', {
+                    style: 'currency',
+                    currency: 'INR',
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                }).format(value);
+            },
+
+            renderSavingsChart() {
+                if (!this.wasteItems || this.wasteItems.length === 0) return;
+
+                const savingsByCategory = this.wasteItems.reduce((acc, resource) => {
+                    const type = resource.type || 'Other';
+                    acc[type] = (acc[type] || 0) + (resource.monthlySavings || 0);
+                    return acc;
+                }, {});
+
+                const labels = Object.keys(savingsByCategory);
+                const data = Object.values(savingsByCategory);
+
+                const ctx = document.getElementById('savingsChart');
+                if (!ctx) {
+                    console.warn('Chart canvas not found');
+                    return;
+                }
+
+                if (this.savingsChart) {
+                    this.savingsChart.destroy();
+                }
+
+                this.savingsChart = new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            data: data,
+                            backgroundColor: ['#EA4335', '#FBBC05', '#34A853', '#4285F4', '#9333ea', '#ec4899'],
+                            borderWidth: 0,
+                            hoverOffset: 6
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: {
+                                    boxWidth: 12,
+                                    font: { size: 11 }
+                                }
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        const label = context.label || '';
+                                        const value = context.parsed || 0;
+                                        return label + ': ' + new Intl.NumberFormat('en-IN', {
+                                            style: 'currency',
+                                            currency: 'INR'
+                                        }).format(value);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+
+                console.log('Chart rendered with', labels.length, 'categories');
+            }
         }
     }
-}
 </script>
 </body>
 </html>
