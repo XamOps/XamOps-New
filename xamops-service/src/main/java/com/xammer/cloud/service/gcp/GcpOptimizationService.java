@@ -107,13 +107,26 @@ public class GcpOptimizationService {
     @Cacheable(value = "gcpRightsizingRecommendations", key = "'gcp:rightsizing-recommendations:' + #gcpProjectId")
     public List<GcpOptimizationRecommendation> getRightsizingRecommendations(String gcpProjectId) {
         log.info("Fetching rightsizing recommendations for GCP project: {}", gcpProjectId);
+
         List<DashboardData.RegionStatus> regions = gcpDataService.getRegionStatusForGcp(new ArrayList<>()).join();
         List<String> locations = regions.stream()
                 .map(DashboardData.RegionStatus::getRegionId)
                 .collect(Collectors.toList());
+
+        if (locations.isEmpty()) {
+            log.warn("No active regions found, using default GCP regions");
+            locations = new ArrayList<>(Arrays.asList(
+                    "us-central1", "us-east1", "us-west1", "us-east4",
+                    "europe-west1", "europe-west2", "europe-west3",
+                    "asia-southeast1", "asia-east1", "asia-northeast1"
+            ));
+        }
+
         locations.add("global");
 
         List<CompletableFuture<List<GcpOptimizationRecommendation>>> futures = new ArrayList<>();
+
+        // Compute Engine rightsizing
         futures.add(getRecommendationsForRecommender(
                 gcpProjectId,
                 "google.compute.instance.MachineTypeRecommender",
@@ -127,6 +140,7 @@ public class GcpOptimizationService {
                 this::mapToRightsizingDto,
                 true));
 
+        // Cloud SQL rightsizing - Query both overprovisioned and underprovisioned recommenders
         for (String location : locations) {
             if (!location.equals("global")) {
                 futures.add(getRecommendationsForRecommender(
@@ -135,14 +149,56 @@ public class GcpOptimizationService {
                         location,
                         this::mapToSqlRightsizingDto,
                         true));
+                futures.add(getRecommendationsForRecommender(
+                        gcpProjectId,
+                        "google.cloudsql.instance.UnderprovisionedRecommender",
+                        location,
+                        this::mapToSqlRightsizingDto,
+                        true));
             }
         }
 
         CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-        return futures.stream()
+
+        List<GcpOptimizationRecommendation> results = futures.stream()
                 .map(CompletableFuture::join)
                 .flatMap(List::stream)
                 .collect(Collectors.toList());
+
+        // Enhance Cloud SQL recommendations with instance details
+        Optional<SQLAdmin> clientOpt = gcpClientProvider.getSqlAdminClient(gcpProjectId);
+        if (clientOpt.isPresent()) {
+            for (GcpOptimizationRecommendation dto : results) {
+                if ("Cloud SQL".equals(dto.getService())) {
+                    try {
+                        DatabaseInstance instance = clientOpt.get().instances().get(gcpProjectId, dto.getResourceName()).execute();
+                        String currentTier = instance.getSettings().getTier();
+                        String currentDetails = currentTier;
+                        if (currentTier.startsWith("db-custom-")) {
+                            String[] parts = currentTier.split("-");
+                            if (parts.length == 4) {
+                                String vcpus = parts[2];
+                                double memoryGb = Integer.parseInt(parts[3]) / 1024.0;
+                                currentDetails += " (" + vcpus + " vCPU, " + memoryGb + " GB)";
+                            }
+                        } else {
+                            // For shared instances like db-f1-micro, add approximate specs
+                            if ("db-f1-micro".equals(currentTier)) {
+                                currentDetails += " (shared vCPU, 0.6 GB)";
+                            } // Add more if needed
+                        }
+                        dto.setCurrentMachineType(currentDetails);
+                    } catch (Exception e) {
+                        log.error("Failed to fetch Cloud SQL instance details for {} in project {}: {}", dto.getResourceName(), gcpProjectId, e.getMessage());
+                    }
+                }
+            }
+        } else {
+            log.warn("SQLAdmin client not available for project {}. Skipping instance details enhancement.", gcpProjectId);
+        }
+
+        log.info("Total rightsizing recommendations found: {}", results.size());
+        return results;
     }
 
     @Cacheable(value = "gcpWasteReport", key = "'gcp:waste-report:' + #gcpProjectId")
@@ -164,6 +220,8 @@ public class GcpOptimizationService {
                 .map(CompletableFuture::join)
                 .flatMap(List::stream)
                 .collect(Collectors.toList());
+
+
     }
 
     @Cacheable(value = "gcpSavingsSummary", key = "'gcp:savings-summary:' + #gcpProjectId")
@@ -193,11 +251,6 @@ public class GcpOptimizationService {
         return new DashboardData.OptimizationSummary(totalSavings, criticalAlerts);
     }
 
-    /**
-     * Fetches CUD recommendations from both billing account and project scope
-     * Tries billing account first, then falls back to project-level recommendations
-     */
-    @Cacheable(value = "gcpCudRecommendations", key = "'gcp:cud-recommendations:' + #gcpProjectId")
     public CompletableFuture<List<GcpOptimizationRecommendation>> getCudRecommendations(String gcpProjectId) {
         log.info("Fetching CUD recommendations for GCP project: {}", gcpProjectId);
 
@@ -209,16 +262,13 @@ public class GcpOptimizationService {
             return getProjectLevelCudRecommendations(gcpProjectId);
         }
 
-        // Get project number for more specific queries
         String projectNumber = getProjectNumber(gcpProjectId);
         log.info("Project number for {}: {}", gcpProjectId, projectNumber);
 
-        // Check multiple locations for CUD recommendations
         List<String> locations = Arrays.asList("global", "us-east1", "us-central1", "us-west1", "europe-west1", "asia-southeast1");
 
         List<CompletableFuture<List<GcpOptimizationRecommendation>>> futures = new ArrayList<>();
 
-        // Add billing account level queries
         for (String location : locations) {
             futures.add(getRecommendationsForRecommender(
                     billingAccountId,
@@ -228,7 +278,6 @@ public class GcpOptimizationService {
                     false));
         }
 
-        // Also try project-level CUD recommendations
         futures.add(getProjectLevelCudRecommendations(gcpProjectId));
 
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
@@ -251,9 +300,11 @@ public class GcpOptimizationService {
                 });
     }
 
-    /**
-     * Get project-level CUD recommendations
-     */
+    public List<GcpOptimizationRecommendation> getCudRecommendationsSync(String gcpProjectId) {
+        log.info("Fetching CUD recommendations synchronously for GCP project: {}", gcpProjectId);
+        return getCudRecommendations(gcpProjectId).join();
+    }
+
     private CompletableFuture<List<GcpOptimizationRecommendation>> getProjectLevelCudRecommendations(String gcpProjectId) {
         List<String> locations = Arrays.asList("global", "us-east1", "us-central1", "us-west1", "europe-west1");
 
@@ -273,9 +324,6 @@ public class GcpOptimizationService {
                         .collect(Collectors.toList()));
     }
 
-    /**
-     * Get project number from project ID
-     */
     private String getProjectNumber(String gcpProjectId) {
         try {
             Optional<ProjectsClient> clientOpt = gcpClientProvider.getProjectsClient(gcpProjectId);
@@ -283,7 +331,6 @@ public class GcpOptimizationService {
                 try (ProjectsClient client = clientOpt.get()) {
                     Project project = client.getProject("projects/" + gcpProjectId);
                     String projectName = project.getName();
-                    // Extract number from "projects/437415120321"
                     if (projectName.contains("/")) {
                         return projectName.split("/")[1];
                     }
@@ -296,9 +343,6 @@ public class GcpOptimizationService {
         return null;
     }
 
-    /**
-     * Generic method to fetch recommendations - supports both project and billing account scope
-     */
     private <T> CompletableFuture<List<T>> getRecommendationsForRecommender(
             String identifier,
             String recommenderId,
@@ -340,10 +384,9 @@ public class GcpOptimizationService {
 
                 log.info("Raw recommendations count: {} for parent: {}", recommendations.size(), parent);
 
-                // Log first recommendation if exists for debugging
                 if (!recommendations.isEmpty()) {
                     Recommendation firstRec = recommendations.get(0);
-                    log.info("Sample CUD recommendation - Name: {}, Description: {}, State: {}",
+                    log.info("Sample recommendation - Name: {}, Description: {}, State: {}",
                             firstRec.getName(),
                             firstRec.getDescription(),
                             firstRec.getStateInfo().getState());
@@ -559,21 +602,60 @@ public class GcpOptimizationService {
     }
 
     private GcpOptimizationRecommendation mapToSqlRightsizingDto(Recommendation rec) {
+        String description = rec.getDescription().toLowerCase();
+
+        // Parse resource name from description (e.g., "Instance: basic-mysql ...")
         String resourceName = "N/A";
-        if (rec.getContent().getOverview().getFieldsMap().containsKey("resource")) {
-            resourceName = rec.getContent().getOverview().getFieldsMap().get("resource").getStringValue();
-            resourceName = resourceName.substring(resourceName.lastIndexOf('/') + 1);
+        if (description.contains("instance: ")) {
+            int start = description.indexOf("instance: ") + "instance: ".length();
+            int end = description.indexOf(" ", start);
+            if (end == -1) end = description.length();
+            resourceName = description.substring(start, end).replaceAll("[^a-zA-Z0-9-]", "");
+        } else if (rec.getContent().getOverview().getFieldsMap().containsKey("resourceName")) {
+            resourceName = rec.getContent().getOverview().getFieldsMap().get("resourceName").getStringValue();
+        } else if (rec.getContent().getOverview().getFieldsMap().containsKey("resource")) {
+            resourceName = rec.getContent().getOverview().getFieldsMap().get("resource").getStringValue()
+                    .substring(rec.getContent().getOverview().getFieldsMap().get("resource").getStringValue().lastIndexOf('/') + 1);
         }
 
+        // Parse current/recommended from description (e.g., "1 (+0) vCPUs and 3.75 (+3.15) GB memory")
+        String currentState = "Underprovisioned";
+        String recommendation = "Increase Resources";
+        if (description.contains("overprovisioned") || description.contains("reduce") || description.contains("decrease")) {
+            currentState = "Overprovisioned";
+            recommendation = "Reduce Resources";
+        } else if (!description.contains("high") && !description.contains("underprovisioned")) {
+            currentState = "Needs Adjustment";
+            recommendation = "Resize Instance";
+        }
+
+        // Extract detailed vCPU/memory changes if present
+        String vcpuMatch = "N/A";
+        String memoryMatch = "N/A";
+        int vcpuStart = description.indexOf("vCPUs and");
+        if (vcpuStart != -1) {
+            vcpuMatch = description.substring(description.indexOf(": ") + 2, vcpuStart).trim() + " vCPUs";
+            memoryMatch = description.substring(vcpuStart + "vCPUs and ".length(), description.indexOf("memory.")).trim() + " GB memory";
+        }
+        if (!vcpuMatch.equals("N/A")) {
+            recommendation += " to " + vcpuMatch + ", " + memoryMatch;
+        }
+
+        // Cost: For underprovisioned, if positive (cost increase), set savings to 0; else abs for savings
         double monthlySavings = 0;
         if (rec.getPrimaryImpact().hasCostProjection()) {
-            monthlySavings = rec.getPrimaryImpact().getCostProjection().getCost().getNanos() / -1_000_000_000.0;
+            double costNanos = rec.getPrimaryImpact().getCostProjection().getCost().getNanos();
+            double costUnits = rec.getPrimaryImpact().getCostProjection().getCost().getUnits();
+            double totalCost = costUnits + (costNanos / 1_000_000_000.0);
+            if (totalCost < 0) {
+                monthlySavings = Math.abs(totalCost);  // Savings from overprovisioned
+            }  // Else 0 for underprovisioned (cost increase)
         }
 
         return new GcpOptimizationRecommendation(
                 resourceName,
-                "Overprovisioned",
-                "Smaller Tier",
+                currentState,
+                recommendation,
                 monthlySavings,
                 "Cloud SQL");
     }
@@ -590,7 +672,6 @@ public class GcpOptimizationService {
                     .getNanos() / -1_000_000_000.0);
         }
 
-        // Extract commitment details from description
         String commitmentType = "N/A";
         String recommendedAction = description != null ? description : "Purchase CUD";
 
@@ -601,7 +682,6 @@ public class GcpOptimizationService {
                 commitmentType = "1-year General-purpose E2";
             }
 
-            // Extract memory size if available
             if (description.contains("Memory for")) {
                 int memStart = description.indexOf("Memory for");
                 if (memStart != -1) {

@@ -26,18 +26,19 @@ public class GcpReservationController {
 
     /**
      * Get CUD recommendations for a GCP project
-     * Resolves the CompletableFuture synchronously to avoid caching issues
+     * No backend caching - frontend handles caching via localStorage
      */
     @GetMapping("/cuds")
     public ResponseEntity<List<GcpOptimizationRecommendation>> getGcpCuds(@RequestParam String accountId) {
         try {
             log.info("Fetching CUD recommendations for account: {}", accountId);
 
-            // Call .join() to resolve the CompletableFuture synchronously
+            // Use synchronous method - no caching on backend
             List<GcpOptimizationRecommendation> recommendations =
-                    gcpOptimizationService.getCudRecommendations(accountId).join();
+                    gcpOptimizationService.getCudRecommendationsSync(accountId);
 
-            log.info("Returning {} CUD recommendations for account: {}", recommendations.size(), accountId);
+            log.info("Returning {} CUD recommendations for account: {}",
+                    recommendations.size(), accountId);
             return ResponseEntity.ok(recommendations);
 
         } catch (Exception ex) {
@@ -62,7 +63,8 @@ public class GcpReservationController {
             return ResponseEntity.ok(utilization);
 
         } catch (Exception ex) {
-            log.error("Failed to fetch CUD utilization for account: {}, cudId: {}", accountId, cudId, ex);
+            log.error("Failed to fetch CUD utilization for account: {}, cudId: {}",
+                    accountId, cudId, ex);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }

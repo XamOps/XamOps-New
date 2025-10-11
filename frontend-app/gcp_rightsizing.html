@@ -59,7 +59,7 @@
         .kpi-card:hover::before {
             transform: scaleX(1);
         }
-        
+
         .kpi-card:hover {
             transform: translateY(-4px) scale(1.02);
             box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
@@ -92,19 +92,28 @@
             overflow: hidden;
         }
 
-        .btn-primary:hover {
+        .btn-primary:hover:not(:disabled) {
             transform: translateY(-2px);
             box-shadow: 0 10px 15px -3px rgba(66, 133, 244, 0.4);
         }
 
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
         .filter-button {
             transition: all 0.3s ease;
+            background: white;
+            border: 1px solid #e5e7eb;
+            color: #6b7280;
         }
 
         .filter-button.active {
             background: var(--primary-gradient);
             color: white;
             box-shadow: 0 4px 6px -1px rgba(66, 133, 244, 0.4);
+            border-color: transparent;
         }
 
         .form-input {
@@ -124,11 +133,15 @@
             background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
         }
 
+        .table-enhanced tr {
+            transition: all 0.2s ease;
+        }
+
         .table-enhanced tr:hover {
             background: rgba(66, 133, 244, 0.05);
             transform: translateX(2px);
         }
-        
+
         .first-cell-indicator {
             position: relative;
         }
@@ -159,20 +172,9 @@
             background: var(--success-gradient);
             color: white;
             box-shadow: 0 2px 4px rgba(52, 168, 83, 0.3);
-        }
-
-        .loading-spinner {
-            border: 3px solid #f3f4f6;
-            border-top: 3px solid #4285F4;
-            border-radius: 50%;
-            width: 20px;
-            height: 20px;
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            border-radius: 9999px;
+            padding: 0.25rem 0.75rem;
+            font-weight: 600;
         }
 
         .fade-in {
@@ -195,9 +197,9 @@
 <body class="bg-gray-50">
 
 <div class="flex">
-       <aside class="fixed top-0 left-0 h-screen w-64 bg-white border-r border-gray-200">
-            <div data-include-sidebar></div>
-        </aside>
+    <aside class="fixed top-0 left-0 h-screen w-64 bg-white border-r border-gray-200">
+        <div data-include-sidebar></div>
+    </aside>
 
     <div class="ml-64 flex-1">
         <main class="flex-1 flex flex-col min-h-screen" x-data="gcpRightsizing()">
@@ -220,25 +222,32 @@
             </header>
 
             <div class="flex-1 p-8 space-y-8">
+                <!-- KPI Cards -->
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div x-show="isLoading" x-cloak class="skeleton h-36 rounded-2xl"></div>
-                    <div x-show="isLoading" x-cloak class="skeleton h-36 rounded-2xl"></div>
-                    <div x-show="isLoading" x-cloak class="skeleton h-36 rounded-2xl"></div>
+                    <!-- Loading Skeletons -->
+                    <template x-if="isLoading">
+                        <div class="skeleton h-36 rounded-2xl"></div>
+                    </template>
+                    <template x-if="isLoading">
+                        <div class="skeleton h-36 rounded-2xl"></div>
+                    </template>
+                    <template x-if="isLoading">
+                        <div class="skeleton h-36 rounded-2xl"></div>
+                    </template>
 
-                    <div x-show="!isLoading" class="kpi-card rounded-2xl p-6 fade-in">
-                        <div class="flex justify-between items-start mb-4">
-                            <div class="flex-1">
-                                <h3 class="text-gray-600 text-sm font-medium mb-2">Potential Savings</h3>
-                                <p class="text-4xl font-bold gradient-text mb-1" x-text="'$' + potentialSavings.toFixed(2)"></p>
-                                <p class="text-xs text-gray-500">per month</p>
-                            </div>
-                            <div class="w-14 h-14 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center">
-                                <i class="fas fa-piggy-bank text-white text-xl"></i>
-                            </div>
+                    <!-- Actual Cards -->
+                    <div x-show="!isLoading" class="kpi-card rounded-2xl p-6 fade-in flex items-center justify-between">
+                        <div class="flex-1">
+                            <h3 class="text-gray-600 text-sm font-medium mb-2">Potential Savings</h3>
+                            <p class="text-4xl font-bold gradient-text mb-1" x-text="formatCurrency(potentialSavings)"></p>
+                            <p class="text-xs text-gray-500">per month</p>
+                        </div>
+                        <div class="w-14 h-14 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center">
+                            <i class="fas fa-piggy-bank text-white text-xl"></i>
                         </div>
                     </div>
 
-                    <div x-show="!isLoading" class="kpi-card rounded-2xl p-6 fade-in">
+                    <div x-show="!isLoading" class="kpi-card rounded-2xl p-6 fade-in flex items-center justify-between">
                         <div class="flex-1">
                             <h3 class="text-gray-600 text-sm font-medium mb-2">Recommendations</h3>
                             <p class="text-4xl font-bold text-blue-600 mb-1" x-text="recommendationCount"></p>
@@ -249,10 +258,10 @@
                         </div>
                     </div>
 
-                    <div x-show="!isLoading" class="kpi-card rounded-2xl p-6 fade-in">
+                    <div x-show="!isLoading" class="kpi-card rounded-2xl p-6 fade-in flex items-center justify-between">
                         <div class="flex-1">
                             <h3 class="text-gray-600 text-sm font-medium mb-2">Top Service</h3>
-                            <p class="text-4xl font-bold text-purple-600 mb-1" x-text="topService"></p>
+                            <p class="text-2xl font-bold text-purple-600 mb-1" x-text="topService"></p>
                             <p class="text-xs text-gray-500">needs optimization</p>
                         </div>
                         <div class="w-14 h-14 bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl flex items-center justify-center">
@@ -261,6 +270,7 @@
                     </div>
                 </div>
 
+                <!-- Recommendations Table -->
                 <div class="glass-card rounded-2xl p-8 fade-in">
                     <div class="flex items-center justify-between mb-8">
                         <div class="flex items-center space-x-4">
@@ -274,6 +284,7 @@
                         </div>
                     </div>
 
+                    <!-- Filters -->
                     <div class="flex flex-wrap justify-between items-center gap-6 mb-8">
                         <div class="flex items-center space-x-4 bg-white/70 backdrop-blur-sm rounded-xl p-4 border border-gray-200/50">
                             <div class="flex items-center space-x-2">
@@ -283,10 +294,10 @@
                             <div class="flex space-x-2">
                                 <template x-for="service in services" :key="service">
                                     <button
-                                        @click="filter = service"
-                                        :class="filter === service ? 'active' : ''"
-                                        class="filter-button px-4 py-2 text-sm rounded-xl font-semibold transition-all"
-                                        x-text="service">
+                                            @click="filter = service"
+                                            :class="filter === service ? 'active' : ''"
+                                            class="filter-button px-4 py-2 text-sm rounded-xl font-semibold"
+                                            x-text="service">
                                     </button>
                                 </template>
                             </div>
@@ -295,15 +306,17 @@
                         <div class="relative w-full sm:w-1/3">
                             <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"></i>
                             <input
-                                type="text"
-                                x-model="searchTerm"
-                                placeholder="Search by resource name..."
-                                class="form-input w-full pl-12 pr-4 py-3 text-sm rounded-xl border-gray-300 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200">
+                                    type="text"
+                                    x-model="searchTerm"
+                                    placeholder="Search by resource name..."
+                                    class="form-input w-full pl-12 pr-4 py-3 text-sm rounded-xl border-gray-300 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200">
                         </div>
                     </div>
 
+                    <!-- Loading State -->
                     <div x-show="isLoading" x-cloak class="skeleton h-96 rounded-2xl"></div>
 
+                    <!-- Empty State -->
                     <div x-show="!isLoading && filteredRecommendations.length === 0" x-cloak class="empty-state text-center py-20 px-8 rounded-2xl">
                         <div class="w-20 h-20 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6">
                             <i class="fas fa-check-circle text-white text-3xl"></i>
@@ -315,48 +328,49 @@
                         </button>
                     </div>
 
+                    <!-- Data Table -->
                     <div x-show="!isLoading && filteredRecommendations.length > 0" x-cloak class="table-enhanced">
                         <table class="w-full text-sm">
-                            <thead class="text-xs text-gray-700 uppercase bg-gradient-to-r from-gray-50 to-gray-100">
-                                <tr>
-                                    <th class="px-6 py-4 text-left font-bold">Resource Name</th>
-                                    <th class="px-6 py-4 text-left font-bold">Service</th>
-                                    <th class="px-6 py-4 text-left font-bold">Machine Type Comparison</th>
-                                    <th class="px-6 py-4 text-left font-bold">Savings</th>
-                                </tr>
+                            <thead class="text-xs text-gray-700 uppercase">
+                            <tr>
+                                <th class="px-6 py-4 text-left font-bold">Resource Name</th>
+                                <th class="px-6 py-4 text-left font-bold">Service</th>
+                                <th class="px-6 py-4 text-left font-bold">Machine Type Comparison</th>
+                                <th class="px-6 py-4 text-left font-bold">Savings</th>
+                            </tr>
                             </thead>
                             <tbody class="divide-y divide-gray-200">
-                                <template x-for="rec in filteredRecommendations" :key="rec.resourceName">
-                                    <tr class="hover:bg-gray-50 transition-all">
-                                        <td class="px-6 py-4 first-cell-indicator">
-                                            <div class="flex items-center space-x-3">
-                                                <div class="w-8 h-8 rounded-lg flex-shrink-0">
-                                                    <img :src="'/icons/' + getServiceIcon(rec.service)" :alt="rec.service" class="w-full h-full rounded-lg object-cover">
-                                                </div>
-                                                <span class="font-mono text-gray-800 font-medium" x-text="rec.resourceName"></span>
+                            <template x-for="rec in filteredRecommendations" :key="rec.resourceName">
+                                <tr>
+                                    <td class="px-6 py-4 first-cell-indicator">
+                                        <div class="flex items-center space-x-3">
+                                            <div class="w-8 h-8 bg-blue-50 rounded-lg flex-shrink-0 flex items-center justify-center">
+                                                <i class="fas fa-server text-blue-500 text-sm"></i>
                                             </div>
-                                        </td>
-                                        <td class="px-6 py-4">
-                                            <span class="text-gray-600 font-medium" x-text="rec.service"></span>
-                                        </td>
-                                        <td class="px-6 py-4">
-                                            <div class="flex items-center justify-between space-x-4">
-                                                <div class="text-center">
-                                                    <p class="font-bold text-red-600" x-text="rec.currentMachineType"></p>
-                                                    <p class="text-xs text-gray-500">Current</p>
-                                                </div>
-                                                <i class="fas fa-arrow-right text-gray-400"></i>
-                                                <div class="text-center">
-                                                    <p class="font-bold text-green-600" x-text="rec.recommendedMachineType"></p>
-                                                    <p class="text-xs text-gray-500">Recommended</p>
-                                                </div>
+                                            <span class="font-mono text-gray-800 font-medium" x-text="rec.resourceName"></span>
+                                        </div>
+                                    </td>
+                                    <td class="px-6 py-4">
+                                        <span class="text-gray-600 font-medium" x-text="rec.serviceType || 'N/A'"></span>
+                                    </td>
+                                    <td class="px-6 py-4">
+                                        <div class="flex items-center justify-between space-x-4 max-w-md">
+                                            <div class="text-center flex-1">
+                                                <p class="font-bold text-red-600 text-xs" x-text="rec.currentMachineType"></p>
+                                                <p class="text-xs text-gray-500">Current</p>
                                             </div>
-                                        </td>
-                                        <td class="px-6 py-4">
-                                            <span class="savings-badge px-3 py-1 text-xs" x-text="'$' + rec.monthlySavings.toFixed(2) + ' / mo'"></span>
-                                        </td>
-                                    </tr>
-                                </template>
+                                            <i class="fas fa-arrow-right text-gray-400"></i>
+                                            <div class="text-center flex-1">
+                                                <p class="font-bold text-green-600 text-xs" x-text="rec.recommendedMachineType"></p>
+                                                <p class="text-xs text-gray-500">Recommended</p>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td class="px-6 py-4">
+                                        <span class="savings-badge" x-text="formatCurrency(rec.monthlySavings) + ' / mo'"></span>
+                                    </td>
+                                </tr>
+                            </template>
                             </tbody>
                         </table>
                     </div>
@@ -367,100 +381,136 @@
 </div>
 
 <script>
-function gcpRightsizing() {
-    return {
-        isLoading: true,
-        isRefreshing: false,
-        recommendations: [],
-        filter: 'All',
-        searchTerm: '',
-        services: ['All', 'Compute Engine', 'Cloud SQL', 'BigQuery', 'Cloud Storage', 'GKE', 'Cloud Function'],
+    function gcpRightsizing() {
+        return {
+            isLoading: true,
+            isRefreshing: false,
+            recommendations: [],
+            filter: 'All',
+            searchTerm: '',
+            services: ['All', 'Compute Engine', 'Cloud SQL', 'Commitment'],
 
-        init() {
-            this.loadRecommendations(false);
-        },
+            init() {
+                console.log('Initializing GCP Rightsizing page...');
+                this.loadFromCache();
+                this.loadRecommendations(false);
+            },
 
-        loadRecommendations(forceRefresh = false) {
-            const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-            const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
-            if (!selectedAccountId) {
-                this.isLoading = false;
-                return;
-            }
-            
-            const cacheKey = `gcpRightsizingRecs-${selectedAccountId}`;
-            const cachedData = sessionStorage.getItem(cacheKey);
+            loadFromCache() {
+                try {
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const accountId = (urlParams.get('accountIds') || 'xamops').split(',')[0];
 
-            if (cachedData && !forceRefresh) {
-                this.recommendations = JSON.parse(cachedData);
-                this.isLoading = false;
-                return;
-            }
+                    const cached = localStorage.getItem(`rightsizing_recs_${accountId}`);
+                    if (cached) {
+                        this.recommendations = JSON.parse(cached);
+                        console.log('Loaded rightsizing recommendations from cache:', this.recommendations.length);
+                    }
+                } catch (err) {
+                    console.error('Failed to load from cache:', err);
+                }
+            },
 
-            if (!cachedData) {
-                this.isLoading = true;
-            }
+            loadRecommendations(forceRefresh = false) {
+                const urlParams = new URLSearchParams(window.location.search);
+                const accountIds = urlParams.get('accountIds') || 'xamops';
+                const accountId = accountIds.split(',')[0];
 
-            if (forceRefresh) {
-                this.isRefreshing = true;
-                sessionStorage.removeItem(cacheKey);
-            }
-            
-            fetch(`/api/xamops/gcp/rightsizing/recommendations?accountId=${selectedAccountId}`)
-                .then(res => res.json())
-                .then(data => {
-                    this.recommendations = data;
-                    sessionStorage.setItem(cacheKey, JSON.stringify(data));
-                })
-                .catch(err => {
-                    console.error('Failed to load GCP rightsizing recommendations:', err);
-                    this.recommendations = [];
-                })
-                .finally(() => {
+                if (!accountId) {
+                    console.error('No accountId found');
                     this.isLoading = false;
-                    this.isRefreshing = false;
+                    return;
+                }
+
+                // Force refresh logic
+                if (forceRefresh) {
+                    this.isRefreshing = true;
+                    this.isLoading = true;
+                    localStorage.removeItem(`rightsizing_recs_${accountId}`);
+                    localStorage.removeItem(`rightsizing_recs_${accountId}_expiry`);
+                    console.log('Force refresh - clearing cache');
+                } else {
+                    // Check cache expiry
+                    const cacheExpiry = localStorage.getItem(`rightsizing_recs_${accountId}_expiry`);
+                    const isCacheExpired = !cacheExpiry || Date.now() > parseInt(cacheExpiry);
+
+                    if (!isCacheExpired && localStorage.getItem(`rightsizing_recs_${accountId}`)) {
+                        console.log('Using cached data');
+                        this.isLoading = false;
+                        return;
+                    }
+
+                    this.isLoading = true;
+                }
+
+                console.log(`Fetching rightsizing recommendations for: ${accountId}, forceRefresh: ${forceRefresh}`);
+
+                fetch(`/api/xamops/gcp/optimization/rightsizing-recommendations?accountId=${accountId}`)
+                    .then(res => {
+                        console.log('API Response status:', res.status);
+                        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                        return res.json();
+                    })
+                    .then(data => {
+                        console.log('Rightsizing recommendations received:', data);
+                        this.recommendations = Array.isArray(data) ? data : [];
+
+                        // Cache the data
+                        localStorage.setItem(`rightsizing_recs_${accountId}`, JSON.stringify(this.recommendations));
+
+                        // Set expiry (24 hours)
+                        const expiry = Date.now() + (24 * 60 * 60 * 1000);
+                        localStorage.setItem(`rightsizing_recs_${accountId}_expiry`, expiry.toString());
+                    })
+                    .catch(err => {
+                        console.error('Failed to load GCP rightsizing recommendations:', err);
+                        this.recommendations = [];
+                    })
+                    .finally(() => {
+                        this.isLoading = false;
+                        this.isRefreshing = false;
+                        console.log('Fetch complete');
+                    });
+            },
+
+            get filteredRecommendations() {
+                const term = this.searchTerm.toLowerCase();
+                return this.recommendations.filter(rec => {
+                    const serviceMatch = this.filter === 'All' || (rec.serviceType && rec.serviceType === this.filter);
+                    const searchMatch = term === '' || (rec.resourceName && rec.resourceName.toLowerCase().includes(term));
+                    return serviceMatch && searchMatch;
                 });
-        },
+            },
 
-        get filteredRecommendations() {
-            const term = this.searchTerm.toLowerCase();
-            return this.recommendations.filter(rec => {
-                const serviceMatch = this.filter === 'All' || rec.service === this.filter;
-                const searchMatch = term === '' || (rec.resourceName && rec.resourceName.toLowerCase().includes(term));
-                return serviceMatch && searchMatch;
-            });
-        },
+            get potentialSavings() {
+                return this.filteredRecommendations.reduce((total, rec) => total + (rec.monthlySavings || 0), 0);
+            },
 
-        get potentialSavings() {
-            return this.filteredRecommendations.reduce((total, rec) => total + rec.monthlySavings, 0);
-        },
+            get recommendationCount() {
+                return this.filteredRecommendations.length;
+            },
 
-        get recommendationCount() {
-            return this.filteredRecommendations.length;
-        },
+            get topService() {
+                if (this.recommendationCount === 0) return 'N/A';
+                const counts = this.filteredRecommendations.reduce((acc, r) => {
+                    const service = r.serviceType || 'Other';
+                    acc[service] = (acc[service] || 0) + 1;
+                    return acc;
+                }, {});
+                return Object.keys(counts).reduce((a, b) => counts[a] > counts[b] ? a : b);
+            },
 
-        get topService() {
-            if (this.recommendationCount === 0) return 'N/A';
-            const counts = this.filteredRecommendations.reduce((acc, r) => {
-                acc[r.service] = (acc[r.service] || 0) + 1;
-                return acc;
-            }, {});
-            return Object.keys(counts).reduce((a, b) => counts[a] > counts[b] ? a : b);
-        },
-
-        getServiceIcon(serviceType) {
-            const iconMap = {
-                'Compute Engine': 'gcp-compute-engine.png',
-                'Cloud SQL': 'gcp-cloud-sql.png',
-                'BigQuery': 'gcp-bigquery.png',
-                'Cloud Storage': 'gcp-cloud-storage.png',
-                'GKE': 'gcp-gke.png',
-                'Cloud Function': 'gcp-cloud-functions.png'
-            };
-            return iconMap[serviceType] || 'gcp-icon.png';
+            formatCurrency(value) {
+                if (value === null || value === undefined || isNaN(value)) return '₹0.00';
+                return new Intl.NumberFormat('en-IN', {
+                    style: 'currency',
+                    currency: 'INR',
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                }).format(value);
+            }
         }
     }
-}
 </script>
 
 </body>

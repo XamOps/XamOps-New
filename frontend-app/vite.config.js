@@ -88,8 +88,8 @@ export default defineConfig({
                 'invoices': resolve(__dirname, 'billops/invoices.html'),
 
         // // GCP subdir files
-        // 'gcp_cloudlist': resolve(__dirname, 'gcp_cloudlist.html'),
-        // 'gcp_cloudmap': resolve(__dirname, 'gcp/cloudmap.html'),
+         'gcp_cloudlist': resolve(__dirname, 'gcp_cloudlist.html'),
+         'gcp_cloudmap': resolve(__dirname, 'gcp_cloudmap.html'),
         // 'gcp_cost': resolve(__dirname, 'gcp/cost.html'),
         // 'gcp_dashboard': resolve(__dirname, 'gcp/dashboard.html'),
         // 'gcp_finops': resolve(__dirname, 'gcp/finops.html'),
