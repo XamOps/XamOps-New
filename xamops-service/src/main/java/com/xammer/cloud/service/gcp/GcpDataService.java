@@ -1,15 +1,29 @@
 package com.xammer.cloud.service.gcp;
 
+import com.google.appengine.v1.Application;
+import com.google.appengine.v1.ApplicationsClient;
+import com.google.cloud.aiplatform.v1.EndpointServiceClient;
+import com.google.cloud.aiplatform.v1.ModelServiceClient;
+import com.google.cloud.bigquery.reservation.v1.ReservationServiceClient;
 import com.google.cloud.compute.v1.Router;
 import com.google.cloud.compute.v1.RoutersClient;
 import com.google.cloud.compute.v1.SecurityPolicy;
 import com.google.cloud.compute.v1.SecurityPoliciesClient;
+import com.google.cloud.dataplex.v1.DataplexServiceClient;
+import com.google.cloud.devtools.cloudbuild.v1.CloudBuildClient;
 import com.google.cloud.functions.v2.FunctionServiceClient;
 import com.google.cloud.kms.v1.CryptoKey;
 import com.google.cloud.kms.v1.KeyManagementServiceClient;
+import com.google.cloud.monitoring.v3.AlertPolicyServiceClient;
+import com.google.cloud.monitoring.v3.UptimeCheckServiceClient;
+import com.google.cloud.osconfig.v1.OsConfigServiceClient;
+import com.google.cloud.pubsub.v1.SubscriptionAdminClient;
+import com.google.cloud.pubsub.v1.TopicAdminClient;
+import com.google.cloud.scheduler.v1.CloudSchedulerClient;
 import com.google.cloud.secretmanager.v1.Secret;
 import com.google.cloud.secretmanager.v1.SecretManagerServiceClient;
 import com.google.cloud.storage.Storage;
+import com.google.devtools.artifactregistry.v1.ArtifactRegistryClient;
 import com.google.logging.v2.LogBucket;
 import com.xammer.cloud.domain.Client;
 import com.xammer.cloud.domain.CloudAccount;
@@ -264,8 +278,26 @@ public class GcpDataService {
         });
     }
 
+
     private double calculateForecastedSpend(double currentMtdSpend) {
-        return currentMtdSpend;
+        LocalDate now = LocalDate.now();
+        int currentDay = now.getDayOfMonth();
+        int totalDaysInMonth = now.lengthOfMonth();
+
+        // If we're at the end of the month, return current spend
+        if (currentDay >= totalDaysInMonth) {
+            log.info("✅ End of month reached - Forecast = MTD: ${}", currentMtdSpend);
+            return currentMtdSpend;
+        }
+
+        // Calculate daily average and project to end of month
+        double dailyAverage = currentMtdSpend / currentDay;
+        double forecastedSpend = dailyAverage * totalDaysInMonth;
+
+        log.info("✅ Forecast calculation - Day {}/{}: MTD=${}, Daily Avg=${}, Forecast=${}",
+                currentDay, totalDaysInMonth, currentMtdSpend, dailyAverage, forecastedSpend);
+
+        return forecastedSpend;
     }
 
     private GcpResourceDto mapInstanceToDto(com.google.cloud.compute.v1.Instance instance) {
@@ -469,10 +501,10 @@ public class GcpDataService {
                 CompletableFuture.supplyAsync(() -> getLoadBalancers(gcpProjectId), executor),
                 CompletableFuture.supplyAsync(() -> getFirewallRules(gcpProjectId), executor),
                 CompletableFuture.supplyAsync(() -> getCloudNatRouters(gcpProjectId), executor),
-                // CompletableFuture.supplyAsync(() -> getArtifactRepositories(gcpProjectId), executor),
+               // CompletableFuture.supplyAsync(() -> getArtifactRepositories(gcpProjectId), executor),
                 CompletableFuture.supplyAsync(() -> getKmsKeys(gcpProjectId), executor),
                 CompletableFuture.supplyAsync(() -> getCloudFunctions(gcpProjectId), executor),
-                // CompletableFuture.supplyAsync(() -> getCloudBuildTriggers(gcpProjectId), executor),
+               // CompletableFuture.supplyAsync(() -> getCloudBuildTriggers(gcpProjectId), executor),
                 CompletableFuture.supplyAsync(() -> getSecretManagerSecrets(gcpProjectId), executor),
                 CompletableFuture.supplyAsync(() -> getCloudArmorPolicies(gcpProjectId), executor),
                 CompletableFuture.supplyAsync(() -> getApiGateways(gcpProjectId), executor),
@@ -776,20 +808,20 @@ public class GcpDataService {
         }
     }
 
-    // private List<GcpResourceDto> getArtifactRepositories(String gcpProjectId) {
-    //     log.info("Fetching Artifact Registry repositories for project: {}", gcpProjectId);
-    //     Optional<ArtifactRegistryClient> clientOpt = gcpClientProvider.getArtifactRegistryClient(gcpProjectId);
-    //     if (clientOpt.isEmpty()) return List.of();
-    //     try (ArtifactRegistryClient client = clientOpt.get()) {
-    //         String parent = "projects/" + gcpProjectId + "/locations/-";
-    //         return StreamSupport.stream(client.listRepositories(parent).iterateAll().spliterator(), false)
-    //             .map(this::mapArtifactRepositoryToDto)
-    //             .collect(Collectors.toList());
-    //     } catch (Exception e) {
-    //         log.error("Error fetching Artifact Registry repositories for project: {}", gcpProjectId, e);
-    //         return List.of();
-    //     }
-    // }
+//     private List<GcpResourceDto> getArtifactRepositories(String gcpProjectId) {
+//         log.info("Fetching Artifact Registry repositories for project: {}", gcpProjectId);
+//         Optional<ArtifactRegistryClient> clientOpt = gcpClientProvider.getArtifactRegistryClient(gcpProjectId);
+//         if (clientOpt.isEmpty()) return List.of();
+//         try (ArtifactRegistryClient client = clientOpt.get()) {
+//             String parent = "projects/" + gcpProjectId + "/locations/-";
+//             return StreamSupport.stream(client.listRepositories(parent).iterateAll().spliterator(), false)
+//                 .map(this::mapArtifactRepositoryToDto)
+//                 .collect(Collectors.toList());
+//         } catch (Exception e) {
+//             log.error("Error fetching Artifact Registry repositories for project: {}", gcpProjectId, e);
+//             return List.of();
+//         }
+//     }
 
     private List<GcpResourceDto> getKmsKeys(String gcpProjectId) {
         log.info("Fetching KMS keys for project: {}", gcpProjectId);
@@ -831,19 +863,19 @@ public class GcpDataService {
         }
     }
 
-    // private List<GcpResourceDto> getCloudBuildTriggers(String gcpProjectId) {
-    //     log.info("Fetching Cloud Build triggers for project: {}", gcpProjectId);
-    //     Optional<CloudBuildClient> clientOpt = gcpClientProvider.getCloudBuildClient(gcpProjectId);
-    //     if (clientOpt.isEmpty()) return List.of();
-    //     try (CloudBuildClient client = clientOpt.get()) {
-    //         return client.listBuildTriggers(gcpProjectId).stream()
-    //             .map(this::mapCloudBuildTriggerToDto)
-    //             .collect(Collectors.toList());
-    //     } catch (Exception e) {
-    //         log.error("Error fetching Cloud Build triggers for project: {}", gcpProjectId, e);
-    //         return List.of();
-    //     }
-    // }
+//     private List<GcpResourceDto> getCloudBuildTriggers(String gcpProjectId) {
+//         log.info("Fetching Cloud Build triggers for project: {}", gcpProjectId);
+//         Optional<CloudBuildClient> clientOpt = gcpClientProvider.getCloudBuildClient(gcpProjectId);
+//         if (clientOpt.isEmpty()) return List.of();
+//         try (CloudBuildClient client = clientOpt.get()) {
+//             return client.listBuildTriggers(gcpProjectId).stream()
+//                 .map(this::mapCloudBuildTriggerToDto)
+//                 .collect(Collectors.toList());
+//         } catch (Exception e) {
+//             log.error("Error fetching Cloud Build triggers for project: {}", gcpProjectId, e);
+//             return List.of();
+//         }
+//     }
 
     private List<GcpResourceDto> getSecretManagerSecrets(String gcpProjectId) {
         log.info("Fetching secrets from Secret Manager for project: {}", gcpProjectId);
@@ -900,7 +932,7 @@ public class GcpDataService {
         }
     }
 
-//    private List<GcpResourceDto> getAppEngineApplications(String gcpProjectId) {
+//   private List<GcpResourceDto> getAppEngineApplications(String gcpProjectId) {
 //        log.info("Fetching App Engine applications for project: {}", gcpProjectId);
 //        Optional<ApplicationsClient> clientOpt = gcpClientProvider.getAppsClient(gcpProjectId);
 //        if (clientOpt.isEmpty()) return List.of();
@@ -914,7 +946,7 @@ public class GcpDataService {
 //            log.error("Error fetching App Engine application for project {}: {}", gcpProjectId, e.getMessage());
 //            return List.of();
 //        }
-//    }
+ //  }
 
     private List<GcpResourceDto> getBigQueryDatasets(String gcpProjectId) {
         log.info("Fetching BigQuery datasets for project: {}", gcpProjectId);
@@ -944,5 +976,379 @@ public class GcpDataService {
             return List.of();
         }
     }
+    // ==================== VERTEX AI SERVICES ====================
+
+    /**
+     * Fetch Vertex AI Models
+     */
+    private CompletableFuture<List<GcpResourceDto>> getVertexAIModels(String gcpProjectId) {
+        return CompletableFuture.supplyAsync(() -> {
+            log.info("Fetching Vertex AI Models for project: {}", gcpProjectId);
+            Optional<ModelServiceClient> clientOpt = gcpClientProvider.getVertexAIModelClient(gcpProjectId);
+
+            if (clientOpt.isEmpty()) {
+                log.warn("ModelServiceClient not available for project {}. Skipping.", gcpProjectId);
+                return List.of();
+            }
+
+            try (ModelServiceClient client = clientOpt.get()) {
+                List<GcpResourceDto> resources = new ArrayList<>();
+                String parent = String.format("projects/%s/locations/us-central1", gcpProjectId);
+
+                client.listModels(parent).iterateAll().forEach(model -> {
+                    GcpResourceDto dto = new GcpResourceDto();
+                    dto.setId(model.getName());
+                    dto.setName(model.getDisplayName());
+                    dto.setType("Vertex AI Model");
+                    dto.setLocation("us-central1");
+                    dto.setStatus(model.getDeployedModelsCount() > 0 ? "DEPLOYED" : "AVAILABLE");
+                    resources.add(dto);
+                });
+
+                log.info("Found {} Vertex AI models for project {}", resources.size(), gcpProjectId);
+                return resources;
+            } catch (Exception e) {
+                log.error("Failed to fetch Vertex AI models for project {}: {}", gcpProjectId, e.getMessage());
+                return List.of();
+            }
+        }, executor);
+    }
+
+    /**
+     * Fetch Vertex AI Endpoints
+     */
+    private CompletableFuture<List<GcpResourceDto>> getVertexAIEndpoints(String gcpProjectId) {
+        return CompletableFuture.supplyAsync(() -> {
+            log.info("Fetching Vertex AI Endpoints for project: {}", gcpProjectId);
+            Optional<com.google.cloud.aiplatform.v1.EndpointServiceClient> clientOpt = gcpClientProvider.getVertexAIEndpointClient(gcpProjectId);
+
+            if (clientOpt.isEmpty()) {
+                log.warn("EndpointServiceClient not available for project {}. Skipping.", gcpProjectId);
+                return List.of();
+            }
+
+            try (EndpointServiceClient client = clientOpt.get()) {
+                List<GcpResourceDto> resources = new ArrayList<>();
+                String parent = String.format("projects/%s/locations/us-central1", gcpProjectId);
+
+                client.listEndpoints(parent).iterateAll().forEach(endpoint -> {
+                    GcpResourceDto dto = new GcpResourceDto();
+                    dto.setId(endpoint.getName());
+                    dto.setName(endpoint.getDisplayName());
+                    dto.setType("Vertex AI Endpoint");
+                    dto.setLocation("us-central1");
+                    dto.setStatus("ACTIVE");
+                    resources.add(dto);
+                });
+
+                log.info("Found {} Vertex AI endpoints for project {}", resources.size(), gcpProjectId);
+                return resources;
+            } catch (Exception e) {
+                log.error("Failed to fetch Vertex AI endpoints for project {}: {}", gcpProjectId, e.getMessage());
+                return List.of();
+            }
+        }, executor);
+    }
+
+// ==================== CLOUD PUB/SUB SERVICES ====================
+
+    /**
+     * Fetch Cloud Pub/Sub Topics
+     */
+    private CompletableFuture<List<GcpResourceDto>> getPubSubTopics(String gcpProjectId) {
+        return CompletableFuture.supplyAsync(() -> {
+            log.info("Fetching Pub/Sub Topics for project: {}", gcpProjectId);
+            Optional<TopicAdminClient> clientOpt = gcpClientProvider.getPubSubTopicClient(gcpProjectId);
+
+            if (clientOpt.isEmpty()) {
+                log.warn("TopicAdminClient not available for project {}. Skipping.", gcpProjectId);
+                return List.of();
+            }
+
+            try (TopicAdminClient client = clientOpt.get()) {
+                List<GcpResourceDto> resources = new ArrayList<>();
+                String project = String.format("projects/%s", gcpProjectId);
+
+                client.listTopics(project).iterateAll().forEach(topic -> {
+                    GcpResourceDto dto = new GcpResourceDto();
+                    dto.setId(topic.getName());
+                    dto.setName(topic.getName().substring(topic.getName().lastIndexOf('/') + 1));
+                    dto.setType("Pub/Sub Topic");
+                    dto.setLocation("global");
+                    dto.setStatus("ACTIVE");
+                    resources.add(dto);
+                });
+
+                log.info("Found {} Pub/Sub topics for project {}", resources.size(), gcpProjectId);
+                return resources;
+            } catch (Exception e) {
+                log.error("Failed to fetch Pub/Sub topics for project {}: {}", gcpProjectId, e.getMessage());
+                return List.of();
+            }
+        }, executor);
+    }
+
+    /**
+     * Fetch Cloud Pub/Sub Subscriptions
+     */
+    private CompletableFuture<List<GcpResourceDto>> getPubSubSubscriptions(String gcpProjectId) {
+        return CompletableFuture.supplyAsync(() -> {
+            log.info("Fetching Pub/Sub Subscriptions for project: {}", gcpProjectId);
+            Optional<SubscriptionAdminClient> clientOpt = gcpClientProvider.getPubSubSubscriptionClient(gcpProjectId);
+
+            if (clientOpt.isEmpty()) {
+                log.warn("SubscriptionAdminClient not available for project {}. Skipping.", gcpProjectId);
+                return List.of();
+            }
+
+            try (SubscriptionAdminClient client = clientOpt.get()) {
+                List<GcpResourceDto> resources = new ArrayList<>();
+                String project = String.format("projects/%s", gcpProjectId);
+
+                client.listSubscriptions(project).iterateAll().forEach(subscription -> {
+                    GcpResourceDto dto = new GcpResourceDto();
+                    dto.setId(subscription.getName());
+                    dto.setName(subscription.getName().substring(subscription.getName().lastIndexOf('/') + 1));
+                    dto.setType("Pub/Sub Subscription");
+                    dto.setLocation("global");
+                    dto.setStatus(subscription.getState().toString());
+                    resources.add(dto);
+                });
+
+                log.info("Found {} Pub/Sub subscriptions for project {}", resources.size(), gcpProjectId);
+                return resources;
+            } catch (Exception e) {
+                log.error("Failed to fetch Pub/Sub subscriptions for project {}: {}", gcpProjectId, e.getMessage());
+                return List.of();
+            }
+        }, executor);
+    }
+
+// ==================== CLOUD MONITORING SERVICES ====================
+
+    /**
+     * Fetch Cloud Monitoring Alert Policies
+     */
+    private CompletableFuture<List<GcpResourceDto>> getMonitoringAlertPolicies(String gcpProjectId) {
+        return CompletableFuture.supplyAsync(() -> {
+            log.info("Fetching Monitoring Alert Policies for project: {}", gcpProjectId);
+            Optional<AlertPolicyServiceClient> clientOpt = gcpClientProvider.getMonitoringAlertClient(gcpProjectId);
+
+            if (clientOpt.isEmpty()) {
+                log.warn("AlertPolicyServiceClient not available for project {}. Skipping.", gcpProjectId);
+                return List.of();
+            }
+
+            try (AlertPolicyServiceClient client = clientOpt.get()) {
+                List<GcpResourceDto> resources = new ArrayList<>();
+                String projectName = String.format("projects/%s", gcpProjectId);
+
+                client.listAlertPolicies(projectName).iterateAll().forEach(policy -> {
+                    GcpResourceDto dto = new GcpResourceDto();
+                    dto.setId(policy.getName());
+                    dto.setName(policy.getDisplayName());
+                    dto.setType("Monitoring Alert Policy");
+                    dto.setLocation("global");
+                    dto.setStatus(policy.getEnabled().getValue() ? "ENABLED" : "DISABLED");
+                    resources.add(dto);
+                });
+
+                log.info("Found {} monitoring alert policies for project {}", resources.size(), gcpProjectId);
+                return resources;
+            } catch (Exception e) {
+                log.error("Failed to fetch monitoring alert policies for project {}: {}", gcpProjectId, e.getMessage());
+                return List.of();
+            }
+        }, executor);
+    }
+
+    /**
+     * Fetch Cloud Monitoring Uptime Checks
+     */
+    private CompletableFuture<List<GcpResourceDto>> getMonitoringUptimeChecks(String gcpProjectId) {
+        return CompletableFuture.supplyAsync(() -> {
+            log.info("Fetching Monitoring Uptime Checks for project: {}", gcpProjectId);
+            Optional<UptimeCheckServiceClient> clientOpt = gcpClientProvider.getMonitoringUptimeClient(gcpProjectId);
+
+            if (clientOpt.isEmpty()) {
+                log.warn("UptimeCheckServiceClient not available for project {}. Skipping.", gcpProjectId);
+                return List.of();
+            }
+
+            try (UptimeCheckServiceClient client = clientOpt.get()) {
+                List<GcpResourceDto> resources = new ArrayList<>();
+                String projectName = String.format("projects/%s", gcpProjectId);
+
+                client.listUptimeCheckConfigs(projectName).iterateAll().forEach(check -> {
+                    GcpResourceDto dto = new GcpResourceDto();
+                    dto.setId(check.getName());
+                    dto.setName(check.getDisplayName());
+                    dto.setType("Monitoring Uptime Check");
+                    dto.setLocation("global");
+                    dto.setStatus("ACTIVE");
+                    resources.add(dto);
+                });
+
+                log.info("Found {} monitoring uptime checks for project {}", resources.size(), gcpProjectId);
+                return resources;
+            } catch (Exception e) {
+                log.error("Failed to fetch monitoring uptime checks for project {}: {}", gcpProjectId, e.getMessage());
+                return List.of();
+            }
+        }, executor);
+    }
+
+// ==================== DATAPLEX SERVICE ====================
+
+    /**
+     * Fetch Dataplex Lakes
+     */
+    private CompletableFuture<List<GcpResourceDto>> getDataplexLakes(String gcpProjectId) {
+        return CompletableFuture.supplyAsync(() -> {
+            log.info("Fetching Dataplex Lakes for project: {}", gcpProjectId);
+            Optional<DataplexServiceClient> clientOpt = gcpClientProvider.getDataplexClient(gcpProjectId);
+
+            if (clientOpt.isEmpty()) {
+                log.warn("DataplexServiceClient not available for project {}. Skipping.", gcpProjectId);
+                return List.of();
+            }
+
+            try (DataplexServiceClient client = clientOpt.get()) {
+                List<GcpResourceDto> resources = new ArrayList<>();
+                String parent = String.format("projects/%s/locations/us-central1", gcpProjectId);
+
+                client.listLakes(parent).iterateAll().forEach(lake -> {
+                    GcpResourceDto dto = new GcpResourceDto();
+                    dto.setId(lake.getName());
+                    dto.setName(lake.getDisplayName());
+                    dto.setType("Dataplex Lake");
+                    dto.setLocation("us-central1");
+                    dto.setStatus(lake.getState().toString());
+                    resources.add(dto);
+                });
+
+                log.info("Found {} Dataplex lakes for project {}", resources.size(), gcpProjectId);
+                return resources;
+            } catch (Exception e) {
+                log.error("Failed to fetch Dataplex lakes for project {}: {}", gcpProjectId, e.getMessage());
+                return List.of();
+            }
+        }, executor);
+    }
+
+// ==================== CLOUD SCHEDULER SERVICE ====================
+
+    /**
+     * Fetch Cloud Scheduler Jobs
+     */
+    private CompletableFuture<List<GcpResourceDto>> getSchedulerJobs(String gcpProjectId) {
+        return CompletableFuture.supplyAsync(() -> {
+            log.info("Fetching Cloud Scheduler Jobs for project: {}", gcpProjectId);
+            Optional<CloudSchedulerClient> clientOpt = gcpClientProvider.getSchedulerClient(gcpProjectId);
+
+            if (clientOpt.isEmpty()) {
+                log.warn("CloudSchedulerClient not available for project {}. Skipping.", gcpProjectId);
+                return List.of();
+            }
+
+            try (CloudSchedulerClient client = clientOpt.get()) {
+                List<GcpResourceDto> resources = new ArrayList<>();
+                String parent = String.format("projects/%s/locations/us-central1", gcpProjectId);
+
+                client.listJobs(parent).iterateAll().forEach(job -> {
+                    GcpResourceDto dto = new GcpResourceDto();
+                    dto.setId(job.getName());
+                    dto.setName(job.getName().substring(job.getName().lastIndexOf('/') + 1));
+                    dto.setType("Cloud Scheduler Job");
+                    dto.setLocation("us-central1");
+                    dto.setStatus(job.getState().toString());
+                    resources.add(dto);
+                });
+
+                log.info("Found {} Cloud Scheduler jobs for project {}", resources.size(), gcpProjectId);
+                return resources;
+            } catch (Exception e) {
+                log.error("Failed to fetch Cloud Scheduler jobs for project {}: {}", gcpProjectId, e.getMessage());
+                return List.of();
+            }
+        }, executor);
+    }
+
+// ==================== VM MANAGER (OS CONFIG) SERVICE ====================
+
+    /**
+     * Fetch VM Manager Patch Deployments
+     */
+    private CompletableFuture<List<GcpResourceDto>> getVMManagerPatchDeployments(String gcpProjectId) {
+        return CompletableFuture.supplyAsync(() -> {
+            log.info("Fetching VM Manager Patch Deployments for project: {}", gcpProjectId);
+            Optional<OsConfigServiceClient> clientOpt = gcpClientProvider.getOsConfigClient(gcpProjectId);
+
+            if (clientOpt.isEmpty()) {
+                log.warn("OsConfigServiceClient not available for project {}. Skipping.", gcpProjectId);
+                return List.of();
+            }
+
+            try (OsConfigServiceClient client = clientOpt.get()) {
+                List<GcpResourceDto> resources = new ArrayList<>();
+                String parent = String.format("projects/%s", gcpProjectId);
+
+                client.listPatchDeployments(parent).iterateAll().forEach(deployment -> {
+                    GcpResourceDto dto = new GcpResourceDto();
+                    dto.setId(deployment.getName());
+                    dto.setName(deployment.getName().substring(deployment.getName().lastIndexOf('/') + 1));
+                    dto.setType("VM Manager Patch Deployment");
+                    dto.setLocation("global");
+                    dto.setStatus("ACTIVE");
+                    resources.add(dto);
+                });
+
+                log.info("Found {} VM Manager patch deployments for project {}", resources.size(), gcpProjectId);
+                return resources;
+            } catch (Exception e) {
+                log.error("Failed to fetch VM Manager patch deployments for project {}: {}", gcpProjectId, e.getMessage());
+                return List.of();
+            }
+        }, executor);
+    }
+
+// ==================== BIGQUERY RESERVATION SERVICE ====================
+
+    /**
+     * Fetch BigQuery Reservations
+     */
+    private CompletableFuture<List<GcpResourceDto>> getBigQueryReservations(String gcpProjectId) {
+        return CompletableFuture.supplyAsync(() -> {
+            log.info("Fetching BigQuery Reservations for project: {}", gcpProjectId);
+            Optional<ReservationServiceClient> clientOpt = gcpClientProvider.getBigQueryReservationClient(gcpProjectId);
+
+            if (clientOpt.isEmpty()) {
+                log.warn("ReservationServiceClient not available for project {}. Skipping.", gcpProjectId);
+                return List.of();
+            }
+
+            try (ReservationServiceClient client = clientOpt.get()) {
+                List<GcpResourceDto> resources = new ArrayList<>();
+                String parent = String.format("projects/%s/locations/us-central1", gcpProjectId);
+
+                client.listReservations(parent).iterateAll().forEach(reservation -> {
+                    GcpResourceDto dto = new GcpResourceDto();
+                    dto.setId(reservation.getName());
+                    dto.setName(reservation.getName().substring(reservation.getName().lastIndexOf('/') + 1));
+                    dto.setType("BigQuery Reservation");
+                    dto.setLocation("us-central1");
+                    dto.setStatus("ACTIVE");
+                    resources.add(dto);
+                });
+
+                log.info("Found {} BigQuery reservations for project {}", resources.size(), gcpProjectId);
+                return resources;
+            } catch (Exception e) {
+                log.error("Failed to fetch BigQuery reservations for project {}: {}", gcpProjectId, e.getMessage());
+                return List.of();
+            }
+        }, executor);
+    }
+
 
 }

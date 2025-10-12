@@ -7,26 +7,98 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <script type="module" src="/src/main.js"></script>
+
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-        body { font-family: 'Inter', sans-serif; background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); }
-        .header-gradient { background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%); backdrop-filter: blur(10px); border-bottom: 1px solid rgba(229, 231, 235, 0.8); }
-        .form-card { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.2); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
-        .form-input { background: rgba(255, 255, 255, 0.9); border: 1px solid rgba(229, 231, 235, 0.8); transition: all 0.3s ease; }
-        .form-input:focus { background: white; border-color: #4285F4; box-shadow: 0 0 0 3px rgba(66, 133, 244, 0.1); }
-        .btn-primary { background: linear-gradient(135deg, #4285F4 0%, #34A853 100%); color: white; transition: all 0.3s ease; }
-        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(66, 133, 244, 0.3); }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+        }
+
+        [x-cloak] { display: none !important; }
+
+        .header-gradient {
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(229, 231, 235, 0.8);
+        }
+
+        .form-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+
+        .form-input {
+            background: rgba(255, 255, 255, 0.9);
+            border: 1px solid rgba(229, 231, 235, 0.8);
+            transition: all 0.3s ease;
+        }
+
+        .form-input:focus {
+            background: white;
+            border-color: #4285F4;
+            box-shadow: 0 0 0 3px rgba(66, 133, 244, 0.1);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #4285F4 0%, #34A853 100%);
+            color: white;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(66, 133, 244, 0.3);
+        }
+
+        .code-block {
+            background: #1e293b;
+            color: #e2e8f0;
+            border-radius: 0.75rem;
+            overflow: hidden;
+        }
+
+        .badge {
+            background: linear-gradient(135deg, #4285F4 0%, #34A853 100%);
+            color: white;
+            font-size: 0.75rem;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-weight: 600;
+        }
+
+        .script-viewer {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            max-height: 400px;
+            overflow-y: auto;
+            user-select: none;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+        }
+
+        .script-viewer::-webkit-scrollbar { width: 8px; }
+        .script-viewer::-webkit-scrollbar-track { background: #f1f5f1; }
+        .script-viewer::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
     </style>
 </head>
 <body class="bg-gray-50">
 
 <div class="flex">
-    <aside class="fixed top-0 left-0 h-screen w-64 bg-white border-r border-gray-200">
-        <div th:replace="~{fragments/_sidebar :: sidebar}"></div>
+    <!-- Sidebar -->
+    <aside class="fixed top-0 left-0 h-screen w-64 bg-white border-r border-gray-200 z-50">
+        <div data-include-sidebar></div>
     </aside>
 
+    <!-- Main Content -->
     <div class="ml-64 flex-1">
-        <main class="flex-1 flex flex-col min-h-screen" x-data="addGcpAccount()">
+        <main class="flex-1 flex flex-col min-h-screen" x-data="addGcpAccount()" x-init="init()">
+            <!-- Header -->
             <header class="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-10">
                 <div class="flex items-center space-x-4">
                     <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-green-500 rounded-xl flex items-center justify-center">
@@ -34,51 +106,159 @@
                     </div>
                     <div>
                         <h1 class="text-2xl font-bold text-gray-800">Add New GCP Account</h1>
-                        <p class="text-sm text-gray-600">Connect your Google Cloud project</p>
+                        <p class="text-sm text-gray-600">Connect your Google Cloud project with full visibility</p>
                     </div>
                 </div>
-                <a href="/add-account" class="px-4 py-2 bg-white/70 backdrop-filter-sm text-gray-700 rounded-lg border border-gray-200/50 hover:bg-white transition-all">
+                <a href="/add-account.html" class="px-4 py-2 bg-white/70 backdrop-filter-sm text-gray-700 rounded-lg border border-gray-200/50 hover:bg-white transition-all">
                     <i class="fas fa-arrow-left mr-2"></i>Back
                 </a>
             </header>
 
+            <!-- Form Content -->
             <div class="flex-1 p-8">
-                <div class="max-w-2xl mx-auto form-card rounded-2xl p-8">
-                    <h2 class="text-xl font-bold text-gray-800 mb-6">GCP Single Account Setup</h2>
-                    <form @submit.prevent="addAccount" class="space-y-6">
-                        <div>
-                            <label for="accountName" class="block text-sm font-semibold text-gray-700 mb-2">Account Name</label>
-                            <input type="text" id="accountName" x-model="accountName" placeholder="e.g. GCP Staging" class="form-input block w-full px-4 py-3 rounded-xl border-gray-300 shadow-sm" required>
-                        </div>
-                        <div>
-                            <label for="projectId" class="block text-sm font-semibold text-gray-700 mb-2">Project ID</label>
-                            <input type="text" id="projectId" x-model="projectId" placeholder="your-gcp-project-id" class="form-input block w-full px-4 py-3 rounded-xl border-gray-300 shadow-sm" required>
-                        </div>
-                        <div>
-                            <label for="serviceAccountKey" class="block text-sm font-semibold text-gray-700 mb-2">Service Account Key (JSON)</label>
-                            <div class="text-xs text-gray-500 mb-2">
-                                To generate the key, run the following command in your Google Cloud Shell. It will create a service account with the necessary read-only permissions and output the JSON key.
+                <div class="max-w-4xl mx-auto space-y-6">
+
+                    <!-- Account Details Form -->
+                    <div class="form-card rounded-2xl p-8">
+                        <h2 class="text-xl font-bold text-gray-800 mb-6">Account Details</h2>
+                        <form @submit.prevent="addAccount" class="space-y-6">
+                            <!-- Account Name -->
+                            <div>
+                                <label for="accountName" class="block text-sm font-semibold text-gray-700 mb-2">
+                                    <i class="fas fa-tag text-gray-400 mr-1"></i>Account Name
+                                </label>
+                                <input
+                                        type="text"
+                                        id="accountName"
+                                        x-model="accountName"
+                                        placeholder="e.g. Production GCP"
+                                        class="form-input block w-full px-4 py-3 rounded-xl shadow-sm"
+                                        required>
                             </div>
-                            <div x-data="{
-                                    command: 'sh <(curl -s https://xamops-gcp-policy-bucket.s3.us-east-1.amazonaws.com/create_serviceaccount.sh)',
-                                    copyText: 'Copy'
-                                }" class="bg-gray-800 text-white rounded-lg p-3 font-mono text-xs flex items-center justify-between mb-2">
-                                <code class="text-gray-300 break-all" x-text="`${command} ${projectId || 'YOUR_PROJECT_ID'}`"></code>
-                                <button type="button" @click="
-                                    navigator.clipboard.writeText(`${command} ${projectId || 'YOUR_PROJECT_ID'}`);
-                                    copyText = 'Copied!';
-                                    setTimeout(() => copyText = 'Copy', 2000);
-                                " class="bg-gray-600 hover:bg-gray-500 text-white font-semibold py-1 px-3 rounded-md transition-colors text-xs" x-text="copyText"></button>
+
+                            <!-- Project ID -->
+                            <div>
+                                <label for="projectId" class="block text-sm font-semibold text-gray-700 mb-2">
+                                    <i class="fas fa-folder text-gray-400 mr-1"></i>GCP Project ID
+                                </label>
+                                <input
+                                        type="text"
+                                        id="projectId"
+                                        x-model="projectId"
+                                        @input="updateCommand()"
+                                        placeholder="your-gcp-project-id"
+                                        class="form-input block w-full px-4 py-3 rounded-xl shadow-sm"
+                                        required>
+                                <p class="mt-1 text-xs text-gray-500">Find this in GCP Console or run: <code class="bg-gray-100 px-2 py-1 rounded">gcloud config get-value project</code></p>
                             </div>
-                            <textarea id="serviceAccountKey" x-model="serviceAccountKey" rows="8" class="form-input block w-full px-4 py-3 rounded-xl border-gray-300 shadow-sm font-mono text-xs" placeholder='{ "type": "service_account", ... }' required></textarea>
-                        </div>
-                        <div class="flex justify-end pt-4">
-                            <button type="submit" class="btn-primary px-10 py-4 text-sm font-semibold rounded-xl shadow-md" :disabled="isLoading">
-                                <span x-show="!isLoading">Add Account</span>
-                                <span x-show="isLoading">Adding...</span>
-                            </button>
-                        </div>
-                    </form>
+
+                            <!-- Setup Command (After Project ID) -->
+                            <div class="p-6 bg-blue-50 rounded-xl border border-blue-200">
+                                <div class="flex items-center justify-between mb-3">
+                                    <h3 class="text-sm font-bold text-gray-800 flex items-center gap-2">
+                                        <i class="fas fa-terminal text-blue-500"></i>
+                                        Run this command in Google Cloud Shell
+                                    </h3>
+                                    <span class="badge">
+                                        <i class="fas fa-bolt mr-1"></i>Automated
+                                    </span>
+                                </div>
+
+                                <div class="code-block p-4 mb-3">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <span class="text-xs text-gray-400 font-semibold">BASH</span>
+                                        <button
+                                                type="button"
+                                                @click="copyCommand()"
+                                                class="bg-blue-600 hover:bg-blue-500 text-white font-semibold py-1 px-3 rounded-md transition-colors text-xs">
+                                            <i class="fas fa-copy mr-1"></i>
+                                            <span x-text="copyButtonText"></span>
+                                        </button>
+                                    </div>
+                                    <code class="text-sm text-green-400 break-all block" x-text="commandText"></code>
+                                </div>
+
+                                <!-- View Script Button -->
+                                <div>
+                                    <button
+                                            type="button"
+                                            @click="showScript = !showScript"
+                                            class="text-sm text-blue-600 hover:text-blue-700 font-semibold flex items-center gap-2">
+                                        <i class="fas" :class="showScript ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
+                                        <span x-text="showScript ? 'Hide Full Script' : 'View Full Script (Read-Only)'"></span>
+                                    </button>
+
+                                    <!-- Script Viewer (View-Only, No Copy) -->
+                                    <div x-show="showScript" x-collapse x-cloak class="mt-4">
+                                        <div class="script-viewer rounded-xl p-4">
+                                            <div class="flex items-center justify-between mb-3 pb-2 border-b border-gray-200">
+                                                <span class="text-xs font-semibold text-gray-600 flex items-center gap-2">
+                                                    <i class="fas fa-file-code text-gray-400"></i>
+                                                    create_serviceaccount.sh
+                                                </span>
+                                                <span class="text-xs text-gray-500 italic flex items-center gap-1">
+                                                    <i class="fas fa-lock text-gray-400"></i>
+                                                    View-Only
+                                                </span>
+                                            </div>
+                                            <pre class="text-xs text-gray-800 font-mono whitespace-pre-wrap leading-relaxed" x-text="fullScript"></pre>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="mt-4 text-sm text-gray-700">
+                                    <strong>What this does:</strong>
+                                    <ul class="list-disc list-inside mt-2 space-y-1 text-xs text-gray-600">
+                                        <li>Enables 62 GCP APIs automatically</li>
+                                        <li>Creates service account with read-only permissions</li>
+                                        <li>Grants access to 100+ GCP services</li>
+                                        <li>Displays the JSON key for copy-paste below</li>
+                                    </ul>
+                                </div>
+                            </div>
+
+                            <!-- Service Account Key -->
+                            <div>
+                                <label for="serviceAccountKey" class="block text-sm font-semibold text-gray-700 mb-2">
+                                    <i class="fas fa-key text-gray-400 mr-1"></i>Service Account Key (JSON)
+                                </label>
+                                <p class="text-xs text-gray-500 mb-2">
+                                    After running the command above, the script will display the JSON key. Copy and paste it here:
+                                </p>
+                                <textarea
+                                        id="serviceAccountKey"
+                                        x-model="serviceAccountKey"
+                                        rows="10"
+                                        class="form-input block w-full px-4 py-3 rounded-xl shadow-sm font-mono text-xs"
+                                        placeholder='{
+  "type": "service_account",
+  "project_id": "your-project-id",
+  "private_key_id": "...",
+  "private_key": "-----BEGIN PRIVATE KEY-----\n...",
+  "client_email": "xamops@your-project.iam.gserviceaccount.com",
+  ...
+}'
+                                        required></textarea>
+                            </div>
+
+                            <!-- Action Buttons -->
+                            <div class="flex justify-end gap-3 pt-4">
+                                <button
+                                        type="button"
+                                        @click="window.location.href='/add-account.html'"
+                                        class="px-6 py-3 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 transition-colors">
+                                    Cancel
+                                </button>
+                                <button
+                                        type="submit"
+                                        class="btn-primary px-10 py-3 text-sm font-semibold rounded-xl shadow-md"
+                                        :disabled="isLoading">
+                                    <i class="fas" :class="isLoading ? 'fa-spinner fa-spin' : 'fa-check'" class="mr-2"></i>
+                                    <span x-text="isLoading ? 'Adding Account...' : 'Add Account'"></span>
+                                </button>
+                            </div>
+                        </form>
+                    </div>
                 </div>
             </div>
         </main>
@@ -92,10 +272,59 @@
             projectId: '',
             serviceAccountKey: '',
             isLoading: false,
+            copyButtonText: 'Copy',
+            showScript: false,
+            commandText: 'sh <(curl -s https://xamops-gcp-sa.s3.ap-south-1.amazonaws.com/create_serviceaccount.sh) YOUR_PROJECT_ID',
+            fullScript: '# Loading script...',
+
+            scriptUrl: 'https://xamops-gcp-sa.s3.ap-south-1.amazonaws.com/create_serviceaccount.sh',
+
+            init() {
+                this.loadScript();
+            },
+
+            updateCommand() {
+                const projectId = this.projectId || 'YOUR_PROJECT_ID';
+                this.commandText = `sh <(curl -s ${this.scriptUrl}) ${projectId}`;
+            },
+
+            copyCommand() {
+                navigator.clipboard.writeText(this.commandText).then(() => {
+                    this.copyButtonText = 'Copied!';
+                    setTimeout(() => { this.copyButtonText = 'Copy'; }, 2000);
+                });
+            },
+
+            async loadScript() {
+                try {
+                    const response = await fetch(this.scriptUrl);
+                    if (response.ok) {
+                        this.fullScript = await response.text();
+                    } else {
+                        this.fullScript = '# Error: Failed to load script from S3\n# Please check the URL or contact support.';
+                    }
+                } catch (error) {
+                    console.error('Failed to load script:', error);
+                    this.fullScript = '# Error: Network error while loading script\n# Please check your internet connection.';
+                }
+            },
 
             addAccount() {
+                if (!this.accountName || !this.projectId || !this.serviceAccountKey) {
+                    alert('Please fill in all required fields');
+                    return;
+                }
+
+                // Validate JSON
+                try {
+                    JSON.parse(this.serviceAccountKey);
+                } catch (e) {
+                    alert('Invalid JSON format. Please paste the complete service account key from the script output.');
+                    return;
+                }
+
                 this.isLoading = true;
-                // The corrected URL is here
+
                 fetch('/api/xamops/account-manager/add-gcp-account', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -103,18 +332,21 @@
                         accountName: this.accountName,
                         projectId: this.projectId,
                         serviceAccountKey: this.serviceAccountKey
-                    }) // <-- Correctly closed parenthesis
-                }) // <-- And the fetch options object is closed here
+                    })
+                })
                 .then(res => {
                     if (res.ok) {
-                        window.location.href = '/account-manager';
+                        alert('✅ GCP account added successfully!');
+                        window.location.href = '/account-manager.html';
                     } else {
-                        res.json().then(err => alert('Failed to add GCP account: ' + (err.message || 'Unknown error')));
+                        return res.json().then(err => {
+                            throw new Error(err.message || 'Failed to add account');
+                        });
                     }
                 })
                 .catch(err => {
                     console.error('Error adding GCP account:', err);
-                    alert('An error occurred while adding the account.');
+                    alert('❌ Failed to add GCP account: ' + err.message);
                 })
                 .finally(() => {
                     this.isLoading = false;
