@@ -2,6 +2,7 @@ package com.xammer.cloud.service.gcp;
 
 import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
 import com.google.api.client.json.gson.GsonFactory;
+import com.google.api.gax.core.FixedCredentialsProvider;
 import com.google.api.services.dns.Dns;
 import com.google.api.services.dns.DnsScopes;
 import com.google.api.services.sqladmin.SQLAdmin;
@@ -9,12 +10,14 @@ import com.google.appengine.v1.ServicesClient;
 import com.google.appengine.v1.ServicesSettings;
 import com.google.auth.http.HttpCredentialsAdapter;
 import com.google.auth.oauth2.GoogleCredentials;
+import com.google.cloud.aiplatform.v1.ModelServiceSettings;
 import com.google.cloud.apigateway.v1.ApiGatewayServiceClient;
 import com.google.cloud.apigateway.v1.ApiGatewayServiceSettings;
 import com.google.cloud.asset.v1.AssetServiceClient;
 import com.google.cloud.asset.v1.AssetServiceSettings;
 import com.google.cloud.bigquery.BigQuery;
 import com.google.cloud.bigquery.BigQueryOptions;
+import com.google.cloud.bigquery.reservation.v1.ReservationServiceSettings;
 import com.google.cloud.billing.budgets.v1.BudgetServiceClient;
 import com.google.cloud.billing.budgets.v1.BudgetServiceSettings;
 import com.google.cloud.billing.v1.CloudBillingClient;
@@ -24,6 +27,7 @@ import com.google.cloud.billing.v1.ProjectName;
 import com.google.cloud.compute.v1.*;
 import com.google.cloud.container.v1.ClusterManagerClient;
 import com.google.cloud.container.v1.ClusterManagerSettings;
+import com.google.cloud.dataplex.v1.DataplexServiceSettings;
 import com.google.cloud.devtools.cloudbuild.v1.CloudBuildClient;
 import com.google.cloud.devtools.cloudbuild.v1.CloudBuildSettings;
 import com.google.cloud.functions.v2.FunctionServiceClient;
@@ -34,20 +38,37 @@ import com.google.cloud.kms.v1.KeyManagementServiceClient;
 import com.google.cloud.kms.v1.KeyManagementServiceSettings;
 import com.google.cloud.logging.v2.ConfigClient;
 import com.google.cloud.logging.v2.ConfigSettings;
-import com.google.cloud.monitoring.v3.MetricServiceClient;
-import com.google.cloud.monitoring.v3.MetricServiceSettings;
+import com.google.cloud.monitoring.v3.*;
+import com.google.cloud.osconfig.v1.OsConfigServiceSettings;
+import com.google.cloud.pubsub.v1.SubscriptionAdminSettings;
+import com.google.cloud.pubsub.v1.TopicAdminSettings;
 import com.google.cloud.recommender.v1.RecommenderClient;
 import com.google.cloud.recommender.v1.RecommenderSettings;
 import com.google.cloud.resourcemanager.v3.ProjectsClient;
 import com.google.cloud.resourcemanager.v3.ProjectsSettings;
+import com.google.cloud.scheduler.v1.CloudSchedulerSettings;
 import com.google.cloud.secretmanager.v1.SecretManagerServiceClient;
 import com.google.cloud.secretmanager.v1.SecretManagerServiceSettings;
 import com.google.cloud.securitycenter.v2.SecurityCenterClient;
 import com.google.cloud.securitycenter.v2.SecurityCenterSettings;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.StorageOptions;
+import com.google.cloud.aiplatform.v1.EndpointServiceSettings;  // ✅ CORRECT
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.google.cloud.aiplatform.v1.EndpointServiceClient;
+import com.google.cloud.aiplatform.v1.ModelServiceClient;
+import com.google.cloud.dataplex.v1.CatalogServiceClient;
+import com.google.cloud.dataplex.v1.DataplexServiceClient;
+import com.google.cloud.osconfig.v1.OsConfigServiceClient;
+import com.google.cloud.pubsub.v1.SubscriptionAdminClient;
+import com.google.cloud.pubsub.v1.TopicAdminClient;
+import com.google.cloud.scheduler.v1.CloudSchedulerClient;
+import com.google.cloud.bigquery.reservation.v1.ReservationServiceClient;
+import com.google.appengine.v1.ApplicationsClient;
+import com.google.appengine.v1.ApplicationsSettings;
+
+
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
@@ -624,5 +645,205 @@ public class GcpClientProvider {
                 return null;
             }
         });
+    }
+
+    // Vertex AI Model Service Client
+    public Optional<ModelServiceClient> getVertexAIModelClient(String gcpProjectId) {
+        try {
+            Optional<GoogleCredentials> credentialsOpt = getCredentials(gcpProjectId);
+            if (credentialsOpt.isEmpty()) {
+                log.error("No credentials available for project {}", gcpProjectId);
+                return Optional.empty();
+            }
+
+            GoogleCredentials credentials = credentialsOpt.get();
+            ModelServiceSettings settings = ModelServiceSettings.newBuilder()
+                    .setCredentialsProvider(FixedCredentialsProvider.create(credentials))
+                    .build();
+            return Optional.of(ModelServiceClient.create(settings));
+        } catch (Exception e) {
+            log.error("Failed to create Vertex AI Model client for project {}: {}", gcpProjectId, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    // Vertex AI Endpoint Service Client
+    public Optional<EndpointServiceClient> getVertexAIEndpointClient(String gcpProjectId) {
+        try {
+            Optional<GoogleCredentials> credentialsOpt = getCredentials(gcpProjectId);
+            if (credentialsOpt.isEmpty()) {
+                log.error("No credentials available for project {}", gcpProjectId);
+                return Optional.empty();
+            }
+
+            GoogleCredentials credentials = credentialsOpt.get();
+            EndpointServiceSettings settings = EndpointServiceSettings.newBuilder()
+                    .setCredentialsProvider(FixedCredentialsProvider.create(credentials))
+                    .build();
+            return Optional.of(EndpointServiceClient.create());
+        } catch (Exception e) {
+            log.error("Failed to create Vertex AI Endpoint client for project {}: {}", gcpProjectId, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    // Cloud Pub/Sub Topic Client
+    public Optional<TopicAdminClient> getPubSubTopicClient(String gcpProjectId) {
+        try {
+            Optional<GoogleCredentials> credentialsOpt = getCredentials(gcpProjectId);
+            if (credentialsOpt.isEmpty()) {
+                log.error("No credentials available for project {}", gcpProjectId);
+                return Optional.empty();
+            }
+
+            GoogleCredentials credentials = credentialsOpt.get();
+            TopicAdminSettings settings = TopicAdminSettings.newBuilder()
+                    .setCredentialsProvider(FixedCredentialsProvider.create(credentials))
+                    .build();
+            return Optional.of(TopicAdminClient.create(settings));
+        } catch (Exception e) {
+            log.error("Failed to create Pub/Sub Topic client for project {}: {}", gcpProjectId, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    // Cloud Pub/Sub Subscription Client
+    public Optional<SubscriptionAdminClient> getPubSubSubscriptionClient(String gcpProjectId) {
+        try {
+            Optional<GoogleCredentials> credentialsOpt = getCredentials(gcpProjectId);
+            if (credentialsOpt.isEmpty()) {
+                log.error("No credentials available for project {}", gcpProjectId);
+                return Optional.empty();
+            }
+
+            GoogleCredentials credentials = credentialsOpt.get();
+            SubscriptionAdminSettings settings = SubscriptionAdminSettings.newBuilder()
+                    .setCredentialsProvider(FixedCredentialsProvider.create(credentials))
+                    .build();
+            return Optional.of(SubscriptionAdminClient.create(settings));
+        } catch (Exception e) {
+            log.error("Failed to create Pub/Sub Subscription client for project {}: {}", gcpProjectId, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    // Cloud Monitoring Alert Policy Client
+    public Optional<AlertPolicyServiceClient> getMonitoringAlertClient(String gcpProjectId) {
+        try {
+            Optional<GoogleCredentials> credentialsOpt = getCredentials(gcpProjectId);
+            if (credentialsOpt.isEmpty()) {
+                log.error("No credentials available for project {}", gcpProjectId);
+                return Optional.empty();
+            }
+
+            GoogleCredentials credentials = credentialsOpt.get();
+            AlertPolicyServiceSettings settings = AlertPolicyServiceSettings.newBuilder()
+                    .setCredentialsProvider(FixedCredentialsProvider.create(credentials))
+                    .build();
+            return Optional.of(AlertPolicyServiceClient.create(settings));
+        } catch (Exception e) {
+            log.error("Failed to create Monitoring Alert client for project {}: {}", gcpProjectId, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    // Cloud Monitoring Uptime Check Client
+    public Optional<UptimeCheckServiceClient> getMonitoringUptimeClient(String gcpProjectId) {
+        try {
+            Optional<GoogleCredentials> credentialsOpt = getCredentials(gcpProjectId);
+            if (credentialsOpt.isEmpty()) {
+                log.error("No credentials available for project {}", gcpProjectId);
+                return Optional.empty();
+            }
+
+            GoogleCredentials credentials = credentialsOpt.get();
+            UptimeCheckServiceSettings settings = UptimeCheckServiceSettings.newBuilder()
+                    .setCredentialsProvider(FixedCredentialsProvider.create(credentials))
+                    .build();
+            return Optional.of(UptimeCheckServiceClient.create(settings));
+        } catch (Exception e) {
+            log.error("Failed to create Monitoring Uptime client for project {}: {}", gcpProjectId, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    // Dataplex Service Client
+    public Optional<DataplexServiceClient> getDataplexClient(String gcpProjectId) {
+        try {
+            Optional<GoogleCredentials> credentialsOpt = getCredentials(gcpProjectId);
+            if (credentialsOpt.isEmpty()) {
+                log.error("No credentials available for project {}", gcpProjectId);
+                return Optional.empty();
+            }
+
+            GoogleCredentials credentials = credentialsOpt.get();
+            DataplexServiceSettings settings = DataplexServiceSettings.newBuilder()
+                    .setCredentialsProvider(FixedCredentialsProvider.create(credentials))
+                    .build();
+            return Optional.of(DataplexServiceClient.create(settings));
+        } catch (Exception e) {
+            log.error("Failed to create Dataplex client for project {}: {}", gcpProjectId, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    // Cloud Scheduler Client
+    public Optional<CloudSchedulerClient> getSchedulerClient(String gcpProjectId) {
+        try {
+            Optional<GoogleCredentials> credentialsOpt = getCredentials(gcpProjectId);
+            if (credentialsOpt.isEmpty()) {
+                log.error("No credentials available for project {}", gcpProjectId);
+                return Optional.empty();
+            }
+
+            GoogleCredentials credentials = credentialsOpt.get();
+            CloudSchedulerSettings settings = CloudSchedulerSettings.newBuilder()
+                    .setCredentialsProvider(FixedCredentialsProvider.create(credentials))
+                    .build();
+            return Optional.of(CloudSchedulerClient.create(settings));
+        } catch (Exception e) {
+            log.error("Failed to create Cloud Scheduler client for project {}: {}", gcpProjectId, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    // VM Manager (OS Config) Client
+    public Optional<OsConfigServiceClient> getOsConfigClient(String gcpProjectId) {
+        try {
+            Optional<GoogleCredentials> credentialsOpt = getCredentials(gcpProjectId);
+            if (credentialsOpt.isEmpty()) {
+                log.error("No credentials available for project {}", gcpProjectId);
+                return Optional.empty();
+            }
+
+            GoogleCredentials credentials = credentialsOpt.get();
+            OsConfigServiceSettings settings = OsConfigServiceSettings.newBuilder()
+                    .setCredentialsProvider(FixedCredentialsProvider.create(credentials))
+                    .build();
+            return Optional.of(OsConfigServiceClient.create(settings));
+        } catch (Exception e) {
+            log.error("Failed to create OS Config client for project {}: {}", gcpProjectId, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    // BigQuery Reservation Client
+    public Optional<ReservationServiceClient> getBigQueryReservationClient(String gcpProjectId) {
+        try {
+            Optional<GoogleCredentials> credentialsOpt = getCredentials(gcpProjectId);
+            if (credentialsOpt.isEmpty()) {
+                log.error("No credentials available for project {}", gcpProjectId);
+                return Optional.empty();
+            }
+
+            GoogleCredentials credentials = credentialsOpt.get();
+            ReservationServiceSettings settings = ReservationServiceSettings.newBuilder()
+                    .setCredentialsProvider(FixedCredentialsProvider.create(credentials))
+                    .build();
+            return Optional.of(ReservationServiceClient.create(settings));
+        } catch (Exception e) {
+            log.error("Failed to create BigQuery Reservation client for project {}: {}", gcpProjectId, e.getMessage());
+            return Optional.empty();
+        }
     }
 }

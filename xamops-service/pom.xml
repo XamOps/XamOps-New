@@ -297,6 +297,72 @@
             <groupId>com.google.cloud</groupId>
             <artifactId>google-cloud-logging</artifactId>
         </dependency>
+        <!-- Add these dependencies to your pom.xml -->
+
+        <!-- Vertex AI -->
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-aiplatform</artifactId>
+        </dependency>
+
+        <!-- Cloud Pub/Sub -->
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-pubsub</artifactId>
+        </dependency>
+
+        <!-- Cloud Monitoring -->
+
+
+        <!-- Dataplex -->
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-dataplex</artifactId>
+        </dependency>
+
+        <!-- Cloud Scheduler -->
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-scheduler</artifactId>
+        </dependency>
+
+        <!-- VM Manager (OS Config) -->
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-os-config</artifactId>
+        </dependency>
+
+        <!-- BigQuery Storage API -->
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-bigquerystorage</artifactId>
+        </dependency>
+
+        <!-- BigQuery Reservation API -->
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-bigqueryreservation</artifactId>
+        </dependency>
+
+        <!-- Artifact Registry -->
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-artifact-registry</artifactId>
+        </dependency>
+
+        <!-- Cloud Build -->
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-build</artifactId>
+        </dependency>
+
+        <!-- App Engine Admin API -->
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-appengine-admin</artifactId>
+        </dependency>
+
+
 
         <dependency>
             <groupId>com.theokanning.openai-gpt3-java</groupId>
