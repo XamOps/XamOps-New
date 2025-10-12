@@ -6,7 +6,8 @@
     <title>XamOps - Rightsizing</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.0/dist/cdn.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script type="module" src="/src/main.js"></script>
 
     <style>
@@ -34,6 +35,7 @@
             border: 1px solid var(--glass-border);
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            border-radius: 1.5rem;
         }
 
         .kpi-card {
@@ -43,6 +45,7 @@
             backdrop-filter: blur(10px);
             border: 1px solid var(--glass-border);
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            border-radius: 1.5rem;
         }
 
         .kpi-card::before {
@@ -98,22 +101,6 @@
             box-shadow: 0 10px 15px -3px rgba(102, 126, 234, 0.4);
         }
 
-        .filter-button {
-            transition: all 0.3s ease;
-        }
-
-        .filter-button.active {
-            background: var(--primary-gradient);
-            color: white;
-            box-shadow: 0 4px 6px -1px rgba(102, 126, 234, 0.4);
-        }
-
-        .form-input {
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--glass-border);
-        }
-
         .table-enhanced {
             background: var(--glass-bg);
             border-radius: 12px;
@@ -160,20 +147,8 @@
             background: var(--success-gradient);
             color: white;
             box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
-        }
-
-        .loading-spinner {
-            border: 3px solid #f3f4f6;
-            border-top: 3px solid #667eea;
-            border-radius: 50%;
-            width: 20px;
-            height: 20px;
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            border-radius: 6px;
+            display: inline-block;
         }
 
         .fade-in {
@@ -185,13 +160,6 @@
             to { opacity: 1; transform: translateY(0); }
         }
 
-        .gradient-text {
-            background: var(--success-gradient);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
         .tab-button {
             transition: all 0.3s ease;
             border-bottom: 2px solid transparent;
@@ -201,175 +169,351 @@
             color: #667eea;
             border-bottom-color: #667eea;
         }
+
+        /* Markdown styling */
+        .ai-content {
+            line-height: 1.8;
+            color: #1f2937;
+        }
+
+        .ai-content h1, .ai-content h2, .ai-content h3 {
+            font-weight: 700;
+            margin-top: 1.5rem;
+            margin-bottom: 0.75rem;
+            color: #111827;
+        }
+
+        .ai-content h1 { font-size: 1.5rem; }
+        .ai-content h2 { font-size: 1.25rem; }
+        .ai-content h3 { font-size: 1.1rem; }
+
+        .ai-content p {
+            margin-bottom: 1rem;
+        }
+
+        .ai-content ul, .ai-content ol {
+            margin-left: 1.5rem;
+            margin-bottom: 1rem;
+            list-style-position: outside;
+        }
+
+        .ai-content ul {
+            list-style-type: disc;
+        }
+
+        .ai-content ol {
+            list-style-type: decimal;
+        }
+
+        .ai-content li {
+            margin-bottom: 0.5rem;
+            padding-left: 0.25rem;
+        }
+
+        .ai-content strong {
+            font-weight: 700;
+            color: #111827;
+        }
+
+        .ai-content code {
+            background: #f3f4f6;
+            padding: 0.125rem 0.375rem;
+            border-radius: 0.25rem;
+            font-size: 0.875rem;
+            font-family: 'Courier New', monospace;
+        }
+
+        .ai-content pre {
+            background: #1f2937;
+            color: #f9fafb;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            overflow-x: auto;
+            margin-bottom: 1rem;
+        }
+
+        .ai-content pre code {
+            background: transparent;
+            padding: 0;
+            color: inherit;
+        }
+
+        .ai-content blockquote {
+            border-left: 4px solid #6366f1;
+            padding-left: 1rem;
+            margin-left: 0;
+            font-style: italic;
+            color: #4b5563;
+        }
     </style>
 </head>
 <body class="bg-gray-50">
 
-<div class="flex">
-    <aside class="fixed top-0 left-0 h-screen w-64 bg-white border-r border-gray-200">
-        <div data-include-sidebar></div>
-    </aside>
+<div class="flex h-screen">
+    <!-- Sidebar -->
+    <div data-include-sidebar></div>
 
-    <div class="ml-64 flex-1">
-        <main class="flex-1 flex flex-col min-h-screen" x-data="rightsizing()">
-            <header class="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-20">
-                <div class="flex items-center space-x-4">
-                    <div class="w-12 h-12 bg-gradient-to-br from-green-500 to-blue-600 rounded-xl flex items-center justify-center">
-                        <i class="fas fa-compress-arrows-alt text-white text-xl"></i>
-                    </div>
-                    <div>
-                        <h1 class="text-2xl font-bold text-gray-800">Rightsizing</h1>
-                        <p class="text-sm text-gray-600">Optimize your cloud resource sizing</p>
-                    </div>
+    <!-- Main Content -->
+    <main class="flex-1 overflow-auto" x-data="rightsizing()">
+        <header class="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-20">
+            <div class="flex items-center space-x-4">
+                <div class="w-12 h-12 bg-gradient-to-br from-green-500 to-blue-600 rounded-xl flex items-center justify-center">
+                    <i class="fas fa-compress-arrows-alt text-white text-xl"></i>
                 </div>
-                <div class="flex items-center space-x-4">
-                    <button @click="loadRecommendations(true)" class="btn-primary flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md" :disabled="isRefreshing">
-                        <i class="fas fa-sync-alt" :class="{ 'fa-spin': isRefreshing }"></i>
-                        <span x-text="isRefreshing ? 'Analyzing...' : 'Refresh Analysis'"></span>
-                    </button>
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-800">Rightsizing</h1>
+                    <p class="text-sm text-gray-600">Optimize your cloud resource sizing</p>
                 </div>
-            </header>
+            </div>
+            <div class="flex items-center space-x-4">
+                <button @click="loadRecommendations(true)" class="btn-primary flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md" :disabled="isRefreshing">
+                    <i class="fas fa-sync-alt" :class="{ 'fa-spin': isRefreshing }"></i>
+                    <span x-text="isRefreshing ? 'Analyzing...' : 'Refresh Analysis'"></span>
+                </button>
+            </div>
+        </header>
 
-            <div class="flex-1 p-8 space-y-8">
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                </div>
+        <div class="p-8 space-y-8">
+            <!-- Tabs -->
+            <div class="flex border-b border-gray-200">
+                <button @click="activeTab = 'aws'" class="tab-button px-6 py-3 text-sm font-semibold" :class="{ 'active': activeTab === 'aws' }">
+                    <i class="fab fa-aws mr-2"></i>AWS Recommendations
+                </button>
+                <button @click="activeTab = 'xamops'" class="tab-button px-6 py-3 text-sm font-semibold" :class="{ 'active': activeTab === 'xamops' }">
+                    <i class="fas fa-bolt mr-2"></i>XamOps Recommendations
+                </button>
+            </div>
 
-                <div class="flex border-b border-gray-200 mb-6">
-                    <button @click="activeTab = 'aws'" class="tab-button px-6 py-3 text-sm font-semibold" :class="{ 'active': activeTab === 'aws' }">
-                        <i class="fab fa-aws mr-2"></i>AWS Recommendations
-                    </button>
-                    <button @click="activeTab = 'xamops'" class="tab-button px-6 py-3 text-sm font-semibold" :class="{ 'active': activeTab === 'xamops' }">
-                        <i class="fas fa-bolt mr-2"></i>XamOps Recommendations
-                    </button>
-                </div>
+            <!-- AWS Recommendations Tab -->
+            <div x-show="activeTab === 'aws'" x-cloak class="fade-in">
+                <div class="glass-card p-8">
+                    <div x-show="isLoading" class="skeleton h-96 rounded-2xl"></div>
 
-                <div x-show="activeTab === 'aws'" x-cloak class="fade-in">
-                    <div class="glass-card rounded-2xl p-8">
-                        <div x-show="!isLoading && filteredRecommendations.length > 0" x-cloak class="table-enhanced">
-                            <table class="w-full text-sm">
-                                <thead class="text-xs text-gray-700 uppercase bg-gradient-to-r from-gray-50 to-gray-100">
-                                <tr>
-                                    <th class="px-6 py-4 text-left font-bold">Resource ID</th>
-                                    <th class="px-6 py-4 text-left font-bold">Cost Comparison</th>
-                                    <th class="px-6 py-4 text-left font-bold">Savings</th>
-                                    <th class="px-6 py-4 text-left font-bold">Reason</th>
-                                    <th class="px-6 py-4 text-center font-bold">AI</th>
-                                </tr>
-                                </thead>
-                                <tbody class="divide-y divide-gray-200">
-                                <template x-for="rec in filteredRecommendations" :key="rec.resourceId">
-                                    <tr class="hover:bg-gray-50 transition-all">
-                                        <td class="px-6 py-4 first-cell-indicator">
-                                            <div class="flex items-center space-x-3">
-                                                <div class="w-8 h-8 rounded-lg flex-shrink-0">
-                                                    <img :src="'/icons/' + getServiceIcon(rec.service)" :alt="rec.service" class="w-full h-full rounded-lg object-cover">
-                                                </div>
-                                                <span class="font-mono text-gray-800 font-medium" x-text="rec.resourceId"></span>
-                                            </div>
-                                        </td>
-                                        <td class="px-6 py-4">
-                                            <div class="flex items-center justify-between space-x-4">
-                                                <div class="text-center">
-                                                    <p class="font-bold text-red-600" x-text="`$${rec.currentMonthlyCost.toFixed(2)}`"></p>
-                                                    <p class="text-xs text-gray-500" x-text="rec.currentType"></p>
-                                                </div>
-                                                <i class="fas fa-arrow-right text-gray-400"></i>
-                                                <div class="text-center">
-                                                    <p class="font-bold text-green-600" x-text="`$${rec.recommendedMonthlyCost.toFixed(2)}`"></p>
-                                                    <p class="text-xs text-gray-500" x-text="rec.recommendedType"></p>
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td class="px-6 py-4">
-                                            <div class="flex flex-col space-y-1">
-                                                <span class="savings-badge px-3 py-1 text-xs" x-text="'$' + rec.estimatedMonthlySavings.toFixed(2)"></span>
-                                                <span class="text-xs text-gray-500" x-text="`${((rec.estimatedMonthlySavings / rec.currentMonthlyCost) * 100).toFixed(1)}% savings`" x-show="rec.currentMonthlyCost > 0"></span>
-                                            </div>
-                                        </td>
-                                        <td class="px-6 py-4">
-                                            <p class="text-sm text-gray-700 break-words" x-text="rec.recommendationReason"></p>
-                                        </td>
-                                        <td class="px-6 py-4 text-center">
-                                            <button @click="getAiRecommendation(rec)" class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 hover:bg-indigo-200 transition-colors">
-                                                <i class="fas fa-magic"></i>
-                                            </button>
-                                        </td>
-                                    </tr>
-                                </template>
-                                </tbody>
-                            </table>
+                    <div x-show="!isLoading && filteredRecommendations.length === 0" x-cloak class="empty-state text-center py-20 px-8 rounded-2xl">
+                        <div class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <i class="fas fa-inbox text-gray-400 text-2xl"></i>
                         </div>
+                        <h3 class="text-2xl font-bold text-gray-800 mb-2">No Recommendations</h3>
+                        <p class="text-gray-600">No rightsizing recommendations available at this time.</p>
+                    </div>
+
+                    <div x-show="!isLoading && filteredRecommendations.length > 0" x-cloak class="table-enhanced">
+                        <table class="w-full text-sm">
+                            <thead class="text-xs text-gray-700 uppercase bg-gradient-to-r from-gray-50 to-gray-100">
+                            <tr>
+                                <th class="px-6 py-4 text-left font-bold">Resource ID</th>
+                                <th class="px-6 py-4 text-left font-bold">Cost Comparison</th>
+                                <th class="px-6 py-4 text-left font-bold">Savings</th>
+                                <th class="px-6 py-4 text-left font-bold">Reason</th>
+                                <th class="px-6 py-4 text-center font-bold">AI</th>
+                            </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-200">
+                            <template x-for="rec in filteredRecommendations" :key="rec.resourceId">
+                                <tr class="hover:bg-gray-50 transition-all">
+                                    <td class="px-6 py-4 first-cell-indicator">
+                                        <div class="flex items-center space-x-3">
+                                            <div class="w-8 h-8 rounded-lg flex-shrink-0">
+                                                <img :src="'/icons/' + getServiceIcon(rec.service)" :alt="rec.service" class="w-full h-full rounded-lg object-cover">
+                                            </div>
+                                            <span class="font-mono text-gray-800 font-medium" x-text="rec.resourceId"></span>
+                                        </div>
+                                    </td>
+                                    <td class="px-6 py-4">
+                                        <div class="flex items-center justify-between space-x-4">
+                                            <div class="text-center">
+                                                <p class="font-bold text-red-600" x-text="`$${rec.currentMonthlyCost.toFixed(2)}`"></p>
+                                                <p class="text-xs text-gray-500" x-text="rec.currentType"></p>
+                                            </div>
+                                            <i class="fas fa-arrow-right text-gray-400"></i>
+                                            <div class="text-center">
+                                                <p class="font-bold text-green-600" x-text="`$${rec.recommendedMonthlyCost.toFixed(2)}`"></p>
+                                                <p class="text-xs text-gray-500" x-text="rec.recommendedType"></p>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td class="px-6 py-4">
+                                        <div class="flex flex-col space-y-1">
+                                            <span class="savings-badge px-3 py-1 text-xs font-semibold" x-text="'$' + rec.estimatedMonthlySavings.toFixed(2)"></span>
+                                            <span class="text-xs text-gray-500" x-text="`${((rec.estimatedMonthlySavings / rec.currentMonthlyCost) * 100).toFixed(1)}% savings`" x-show="rec.currentMonthlyCost > 0"></span>
+                                        </div>
+                                    </td>
+                                    <td class="px-6 py-4">
+                                        <p class="text-sm text-gray-700 break-words" x-text="rec.recommendationReason"></p>
+                                    </td>
+                                    <td class="px-6 py-4 text-center">
+                                        <button @click="getAiRecommendation(rec)" class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 hover:bg-indigo-200 transition-colors">
+                                            <i class="fas fa-magic"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            </template>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
+            </div>
 
-                <div x-show="activeTab === 'xamops'" x-cloak class="fade-in">
-                    <div class="glass-card rounded-2xl p-8">
-                        <div class="flex items-center justify-between mb-8">
-                            <div class="flex items-center space-x-4">
-                                <div class="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center">
-                                    <i class="fas fa-bolt text-white"></i>
-                                </div>
-                                <div>
-                                    <h2 class="text-xl font-bold text-gray-800">XamAi Recommendations</h2>
-                                    <p class="text-sm text-gray-600">Proprietary analysis for enhanced optimization</p>
-                                </div>
+            <!-- XamOps Recommendations Tab -->
+            <div x-show="activeTab === 'xamops'" x-cloak class="fade-in">
+                <div class="glass-card p-8">
+                    <div class="flex items-center justify-between mb-8">
+                        <div class="flex items-center space-x-4">
+                            <div class="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center">
+                                <i class="fas fa-bolt text-white"></i>
+                            </div>
+                            <div>
+                                <h2 class="text-xl font-bold text-gray-800">XamAi Recommendations</h2>
+                                <p class="text-sm text-gray-600">Proprietary analysis for enhanced optimization</p>
                             </div>
                         </div>
+                    </div>
 
-                        <div x-show="isLoading" class="skeleton h-96 rounded-2xl"></div>
+                    <div x-show="isLoading" class="skeleton h-96 rounded-2xl"></div>
 
-                        <div x-show="!isLoading && xamopsRecommendations.length === 0" class="empty-state text-center py-20 px-8 rounded-2xl">
-                            <h3 class="text-2xl font-bold text-gray-800 mb-2">No XamOps Recommendations</h3>
-                            <p class="text-gray-600">Could not load custom recommendations at this time.</p>
+                    <div x-show="!isLoading && xamopsRecommendations.length === 0" x-cloak class="empty-state text-center py-20 px-8 rounded-2xl">
+                        <div class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <i class="fas fa-lightbulb text-gray-400 text-2xl"></i>
                         </div>
+                        <h3 class="text-2xl font-bold text-gray-800 mb-2">No XamOps Recommendations</h3>
+                        <p class="text-gray-600">Could not load custom recommendations at this time.</p>
+                    </div>
 
-                        <div x-show="!isLoading && xamopsRecommendations.length > 0" class="table-enhanced">
-                            <table class="w-full text-sm">
-                                <thead class="text-xs text-gray-700 uppercase bg-gradient-to-r from-gray-50 to-gray-100">
-                                <tr>
-                                    <th class="px-6 py-4 text-left font-bold">Current Instance</th>
-                                    <th class="px-6 py-4 text-left font-bold">Load Range (Max U%)</th>
-                                    <th class="px-6 py-4 text-left font-bold">Intel Recommendation</th>
-                                    <th class="px-6 py-4 text-left font-bold">AMD Recommendation</th>
-                                    <th class="px-6 py-4 text-left font-bold">Projected Max Util</th>
-                                    <th class="px-6 py-4 text-left font-bold">Approx. Savings</th>
-                                    <th class="px-6 py-4 text-left font-bold">Reason</th>
-                                    <th class="px-6 py-4 text-center font-bold">AI</th>
+                    <div x-show="!isLoading && xamopsRecommendations.length > 0" x-cloak class="table-enhanced">
+                        <table class="w-full text-sm">
+                            <thead class="text-xs text-gray-700 uppercase bg-gradient-to-r from-gray-50 to-gray-100">
+                            <tr>
+                                <th class="px-6 py-4 text-left font-bold">Current Instance</th>
+                                <th class="px-6 py-4 text-left font-bold">Load Range (Max U%)</th>
+                                <th class="px-6 py-4 text-left font-bold">Intel Recommendation</th>
+                                <th class="px-6 py-4 text-left font-bold">AMD Recommendation</th>
+                                <th class="px-6 py-4 text-left font-bold">Projected Max Util</th>
+                                <th class="px-6 py-4 text-left font-bold">Approx. Savings</th>
+                                <th class="px-6 py-4 text-left font-bold">Reason</th>
+                                <th class="px-6 py-4 text-center font-bold">AI</th>
+                            </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-200">
+                            <template x-for="(rec, i) in xamopsRecommendations" :key="rec.currentInstance + '-' + i">
+                                <tr class="hover:bg-gray-50 transition-all">
+                                    <td class="px-6 py-4 first-cell-indicator font-mono font-medium" x-text="rec.currentInstance"></td>
+                                    <td class="px-6 py-4" x-text="rec.loadRange"></td>
+                                    <td class="px-6 py-4" x-text="rec.intelRecommendation"></td>
+                                    <td class="px-6 py-4" x-text="rec.amdRecommendation"></td>
+                                    <td class="px-6 py-4" x-text="rec.projectedMaxUtil"></td>
+                                    <td class="px-6 py-4">
+                                        <span class="savings-badge px-3 py-1 text-xs font-semibold" x-text="rec.approxCostSavings"></span>
+                                    </td>
+                                    <td class="px-6 py-4 text-gray-700" x-text="rec.reason"></td>
+                                    <td class="px-6 py-4 text-center">
+                                        <button @click="getAiRecommendation(rec)" class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 hover:bg-indigo-200 transition-colors">
+                                            <i class="fas fa-magic"></i>
+                                        </button>
+                                    </td>
                                 </tr>
-                                </thead>
-                                <tbody class="divide-y divide-gray-200">
-                                <template x-for="(rec, i) in xamopsRecommendations" :key="rec.currentInstance + '-' + i">
-                                    <tr class="hover:bg-gray-50 transition-all">
-                                        <td class="px-6 py-4 first-cell-indicator font-mono font-medium" x-text="rec.currentInstance"></td>
-                                        <td class="px-6 py-4" x-text="rec.loadRange"></td>
-                                        <td class="px-6 py-4" x-text="rec.intelRecommendation"></td>
-                                        <td class="px-6 py-4" x-text="rec.amdRecommendation"></td>
-                                        <td class="px-6 py-4" x-text="rec.projectedMaxUtil"></td>
-                                        <td class="px-6 py-4 savings-badge text-center" x-text="rec.approxCostSavings"></td>
-                                        <td class="px-6 py-4 text-gray-700" x-text="rec.reason"></td>
-                                        <td class="px-6 py-4 text-center">
-                                            <button @click="getAiRecommendation(rec)" class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 hover:bg-indigo-200 transition-colors">
-                                                <i class="fas fa-magic"></i>
-                                            </button>
-                                        </td>
-                                    </tr>
-                                </template>
-                                </tbody>
-                            </table>
-                        </div>
+                            </template>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
+        </div>
 
-            <div x-show="showAiModal" @keydown.escape.window="showAiModal = false" class="fixed inset-0 z-50 overflow-y-auto bg-gray-800 bg-opacity-50 flex items-center justify-center" x-cloak>
-                <div class="bg-white rounded-lg shadow-xl p-8 max-w-2xl w-full" @click.away="showAiModal = false">
-                    <h2 class="text-xl font-bold mb-4 flex items-center"><i class="fas fa-robot mr-2 text-indigo-500"></i>AI-Powered Recommendation</h2>
-                    <div x-html="aiRecommendation" class="prose max-w-none text-gray-700 whitespace-pre-wrap"></div>
-                    <button @click="showAiModal = false" class="mt-6 px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors">Close</button>
+        <!-- Enhanced AI Modal -->
+        <div x-show="showAiModal"
+             @keydown.escape.window="showAiModal = false"
+             class="fixed inset-0 z-50 overflow-y-auto bg-black bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4"
+             x-cloak
+             x-transition:enter="transition ease-out duration-300"
+             x-transition:enter-start="opacity-0"
+             x-transition:enter-end="opacity-100"
+             x-transition:leave="transition ease-in duration-200"
+             x-transition:leave-start="opacity-100"
+             x-transition:leave-end="opacity-0">
+
+            <div class="relative bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden"
+                 @click.away="showAiModal = false"
+                 x-transition:enter="transition ease-out duration-300 transform"
+                 x-transition:enter-start="opacity-0 scale-95 translate-y-4"
+                 x-transition:enter-end="opacity-100 scale-100 translate-y-0"
+                 x-transition:leave="transition ease-in duration-200 transform"
+                 x-transition:leave-start="opacity-100 scale-100 translate-y-0"
+                 x-transition:leave-end="opacity-0 scale-95 translate-y-4">
+
+                <!-- Header with gradient -->
+                <div class="sticky top-0 z-10 bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 px-8 py-6 text-white">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-12 h-12 bg-white bg-opacity-20 rounded-xl flex items-center justify-center backdrop-blur-sm">
+                                <i class="fas fa-robot text-2xl"></i>
+                            </div>
+                            <div>
+                                <h2 class="text-2xl font-bold">AI-Powered Analysis</h2>
+                                <p class="text-sm text-white text-opacity-90">Smart recommendations by Groq AI</p>
+                            </div>
+                        </div>
+                        <button @click="showAiModal = false"
+                                class="w-10 h-10 rounded-full bg-white bg-opacity-20 hover:bg-opacity-30 transition-all flex items-center justify-center">
+                            <i class="fas fa-times text-xl"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Content with scroll -->
+                <div class="overflow-y-auto max-h-[calc(90vh-200px)] px-8 py-6">
+                    <!-- Loading State -->
+                    <div x-show="isAiLoading" class="flex flex-col items-center justify-center py-12">
+                        <div class="relative">
+                            <div class="w-16 h-16 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+                            <div class="absolute inset-0 flex items-center justify-center">
+                                <i class="fas fa-brain text-indigo-600 text-xl animate-pulse"></i>
+                            </div>
+                        </div>
+                        <p class="mt-4 text-gray-600 font-medium">Analyzing with AI...</p>
+                        <p class="text-sm text-gray-500">This may take a few seconds</p>
+                    </div>
+
+                    <!-- AI Response -->
+                    <div x-show="!isAiLoading">
+                        <div class="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-6 border border-indigo-100 mb-4">
+                            <div class="flex items-center space-x-2 mb-4">
+                                <div class="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
+                                    <i class="fas fa-sparkles text-white text-sm"></i>
+                                </div>
+                                <span class="text-sm font-semibold text-indigo-900">AI Recommendation</span>
+                            </div>
+                            <div x-html="aiRecommendation" class="ai-content"></div>
+                        </div>
+
+                        <!-- Info Footer -->
+                        <div class="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-200">
+                            <div class="flex items-center space-x-2 text-sm text-gray-600">
+                                <i class="fas fa-info-circle text-indigo-600"></i>
+                                <span>Powered by <strong>Groq AI</strong></span>
+                            </div>
+                            <div class="flex items-center space-x-2 text-sm text-gray-500">
+                                <i class="fas fa-clock"></i>
+                                <span x-text="new Date().toLocaleTimeString()"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Footer Actions -->
+                <div class="sticky bottom-0 bg-white border-t border-gray-200 px-8 py-4 flex items-center justify-between">
+                    <button @click="copyToClipboard()"
+                            class="flex items-center space-x-2 px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-all">
+                        <i class="fas fa-copy"></i>
+                        <span>Copy</span>
+                    </button>
+                    <button @click="showAiModal = false"
+                            class="px-6 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-lg hover:from-indigo-700 hover:to-purple-700 transition-all font-medium shadow-lg">
+                        <i class="fas fa-check mr-2"></i>Close
+                    </button>
                 </div>
             </div>
-        </main>
-    </div>
+        </div>
+    </main>
 </div>
 
 <script>
@@ -380,9 +524,6 @@
             activeTab: 'aws',
             recommendations: [],
             xamopsRecommendations: [],
-            filter: 'All',
-            searchTerm: '',
-            services: ['All', 'EC2', 'EBS', 'Lambda'],
 
             showAiModal: false,
             aiRecommendation: '',
@@ -450,7 +591,7 @@
             getAiRecommendation(recommendation) {
                 this.showAiModal = true;
                 this.isAiLoading = true;
-                this.aiRecommendation = '<div class="flex justify-center items-center"><div class="loading-spinner"></div><span class="ml-2">Analyzing...</span></div>';
+                this.aiRecommendation = '';
 
                 fetch('/api/ai-advisor/rightsizing', {
                     method: 'POST',
@@ -464,10 +605,11 @@
                     return res.text();
                 })
                 .then(text => {
-                    this.aiRecommendation = text;
+                    // Convert Markdown to HTML using marked.js
+                    this.aiRecommendation = marked.parse(text);
                 })
                 .catch(err => {
-                    this.aiRecommendation = 'Error: Could not get AI recommendations.';
+                    this.aiRecommendation = '<p class="text-red-600">⚠️ <strong>Error</strong>: Could not get AI recommendations.</p><p class="text-sm text-gray-600 mt-2">Please check your API key and network connection.</p>';
                     console.error('Failed to load AI recommendations:', err);
                 })
                 .finally(() => {
@@ -475,30 +617,30 @@
                 });
             },
 
-            get filteredRecommendations() {
-                const term = this.searchTerm.toLowerCase();
-                return this.recommendations.filter(rec => {
-                    const serviceMatch = this.filter === 'All' || rec.service === this.filter;
-                    const searchMatch = term === '' || rec.resourceId.toLowerCase().includes(term);
-                    return serviceMatch && searchMatch;
+            copyToClipboard() {
+                // Create a temporary element to strip HTML
+                const temp = document.createElement('div');
+                temp.innerHTML = this.aiRecommendation;
+                const plainText = temp.textContent || temp.innerText || '';
+
+                navigator.clipboard.writeText(plainText).then(() => {
+                    const button = event.target.closest('button');
+                    const originalHTML = button.innerHTML;
+                    button.innerHTML = '<i class="fas fa-check mr-2"></i><span>Copied!</span>';
+                    button.classList.add('bg-green-100', 'text-green-700');
+                    button.classList.remove('bg-gray-100', 'text-gray-700');
+                    setTimeout(() => {
+                        button.innerHTML = originalHTML;
+                        button.classList.remove('bg-green-100', 'text-green-700');
+                        button.classList.add('bg-gray-100', 'text-gray-700');
+                    }, 2000);
+                }).catch(err => {
+                    console.error('Failed to copy:', err);
                 });
             },
 
-            get potentialSavings() {
-                return this.filteredRecommendations.reduce((total, rec) => total + rec.estimatedMonthlySavings, 0);
-            },
-
-            get recommendationCount() {
-                return this.filteredRecommendations.length;
-            },
-
-            get topService() {
-                if (this.recommendationCount === 0) return 'N/A';
-                const counts = this.filteredRecommendations.reduce((acc, r) => {
-                    acc[r.service] = (acc[r.service] || 0) + 1;
-                    return acc;
-                }, {});
-                return Object.keys(counts).reduce((a, b) => counts[a] > counts[b] ? a : b);
+            get filteredRecommendations() {
+                return this.recommendations;
             },
 
             getServiceIcon(serviceType) {

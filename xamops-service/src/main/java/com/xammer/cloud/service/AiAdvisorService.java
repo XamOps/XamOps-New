@@ -1,56 +1,96 @@
-// package com.xammer.cloud.service;
+package com.xammer.cloud.service;
 
-// import com.theokanning.openai.completion.chat.ChatCompletionRequest;
-// import com.theokanning.openai.completion.chat.ChatMessage;
-// import com.theokanning.openai.service.OpenAiService;
-// import org.slf4j.Logger;
-// import org.slf4j.LoggerFactory;
-// import org.springframework.beans.factory.annotation.Value;
-// import org.springframework.stereotype.Service;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.*;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
 
-// import java.time.Duration;
-// import java.util.List;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
-// @Service
-// public class AiAdvisorService {
+@Service
+public class AiAdvisorService {
 
-//     private static final Logger logger = LoggerFactory.getLogger(AiAdvisorService.class);
+    private static final Logger logger = LoggerFactory.getLogger(AiAdvisorService.class);
+    private static final String GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 
-//     private final OpenAiService openAiService;
+    private final String apiKey;
+    private final RestTemplate restTemplate;
+    private final ObjectMapper objectMapper;
 
-//     public AiAdvisorService(@Value("${openai.api.key}") String apiKey) {
-//         this.openAiService = new OpenAiService(apiKey, Duration.ofSeconds(60));
-//     }
+    public AiAdvisorService(@Value("${groq.api.key}") String apiKey) {
+        this.apiKey = apiKey;
+        this.restTemplate = new RestTemplate();
+        this.objectMapper = new ObjectMapper();
+        logger.info("✅ AI Advisor Service initialized with Groq API");
+    }
 
-//     public String getRightsizingRecommendations(Object rightsizingData) {
-//         String prompt = "As an expert AWS FinOps consultant, analyze the following JSON data for a single underutilized resource. Provide a detailed, actionable rightsizing recommendation. Explain the Current vs. Recommended types, the potential savings, and the specific metrics (like CPU utilization) that justify this change. Format your response in clear, easy-to-read markdown.\n\n" + rightsizingData.toString();
-//         return getAiResponse(prompt);
-//     }
+    public String getRightsizingRecommendations(Object rightsizingData) {
+        String prompt = "Analyze this AWS resource and provide a BRIEF recommendation (max 150 words):\n\n" +
+                rightsizingData.toString() + "\n\n" +
+                "Format:\n" +
+                "💡 **Quick Summary**: [1 sentence]\n" +
+                "💰 **Savings**: [Amount and %]\n" +
+                "⚡ **Action**: [2-3 bullet points only]\n" +
+                "⚠️ **Risk**: [1 sentence]";
+        return getAiResponse(prompt);
+    }
 
-//     public String getSecurityRecommendations(Object securityData) {
-//         String prompt = "As an expert AWS Security consultant, analyze the following JSON data for a single security finding. Provide a detailed, step-by-step remediation guide to fix this specific issue. Include CLI commands or console steps where applicable. Explain the risk and the compliance impact. Format your response in clear, easy-to-read markdown.\n\n" + securityData.toString();
-//         return getAiResponse(prompt);
-//     }
+    public String getSecurityRecommendations(Object securityData) {
+        String prompt = "Analyze this security finding and provide a BRIEF fix (max 150 words):\n\n" +
+                securityData.toString() + "\n\n" +
+                "Format:\n" +
+                "🔒 **Issue**: [1 sentence]\n" +
+                "🚨 **Risk Level**: [Critical/High/Medium/Low]\n" +
+                "✅ **Quick Fix**: [2-3 steps only]\n" +
+                "📋 **Command**: [1 AWS CLI command if applicable]";
+        return getAiResponse(prompt);
+    }
 
-//     private String getAiResponse(String prompt) {
-//         try {
-//             logger.info("Sending prompt to OpenAI API...");
-//             logger.debug("AI Prompt: {}", prompt); // Detailed logging of the prompt
+    private String getAiResponse(String prompt) {
+        try {
+            logger.info("📤 Sending request to Groq AI...");
 
-//             ChatCompletionRequest completionRequest = ChatCompletionRequest.builder()
-//                     .model("gpt-3.5-turbo")
-//                     .messages(List.of(new ChatMessage("user", prompt)))
-//                     .build();
+            Map<String, Object> requestBody = new HashMap<>();
+            requestBody.put("model", "llama-3.1-8b-instant");
+            requestBody.put("messages", List.of(
+                    Map.of("role", "system", "content", "You are a concise AWS expert. Keep responses under 150 words. Use emojis and bullet points. Be direct and actionable."),
+                    Map.of("role", "user", "content", prompt)
+            ));
+            requestBody.put("temperature", 0.5);
+            requestBody.put("max_tokens", 300); // Reduced from 2000
 
-//             String response = openAiService.createChatCompletion(completionRequest)
-//                     .getChoices().get(0).getMessage().getContent();
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.setBearerAuth(apiKey);
 
-//             logger.info("Successfully received response from OpenAI.");
-//             logger.debug("AI Response: {}", response); // Detailed logging of the response
-//             return response;
+            HttpEntity<Map<String, Object>> request = new HttpEntity<>(requestBody, headers);
 
-//         } catch (Exception e) {
-//             logger.error("Error calling OpenAI API", e);
-//             return "Error: Could not get AI recommendations at this time. Please check the application logs for more details.";
-//         }
-//
+            ResponseEntity<String> response = restTemplate.exchange(
+                    GROQ_API_URL,
+                    HttpMethod.POST,
+                    request,
+                    String.class
+            );
+
+            JsonNode jsonResponse = objectMapper.readTree(response.getBody());
+            String aiResponse = jsonResponse.get("choices")
+                    .get(0)
+                    .get("message")
+                    .get("content")
+                    .asText();
+
+            logger.info("✅ Successfully received AI response");
+            return aiResponse;
+
+        } catch (Exception e) {
+            logger.error("❌ Error calling Groq AI: {}", e.getMessage());
+            return "⚠️ **Error**: Could not get AI recommendation.\n\nPlease check your API key and network connection.";
+        }
+    }
+}
