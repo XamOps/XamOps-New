@@ -638,27 +638,66 @@
             },
 
             getServiceIcon(serviceType) {
-                const iconMap = {
-                    'Compute Engine': 'gcp-compute-engine.png',
-                    'Cloud Storage': 'gcp-cloud-storage.png',
-                    'VPC Network': 'gcp-vpc.png',
-                    'Cloud SQL': 'gcp-cloud-sql.png',
-                    'Kubernetes Engine': 'gcp-gke.png',
-                    'Cloud DNS': 'gcp-cloud-dns.png',
-                    'Cloud IAM': 'gcp-iam.png',
-                    'Load Balancer': 'gcp-load-balancer.png',
-                    'Cloud Run': 'gcp-cloud-run.png',
-                    'Cloud Functions': 'gcp-cloud-functions.png',
-                    'Firewall Rule': 'gcp-firewall.png',
-                    'Cloud NAT': 'gcp-nat.png',
-                    'Artifact Registry': 'gcp-artifact-registry.png',
-                    'Cloud KMS': 'gcp-kms.png',
-                    'Cloud Build': 'gcp-cloud-build.png',
-                    'Secret Manager': 'gcp-secret-manager.png',
-                    'Cloud Armor': 'gcp-cloud-armor.png'
-                };
-                return iconMap[serviceType] || 'gcp-icon.png';
-            },
+    const iconMap = {
+        // Core Compute
+        'Compute Engine': 'gcp-compute-engine.png',
+        'Cloud Run': 'gcp-cloud-run.png',
+        'Cloud Functions': 'gcp-cloud-functions.png',
+        'Kubernetes Engine': 'gcp-gke.png',
+        'App Engine': 'gcp-app-engine.png',
+
+        // Storage
+        'Cloud Storage': 'gcp-cloud-storage.png',
+        'Cloud SQL': 'gcp-cloud-sql.png',
+
+        // Networking
+        'VPC Network': 'gcp-vpc.png',
+        'Cloud DNS': 'gcp-cloud-dns.png',
+        'Load Balancer': 'gcp-load-balancer.png',
+        'Firewall Rule': 'gcp-firewall.png',
+        'Cloud NAT': 'gcp-nat.png',
+
+        // Security & Identity
+        'Cloud IAM': 'gcp-iam.png',
+        'Cloud KMS': 'gcp-kms.png',
+        'Secret Manager': 'gcp-secret-manager.png',
+        'Cloud Armor': 'gcp-cloud-armor.png',
+
+        // DevOps & CI/CD
+        'Artifact Registry': 'gcp-artifact-registry.png',
+        'Cloud Build': 'gcp-cloud-build.png',
+
+        // Data & Analytics
+        'BigQuery Dataset': 'gcp-bigquery.png',
+        'Pub/Sub Topic': 'gcp-pubsub.png',
+        'Pub/Sub Subscription': 'gcp-pubsub.png',
+        'Dataflow Job': 'gcp-dataflow.png',
+        'Dataproc Cluster': 'gcp-dataproc.png',
+        'Dataplex': 'gcp-dataplex.png',
+
+        // Operations & Monitoring
+        'Logging Bucket': 'gcp-logging.png',
+        'Monitoring Alert': 'gcp-monitoring.png',
+        'Cloud Scheduler': 'gcp-cloud-scheduler.png',
+        'Uptime Check': 'gcp-monitoring.png',
+
+        // AI/ML
+        'Vertex AI Endpoint': 'gcp-vertex-ai.png',
+        'Vertex AI Model': 'gcp-vertex-ai.png',
+
+        // API Management
+        'API Gateway': 'gcp-api-gateway.png',
+
+        // Other Services
+        'BigQuery Reservation': 'gcp-bigquery.png',
+        'Cloud Dataproc': 'gcp-dataproc.png',
+        'OS Config': 'gcp-compute-engine.png',
+    };
+
+    // Return icon path if found, otherwise return default GCP icon
+    return iconMap[serviceType] || 'gcp-icon.png';
+}
+,
         };
 
         app.init();
