@@ -1145,27 +1145,32 @@ populateKpiCards(account) {
         },
 
         renderHighchartMap(regionStatus) {
-            if (!regionStatus || !document.getElementById('highcharts-map-container')) return;
+    if (!regionStatus || !document.getElementById('highcharts-map-container')) return;
 
-            const statusColors = {
-                'ACTIVE': '#3b82f6',
-                'SEMI_ACTIVE': '#ef4444',
-                'SUSTAINABLE': '#22c55e',
-                'NON_ACTIVE': '#6b7280'
-            };
+    const statusColors = {
+        'ACTIVE': '#3b82f6',
+        'SEMI_ACTIVE': '#ef4444',
+        'SUSTAINABLE': '#22c55e',
+        'NON_ACTIVE': '#6b7280'
+    };
 
-            const regionPoints = regionStatus.map(r => ({
-                name: `${r.regionId}`,
-                fullName: `${r.regionId} (${r.status})`,
-                lat: r.latitude,
-                lon: r.longitude,
-                color: statusColors[r.status] || '#6b7280',
-                id: r.regionId,
-                status: r.status
-            }));
+    const regionPoints = regionStatus.map(r => ({
+        name: `${r.regionId}`,
+        fullName: `${r.regionId} (${r.status})`,
+        lat: r.latitude,
+        lon: r.longitude,
+        color: statusColors[r.status] || '#6b7280',
+        id: r.regionId,
+        status: r.status
+    }));
 
+    // ✅ FIX: Fetch world map topology data dynamically
+    fetch('https://code.highcharts.com/mapdata/custom/world.topo.json')
+        .then(response => response.json())
+        .then(worldMap => {
             Highcharts.mapChart('highcharts-map-container', {
                 chart: {
+                    map: worldMap,  // ✅ Use loaded world map
                     backgroundColor: 'transparent',
                     style: {
                         fontFamily: 'Inter, sans-serif'
@@ -1181,7 +1186,8 @@ populateKpiCards(account) {
                         theme: {
                             'stroke-width': 1,
                             stroke: '#4f46e5',
-                            r: 4
+                            r: 4,
+                            fill: 'white'
                         }
                     }
                 },
@@ -1208,19 +1214,27 @@ populateKpiCards(account) {
                 },
                 series: [
                     {
-                        mapData: Highcharts.maps['custom/world'],
+                        // ✅ World map background
+                        type: 'map',
                         name: 'World',
+                        mapData: worldMap,  // ✅ Explicitly pass map data
                         color: '#f1f5f9',
-                        nullColor: '#e5e7eb',
+                        nullColor: '#e5e7eb',  // ✅ Color for countries without data
+                        enableMouseTracking: false,
                         states: {
                             hover: {
-                                color: '#e2e8f0'
+                                color: '#e2e8f0',
+                                brightness: 0.05
                             }
                         },
                         borderColor: '#cbd5e1',
-                        borderWidth: 0.5
+                        borderWidth: 0.5,
+                        dataLabels: {
+                            enabled: false
+                        }
                     },
                     {
+                        // ✅ GCP region markers
                         type: 'mappoint',
                         name: 'GCP Regions',
                         data: regionPoints,
@@ -1228,10 +1242,14 @@ populateKpiCards(account) {
                             lineWidth: 2,
                             lineColor: '#ffffff',
                             radius: 8,
+                            symbol: 'circle',
                             states: {
                                 hover: {
                                     lineWidth: 3,
-                                    radius: 12
+                                    radius: 12,
+                                    animation: {
+                                        duration: 200
+                                    }
                                 }
                             }
                         },
@@ -1240,15 +1258,25 @@ populateKpiCards(account) {
                             enabled: true,
                             format: '{point.name}',
                             style: {
+                                color: '#1f2937',
                                 fontSize: '10px',
                                 fontWeight: 'bold',
                                 textOutline: '2px white'
-                            }
+                            },
+                            y: -15
                         }
                     }
                 ]
             });
-        },
+        })
+        .catch(error => {
+            console.error('Failed to load world map data:', error);
+            document.getElementById('highcharts-map-container').innerHTML =
+                '<div class="flex items-center justify-center h-full text-red-600">' +
+                '<i class="fas fa-exclamation-triangle mr-2"></i>' +
+                'Failed to load world map</div>';
+        });
+},
 
         hexToRgba(hex, alpha) {
             const r = parseInt(hex.slice(1, 3), 16);
