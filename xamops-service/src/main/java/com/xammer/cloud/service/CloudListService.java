@@ -6,20 +6,34 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.ResourceDto;
+import com.xammer.cloud.dto.ServicePaginatedResponse;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.services.acm.AcmClient;
 import software.amazon.awssdk.services.amplify.AmplifyClient;
+import software.amazon.awssdk.services.apigateway.ApiGatewayClient;
+import software.amazon.awssdk.services.apigateway.model.GetRestApisRequest;
 import software.amazon.awssdk.services.athena.AthenaClient;
 import software.amazon.awssdk.services.athena.model.ListWorkGroupsRequest;
 import software.amazon.awssdk.services.autoscaling.AutoScalingClient;
 import software.amazon.awssdk.services.bedrock.BedrockClient;
+import software.amazon.awssdk.services.bedrock.model.ListProvisionedModelThroughputsRequest;
+import software.amazon.awssdk.services.codebuild.CodeBuildClient;
+import software.amazon.awssdk.services.codebuild.model.ListProjectsRequest;
+import software.amazon.awssdk.services.codecommit.CodeCommitClient;
+import software.amazon.awssdk.services.codecommit.model.ListRepositoriesRequest;
+import software.amazon.awssdk.services.codepipeline.CodePipelineClient;
+import software.amazon.awssdk.services.codepipeline.model.ListPipelinesRequest;
 import software.amazon.awssdk.services.cloudfront.CloudFrontClient;
 import software.amazon.awssdk.services.cloudfront.model.ListDistributionsRequest;
 import software.amazon.awssdk.services.cloudtrail.CloudTrailClient;
@@ -28,6 +42,9 @@ import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityPr
 import software.amazon.awssdk.services.cognitoidentityprovider.model.ListUserPoolsRequest;
 import software.amazon.awssdk.services.config.ConfigClient;
 import software.amazon.awssdk.services.config.model.DescribeConfigRulesRequest;
+import software.amazon.awssdk.services.controltower.ControlTowerClient;
+import software.amazon.awssdk.services.datazone.DataZoneClient;
+import software.amazon.awssdk.services.datazone.model.ListDomainsRequest;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ec2.model.GroupIdentifier;
@@ -38,10 +55,16 @@ import software.amazon.awssdk.services.ecs.EcsClient;
 import software.amazon.awssdk.services.efs.EfsClient;
 import software.amazon.awssdk.services.efs.model.DescribeFileSystemsRequest;
 import software.amazon.awssdk.services.eks.EksClient;
+import software.amazon.awssdk.services.elasticbeanstalk.ElasticBeanstalkClient;
+import software.amazon.awssdk.services.elasticbeanstalk.model.DescribeEnvironmentsRequest;
 import software.amazon.awssdk.services.elasticache.ElastiCacheClient;
 import software.amazon.awssdk.services.elasticloadbalancingv2.ElasticLoadBalancingV2Client;
+import software.amazon.awssdk.services.eventbridge.EventBridgeClient;
+import software.amazon.awssdk.services.eventbridge.model.ListEventBusesRequest;
 import software.amazon.awssdk.services.glue.GlueClient;
 import software.amazon.awssdk.services.glue.model.GetDatabasesRequest;
+import software.amazon.awssdk.services.kinesis.KinesisClient;
+import software.amazon.awssdk.services.kinesis.model.ListStreamsRequest;
 import software.amazon.awssdk.services.kms.KmsClient;
 import software.amazon.awssdk.services.kms.model.ListKeysRequest;
 import software.amazon.awssdk.services.lambda.LambdaClient;
@@ -66,33 +89,6 @@ import software.amazon.awssdk.services.ssm.SsmClient;
 import software.amazon.awssdk.services.ssm.model.DescribeInstanceInformationRequest;
 import software.amazon.awssdk.services.wafv2.Wafv2Client;
 import software.amazon.awssdk.services.wafv2.model.ListWebAcLsRequest;
-import software.amazon.awssdk.services.bedrock.model.ListProvisionedModelThroughputsRequest;
-import software.amazon.awssdk.services.datazone.DataZoneClient;
-import software.amazon.awssdk.services.datazone.model.ListDomainsRequest;
-import software.amazon.awssdk.services.textract.TextractClient;
-import software.amazon.awssdk.services.textract.model.*;
-import software.amazon.awssdk.services.eventbridge.EventBridgeClient;
-import software.amazon.awssdk.services.eventbridge.model.ListEventBusesRequest;
-import software.amazon.awssdk.services.kinesis.KinesisClient;
-import software.amazon.awssdk.services.kinesis.model.ListStreamsRequest;
-import software.amazon.awssdk.services.codepipeline.CodePipelineClient;
-import software.amazon.awssdk.services.codepipeline.model.ListPipelinesRequest;
-import software.amazon.awssdk.services.codebuild.CodeBuildClient;
-import software.amazon.awssdk.services.codebuild.model.ListProjectsRequest;
-import software.amazon.awssdk.services.codecommit.CodeCommitClient;
-import software.amazon.awssdk.services.codecommit.model.ListRepositoriesRequest;
-import software.amazon.awssdk.services.shield.ShieldClient;
-import software.amazon.awssdk.services.shield.model.ListProtectionsRequest;
-import software.amazon.awssdk.services.organizations.OrganizationsClient;
-import software.amazon.awssdk.services.organizations.model.ListAccountsRequest;
-import software.amazon.awssdk.services.controltower.ControlTowerClient;
-import software.amazon.awssdk.services.controltower.model.ListEnabledControlsRequest;
-import software.amazon.awssdk.services.elasticbeanstalk.ElasticBeanstalkClient;
-import software.amazon.awssdk.services.elasticbeanstalk.model.DescribeEnvironmentsRequest;
-import software.amazon.awssdk.services.apigateway.ApiGatewayClient;
-import software.amazon.awssdk.services.apigateway.model.GetRestApisRequest;
-import software.amazon.awssdk.services.codebuild.model.ListProjectsRequest;
-
 
 import java.io.IOException;
 import java.net.URL;
@@ -114,25 +110,22 @@ public class CloudListService {
     public final AwsClientProvider awsClientProvider;
     private final Map<String, double[]> regionCoordinates = new HashMap<>();
     private static final Set<String> SUSTAINABLE_REGIONS = Set.of("eu-west-1", "eu-north-1", "ca-central-1", "us-west-2");
-    // Define a set of valid Lightsail regions
     private static final Set<String> LIGHTSAIL_REGIONS = Set.of(
             "us-east-1", "us-east-2", "us-west-2", "ap-south-1", "ap-northeast-1",
             "ap-northeast-2", "ap-southeast-1", "ap-southeast-2", "ca-central-1",
             "eu-central-1", "eu-west-1", "eu-west-2", "eu-west-3", "eu-north-1"
     );
-
     private static final Set<String> PINPOINT_REGIONS = Set.of(
             "us-east-1", "us-east-2", "us-west-2", "ap-south-1", "ap-northeast-1",
             "ap-northeast-2", "ap-southeast-1", "ap-southeast-2", "ca-central-1",
             "eu-central-1", "eu-west-1", "eu-west-2"
     );
 
-
     @Autowired
     private RedisCacheService redisCache;
 
     @Autowired
-    private EksService eksService;
+    private SimpMessagingTemplate messagingTemplate;
 
     @Autowired
     public CloudListService(
@@ -146,14 +139,12 @@ public class CloudListService {
     }
 
     CloudAccount getAccount(String accountId) {
-        // MODIFIED: Handle list of accounts to prevent crash
         List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
         if (accounts.isEmpty()) {
             throw new RuntimeException("Account not found in database: " + accountId);
         }
-        return accounts.get(0); // Return the first one found
+        return accounts.get(0);
     }
-
 
     private void loadRegionCoordinates() {
         ObjectMapper mapper = new ObjectMapper();
@@ -176,6 +167,125 @@ public class CloudListService {
         } catch (IOException e) {
             logger.error("Failed to load region coordinates from external source. Map data will be unavailable.", e);
         }
+    }
+
+    @Async("awsTaskExecutor")
+    public void triggerGetResourcesAsync(List<String> accountIds) {
+        if (accountIds == null || accountIds.isEmpty()) {
+            logger.warn("triggerGetResourcesAsync called with no account IDs.");
+            return;
+        }
+        String accountIdToUse = accountIds.get(0);
+        logger.info("Triggering asynchronous resource refresh for account: {}", accountIdToUse);
+
+        getAllResourcesGrouped(accountIdToUse, true)
+                .whenComplete((result, ex) -> {
+                    if (ex != null) {
+                        logger.error("Asynchronous resource refresh failed for account {}", accountIdToUse, ex);
+                        messagingTemplate.convertAndSend("/topic/cloudlist-refresh", Map.of("status", "refresh-failed", "accountId", accountIdToUse));
+                    } else {
+                        logger.info("Asynchronous resource refresh completed successfully for account {}", accountIdToUse);
+                        messagingTemplate.convertAndSend("/topic/cloudlist-refresh", Map.of("status", "refresh-complete", "accountId", accountIdToUse));
+                    }
+                });
+    }
+
+
+
+    /**
+ * NEW METHOD: Get services with pagination - returns 5 services at a time with all their resources
+ * Services are sorted alphabetically before pagination
+ */
+@Async("awsTaskExecutor")
+public CompletableFuture<ServicePaginatedResponse> getAllServicesGroupedPaginated(
+        String accountId,
+        int page,
+        int servicesPerPage,
+        boolean forceRefresh) {
+
+    logger.info("Fetching paginated services for account: {}, page: {}, servicesPerPage: {}",
+                accountId, page, servicesPerPage);
+
+    // First get all grouped services (this will use cache if available)
+    return getAllResourcesGrouped(accountId, forceRefresh).thenApply(allServiceGroups -> {
+
+        // Sort services alphabetically by service type
+        List<DashboardData.ServiceGroupDto> sortedServices = allServiceGroups.stream()
+                .sorted(Comparator.comparing(DashboardData.ServiceGroupDto::getServiceType))
+                .collect(Collectors.toList());
+
+        int totalServices = sortedServices.size();
+        int totalPages = (int) Math.ceil((double) totalServices / servicesPerPage);
+
+        // Validate page number
+        int pageNumber = page;
+        if (pageNumber < 0) {
+            pageNumber = 0;
+        }
+        if (pageNumber >= totalPages && totalPages > 0) {
+            pageNumber = totalPages - 1;
+        }
+
+        // Calculate pagination bounds
+        int startIndex = pageNumber * servicesPerPage;
+        int endIndex = Math.min(startIndex + servicesPerPage, totalServices);
+
+        // Get the services for this page
+        List<DashboardData.ServiceGroupDto> pageServices;
+        if (startIndex >= totalServices) {
+            pageServices = Collections.emptyList();
+        } else {
+            pageServices = sortedServices.subList(startIndex, endIndex);
+        }
+
+        // Convert DashboardData.ServiceGroupDto to ServicePaginatedResponse.ServiceGroupDto
+        List<ServicePaginatedResponse.ServiceGroupDto> responseServices = pageServices.stream()
+                .map(sg -> new ServicePaginatedResponse.ServiceGroupDto(
+                        sg.getServiceType(),
+                        sg.getResources()))
+                .collect(Collectors.toList());
+
+        // Build response
+        ServicePaginatedResponse response = new ServicePaginatedResponse(
+                responseServices,
+                pageNumber,
+                totalServices,
+                totalPages,
+                servicesPerPage,
+                pageNumber < totalPages - 1,  // hasNext
+                pageNumber > 0                 // hasPrevious
+        );
+
+        logger.info("Returning page {} of {} (services {}-{} of {})",
+                    pageNumber, totalPages, startIndex + 1, endIndex, totalServices);
+
+        return response;
+    });
+}
+
+
+/**
+     * **NEW PAGINATION METHOD**
+     * Fetches all resources and then applies pagination to the final list.
+     */
+    @Async("awsTaskExecutor")
+    public CompletableFuture<Page<ResourceDto>> getAllResourcesPaginated(CloudAccount account, boolean forceRefresh, int page, int size) {
+        return getAllResources(account, forceRefresh).thenApply(allResources -> {
+            PageRequest pageRequest = PageRequest.of(page, size);
+            int start = (int) pageRequest.getOffset();
+            int end = Math.min((start + pageRequest.getPageSize()), allResources.size());
+
+            List<ResourceDto> pageContent = (start > allResources.size())
+                    ? Collections.emptyList()
+                    : allResources.subList(start, end);
+
+            return (Page<ResourceDto>) new PageImpl<>(pageContent, pageRequest, allResources.size());
+
+        }).exceptionally(ex -> {
+            logger.error("Failed to fetch paginated resources for account {}", account.getAwsAccountId(), ex);
+            // **THE FIX: Return a correctly typed empty Page on failure**
+            return new PageImpl<ResourceDto>(Collections.emptyList(), PageRequest.of(page, size), 0);
+        });
     }
 
 
@@ -257,9 +367,6 @@ public class CloudListService {
                     fetchElasticIpsForCloudlist(account, activeRegions),
                     fetchApiGatewaysForCloudlist(account, activeRegions),
                     fetchElasticBeanstalkEnvironmentsForCloudlist(account, activeRegions),
-                    //fetchControlTowerControlsForCloudlist(account, activeRegions),
-                    //fetchOrganizationAccountsForCloudlist(account),
-                    //fetchShieldProtectionsForCloudlist(account),
                     fetchCodeCommitRepositoriesForCloudlist(account, activeRegions),
                     fetchCodeBuildProjectsForCloudlist(account, activeRegions),
                     fetchCodePipelinesForCloudlist(account, activeRegions),
@@ -267,22 +374,17 @@ public class CloudListService {
                     fetchEventBridgeBusesForCloudlist(account, activeRegions)
             ));
 
-            // ** THE FIX: Create a list of "safe" futures that won't fail the entire operation **
             List<CompletableFuture<List<ResourceDto>>> safeResourceFutures = resourceFutures.stream()
                     .map(future -> future.exceptionally(ex -> {
-                        // Log the specific error for debugging, but don't stop the process
                         logger.error("A CloudList sub-task failed for account {}: {}", account.getAwsAccountId(), ex.getMessage());
-                        // Return an empty list for the failed service
                         return Collections.emptyList();
                     }))
                     .collect(Collectors.toList());
 
-            // Now, wait for all the "safe" futures to complete
             return CompletableFuture.allOf(safeResourceFutures.toArray(new CompletableFuture[0]))
                     .thenApply(v -> {
-                        // Collect the results from all futures (successful ones will have data, failed ones will have an empty list)
                         List<ResourceDto> allResources = safeResourceFutures.stream()
-                                .map(CompletableFuture::join) // .join() is safe here because we've handled exceptions
+                                .map(CompletableFuture::join)
                                 .flatMap(Collection::stream)
                                 .collect(Collectors.toList());
 
@@ -470,7 +572,7 @@ public class CloudListService {
                                 "VPC",
                                 regionId,
                                 v.stateAsString(),
-                                null, // VPCs don't have a creation timestamp directly available
+                                null,
                                 details
                         );
                     })
@@ -662,7 +764,6 @@ public class CloudListService {
 
     private CompletableFuture<List<ResourceDto>> fetchLightsailInstancesForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
-            // Add a check to ensure we only query valid Lightsail regions
             if (!LIGHTSAIL_REGIONS.contains(regionId)) {
                 return Collections.emptyList();
             }
@@ -741,7 +842,7 @@ public class CloudListService {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
             AthenaClient client = awsClientProvider.getAthenaClient(account, regionId);
             return client.listWorkGroups(ListWorkGroupsRequest.builder().build()).workGroups().stream()
-                    .filter(wg -> !wg.name().equals("primary")) // This will filter out the default workgroup
+                    .filter(wg -> !wg.name().equals("primary"))
                     .map(wg -> new ResourceDto(wg.name(), wg.name(), "Amazon Athena", regionId, wg.stateAsString(), null, Collections.emptyMap()))
                     .collect(Collectors.toList());
         }, "Amazon Athena");
@@ -780,29 +881,29 @@ public class CloudListService {
     }
 
     private CompletableFuture<List<ResourceDto>> fetchBedrockModelsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
-        return fetchAllRegionalResources(account, activeRegions, regionId -> {
-            try {
-                BedrockClient client = awsClientProvider.getBedrockClient(account, regionId);
+    return fetchAllRegionalResources(account, activeRegions, regionId -> {
+        try {
+            BedrockClient client = awsClientProvider.getBedrockClient(account, regionId);
 
-                // This is the correct and final implementation
-                return client.listProvisionedModelThroughputs(ListProvisionedModelThroughputsRequest.builder().build())
-                        .provisionedModelSummaries().stream() // The method is provisionedModelSummaries()
-                        .map(model -> new ResourceDto(
-                                model.provisionedModelArn(),      // Correct method: provisionedModelArn()
-                                model.provisionedModelName(),     // Correct method: provisionedModelName()
-                                "Bedrock Provisioned Model",
-                                regionId,
-                                model.statusAsString(),           // Correct method: statusAsString()
-                                model.creationTime(),             // Correct method: creationTime()
-                                Collections.emptyMap()
-                        ))
-                        .collect(Collectors.toList());
-            } catch (Exception e) {
-                logger.warn("Could not fetch Bedrock provisioned models in region {}: {}. This may be a permissions issue or the service may not be enabled.", regionId, e.getMessage());
-                return Collections.emptyList();
-            }
-        }, "Bedrock");
-    }
+            // This is the correct and final implementation
+            return client.listProvisionedModelThroughputs(ListProvisionedModelThroughputsRequest.builder().build())
+                    .provisionedModelSummaries().stream() // The method is provisionedModelSummaries()
+                    .map(model -> new ResourceDto(
+                            model.provisionedModelArn(),      // Correct method: provisionedModelArn()
+                            model.provisionedModelName(),     // Correct method: provisionedModelName()
+                            "Bedrock Provisioned Model",
+                            regionId,
+                            model.statusAsString(),           // Correct method: statusAsString()
+                            model.creationTime(),             // Correct method: creationTime()
+                            Collections.emptyMap()
+                    ))
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            logger.warn("Could not fetch Bedrock provisioned models in region {}: {}. This may be a permissions issue or the service may not be enabled.", regionId, e.getMessage(), e);
+            return Collections.emptyList();
+        }
+    }, "Bedrock");
+}
     private CompletableFuture<List<ResourceDto>> fetchSageMakerNotebooksForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
             SageMakerClient client = awsClientProvider.getSageMakerClient(account, regionId);
@@ -926,22 +1027,18 @@ public class CloudListService {
             Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
             return ec2.describeNetworkInterfaces().networkInterfaces().stream()
                     .map(eni -> {
-                        // ** FIX: Safely handle null availabilityZone by falling back to the regionId **
                         String location = eni.availabilityZone() != null ? eni.availabilityZone() : regionId;
-
-                        // ** FIX: Safely handle detached ENIs **
                         String attachedTo = "Detached";
                         if (eni.attachment() != null && eni.attachment().instanceId() != null) {
                             attachedTo = eni.attachment().instanceId();
                         }
-
                         return new ResourceDto(
                                 eni.networkInterfaceId(),
                                 getTagName(eni.tagSet(), eni.networkInterfaceId()),
                                 "Network Interface (ENI)",
-                                location, // Use the safe location variable
+                                location,
                                 eni.statusAsString(),
-                                null, // ENIs don't have a creation timestamp
+                                null,
                                 Map.of(
                                         "Subnet ID", eni.subnetId() != null ? eni.subnetId() : "N/A",
                                         "VPC ID", eni.vpcId() != null ? eni.vpcId() : "N/A",
@@ -954,7 +1051,6 @@ public class CloudListService {
         }, "Network Interfaces");
     }
 
-    // Add this method
     private CompletableFuture<List<ResourceDto>> fetchElasticIpsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
             Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
@@ -965,7 +1061,7 @@ public class CloudListService {
                             "Elastic IP",
                             regionId,
                             eip.associationId() != null ? "Associated" : "Unassociated",
-                            null, // Elastic IPs don't have a creation timestamp
+                            null,
                             Map.of(
                                     "Public IP", eip.publicIp(),
                                     "Private IP", eip.privateIpAddress() != null ? eip.privateIpAddress() : "N/A",
@@ -1009,7 +1105,59 @@ public class CloudListService {
         }, "Elastic Beanstalk Environments");
     }
 
-//    private CompletableFuture<List<ResourceDto>> fetchControlTowerControlsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+    private CompletableFuture<List<ResourceDto>> fetchCodeCommitRepositoriesForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            CodeCommitClient codeCommitClient = awsClientProvider.getCodeCommitClient(account, regionId);
+            return codeCommitClient.listRepositories(ListRepositoriesRequest.builder().build()).repositories().stream()
+                    .map(repo -> new ResourceDto(
+                            repo.repositoryId(),
+                            repo.repositoryName(),
+                            "CodeCommit Repository",
+                            regionId,
+                            "Available",
+                            null,
+                            Collections.emptyMap()
+                    ))
+                    .collect(Collectors.toList());
+        }, "CodeCommit Repositories");
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchCodeBuildProjectsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            CodeBuildClient codeBuildClient = awsClientProvider.getCodeBuildClient(account, regionId);
+            return codeBuildClient.listProjects(ListProjectsRequest.builder().build()).projects().stream()
+                    .map(projectName -> new ResourceDto(
+                            projectName,
+                            projectName,
+                            "CodeBuild Project",
+                            regionId,
+                            "Available",
+                            null,
+                            Collections.emptyMap()
+                    ))
+                    .collect(Collectors.toList());
+        }, "CodeBuild Projects");
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchCodePipelinesForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            CodePipelineClient codePipelineClient = awsClientProvider.getCodePipelineClient(account, regionId);
+            return codePipelineClient.listPipelines(ListPipelinesRequest.builder().build()).pipelines().stream()
+                    .map(pipeline -> new ResourceDto(
+                            pipeline.name(),
+                            pipeline.name(),
+                            "CodePipeline",
+                            regionId,
+                            "Active",
+                            pipeline.created(),
+                            Collections.emptyMap()
+                    ))
+                    .collect(Collectors.toList());
+        }, "CodePipelines");
+    }
+
+
+    //    private CompletableFuture<List<ResourceDto>> fetchControlTowerControlsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
 //        return fetchAllRegionalResources(account, activeRegions, regionId -> {
 //            try {
 //                ControlTowerClient ctClient = awsClientProvider.getControlTowerClient(account, regionId);
@@ -1081,57 +1229,6 @@ public class CloudListService {
 //        });
 //    }
 
-    private CompletableFuture<List<ResourceDto>> fetchCodeCommitRepositoriesForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
-        return fetchAllRegionalResources(account, activeRegions, regionId -> {
-            CodeCommitClient codeCommitClient = awsClientProvider.getCodeCommitClient(account, regionId);
-            return codeCommitClient.listRepositories(ListRepositoriesRequest.builder().build()).repositories().stream()
-                    .map(repo -> new ResourceDto(
-                            repo.repositoryId(),
-                            repo.repositoryName(),
-                            "CodeCommit Repository",
-                            regionId,
-                            "Available",
-                            null, // No creation date in summary
-                            Collections.emptyMap()
-                    ))
-                    .collect(Collectors.toList());
-        }, "CodeCommit Repositories");
-    }
-
-    private CompletableFuture<List<ResourceDto>> fetchCodeBuildProjectsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
-        return fetchAllRegionalResources(account, activeRegions, regionId -> {
-            CodeBuildClient codeBuildClient = awsClientProvider.getCodeBuildClient(account, regionId);
-            return codeBuildClient.listProjects(ListProjectsRequest.builder().build()).projects().stream()
-                    .map(projectName -> new ResourceDto(
-                            projectName,
-                            projectName,
-                            "CodeBuild Project",
-                            regionId,
-                            "Available",
-                            null,
-                            Collections.emptyMap()
-                    ))
-                    .collect(Collectors.toList());
-        }, "CodeBuild Projects");
-    }
-
-    private CompletableFuture<List<ResourceDto>> fetchCodePipelinesForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
-        return fetchAllRegionalResources(account, activeRegions, regionId -> {
-            CodePipelineClient codePipelineClient = awsClientProvider.getCodePipelineClient(account, regionId);
-            return codePipelineClient.listPipelines(ListPipelinesRequest.builder().build()).pipelines().stream()
-                    .map(pipeline -> new ResourceDto(
-                            pipeline.name(),
-                            pipeline.name(),
-                            "CodePipeline",
-                            regionId,
-                            "Active",
-                            pipeline.created(),
-                            Collections.emptyMap()
-                    ))
-                    .collect(Collectors.toList());
-        }, "CodePipelines");
-    }
-
     private CompletableFuture<List<ResourceDto>> fetchKinesisStreamsForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
             KinesisClient kinesisClient = awsClientProvider.getKinesisClient(account, regionId);
@@ -1148,6 +1245,8 @@ public class CloudListService {
                     .collect(Collectors.toList());
         }, "Kinesis Streams");
     }
+
+
 
     private CompletableFuture<List<ResourceDto>> fetchEventBridgeBusesForCloudlist(CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
@@ -1181,6 +1280,4 @@ public class CloudListService {
                     .collect(Collectors.toList());
         }, "DataZone Domains");
     }
-
 }
-
