@@ -25,11 +25,15 @@ public class RightsizingController {
     private final OptimizationService optimizationService;
     private final XamOpsRightsizingService xamOpsRightsizingService;
 
-    public RightsizingController(OptimizationService optimizationService, XamOpsRightsizingService xamOpsRightsizingService) {
+    public RightsizingController(OptimizationService optimizationService,
+                                 XamOpsRightsizingService xamOpsRightsizingService) {
         this.optimizationService = optimizationService;
         this.xamOpsRightsizingService = xamOpsRightsizingService;
     }
 
+    /**
+     * Get AWS native rightsizing recommendations
+     */
     @GetMapping("/recommendations")
     public CompletableFuture<ResponseEntity<List<DashboardData.OptimizationRecommendation>>> getRecommendations(
             @RequestParam String accountId,
@@ -43,10 +47,21 @@ public class RightsizingController {
     }
 
     /**
-     * ✅ UPDATED: Now accepts accountId to fetch live instance data for targeted recommendations.
+     * Get XamOps custom rightsizing recommendations with caching support
      */
     @GetMapping("/aws/xamops-recommendations")
-    public List<XamOpsRightsizingRecommendation> getXamOpsRecommendations(@RequestParam String accountId) {
-        return xamOpsRightsizingService.getLiveRecommendations(accountId);
+    public ResponseEntity<List<XamOpsRightsizingRecommendation>> getXamOpsRecommendations(
+            @RequestParam String accountId,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+
+        try {
+            List<XamOpsRightsizingRecommendation> recommendations =
+                    xamOpsRightsizingService.getLiveRecommendations(accountId, forceRefresh);
+
+            return ResponseEntity.ok(recommendations);
+        } catch (Exception e) {
+            logger.error("Error fetching XamOps recommendations for account {}", accountId, e);
+            return ResponseEntity.status(500).body(Collections.emptyList());
+        }
     }
 }

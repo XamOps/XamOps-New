@@ -1,7 +1,8 @@
 package com.xammer.cloud.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.xammer.cloud.dto.XamOpsRightsizingRecommendation;
-import com.xammer.cloud.dto.ResourceDto; // ✅ CORRECTED: Imported the correct ResourceDto
+import com.xammer.cloud.dto.ResourceDto;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
@@ -26,25 +27,49 @@ public class XamOpsRightsizingService {
 
     private static final Logger logger = LoggerFactory.getLogger(XamOpsRightsizingService.class);
     private static final String CSV_FILE_PATH = "/RightSizing-XamOps - Instances.csv";
+    private static final String CACHE_KEY_PREFIX = "xamops-rightsizing-";
 
     private final CloudListService cloudListService;
     private final MetricsService metricsService;
+    private final RedisCacheService redisCacheService;
     private final Map<String, List<XamOpsRightsizingRecommendation>> recommendationsMap;
 
-    public XamOpsRightsizingService(CloudListService cloudListService, MetricsService metricsService) {
+    public XamOpsRightsizingService(
+            CloudListService cloudListService,
+            MetricsService metricsService,
+            RedisCacheService redisCacheService) {
         this.cloudListService = cloudListService;
         this.metricsService = metricsService;
+        this.redisCacheService = redisCacheService;
         this.recommendationsMap = loadRecommendationsFromCsv();
     }
 
     /**
-     * ✅ CORRECTED: Fully updated with the correct method and field names.
+     * Get XamOps rightsizing recommendations with Redis caching.
      */
-    public List<XamOpsRightsizingRecommendation> getLiveRecommendations(String accountId) {
-        // 1. Get all EC2 instances and filter for the correct service type
-        List<ResourceDto> ec2Instances = cloudListService.getAllResources(cloudListService.getAccount(accountId), false).join()
+    public List<XamOpsRightsizingRecommendation> getLiveRecommendations(String accountId, boolean forceRefresh) {
+        String cacheKey = CACHE_KEY_PREFIX + accountId;
+
+        // Try to get from cache if not forcing refresh
+        if (!forceRefresh) {
+            Optional<List<XamOpsRightsizingRecommendation>> cachedData =
+                    redisCacheService.get(cacheKey, new TypeReference<List<XamOpsRightsizingRecommendation>>() {});
+
+            if (cachedData.isPresent()) {
+                logger.info("✅ Retrieved {} XamOps recommendations for account {} from Redis cache",
+                        cachedData.get().size(), accountId);
+                return cachedData.get();
+            }
+        }
+
+        logger.info("🔄 Generating fresh XamOps recommendations for account {}", accountId);
+
+        // 1. Get all EC2 instances
+        List<ResourceDto> ec2Instances = cloudListService.getAllResources(
+                        cloudListService.getAccount(accountId), false)
+                .join()
                 .stream()
-                .filter(r -> "EC2 Instance".equalsIgnoreCase(r.getType())) // Assuming 'type' holds the service name
+                .filter(r -> "EC2 Instance".equalsIgnoreCase(r.getType()))
                 .collect(Collectors.toList());
 
         if (ec2Instances.isEmpty()) {
@@ -54,11 +79,10 @@ public class XamOpsRightsizingService {
 
         List<XamOpsRightsizingRecommendation> finalRecommendations = new ArrayList<>();
 
-        // 2. For each instance, get utilization and find a matching recommendation
+        // 2. For each instance, get utilization and find matching recommendation
         for (ResourceDto instanceDto : ec2Instances) {
-            String instanceId = instanceDto.getId(); // Use getId()
+            String instanceId = instanceDto.getId();
             String region = instanceDto.getRegion();
-            // The instance type is in the 'details' map
             String instanceType = instanceDto.getDetails().get("Type");
 
             if (instanceType == null) {
@@ -75,20 +99,39 @@ public class XamOpsRightsizingService {
             }
 
             double utilization = maxCpu.get();
-            logger.info("Instance {} ({}) has max CPU utilization of {}%", instanceId, instanceType, String.format("%.2f", utilization));
+            logger.info("Instance {} ({}) has max CPU utilization of {}%",
+                    instanceId, instanceType, String.format("%.2f", utilization));
 
-            // 4. Find a matching recommendation from the CSV data
-            findMatchingRecommendation(instanceType, utilization).ifPresent(finalRecommendations::add);
+            // 4. Find matching recommendation
+            findMatchingRecommendation(instanceType, utilization, instanceId, region)
+                    .ifPresent(finalRecommendations::add);
+        }
+
+        // 5. Cache the results
+        if (!finalRecommendations.isEmpty()) {
+            redisCacheService.put(cacheKey, finalRecommendations);
+            logger.info("✅ Cached {} XamOps recommendations for account {}",
+                    finalRecommendations.size(), accountId);
         }
 
         return finalRecommendations;
     }
 
     /**
-     * Matches instance type and utilization against the pre-loaded CSV data.
+     * Overloaded method for backward compatibility
      */
-    private Optional<XamOpsRightsizingRecommendation> findMatchingRecommendation(String instanceType, double utilization) {
+    public List<XamOpsRightsizingRecommendation> getLiveRecommendations(String accountId) {
+        return getLiveRecommendations(accountId, false);
+    }
+
+    /**
+     * Find matching recommendation from CSV data and enrich with instance details
+     */
+    private Optional<XamOpsRightsizingRecommendation> findMatchingRecommendation(
+            String instanceType, double utilization, String instanceId, String region) {
+
         if (!recommendationsMap.containsKey(instanceType.trim())) {
+            logger.debug("No recommendations found for instance type: {}", instanceType);
             return Optional.empty();
         }
 
@@ -98,11 +141,24 @@ public class XamOpsRightsizingService {
                 try {
                     double lowerBound = Double.parseDouble(range[0].trim());
                     double upperBound = Double.parseDouble(range[1].trim());
+
                     if (utilization >= lowerBound && utilization < upperBound) {
-                        return Optional.of(rec);
+                        // Create enriched recommendation with instance details
+                        return Optional.of(XamOpsRightsizingRecommendation.builder()
+                                .currentInstance(rec.getCurrentInstance())
+                                .instanceId(instanceId)
+                                .currentUtilization(String.format("%.2f%%", utilization))
+                                .loadRange(rec.getLoadRange())
+                                .intelRecommendation(rec.getIntelRecommendation())
+                                .amdRecommendation(rec.getAmdRecommendation())
+                                .projectedMaxUtil(rec.getProjectedMaxUtil())
+                                .approxCostSavings(rec.getApproxCostSavings())
+                                .reason(rec.getReason())
+                                .build());
                     }
                 } catch (NumberFormatException e) {
-                    logger.error("Could not parse load range '{}' for instance type {}", rec.getLoadRange(), instanceType);
+                    logger.error("Could not parse load range '{}' for instance type {}",
+                            rec.getLoadRange(), instanceType, e);
                 }
             }
         }
@@ -110,30 +166,38 @@ public class XamOpsRightsizingService {
     }
 
     /**
-     * Loads the entire CSV file into a Map for easy lookup.
+     * Load CSV recommendations into memory at startup
      */
     private Map<String, List<XamOpsRightsizingRecommendation>> loadRecommendationsFromCsv() {
         try (InputStream inputStream = getClass().getResourceAsStream(CSV_FILE_PATH)) {
             if (inputStream == null) {
-                logger.error("XamOps recommendations file not found at classpath: {}", CSV_FILE_PATH);
+                logger.error("❌ XamOps recommendations file not found at classpath: {}", CSV_FILE_PATH);
                 return Collections.emptyMap();
             }
 
             try (
-                    BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8));
-                    CSVParser csvParser = new CSVParser(reader, CSVFormat.DEFAULT.withFirstRecordAsHeader().withIgnoreHeaderCase().withTrim())
+                    BufferedReader reader = new BufferedReader(
+                            new InputStreamReader(inputStream, StandardCharsets.UTF_8));
+                    CSVParser csvParser = new CSVParser(reader,
+                            CSVFormat.DEFAULT.withFirstRecordAsHeader().withIgnoreHeaderCase().withTrim())
             ) {
-                return csvParser.getRecords().stream()
+                Map<String, List<XamOpsRightsizingRecommendation>> map = csvParser.getRecords().stream()
                         .map(this::parseRecordToRecommendation)
                         .filter(Objects::nonNull)
                         .collect(Collectors.groupingBy(XamOpsRightsizingRecommendation::getCurrentInstance));
+
+                logger.info("✅ Loaded {} instance types with XamOps recommendations from CSV", map.size());
+                return map;
             }
         } catch (Exception e) {
-            logger.error("Failed to read or parse XamOps recommendations CSV file.", e);
+            logger.error("❌ Failed to read or parse XamOps recommendations CSV file.", e);
             return Collections.emptyMap();
         }
     }
 
+    /**
+     * Parse CSV record to recommendation object
+     */
     private XamOpsRightsizingRecommendation parseRecordToRecommendation(CSVRecord csvRecord) {
         try {
             return XamOpsRightsizingRecommendation.builder()
@@ -146,8 +210,17 @@ public class XamOpsRightsizingService {
                     .reason(csvRecord.get("Reason (with AWS Best Practices)"))
                     .build();
         } catch (IllegalArgumentException e) {
-            logger.warn("Skipping record due to missing header. Record: {}", csvRecord.toString());
+            logger.warn("⚠️ Skipping record due to missing header. Record: {}", csvRecord.toString());
             return null;
         }
+    }
+
+    /**
+     * Clear cache for a specific account
+     */
+    public void clearCache(String accountId) {
+        String cacheKey = CACHE_KEY_PREFIX + accountId;
+        redisCacheService.evict(cacheKey);
+        logger.info("🗑️ Cleared XamOps recommendations cache for account {}", accountId);
     }
 }
