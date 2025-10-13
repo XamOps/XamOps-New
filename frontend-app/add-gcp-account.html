@@ -55,6 +55,12 @@
             box-shadow: 0 10px 15px -3px rgba(66, 133, 244, 0.3);
         }
 
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
         .code-block {
             background: #1e293b;
             color: #e2e8f0;
@@ -77,14 +83,38 @@
             max-height: 400px;
             overflow-y: auto;
             user-select: none;
-            -webkit-user-select: none;
-            -moz-user-select: none;
-            -ms-user-select: none;
         }
 
         .script-viewer::-webkit-scrollbar { width: 8px; }
-        .script-viewer::-webkit-scrollbar-track { background: #f1f5f1; }
+        .script-viewer::-webkit-scrollbar-track { background: #f1f5f9; }
         .script-viewer::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+
+        .step-number {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #4285F4 0%, #34A853 100%);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+
+        .guide-section {
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 16px;
+            transition: all 0.3s ease;
+        }
+
+        .guide-section:hover {
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            transform: translateY(-2px);
+        }
     </style>
 </head>
 <body class="bg-gray-50">
@@ -109,14 +139,174 @@
                         <p class="text-sm text-gray-600">Connect your Google Cloud project with full visibility</p>
                     </div>
                 </div>
-                <a href="/add-account.html" class="px-4 py-2 bg-white/70 backdrop-filter-sm text-gray-700 rounded-lg border border-gray-200/50 hover:bg-white transition-all">
+                <a href="/add-account.html" class="px-4 py-2 bg-white/70 text-gray-700 rounded-lg border border-gray-200 hover:bg-white transition-all">
                     <i class="fas fa-arrow-left mr-2"></i>Back
                 </a>
             </header>
 
             <!-- Form Content -->
             <div class="flex-1 p-8">
-                <div class="max-w-4xl mx-auto space-y-6">
+                <div class="max-w-5xl mx-auto space-y-6">
+
+                    <!-- Setup Guide Accordion -->
+                    <div class="form-card rounded-2xl p-8">
+                        <div class="flex items-center justify-between mb-6">
+                            <h2 class="text-xl font-bold text-gray-800 flex items-center gap-3">
+                                <i class="fas fa-book-open text-blue-500"></i>
+                                Complete Setup Guide
+                            </h2>
+                            <button @click="showGuide = !showGuide" type="button" class="text-sm text-blue-600 hover:text-blue-700 font-semibold flex items-center gap-2">
+                                <i class="fas" :class="showGuide ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
+                                <span x-text="showGuide ? 'Hide Guide' : 'Show Step-by-Step Guide'"></span>
+                            </button>
+                        </div>
+
+                        <div x-show="showGuide" x-collapse x-cloak>
+                            <!-- Step 1: Create Service Account -->
+                            <div class="guide-section">
+                                <div class="flex gap-4">
+                                    <div class="step-number">1</div>
+                                    <div class="flex-1">
+                                        <h3 class="text-lg font-bold text-gray-800 mb-3">Create Service Account & Enable APIs</h3>
+                                        <p class="text-sm text-gray-600 mb-4">Run the automated script in Google Cloud Shell to create a service account with read-only access and enable all required APIs.</p>
+
+                                        <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                                            <div class="flex items-start gap-2">
+                                                <i class="fas fa-lightbulb text-yellow-600 mt-1"></i>
+                                                <div class="text-sm text-gray-700">
+                                                    <strong>Script automatically:</strong>
+                                                    <ul class="list-disc list-inside mt-2 space-y-1 text-xs">
+                                                        <li>Enables 62 GCP APIs</li>
+                                                        <li>Creates service account: <code class="bg-white px-1 py-0.5 rounded">xamops@PROJECT_ID.iam.gserviceaccount.com</code></li>
+                                                        <li>Grants Viewer + Resource Monitoring roles</li>
+                                                        <li>Generates and displays JSON key</li>
+                                                    </ul>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="text-sm text-gray-600 space-y-2">
+                                            <p><strong>Command to run:</strong></p>
+                                            <code class="block bg-gray-900 text-green-400 p-3 rounded-lg text-xs" x-text="commandText"></code>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Step 2: BigQuery Billing Export -->
+                            <div class="guide-section">
+                                <div class="flex gap-4">
+                                    <div class="step-number">2</div>
+                                    <div class="flex-1">
+                                        <h3 class="text-lg font-bold text-gray-800 mb-3">Enable BigQuery Billing Export</h3>
+                                        <p class="text-sm text-gray-600 mb-4">Export billing data to BigQuery to track costs in XamOps dashboard.</p>
+
+                                        <div class="space-y-4 text-sm text-gray-700">
+                                            <div>
+                                                <strong>1. Go to Billing Export:</strong>
+                                                <ul class="list-disc list-inside mt-2 ml-4 space-y-1 text-xs">
+                                                    <li>Open <a href="https://console.cloud.google.com/billing" target="_blank" class="text-blue-600 hover:underline">GCP Console → Billing</a></li>
+                                                    <li>Select your billing account</li>
+                                                    <li>Go to <strong>Billing export</strong> → <strong>BigQuery export</strong></li>
+                                                </ul>
+                                            </div>
+
+                                            <div>
+                                                <strong>2. Enable Standard Usage Cost Export:</strong>
+                                                <ul class="list-disc list-inside mt-2 ml-4 space-y-1 text-xs">
+                                                    <li>Click <strong>Edit settings</strong> for "Standard usage cost"</li>
+                                                    <li>Select project: <code class="bg-gray-100 px-1 py-0.5 rounded">YOUR_PROJECT_ID</code></li>
+                                                    <li>Create or select dataset: <code class="bg-gray-100 px-1 py-0.5 rounded">billing_export</code></li>
+                                                    <li>Click <strong>Save</strong></li>
+                                                </ul>
+                                            </div>
+
+                                            <div>
+                                                <strong>3. Note the table name (format):</strong>
+                                                <div class="bg-gray-100 p-3 rounded-lg mt-2 font-mono text-xs">
+                                                    PROJECT_ID.billing_export.gcp_billing_export_v1_XXXXXX_XXXXXX_XXXXXX
+                                                </div>
+                                                <p class="text-xs text-gray-500 mt-2">You'll need this exact table name later in the form below.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Step 3: Grant BigQuery Access -->
+                            <div class="guide-section">
+                                <div class="flex gap-4">
+                                    <div class="step-number">3</div>
+                                    <div class="flex-1">
+                                        <h3 class="text-lg font-bold text-gray-800 mb-3">Grant BigQuery Dataset Access</h3>
+                                        <p class="text-sm text-gray-600 mb-4">Give XamOps service account permission to read billing data.</p>
+
+                                        <div class="space-y-4 text-sm text-gray-700">
+                                            <div>
+                                                <strong>Steps:</strong>
+                                                <ul class="list-disc list-inside mt-2 ml-4 space-y-1 text-xs">
+                                                    <li>Go to <a href="https://console.cloud.google.com/bigquery" target="_blank" class="text-blue-600 hover:underline">BigQuery Console</a></li>
+                                                    <li>Find your <code class="bg-gray-100 px-1 py-0.5 rounded">billing_export</code> dataset</li>
+                                                    <li>Click the ⋮ menu → <strong>Share</strong> → <strong>Permissions</strong></li>
+                                                    <li>Click <strong>Add Principal</strong></li>
+                                                    <li>Enter service account: <code class="bg-gray-100 px-1 py-0.5 rounded">xamops@YOUR_PROJECT_ID.iam.gserviceaccount.com</code></li>
+                                                    <li>Select role: <strong>BigQuery Data Viewer</strong></li>
+                                                    <li>Click <strong>Save</strong></li>
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Step 4: Verify Permissions -->
+                            <div class="guide-section">
+                                <div class="flex gap-4">
+                                    <div class="step-number">4</div>
+                                    <div class="flex-1">
+                                        <h3 class="text-lg font-bold text-gray-800 mb-3">Verify Permissions (Optional)</h3>
+                                        <p class="text-sm text-gray-600 mb-4">Confirm all permissions are correctly set.</p>
+
+                                        <div class="space-y-4 text-sm text-gray-700">
+                                            <div>
+                                                <strong>Check Service Account Roles:</strong>
+                                                <div class="bg-gray-900 text-green-400 p-3 rounded-lg mt-2 font-mono text-xs">
+                                                    gcloud projects get-iam-policy YOUR_PROJECT_ID \<br/>
+                                                    &nbsp;&nbsp;--flatten="bindings[].members" \<br/>
+                                                    &nbsp;&nbsp;--filter="bindings.members:xamops@*"
+                                                </div>
+                                            </div>
+
+                                            <div>
+                                                <strong>Expected roles:</strong>
+                                                <ul class="list-disc list-inside mt-2 ml-4 space-y-1 text-xs">
+                                                    <li><code class="bg-gray-100 px-1 py-0.5 rounded">roles/viewer</code> - Read access to all resources</li>
+                                                    <li><code class="bg-gray-100 px-1 py-0.5 rounded">roles/monitoring.viewer</code> - Read metrics and monitoring data</li>
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Summary -->
+                            <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+                                <div class="flex items-start gap-3">
+                                    <i class="fas fa-check-circle text-green-600 text-lg mt-0.5"></i>
+                                    <div>
+                                        <h4 class="font-bold text-gray-800 mb-2">Setup Checklist</h4>
+                                        <ul class="space-y-1 text-sm text-gray-700">
+                                            <li>✅ Service account created with Viewer role</li>
+                                            <li>✅ 62 GCP APIs enabled</li>
+                                            <li>✅ BigQuery billing export enabled</li>
+                                            <li>✅ Service account has BigQuery Data Viewer role</li>
+                                            <li>✅ JSON key generated and ready to paste</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
 
                     <!-- Account Details Form -->
                     <div class="form-card rounded-2xl p-8">
@@ -152,12 +342,12 @@
                                 <p class="mt-1 text-xs text-gray-500">Find this in GCP Console or run: <code class="bg-gray-100 px-2 py-1 rounded">gcloud config get-value project</code></p>
                             </div>
 
-                            <!-- Setup Command (After Project ID) -->
+                            <!-- Setup Command -->
                             <div class="p-6 bg-blue-50 rounded-xl border border-blue-200">
                                 <div class="flex items-center justify-between mb-3">
                                     <h3 class="text-sm font-bold text-gray-800 flex items-center gap-2">
                                         <i class="fas fa-terminal text-blue-500"></i>
-                                        Run this command in Google Cloud Shell
+                                        Step 1: Run this command in Google Cloud Shell
                                     </h3>
                                     <span class="badge">
                                         <i class="fas fa-bolt mr-1"></i>Automated
@@ -178,52 +368,32 @@
                                     <code class="text-sm text-green-400 break-all block" x-text="commandText"></code>
                                 </div>
 
-                                <!-- View Script Button -->
-                                <div>
-                                    <button
-                                            type="button"
-                                            @click="showScript = !showScript"
-                                            class="text-sm text-blue-600 hover:text-blue-700 font-semibold flex items-center gap-2">
-                                        <i class="fas" :class="showScript ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
-                                        <span x-text="showScript ? 'Hide Full Script' : 'View Full Script (Read-Only)'"></span>
-                                    </button>
+                                <button
+                                        type="button"
+                                        @click="showScript = !showScript"
+                                        class="text-sm text-blue-600 hover:text-blue-700 font-semibold flex items-center gap-2">
+                                    <i class="fas" :class="showScript ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
+                                    <span x-text="showScript ? 'Hide Full Script' : 'View Full Script'"></span>
+                                </button>
 
-                                    <!-- Script Viewer (View-Only, No Copy) -->
-                                    <div x-show="showScript" x-collapse x-cloak class="mt-4">
-                                        <div class="script-viewer rounded-xl p-4">
-                                            <div class="flex items-center justify-between mb-3 pb-2 border-b border-gray-200">
-                                                <span class="text-xs font-semibold text-gray-600 flex items-center gap-2">
-                                                    <i class="fas fa-file-code text-gray-400"></i>
-                                                    create_serviceaccount.sh
-                                                </span>
-                                                <span class="text-xs text-gray-500 italic flex items-center gap-1">
-                                                    <i class="fas fa-lock text-gray-400"></i>
-                                                    View-Only
-                                                </span>
-                                            </div>
-                                            <pre class="text-xs text-gray-800 font-mono whitespace-pre-wrap leading-relaxed" x-text="fullScript"></pre>
+                                <div x-show="showScript" x-collapse x-cloak class="mt-4">
+                                    <div class="script-viewer rounded-xl p-4">
+                                        <div class="flex items-center justify-between mb-3 pb-2 border-b border-gray-200">
+                                            <span class="text-xs font-semibold text-gray-600">create_serviceaccount.sh</span>
+                                            <span class="text-xs text-gray-500 italic">View-Only</span>
                                         </div>
+                                        <pre class="text-xs text-gray-800 font-mono whitespace-pre-wrap leading-relaxed" x-text="fullScript"></pre>
                                     </div>
-                                </div>
-
-                                <div class="mt-4 text-sm text-gray-700">
-                                    <strong>What this does:</strong>
-                                    <ul class="list-disc list-inside mt-2 space-y-1 text-xs text-gray-600">
-                                        <li>Enables 62 GCP APIs automatically</li>
-                                        <li>Creates service account with read-only permissions</li>
-                                        <li>Grants access to 100+ GCP services</li>
-                                        <li>Displays the JSON key for copy-paste below</li>
-                                    </ul>
                                 </div>
                             </div>
 
                             <!-- Service Account Key -->
                             <div>
                                 <label for="serviceAccountKey" class="block text-sm font-semibold text-gray-700 mb-2">
-                                    <i class="fas fa-key text-gray-400 mr-1"></i>Service Account Key (JSON)
+                                    <i class="fas fa-key text-gray-400 mr-1"></i>Step 2: Service Account Key (JSON)
                                 </label>
                                 <p class="text-xs text-gray-500 mb-2">
-                                    After running the command above, the script will display the JSON key. Copy and paste it here:
+                                    Copy the JSON key from the script output and paste it here:
                                 </p>
                                 <textarea
                                         id="serviceAccountKey"
@@ -234,11 +404,26 @@
   "type": "service_account",
   "project_id": "your-project-id",
   "private_key_id": "...",
-  "private_key": "-----BEGIN PRIVATE KEY-----\n...",
-  "client_email": "xamops@your-project.iam.gserviceaccount.com",
   ...
 }'
                                         required></textarea>
+                            </div>
+
+                            <!-- BigQuery Billing Table -->
+                            <div>
+                                <label for="billingTable" class="block text-sm font-semibold text-gray-700 mb-2">
+                                    <i class="fas fa-database text-gray-400 mr-1"></i>Step 3: BigQuery Billing Export Table
+                                </label>
+                                <p class="text-xs text-gray-500 mb-2">
+                                    Enter the full table name from Step 2 of the guide (format: <code class="bg-gray-100 px-1 rounded">project.dataset.table</code>)
+                                </p>
+                                <input
+                                        type="text"
+                                        id="billingTable"
+                                        x-model="billingTable"
+                                        placeholder="project_id.billing_export.gcp_billing_export_v1_XXXXXX_XXXXXX_XXXXXX"
+                                        class="form-input block w-full px-4 py-3 rounded-xl shadow-sm font-mono text-sm"
+                                        required>
                             </div>
 
                             <!-- Action Buttons -->
@@ -271,12 +456,13 @@
             accountName: '',
             projectId: '',
             serviceAccountKey: '',
+            billingTable: '',
             isLoading: false,
             copyButtonText: 'Copy',
             showScript: false,
+            showGuide: false,
             commandText: 'sh <(curl -s https://xamops-gcp-sa.s3.ap-south-1.amazonaws.com/create_serviceaccount.sh) YOUR_PROJECT_ID',
             fullScript: '# Loading script...',
-
             scriptUrl: 'https://xamops-gcp-sa.s3.ap-south-1.amazonaws.com/create_serviceaccount.sh',
 
             init() {
@@ -310,43 +496,67 @@
             },
 
             addAccount() {
-                if (!this.accountName || !this.projectId || !this.serviceAccountKey) {
-                    alert('Please fill in all required fields');
+                // Validate all required fields
+                if (!this.accountName || !this.projectId || !this.serviceAccountKey || !this.billingTable) {
+                    alert('⚠️ Please fill in all required fields:\n\n• Account Name\n• GCP Project ID\n• Service Account Key (JSON)\n• BigQuery Billing Export Table');
                     return;
                 }
 
-                // Validate JSON
+                // Validate JSON format
                 try {
-                    JSON.parse(this.serviceAccountKey);
+                    const parsedJson = JSON.parse(this.serviceAccountKey);
+                    if (!parsedJson.type || !parsedJson.project_id || !parsedJson.private_key || !parsedJson.client_email) {
+                        throw new Error('Missing required fields in JSON');
+                    }
                 } catch (e) {
-                    alert('Invalid JSON format. Please paste the complete service account key from the script output.');
+                    alert('❌ Invalid JSON format.\n\nPlease paste the complete service account key from the script output.\n\nError: ' + e.message);
+                    return;
+                }
+
+                // Validate billing table format
+                const tableParts = this.billingTable.trim().split('.');
+                if (tableParts.length !== 3) {
+                    alert('❌ Invalid BigQuery table format.\n\nExpected format: project.dataset.table\n\nExample:\nmy-project.billing_export.gcp_billing_export_v1_XXXXXX_XXXXXX_XXXXXX');
+                    return;
+                }
+
+                // Check if any part is empty
+                if (tableParts.some(part => !part.trim())) {
+                    alert('❌ Invalid BigQuery table format.\n\nEach part (project, dataset, table) must not be empty.');
                     return;
                 }
 
                 this.isLoading = true;
 
+                // ✅ CORRECTED: Use your actual backend endpoint
                 fetch('/api/xamops/account-manager/add-gcp-account', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         accountName: this.accountName,
                         projectId: this.projectId,
-                        serviceAccountKey: this.serviceAccountKey
+                        serviceAccountKey: this.serviceAccountKey,
+                        billingExportTable: this.billingTable
                     })
                 })
                 .then(res => {
                     if (res.ok) {
-                        alert('✅ GCP account added successfully!');
-                        window.location.href = '/account-manager.html';
+                        return res.json();
                     } else {
                         return res.json().then(err => {
-                            throw new Error(err.message || 'Failed to add account');
+                            throw new Error(err.error || err.message || 'Failed to add account');
+                        }).catch(() => {
+                            throw new Error('Failed to add account. Please check your input and try again.');
                         });
                     }
                 })
+                .then(data => {
+                    alert('✅ ' + (data.message || 'GCP account added successfully!'));
+                    window.location.href = '/account-manager.html';
+                })
                 .catch(err => {
                     console.error('Error adding GCP account:', err);
-                    alert('❌ Failed to add GCP account: ' + err.message);
+                    alert('❌ Failed to add GCP account:\n\n' + err.message);
                 })
                 .finally(() => {
                     this.isLoading = false;
