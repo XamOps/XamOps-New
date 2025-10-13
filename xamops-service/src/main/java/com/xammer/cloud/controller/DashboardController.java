@@ -57,7 +57,7 @@ public class DashboardController {
     }
 
     /**
-     * Fetches the main dashboard data.
+     * Fetches the main dashboard data for a single account.
      * This endpoint now waits for the data fetching to complete and returns the full payload,
      * supporting both initial loads and forced refreshes in a single, consistent way.
      */
@@ -66,7 +66,6 @@ public class DashboardController {
             @RequestParam String accountId,
             @RequestParam(defaultValue = "false") boolean forceRefresh,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
-
         try {
             // The method now directly calls the data service, waits for the result,
             // and returns the full data payload in the response.
@@ -79,9 +78,42 @@ public class DashboardController {
     }
 
     /**
+     * NEW: Fetches aggregated dashboard data for multiple AWS accounts.
+     * This endpoint aggregates metrics across selected accounts and returns consolidated data.
+     */
+    @GetMapping("/dashboard/data/multi-account")
+    public ResponseEntity<DashboardData> getMultiAccountDashboardData(
+            @RequestParam List<String> accountIds,
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        try {
+            // Validate input
+            if (accountIds == null || accountIds.isEmpty()) {
+                logger.warn("Multi-account request received with empty account list");
+                return ResponseEntity.badRequest().body(null);
+            }
+
+            if (accountIds.size() > 10) {
+                logger.warn("Multi-account request exceeds maximum limit of 10 accounts");
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(null);
+            }
+
+            logger.info("Fetching multi-account dashboard data for {} accounts: {}", accountIds.size(), accountIds);
+            
+            DashboardData aggregatedData = dashboardDataService.getMultiAccountDashboardData(
+                    accountIds, forceRefresh, userDetails);
+            
+            return ResponseEntity.ok(aggregatedData);
+        } catch (Exception ex) {
+            logger.error("Error fetching multi-account dashboard data for accounts {}", accountIds, ex);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
+        }
+    }
+
+    /**
      * Fetches wasted resources data.
      */
-     @GetMapping("/waste")
+   @GetMapping("/waste")
      public CompletableFuture<List<DashboardData.WastedResource>> getWastedResources(
              @RequestParam String accountIds,
              @RequestParam(defaultValue = "false") boolean forceRefresh) {
