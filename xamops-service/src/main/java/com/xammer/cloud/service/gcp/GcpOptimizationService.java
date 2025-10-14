@@ -11,6 +11,7 @@ import com.google.cloud.recommender.v1.RecommenderClient;
 import com.google.cloud.recommender.v1.RecommenderName;
 import com.google.cloud.resourcemanager.v3.Project;
 import com.google.cloud.resourcemanager.v3.ProjectsClient;
+import com.google.type.Money;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.gcp.GcpCommittedUseDiscountDto;
@@ -27,10 +28,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -468,11 +466,90 @@ public class GcpOptimizationService {
                     return allRecommendations;
                 });
     }
-
+    @Cacheable(value = "gcpCudRecommendations", key = "'gcp:cud-recommendations:' + #gcpProjectId")
     public List<GcpOptimizationRecommendation> getCudRecommendationsSync(String gcpProjectId) {
-        log.info("Fetching CUD recommendations synchronously for GCP project: {}", gcpProjectId);
-        return getCudRecommendations(gcpProjectId).join();
+        log.info("🔍 Fetching CUD recommendations for GCP project: {}", gcpProjectId);
+
+        List<GcpOptimizationRecommendation> recommendations = new ArrayList<>();
+        Set<String> uniqueKeys = new HashSet<>(); // Track unique combinations
+
+        try {
+            Optional<RecommenderClient> clientOpt = gcpClientProvider.getRecommenderClient(gcpProjectId);
+            if (clientOpt.isEmpty()) {
+                log.warn("RecommenderClient not available for project {}. Skipping CUD recommendations.", gcpProjectId);
+                return recommendations;
+            }
+
+            RecommenderClient client = clientOpt.get();
+
+            List<DashboardData.RegionStatus> regions = gcpDataService.getRegionStatusForGcp(new ArrayList<>()).join();
+            List<String> locations = regions.stream()
+                    .map(DashboardData.RegionStatus::getRegionId)
+                    .collect(Collectors.toList());
+
+            if (locations.isEmpty()) {
+                log.warn("No active regions found, using default GCP regions for CUD");
+                locations = new ArrayList<>(Arrays.asList(
+                        "us-central1", "us-east1", "us-west1", "us-east4",
+                        "europe-west1", "europe-west2", "europe-west3",
+                        "asia-southeast1", "asia-east1", "asia-northeast1"
+                ));
+            }
+
+            for (String location : locations) {
+                try {
+                    RecommenderName recommenderName = RecommenderName.of(gcpProjectId, location,
+                            "google.compute.commitment.UsageCommitmentRecommender");
+
+                    log.info("📊 Querying CUD recommender for location: {}", location);
+
+                    RecommenderClient.ListRecommendationsPagedResponse response =
+                            client.listRecommendations(recommenderName);
+
+                    for (Recommendation rec : response.iterateAll()) {
+                        log.info("Processing CUD recommendation in {}: {}", location, rec.getName());
+
+                        GcpOptimizationRecommendation dto = mapToCudRecommendationDto(rec);
+
+                        if (dto.getMonthlySavings() > 0) {
+                            dto.setLocation(location);
+
+                            // ✅ ENHANCED DEDUPLICATION: Create unique key based on actual content
+                            String uniqueKey = String.format("%s|%s|%.2f",
+                                    dto.getCurrentMachineType(),  // e.g., "3-year General-purpose E2 Memory"
+                                    dto.getLocation(),             // e.g., "us-east1"
+                                    dto.getMonthlySavings()        // e.g., 1.16
+                            );
+
+                            if (!uniqueKeys.contains(uniqueKey)) {
+                                uniqueKeys.add(uniqueKey);
+                                recommendations.add(dto);
+
+                                log.info("✅ Added CUD: {} with savings ₹{} in {}",
+                                        dto.getCurrentMachineType(),
+                                        String.format("%.2f", dto.getMonthlySavings()),
+                                        location);
+                            } else {
+                                log.debug("⏭️ Skipped duplicate CUD: {} in {}",
+                                        dto.getCurrentMachineType(), location);
+                            }
+                        }
+                    }
+                } catch (Exception locEx) {
+                    log.warn("Failed to query CUD recommender for location {}: {}",
+                            location, locEx.getMessage());
+                }
+            }
+
+            log.info("✅ Found {} unique CUD recommendations", recommendations.size());
+
+        } catch (Exception e) {
+            log.error("❌ Failed to fetch CUD recommendations for project {}:", gcpProjectId, e);
+        }
+
+        return recommendations;
     }
+
 
     private CompletableFuture<List<GcpOptimizationRecommendation>> getProjectLevelCudRecommendations(String gcpProjectId) {
         List<String> locations = Arrays.asList("global", "us-east1", "us-central1", "us-west1", "europe-west1");
@@ -1008,47 +1085,126 @@ public class GcpOptimizationService {
         String resourceName = "Committed Use Discount";
         String description = rec.getDescription();
 
-        double monthlySavings = 0;
+        // ✅ ENHANCED LOGGING: Log the full cost projection
+        log.info("🔍 Full recommendation details:");
+        log.info("  Name: {}", rec.getName());
+        log.info("  Description: {}", description);
+
         if (rec.getPrimaryImpact().hasCostProjection()) {
-            monthlySavings = Math.abs(rec.getPrimaryImpact()
-                    .getCostProjection()
-                    .getCost()
-                    .getNanos() / -1_000_000_000.0);
+            log.info("  Cost Projection Currency: {}",
+                    rec.getPrimaryImpact().getCostProjection().getCost().getCurrencyCode());
+            log.info("  Cost Units: {}",
+                    rec.getPrimaryImpact().getCostProjection().getCost().getUnits());
+            log.info("  Cost Nanos: {}",
+                    rec.getPrimaryImpact().getCostProjection().getCost().getNanos());
         }
 
-        String commitmentType = "N/A";
-        String recommendedAction = description != null ? description : "Purchase CUD";
+        // Extract ALL cost-related data from the recommendation
+        double monthlySavings = 0.0;
+        String currencyCode = "USD"; // Default
+
+        if (rec.getPrimaryImpact().hasCostProjection() &&
+                rec.getPrimaryImpact().getCostProjection().hasCost()) {
+
+            Money costMoney = rec.getPrimaryImpact().getCostProjection().getCost();
+
+            // Get currency code
+            if (costMoney.getCurrencyCode() != null && !costMoney.getCurrencyCode().isEmpty()) {
+                currencyCode = costMoney.getCurrencyCode();
+            }
+
+            try {
+                long units = costMoney.getUnits();
+                int nanos = costMoney.getNanos();
+
+                // Calculate total cost
+                double totalCost = units + (nanos / 1000000000.0);
+                monthlySavings = Math.abs(totalCost);
+
+                // ✅ Convert USD to INR if needed (1 USD ≈ 83 INR as of 2025)
+                if ("USD".equals(currencyCode)) {
+                    monthlySavings = monthlySavings * 83.0; // USD to INR conversion
+                    log.info("💱 Converted from USD to INR: ${} → ₹{}",
+                            String.format("%.2f", Math.abs(totalCost)),
+                            String.format("%.2f", monthlySavings));
+                }
+
+                log.info("💰 Final CUD savings: ₹{} (Currency: {})",
+                        String.format("%.2f", monthlySavings), currencyCode);
+
+            } catch (Exception e) {
+                log.error("Failed to parse cost: {}", e.getMessage());
+            }
+        }
+
+        // Rest of your code...
+        String commitmentType = "3-year";
+        String resourceType = "";
 
         if (description != null) {
-            if (description.contains("3-year")) {
-                commitmentType = "3-year General-purpose E2";
-            } else if (description.contains("1-year")) {
-                commitmentType = "1-year General-purpose E2";
+            if (description.contains("3-year") || description.contains("3 year")) {
+                commitmentType = "3-year";
+            } else if (description.contains("1-year") || description.contains("1 year")) {
+                commitmentType = "1-year";
             }
 
-            if (description.contains("Memory for")) {
-                int memStart = description.indexOf("Memory for");
-                if (memStart != -1) {
-                    String memPart = description.substring(memStart + "Memory for ".length());
-                    if (!memPart.isEmpty()) {
-                        commitmentType += " " + memPart.split(" ")[0];
-                    }
-                }
+            Pattern resourcePattern = Pattern.compile("(General-purpose [A-Z0-9]+ [A-Za-z]+)");
+            Matcher resourceMatcher = resourcePattern.matcher(description);
+            if (resourceMatcher.find()) {
+                resourceType = resourceMatcher.group(1);
+            }
+
+            if (!resourceType.isEmpty()) {
+                commitmentType = commitmentType + " " + resourceType;
             }
         }
 
-        String location = extractLocation(rec.getName());
+        String location = extractLocationFromRecommendationName(rec.getName());
 
         return new GcpOptimizationRecommendation(
                 resourceName,
                 commitmentType,
-                recommendedAction,
+                description != null ? description : "Purchase CUD",
                 monthlySavings,
                 "Commitment",
                 location,
                 rec.getName(),
                 "COST_SAVINGS",
-                description);
+                description
+        );
+    }
+
+
+    /**
+     * Extract commitment amount from description, e.g., "for 1 GB"
+     */
+    private String extractCommitmentAmountFromDescription(String description) {
+        if (description == null) return "";
+
+        // Pattern: "for 1 GB" or "for X units"
+        Pattern pattern = Pattern.compile("for\\s+(\\d+(?:\\.\\d+)?)\\s+([A-Z]+)", Pattern.CASE_INSENSITIVE);
+        Matcher matcher = pattern.matcher(description);
+        if (matcher.find()) {
+            return String.format("%s %s", matcher.group(1), matcher.group(2));
+        }
+
+        return "1 GB"; // Default for E2 Memory
+    }
+    /**
+     * ✅ HELPER: Extract location from recommendation name
+     */
+    private String extractLocationFromRecommendationName(String recommendationName) {
+        // Format: projects/{project}/locations/{location}/recommenders/{recommender}/recommendations/{id}
+        try {
+            Pattern pattern = Pattern.compile("/locations/([^/]+)/");
+            Matcher matcher = pattern.matcher(recommendationName);
+            if (matcher.find()) {
+                return matcher.group(1);
+            }
+        } catch (Exception e) {
+            log.debug("Could not extract location from: {}", recommendationName);
+        }
+        return "global";
     }
 
     private double calculateDiskCost(long sizeGb) {
