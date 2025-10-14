@@ -79,18 +79,10 @@
             color: white;
             box-shadow: 0 4px 6px -1px rgba(102, 126, 234, 0.4);
         }
-        
+
         .tab-button.active {
             border-bottom-color: #4f46e5;
             color: #4f46e5;
-        }
-
-        .action-button {
-            transition: all 0.2s ease;
-        }
-
-        .action-button:hover {
-            transform: translateY(-1px);
         }
 
         .bulk-action-bar {
@@ -151,11 +143,11 @@
                 background-position: 100% 50%;
             }
         }
-        
-        .btn-success { 
+
+        .btn-success {
             background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-            border: none; 
-            color: white; 
+            border: none;
+            color: white;
         }
 
         .toast {
@@ -171,11 +163,11 @@
             transform: translateY(-100px);
             transition: transform 0.3s ease;
         }
-        
+
         .toast.show {
             transform: translateY(0);
         }
-        
+
         .toast.error {
             background: #ef4444;
         }
@@ -185,7 +177,7 @@
 <body class="bg-gray-50">
 
 <div class="flex">
-   <aside class="fixed top-0 left-0 h-screen w-64 bg-white border-r border-gray-200">
+    <aside class="fixed top-0 left-0 h-screen w-64 bg-white border-r border-gray-200">
         <div data-include-sidebar></div>
     </aside>
 
@@ -216,7 +208,7 @@
             </header>
 
             <div class="flex-1 p-8 space-y-8">
-                <!-- Toast notification for duplicates -->
+                <!-- Toast notification -->
                 <div class="toast" :class="{ 'show': showToast, 'error': toastType === 'error' }" x-show="showToast" x-cloak>
                     <div class="flex items-center">
                         <i class="fas mr-2" :class="toastType === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle'"></i>
@@ -224,6 +216,7 @@
                     </div>
                 </div>
 
+                <!-- Summary Cards -->
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6" x-show="!isLoading">
                     <div class="glass-card metric-card rounded-2xl p-6 lg:col-span-1">
                         <div class="flex items-center justify-between">
@@ -271,6 +264,7 @@
                     </div>
                 </div>
 
+                <!-- Loading Skeletons -->
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6" x-show="isLoading" x-cloak>
                     <template x-for="i in 4" :key="i">
                         <div class="glass-card rounded-2xl p-6">
@@ -285,7 +279,9 @@
                     </template>
                 </div>
 
+                <!-- Main Content Card -->
                 <div class="glass-card rounded-2xl p-8">
+                    <!-- Tabs -->
                     <div class="mb-6 border-b border-gray-200">
                         <nav class="flex -mb-px" aria-label="Tabs">
                             <button @click="activeTab = 'insights'" :class="{ 'active': activeTab === 'insights'}" class="tab-button w-1/2 py-4 px-1 text-center border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">
@@ -297,7 +293,9 @@
                         </nav>
                     </div>
 
+                    <!-- Critical Insights Tab -->
                     <div x-show="activeTab === 'insights'">
+                        <!-- Filters and Bulk Actions -->
                         <div class="flex flex-wrap justify-between items-center gap-6 mb-8">
                             <div x-show="selectedInsights.length === 0" class="flex flex-wrap items-center gap-4">
                                 <button @click="currentSeverity = 'ALL'" :class="{ 'active': currentSeverity === 'ALL' }" class="filter-button px-4 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-100">All Insights</button>
@@ -322,6 +320,7 @@
                             </div>
                         </div>
 
+                        <!-- Loading State -->
                         <div x-show="isLoading" x-cloak class="space-y-4">
                             <template x-for="i in 5" :key="i">
                                 <div class="flex items-center space-x-4 p-4 border border-gray-200 rounded-lg">
@@ -331,11 +330,11 @@
                                         <div class="skeleton h-3 w-1/2 rounded"></div>
                                     </div>
                                     <div class="skeleton h-6 w-16 rounded-full"></div>
-                                    <div class="skeleton h-8 w-24 rounded"></div>
                                 </div>
                             </template>
                         </div>
 
+                        <!-- Insights Table -->
                         <div x-show="!isLoading && filteredInsights.length > 0" x-cloak class="overflow-x-auto">
                             <table class="w-full text-sm">
                                 <thead class="text-xs text-gray-700 uppercase bg-gray-50">
@@ -346,7 +345,6 @@
                                     <th class="px-6 py-4 text-left font-bold">Insight</th>
                                     <th class="px-6 py-4 text-center font-bold">Qty</th>
                                     <th class="px-6 py-4 text-left font-bold">Account</th>
-                                    <th class="px-6 py-4 text-center font-bold">Actions</th>
                                 </tr>
                                 </thead>
                                 <tbody class="divide-y divide-gray-200">
@@ -378,22 +376,13 @@
                                             <span class="font-medium text-gray-900" x-text="insight.account"></span>
                                             <p class="text-xs text-gray-500" x-text="insight.region" x-show="insight.region"></p>
                                         </td>
-                                        <td class="px-6 py-4">
-                                            <div class="flex justify-center gap-2">
-                                                <a :href="insight.documentationUrl || '#'" target="_blank" class="action-button px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700">
-                                                    Docs
-                                                </a>
-                                                <button @click="archiveInsight(insight.id)" class="action-button px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300">
-                                                    Archive
-                                                </button>
-                                            </div>
-                                        </td>
                                     </tr>
                                 </template>
                                 </tbody>
                             </table>
                         </div>
 
+                        <!-- Empty State -->
                         <div x-show="!isLoading && filteredInsights.length === 0" x-cloak class="text-center py-16">
                             <div class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
                                 <i class="fas fa-search text-gray-400 text-xl"></i>
@@ -405,9 +394,10 @@
                             </button>
                         </div>
                     </div>
-                    
+
+                    <!-- Best Practices Tab -->
                     <div x-show="activeTab === 'best_practices'" x-cloak>
-                         <div x-show="!isLoading && bestPracticeInsights.length > 0" class="overflow-x-auto">
+                        <div x-show="!isLoading && bestPracticeInsights.length > 0" class="overflow-x-auto">
                             <table class="w-full text-sm">
                                 <thead class="text-xs text-gray-700 uppercase bg-gray-50">
                                 <tr>
@@ -460,17 +450,11 @@
             showToast: false,
             toastMessage: '',
             toastType: 'success',
-            whatIf: {
-                resourceId: '',
-                targetInstanceType: '',
-                isLoading: false,
-                result: null
-            },
 
             init() {
                 const urlParams = new URLSearchParams(window.location.search);
                 this.selectedAccountId = urlParams.get('accountIds');
-                
+
                 if (!this.selectedAccountId) {
                     const storedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
                     if (storedIds.length > 0) {
@@ -487,7 +471,7 @@
                     this.isLoading = false;
                     return;
                 }
-                
+
                 const cacheKey = `performanceInsights-${this.selectedAccountId}`;
                 const cachedData = sessionStorage.getItem(cacheKey);
 
@@ -500,7 +484,7 @@
                 if (!cachedData) {
                     this.isLoading = true;
                 }
-                
+
                 if (forceRefresh) {
                     this.isRefreshing = true;
                 }
@@ -511,8 +495,7 @@
                         const uniqueInsights = this.deduplicateInsights(data);
                         this.insights = uniqueInsights;
                         sessionStorage.setItem(cacheKey, JSON.stringify(uniqueInsights));
-                        
-                        // Show notification if duplicates were removed
+
                         if (this.deduplicationCount > 0) {
                             this.showToastMessage(`Removed ${this.deduplicationCount} duplicate insights`, 'success');
                         }
@@ -528,16 +511,14 @@
                     });
             },
 
-            // Enhanced deduplication method
             deduplicateInsights(insights) {
                 const seen = new Set();
                 const uniqueInsights = [];
                 this.deduplicationCount = 0;
-                
+
                 insights.forEach(insight => {
-                    // Create a unique key using multiple properties
                     const key = this.createInsightKey(insight);
-                    
+
                     if (!seen.has(key)) {
                         seen.add(key);
                         uniqueInsights.push(insight);
@@ -545,13 +526,11 @@
                         this.deduplicationCount++;
                     }
                 });
-                
+
                 return uniqueInsights;
             },
 
             createInsightKey(insight) {
-                // Combine multiple properties to create a unique key
-                // This prevents duplicates that might have the same ID but different content
                 return `${insight.id || ''}-${insight.insight || ''}-${insight.resourceId || ''}-${insight.account || ''}-${insight.region || ''}`;
             },
 
@@ -559,8 +538,7 @@
                 this.toastMessage = message;
                 this.toastType = type;
                 this.showToast = true;
-                
-                // Auto-hide after 3 seconds
+
                 setTimeout(() => {
                     this.showToast = false;
                 }, 3000);
@@ -576,7 +554,7 @@
                     this.summary = JSON.parse(cachedData);
                     return;
                 }
-                
+
                 if (forceRefresh) {
                     sessionStorage.removeItem(cacheKey);
                 }
@@ -590,15 +568,6 @@
                     .catch(err => {
                         console.error('Failed to load summary', err);
                     });
-            },
-            
-            formatNumber(num) {
-                if (num >= 1000000) {
-                    return (num / 1000000).toFixed(1) + 'M';
-                } else if (num >= 1000) {
-                    return (num / 1000).toFixed(1) + 'K';
-                }
-                return num.toString();
             },
 
             get filteredInsights() {
@@ -630,27 +599,6 @@
                 }
             },
 
-            archiveInsight(insightId) {
-                if (!confirm('Are you sure you want to archive this insight?')) return;
-
-                fetch(`/api/xamops/metrics/insights/${insightId}/archive`, {
-                    method: 'POST'
-                })
-                    .then(res => {
-                        if (res.ok) {
-                            this.insights = this.insights.filter(i => i.id !== insightId);
-                            this.loadSummary(true);
-                            this.showToastMessage('Insight archived successfully');
-                        } else {
-                            this.showToastMessage('Failed to archive insight', 'error');
-                        }
-                    })
-                    .catch(err => {
-                        console.error('Failed to archive insight', err);
-                        this.showToastMessage('Failed to archive insight', 'error');
-                    });
-            },
-
             bulkArchive() {
                 if (this.selectedInsights.length === 0) return;
                 if (!confirm(`Are you sure you want to archive ${this.selectedInsights.length} insights?`)) return;
@@ -665,9 +613,10 @@
                     .then(res => {
                         if (res.ok) {
                             this.insights = this.insights.filter(i => !this.selectedInsights.includes(i.id));
+                            const count = this.selectedInsights.length;
                             this.selectedInsights = [];
                             this.loadSummary(true);
-                            this.showToastMessage(`${this.selectedInsights.length} insights archived successfully`);
+                            this.showToastMessage(`${count} insights archived successfully`);
                         } else {
                             this.showToastMessage('Failed to archive insights', 'error');
                         }
@@ -698,8 +647,8 @@
                     `"${insight.createdDate || ''}"`
                 ]);
 
-                let csvContent = "data:text/csv;charset=utf-8," 
-                    + headers.join(",") + "\n" 
+                let csvContent = "data:text/csv;charset=utf-8,"
+                    + headers.join(",") + "\n"
                     + rows.map(e => e.join(",")).join("\n");
 
                 var encodedUri = encodeURI(csvContent);
@@ -711,28 +660,6 @@
                 document.body.removeChild(link);
                 this.isExporting = false;
                 this.showToastMessage('Report exported successfully');
-            },
-
-            runWhatIfScenario() {
-                if (!this.whatIf.resourceId || !this.whatIf.targetInstanceType) {
-                    this.showToastMessage('Please provide a resource ID and a target instance type.', 'error');
-                    return;
-                }
-                this.whatIf.isLoading = true;
-                this.whatIf.result = null;
-                fetch(`/api/xamops/metrics/insights/what-if?accountId=${this.selectedAccountId}&resourceId=${this.whatIf.resourceId}&targetInstanceType=${this.whatIf.targetInstanceType}`)
-                    .then(res => res.json())
-                    .then(data => {
-                        this.whatIf.result = data;
-                        this.showToastMessage('What-if analysis completed');
-                    })
-                    .catch(err => {
-                        console.error('Failed to run What-If scenario', err);
-                        this.showToastMessage('Failed to run scenario. Please check the resource ID and instance type.', 'error');
-                    })
-                    .finally(() => {
-                        this.whatIf.isLoading = false;
-                    });
             }
         }
     }
