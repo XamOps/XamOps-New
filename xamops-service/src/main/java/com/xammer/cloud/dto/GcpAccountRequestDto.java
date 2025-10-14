@@ -9,12 +9,9 @@ public class GcpAccountRequestDto {
     private String gcpServiceAccountEmail;
     private String serviceAccountKey;
     private String projectId;
+    private String billingExportTable; // ✅ NEW FIELD
 
     // Getters and Setters
-    public void setServiceAccountKey(String serviceAccountKey) {
-        this.serviceAccountKey = serviceAccountKey;
-    }
-
     public String getAccountName() {
         return accountName;
     }
@@ -58,11 +55,25 @@ public class GcpAccountRequestDto {
     public String getServiceAccountKey() {
         return serviceAccountKey;
     }
+
+    public void setServiceAccountKey(String serviceAccountKey) {
+        this.serviceAccountKey = serviceAccountKey;
+    }
+
     public String getProjectId() {
         return projectId;
     }
 
     public void setProjectId(String projectId) {
         this.projectId = projectId;
+    }
+
+    // ✅ NEW: Billing Export Table
+    public String getBillingExportTable() {
+        return billingExportTable;
+    }
+
+    public void setBillingExportTable(String billingExportTable) {
+        this.billingExportTable = billingExportTable;
     }
 }
