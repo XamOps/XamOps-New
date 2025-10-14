@@ -11,7 +11,10 @@ import com.itextpdf.layout.properties.TextAlignment;
 import com.itextpdf.layout.properties.UnitValue;
 import com.xammer.billops.domain.*;
 import com.xammer.billops.dto.DiscountRequestDto;
+import com.xammer.billops.dto.GcpBillingDashboardDto;
 import com.xammer.billops.dto.InvoiceDto;
+import com.xammer.billops.dto.RegionCostDto;
+import com.xammer.billops.dto.ResourceCostDto;
 import com.xammer.billops.dto.ServiceCostDetailDto;
 import com.xammer.billops.repository.CloudAccountRepository;
 import com.xammer.billops.repository.DiscountRepository;
@@ -24,6 +27,7 @@ import com.xammer.billops.dto.InvoiceUpdateDto;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.text.NumberFormat;
@@ -40,16 +44,19 @@ public class InvoiceManagementService {
     private final CloudAccountRepository cloudAccountRepository;
     private final DiscountRepository discountRepository;
     private final BillingService billingService;
+    private final GcpCostService gcpCostService;
     private static final Logger logger = LoggerFactory.getLogger(InvoiceManagementService.class);
 
     public InvoiceManagementService(InvoiceRepository invoiceRepository,
                                   CloudAccountRepository cloudAccountRepository,
                                   DiscountRepository discountRepository,
-                                  BillingService billingService) {
+                                  BillingService billingService,
+                                  GcpCostService gcpCostService) {
         this.invoiceRepository = invoiceRepository;
         this.cloudAccountRepository = cloudAccountRepository;
         this.discountRepository = discountRepository;
         this.billingService = billingService;
+        this.gcpCostService = gcpCostService;
     }
 
     public InvoiceDto applyDiscountToTemporaryInvoice(InvoiceDto invoiceDto, DiscountRequestDto discountRequest) {
@@ -142,13 +149,56 @@ public class InvoiceManagementService {
 
     @Transactional
     public Invoice generateDraftInvoice(String accountId, int year, int month) {
-        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
-        if (accounts.isEmpty()) {
-            throw new RuntimeException("Cloud account not found");
+        Optional<CloudAccount> accountOpt = cloudAccountRepository.findByAwsAccountId(accountId)
+                .stream().findFirst();
+        if (accountOpt.isEmpty()) {
+            accountOpt = cloudAccountRepository.findByGcpProjectId(accountId);
         }
-        CloudAccount cloudAccount = accounts.get(0);
 
-        List<ServiceCostDetailDto> detailedReport = billingService.getDetailedBillingReport(Collections.singletonList(accountId), year, month);
+        CloudAccount cloudAccount = accountOpt.orElseThrow(() -> new RuntimeException("Cloud account not found"));
+
+        List<ServiceCostDetailDto> detailedReport = new ArrayList<>();
+
+        if ("GCP".equals(cloudAccount.getProvider())) {
+            try {
+                GcpBillingDashboardDto dashboardDto = gcpCostService.getGcpBillingDashboardDto(accountId);
+
+                if (dashboardDto != null && dashboardDto.getServiceBreakdown() != null) {
+                    for (GcpBillingDashboardDto.ServiceBreakdown service : dashboardDto.getServiceBreakdown()) {
+                        double totalServiceCost = service.getAmount().doubleValue();
+
+                        ResourceCostDto serviceAsResource = new ResourceCostDto(
+                            service.getServiceName(),
+                            "Service-level total",
+                            totalServiceCost,
+                            1.0,
+                            "N/A"
+                        );
+
+                        RegionCostDto globalRegion = new RegionCostDto(
+                            "global",
+                            totalServiceCost,
+                            List.of(serviceAsResource)
+                        );
+
+                        ServiceCostDetailDto serviceDetail = new ServiceCostDetailDto(
+                            service.getServiceName(),
+                            totalServiceCost,
+                            List.of(globalRegion)
+                        );
+                        detailedReport.add(serviceDetail);
+                    }
+                }
+            } catch (Exception e) {
+                logger.error("Failed to generate GCP invoice data for account {}", accountId, e);
+                if (e instanceof InterruptedException) {
+                     Thread.currentThread().interrupt();
+                }
+                throw new RuntimeException("Failed to generate GCP invoice: " + e.getMessage(), e);
+            }
+        } else { // Assume AWS
+            detailedReport = billingService.getDetailedBillingReport(Collections.singletonList(accountId), year, month);
+        }
 
         Invoice invoice = new Invoice();
         invoice.setCloudAccount(cloudAccount);
@@ -206,7 +256,6 @@ public Invoice applyDiscountToInvoice(Long invoiceId, String serviceName, BigDec
         "ALL".equalsIgnoreCase(serviceName) ? "Overall Bill" : serviceName
     ));
     
-    // Save the discount first
     discountRepository.save(discount);
 
     invoice.getDiscounts().add(discount);
@@ -215,7 +264,6 @@ public Invoice applyDiscountToInvoice(Long invoiceId, String serviceName, BigDec
 
     return invoiceRepository.save(invoice);
 }
-// Add this new method to your InvoiceManagementService class
 @Transactional
 public Invoice removeDiscountFromInvoice(Long invoiceId, Long discountId) {
     Invoice invoice = invoiceRepository.findById(invoiceId)
@@ -225,15 +273,13 @@ public Invoice removeDiscountFromInvoice(Long invoiceId, Long discountId) {
         throw new IllegalStateException("Cannot modify a finalized invoice.");
     }
 
-    // Find the discount to remove from the invoice's list
     Optional<Discount> discountToRemove = invoice.getDiscounts().stream()
             .filter(d -> d.getId().equals(discountId))
             .findFirst();
 
     if (discountToRemove.isPresent()) {
-        // Remove the discount. orphanRemoval=true will delete it from the database.
         invoice.getDiscounts().remove(discountToRemove.get());
-        recalculateTotals(invoice); // Recalculate totals after removal
+        recalculateTotals(invoice);
         return invoiceRepository.save(invoice);
     } else {
         throw new RuntimeException("Discount not found on this invoice.");
@@ -268,15 +314,15 @@ public Invoice removeDiscountFromInvoice(Long invoiceId, Long discountId) {
         return invoiceRepository.save(invoice);
     }
 
-@Transactional(readOnly = true)
+    @Transactional(readOnly = true)
     public Invoice getInvoiceForUser(String accountId, int year, int month) {
-        // --- START OF FIX ---
-        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
-        if (accounts.isEmpty()) {
-            throw new RuntimeException("Cloud account not found");
+        Optional<CloudAccount> accountOpt = cloudAccountRepository.findByAwsAccountId(accountId)
+                .stream().findFirst();
+        if (accountOpt.isEmpty()) {
+            accountOpt = cloudAccountRepository.findByGcpProjectId(accountId);
         }
-        CloudAccount cloudAccount = accounts.get(0); // Use the first account found
-        // --- END OF FIX ---
+
+        CloudAccount cloudAccount = accountOpt.orElseThrow(() -> new RuntimeException("Cloud account not found"));
 
         String billingPeriod = YearMonth.of(year, month).format(DateTimeFormatter.ofPattern("yyyy-MM"));
 
@@ -303,7 +349,6 @@ public Invoice removeDiscountFromInvoice(Long invoiceId, Long discountId) {
         logger.info("--> RESULT: Found finalized invoice with ID: {}", singleInvoice.getId());
         return singleInvoice;
     }
-
     
     @Transactional(readOnly = true)
     public Invoice getInvoiceForAdmin(Long invoiceId) {
@@ -442,10 +487,7 @@ public Invoice removeDiscountFromInvoice(Long invoiceId, Long discountId) {
             newLineItem.setUnit(itemDto.getUnit());
             newLineItem.setCost(itemDto.getCost());
 
-            // --- START: THIS IS THE FIX ---
-            // Now, we correctly set the hidden status from the frontend data
             newLineItem.setHidden(itemDto.isHidden());
-            // --- END: THIS IS THE FIX ---
 
             invoice.getLineItems().add(newLineItem);
             newPreDiscountTotal = newPreDiscountTotal.add(itemDto.getCost());

@@ -31,24 +31,24 @@ public class Invoice {
     private BigDecimal amount;
     // --- END FIX ---
 
-    // --- FIX: Changed FetchType to EAGER to prevent LazyInitializationException ---
-    @ManyToOne(fetch = FetchType.EAGER)
+    // --- FIX: Changed FetchType to LAZY to prevent LazyInitializationException ---
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "cloud_account_id", nullable = false)
     private CloudAccount cloudAccount;
     // --- END FIX ---
 
-    // --- FIX: Changed FetchType to EAGER ---
-    @ManyToOne(fetch = FetchType.EAGER)
+    // --- FIX: Changed FetchType to LAZY ---
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "client_id", nullable = false)
     private Client client;
     // --- END FIX ---
 
-    // --- FIX: Changed FetchType to EAGER ---
-    @OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
+    // --- FIX: Changed FetchType to LAZY ---
+    @OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private List<InvoiceLineItem> lineItems = new ArrayList<>();
     // --- END FIX ---
 
-    @OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
+    @OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private List<Discount> discounts = new ArrayList<>();
 
     public enum InvoiceStatus {
