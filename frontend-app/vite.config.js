@@ -68,6 +68,10 @@ export default defineConfig({
         reservation: resolve(__dirname, 'reservation.html'),
         waste: resolve(__dirname, 'waste.html'),
         performance: resolve(__dirname, 'performance.html'),
+        xamops_tickets: resolve(__dirname, 'xamops_tickets.html'),
+        xamops_tickets: resolve(__dirname, 'xamops_tickets.html'),
+        xamops_ticket_detail: resolve(__dirname, 'xamops_ticket_detail.html'),
+
 
 
 
