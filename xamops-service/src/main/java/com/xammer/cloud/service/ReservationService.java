@@ -91,7 +91,7 @@ public class ReservationService {
             return CompletableFuture.allOf(analysisFuture, purchaseRecsFuture, inventoryFuture, historicalDataFuture, modificationRecsFuture).thenApply(v -> {
                 logger.info("--- RESERVATION PAGE DATA FETCH COMPLETE, COMBINING NOW ---");
                 ReservationDto result = new ReservationDto(analysisFuture.join(), purchaseRecsFuture.join(), inventoryFuture.join(), historicalDataFuture.join(), modificationRecsFuture.join());
-                redisCache.put(cacheKey, result);
+                redisCache.put(cacheKey, result, 10);
                 return result;
             });
         });
@@ -121,7 +121,7 @@ public class ReservationService {
             double coveragePercentage = coverages.isEmpty() || coverages.get(0).total() == null ? 0.0 : Double.parseDouble(coverages.get(0).total().coverageHours().coverageHoursPercentage());
             
             DashboardData.ReservationAnalysis result = new DashboardData.ReservationAnalysis(utilizationPercentage, coveragePercentage);
-            redisCache.put(cacheKey, result);
+            redisCache.put(cacheKey, result, 10);
             return CompletableFuture.completedFuture(result);
         } catch (Exception e) {
             logger.error("Could not fetch reservation analysis data for account {}", account.getAwsAccountId(), e);
@@ -180,7 +180,7 @@ public class ReservationService {
                     }))
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
-            redisCache.put(cacheKey, result);
+            redisCache.put(cacheKey, result, 10);
             return CompletableFuture.completedFuture(result);
         } catch (Exception e) {
             logger.error("Could not fetch reservation purchase recommendations.", e);
@@ -210,7 +210,7 @@ public class ReservationService {
                     ))
                     .collect(Collectors.toList());
         }, "Reservation Inventory").thenApply(result -> {
-            redisCache.put(cacheKey, result);
+            redisCache.put(cacheKey, result, 10);
             return result;
         });
     }
@@ -243,7 +243,7 @@ public class ReservationService {
             List<Double> covPercentages = coverages.stream().map(c -> Double.parseDouble(c.total().coverageHours().coverageHoursPercentage())).collect(Collectors.toList());
             
             HistoricalReservationDataDto result = new HistoricalReservationDataDto(labels, utilPercentages, covPercentages);
-            redisCache.put(cacheKey, result);
+            redisCache.put(cacheKey, result, 10);
             return CompletableFuture.completedFuture(result);
         } catch (Exception e) {
             logger.error("Could not fetch historical reservation data for account {}", account.getAwsAccountId(), e);
@@ -296,7 +296,7 @@ public class ReservationService {
                         }
                     }
                 }
-                redisCache.put(cacheKey, recommendations);
+                redisCache.put(cacheKey, recommendations, 10);
                 return CompletableFuture.completedFuture(recommendations);
             } catch (Exception e) {
                 logger.error("Could not generate reservation modification recommendations for account {}", account.getAwsAccountId(), e);
@@ -381,7 +381,7 @@ public class ReservationService {
                 })
                 .filter(dto -> dto.getCost() > 0.01)
                 .collect(Collectors.toList());
-            redisCache.put(cacheKey, resultList);
+            redisCache.put(cacheKey, resultList, 10);
             return CompletableFuture.completedFuture(resultList);
         } catch (Exception e) {
             logger.error("Could not fetch reservation cost by tag key '{}' for account {}. This tag may not be activated in the billing console.", tagKey, e);

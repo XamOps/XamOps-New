@@ -4,6 +4,7 @@ import com.google.api.services.sqladmin.SQLAdmin;
 import com.google.api.services.sqladmin.model.BackupRun;
 import com.google.api.services.sqladmin.model.DatabaseInstance;
 import com.google.api.services.sqladmin.model.InstancesListResponse;
+import com.google.cloud.bigquery.*;
 import com.google.cloud.compute.v1.*;
 import com.google.cloud.recommender.v1.Recommendation;
 import com.google.cloud.recommender.v1.RecommenderClient;
@@ -23,6 +24,8 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -108,7 +111,7 @@ public class GcpOptimizationService {
 
     @Cacheable(value = "gcpRightsizingRecommendations", key = "'gcp:rightsizing-recommendations:' + #gcpProjectId")
     public List<GcpOptimizationRecommendation> getRightsizingRecommendations(String gcpProjectId) {
-        log.info("Fetching rightsizing recommendations for GCP project: {}", gcpProjectId);
+        log.info("🔍 Fetching rightsizing recommendations for GCP project: {}", gcpProjectId);
 
         List<DashboardData.RegionStatus> regions = gcpDataService.getRegionStatusForGcp(new ArrayList<>()).join();
         List<String> locations = regions.stream()
@@ -142,9 +145,9 @@ public class GcpOptimizationService {
                 this::mapToRightsizingDto,
                 true));
 
-        // Cloud SQL rightsizing - Query both overprovisioned and underprovisioned recommenders
+        // ✅ Cloud SQL rightsizing - Query both overprovisioned and underprovisioned
         for (String location : locations) {
-            if (!location.equals("global")) {
+            if (!"global".equals(location)) {
                 futures.add(getRecommendationsForRecommender(
                         gcpProjectId,
                         "google.cloudsql.instance.OverprovisionedRecommender",
@@ -167,10 +170,10 @@ public class GcpOptimizationService {
                 .flatMap(List::stream)
                 .collect(Collectors.toList());
 
-        // Enhance Cloud SQL recommendations with instance details
-        enhanceCloudSqlRecommendations(gcpProjectId, results);
+        // ✅ Enhance Cloud SQL recommendations with historical cost
+        enhanceCloudSqlRecommendationsWithHistoricalCost(gcpProjectId, results);
 
-        log.info("Total rightsizing recommendations found: {}", results.size());
+        log.info("✅ Total rightsizing recommendations found: {}", results.size());
         return results;
     }
 
@@ -779,21 +782,17 @@ public class GcpOptimizationService {
 
     private GcpOptimizationRecommendation mapToSqlRightsizingDto(Recommendation rec) {
         String description = rec.getDescription();
-        log.info("=== Processing Cloud SQL Recommendation ===");
-        log.info("Recommendation ID: {}", rec.getName());
-        log.info("Full Description: {}", description);
+        log.info("📊 Processing Cloud SQL Recommendation: {}", rec.getName());
+        log.info("Description: {}", description);
 
-        // Extract actual instance name from description
+        // Extract instance name
         String resourceName = extractInstanceNameFromDescription(description);
-        log.info("Extracted instance name: {}", resourceName);
-
-        // If extraction failed, try generic method
         if ("Unknown".equals(resourceName)) {
             resourceName = extractResourceName(rec);
-            log.warn("Fallback to generic extraction, result: {}", resourceName);
         }
+        log.info("Instance name: {}", resourceName);
 
-        // Determine recommendation type from recommender ID
+        // Determine recommendation type
         String recommenderName = rec.getName();
         boolean isUnderprovisioned = recommenderName.contains("UnderprovisionedRecommender");
         boolean isOverprovisioned = recommenderName.contains("OverprovisionedRecommender");
@@ -806,38 +805,38 @@ public class GcpOptimizationService {
         } else {
             recommendationType = "OPTIMIZATION";
         }
-
         log.info("Recommendation type: {}", recommendationType);
 
-        // Extract recommended tier from description
-        String recommendedTier = extractRecommendedTierFromDescription(description);
-        log.info("Extracted recommended tier: {}", recommendedTier);
+        // ✅ Extract CURRENT tier from description
+        String currentTier = extractCurrentTierFromDescription(description);
+        log.info("Current tier: {}", currentTier);
 
-        // Calculate cost impact
-        double monthlySavings = 0;
+        // Extract recommended tier
+        String recommendedTier = extractRecommendedTierFromDescription(description);
+        log.info("Recommended tier: {}", recommendedTier);
+
+        // Get cost projection (will be replaced with historical cost)
+        double costImpact = 0;
         if (rec.getPrimaryImpact().hasCostProjection()) {
             double costNanos = rec.getPrimaryImpact().getCostProjection().getCost().getNanos();
             double costUnits = rec.getPrimaryImpact().getCostProjection().getCost().getUnits();
-            monthlySavings = -(costUnits + (costNanos / 1_000_000_000.0));
-            log.info("Initial monthly cost impact from GCP: {}", monthlySavings);
+            costImpact = Math.abs(costUnits + (costNanos / 1_000_000_000.0));
         }
 
         String location = extractLocation(rec.getName());
-        log.info("Location: {}", location);
-        log.info("=== End Cloud SQL Recommendation ===");
 
         return new GcpOptimizationRecommendation(
                 resourceName,
-                "Unknown",  // Will be enhanced later
+                currentTier,
                 recommendedTier,
-                monthlySavings,
+                costImpact,  // Will be replaced with historical 30-day cost
                 "Cloud SQL",
                 location,
                 rec.getName(),
                 recommendationType,
-                description);
+                description
+        );
     }
-
     /**
      * Extract instance name from Cloud SQL recommendation description
      * Pattern: "Instance: basic-mysql has had..." (WITH COLON)
@@ -1055,4 +1054,171 @@ public class GcpOptimizationService {
     private double calculateDiskCost(long sizeGb) {
         return (sizeGb * 0.10);
     }
+
+    private String extractCurrentTierFromDescription(String description) {
+        if (description == null || description.isEmpty()) {
+            return "Unknown";
+        }
+
+        try {
+            // Pattern: "uses the db-f1-micro machine type"
+            Pattern pattern1 = Pattern.compile("uses the ([a-z0-9-]+) machine type", Pattern.CASE_INSENSITIVE);
+            Matcher matcher1 = pattern1.matcher(description);
+            if (matcher1.find()) {
+                String tier = matcher1.group(1);
+                log.info("✅ Extracted current tier: {}", tier);
+                return tier;
+            }
+
+            log.warn("⚠️ Could not extract current tier from description");
+            return "Unknown";
+
+        } catch (Exception e) {
+            log.error("❌ Error extracting current tier: {}", e.getMessage(), e);
+            return "Unknown";
+        }
+    }
+
+    /**
+     * ✅ FIXED: Enhance with historical cost data from Cloud SQL API + BigQuery
+     */
+    private void enhanceCloudSqlRecommendationsWithHistoricalCost(
+            String gcpProjectId,
+            List<GcpOptimizationRecommendation> results) {
+
+        Optional<SQLAdmin> clientOpt = gcpClientProvider.getSqlAdminClient(gcpProjectId);
+        if (clientOpt.isEmpty()) {
+            log.warn("SQLAdmin client not available");
+            return;
+        }
+
+        SQLAdmin sqlAdmin = clientOpt.get();
+
+        for (GcpOptimizationRecommendation dto : results) {
+            if (!"Cloud SQL".equals(dto.getService())) continue;
+
+            String instanceName = dto.getResourceName();
+
+            try {
+                log.info("🔍 Fetching details for Cloud SQL instance: {}", instanceName);
+                DatabaseInstance instance = sqlAdmin.instances()
+                        .get(gcpProjectId, instanceName)
+                        .execute();
+
+                String currentTier = instance.getSettings().getTier();
+                String region = instance.getRegion();
+
+                // Update current tier if not extracted
+                if ("Unknown".equals(dto.getCurrentMachineType())) {
+                    dto.setCurrentMachineType(currentTier);
+                }
+
+                // ✅ Calculate HISTORICAL 30-day cost from BigQuery billing data
+                double historicalCost = calculateCloudSqlHistoricalCost(gcpProjectId, instanceName);
+
+                // ✅ Set historical cost as the "monthly savings" field
+                dto.setMonthlySavings(historicalCost);
+
+                log.info("💰 Instance '{}': Historical 30-day cost = ${}",
+                        instanceName, String.format("%.2f", historicalCost));
+
+                // Build readable descriptions
+                double currentPrice = calculateCloudSqlPrice(currentTier, region);
+                double recommendedPrice = calculateCloudSqlPrice(dto.getRecommendedMachineType(), region);
+
+                dto.setCurrentMachineType(buildReadableTierDescription(currentTier, currentPrice));
+                dto.setRecommendedMachineType(
+                        buildReadableTierDescription(dto.getRecommendedMachineType(), recommendedPrice));
+
+                log.info("✅ Enhanced recommendation for '{}': ${}/mo",
+                        instanceName, String.format("%.2f", historicalCost));
+
+            } catch (Exception e) {
+                log.error("❌ Failed to enhance instance '{}': {}", instanceName, e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * ✅ NEW: Calculate historical 30-day cost from BigQuery billing export
+     */
+    private double calculateCloudSqlHistoricalCost(String gcpProjectId, String instanceName) {
+        try {
+            Optional<BigQuery> bqOpt = gcpClientProvider.getBigQueryClient(gcpProjectId);
+            if (bqOpt.isEmpty()) {
+                log.warn("BigQuery client not available");
+                return 0.0;
+            }
+
+            BigQuery bigquery = bqOpt.get();
+            Optional<String> tableNameOpt = getBillingTableName(bigquery, gcpProjectId);
+
+            if (tableNameOpt.isEmpty()) {
+                log.warn("Billing table not found");
+                return 0.0;
+            }
+
+            LocalDate today = LocalDate.now();
+            LocalDate startDate = today.minusDays(30);
+
+            String query = String.format(
+                    "SELECT SUM(cost) as total_cost " +
+                            "FROM `%s` " +
+                            "WHERE DATE(usage_start_time) >= '%s' " +
+                            "  AND DATE(usage_start_time) <= '%s' " +
+                            "  AND service.description = 'Cloud SQL' " +
+                            "  AND project.id = '%s' " +
+                            "  AND cost > 0",
+                    tableNameOpt.get(),
+                    startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
+                    today.format(DateTimeFormatter.ISO_LOCAL_DATE),
+                    gcpProjectId
+            );
+
+            log.info("📊 Querying Cloud SQL 30-day cost for project: {}", gcpProjectId);
+
+            TableResult results = bigquery.query(QueryJobConfiguration.newBuilder(query).build());
+
+            if (results.getTotalRows() > 0) {
+                FieldValue costField = results.getValues().iterator().next().get("total_cost");
+
+                if (!costField.isNull()) {
+                    double totalCost = costField.getDoubleValue();
+                    log.info("✅ Cloud SQL 30-day cost: ₹{} (project: {}, includes instance: {})",
+                            String.format("%.2f", totalCost), gcpProjectId, instanceName);
+                    return totalCost;
+                }
+            }
+
+            log.warn("⚠️ No Cloud SQL cost data found for project: {}", gcpProjectId);
+            return 0.0;
+
+        } catch (Exception e) {
+            log.error("❌ Error querying Cloud SQL cost for '{}': {}", instanceName, e.getMessage());
+            return 0.0;
+        }
+    }
+    /**
+     * ✅ Helper: Get billing table name
+     */
+    private Optional<String> getBillingTableName(BigQuery bigquery, String gcpProjectId) {
+        try {
+            for (Dataset dataset : bigquery.listDatasets(gcpProjectId).iterateAll()) {
+                for (Table table : bigquery.listTables(dataset.getDatasetId()).iterateAll()) {
+                    if (table.getTableId().getTable().startsWith("gcp_billing_export_v1")) {
+                        String fullName = String.format("%s.%s.%s",
+                                table.getTableId().getProject(),
+                                table.getTableId().getDataset(),
+                                table.getTableId().getTable());
+                        log.info("Found billing table: {}", fullName);
+                        return Optional.of(fullName);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.error("Failed to find billing table: {}", e.getMessage());
+        }
+        return Optional.empty();
+    }
+
 }

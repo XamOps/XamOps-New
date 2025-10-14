@@ -42,7 +42,6 @@ import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityPr
 import software.amazon.awssdk.services.cognitoidentityprovider.model.ListUserPoolsRequest;
 import software.amazon.awssdk.services.config.ConfigClient;
 import software.amazon.awssdk.services.config.model.DescribeConfigRulesRequest;
-import software.amazon.awssdk.services.controltower.ControlTowerClient;
 import software.amazon.awssdk.services.datazone.DataZoneClient;
 import software.amazon.awssdk.services.datazone.model.ListDomainsRequest;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
@@ -309,7 +308,7 @@ public CompletableFuture<ServicePaginatedResponse> getAllServicesGroupedPaginate
                     .sorted(Comparator.comparing(DashboardData.ServiceGroupDto::getServiceType))
                     .collect(Collectors.toList());
             logger.debug("Grouped Cloudlist resources into {} service groups for account {}", groupedList.size(), accountId);
-            redisCache.put(cacheKey, groupedList);
+            redisCache.put(cacheKey, groupedList, 10);
             return groupedList;
         });
     }
@@ -389,7 +388,7 @@ public CompletableFuture<ServicePaginatedResponse> getAllServicesGroupedPaginate
                                 .collect(Collectors.toList());
 
                         logger.debug("Fetched a total of {} resources for Cloudlist for account {}", allResources.size(), account.getAwsAccountId());
-                        redisCache.put(cacheKey, allResources);
+                        redisCache.put(cacheKey, allResources, 10);
                         return allResources;
                     });
         });
@@ -450,7 +449,7 @@ public CompletableFuture<ServicePaginatedResponse> getAllServicesGroupedPaginate
                     .collect(Collectors.toList());
 
             logger.debug("Successfully fetched {} active region statuses for account {}", regionStatuses.size(), account.getAwsAccountId());
-            redisCache.put(cacheKey, regionStatuses);
+            redisCache.put(cacheKey, regionStatuses, 10);
             return CompletableFuture.completedFuture(regionStatuses);
 
         } catch (Exception e) {

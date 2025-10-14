@@ -97,7 +97,7 @@
                     const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
                     if (!selectedAccountId) { this.isLoading = false; this.costData = []; return; }
                     this.isLoading = !forceRefresh; this.isRefreshing = forceRefresh;
-                    
+
                     let url = `/api/xamops/gcp/costs/breakdown?accountId=${selectedAccountId}&groupBy=${this.groupBy}`;
                     if (this.groupBy === 'TAG' && this.tagKey) {
                         url = `/api/xamops/gcp/costs/breakdown-by-tag?accountId=${selectedAccountId}&tagKey=${this.tagKey}`;

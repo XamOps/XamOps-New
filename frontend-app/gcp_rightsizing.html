@@ -287,12 +287,12 @@
 
                     <div x-show="!isLoading" class="kpi-card rounded-2xl p-6 fade-in flex items-center justify-between">
                         <div class="flex-1">
-                            <h3 class="text-gray-600 text-sm font-medium mb-2">Cost Increases</h3>
-                            <p class="text-4xl font-bold warning-text mb-1" x-text="formatCurrency(totalCostIncreases)"></p>
-                            <p class="text-xs text-gray-500">performance upgrades</p>
+                            <h3 class="text-gray-600 text-sm font-medium mb-2">Current Costs</h3>
+                            <p class="text-4xl font-bold warning-text mb-1" x-text="formatCurrency(totalCurrentCosts)"></p>
+                            <p class="text-xs text-gray-500">underprovisioned resources</p>
                         </div>
                         <div class="w-14 h-14 bg-gradient-to-br from-yellow-500 to-orange-600 rounded-xl flex items-center justify-center">
-                            <i class="fas fa-arrow-up text-white text-xl"></i>
+                            <i class="fas fa-chart-line text-white text-xl"></i>
                         </div>
                     </div>
 
@@ -431,19 +431,18 @@
                                         <td class="px-6 py-4">
                                             <div class="reason-text">
                                                 <i class="fas fa-info-circle text-blue-500 mr-1"></i>
-                                                <span x-text="rec.reason || 'No details available'"></span>
+                                                <span x-text="getReasonText(rec)"></span>
                                             </div>
                                         </td>
                                         <td class="px-6 py-4">
                                             <div class="flex flex-col items-start space-y-1">
                                                 <span
-                                                        :class="isCostIncrease(rec) ? 'cost-increase-badge' : 'savings-badge'"
+                                                        :class="isUnderprovisioned(rec) ? 'cost-increase-badge' : 'savings-badge'"
                                                         x-text="formatImpact(rec)">
                                                 </span>
-                                                <span
-                                                        x-show="isCostIncrease(rec)"
-                                                        class="text-xs text-orange-600 font-medium">
-                                                    <i class="fas fa-info-circle mr-1"></i>Cost increase
+                                                <span class="text-xs font-medium" :class="isUnderprovisioned(rec) ? 'text-orange-600' : 'text-green-600'">
+                                                    <i class="fas fa-info-circle mr-1"></i>
+                                                    <span x-text="isUnderprovisioned(rec) ? '30-day cost' : 'Potential savings'"></span>
                                                 </span>
                                             </div>
                                         </td>
@@ -520,7 +519,7 @@
                     this.isLoading = true;
                 }
 
-                console.log(`Fetching rightsizing recommendations for: ${accountId}, forceRefresh: ${forceRefresh}`);
+                console.log(`Fetching rightsizing recommendations for: ${accountId}`);
 
                 fetch(`/api/xamops/gcp/rightsizing/recommendations?accountId=${accountId}`)
                     .then(res => {
@@ -557,16 +556,18 @@
                 });
             },
 
+            // ✅ FIXED: Only count COST_SAVINGS recommendations
             get potentialSavings() {
                 return this.filteredRecommendations
-                    .filter(rec => (rec.monthlySavings || 0) >= 0)
+                    .filter(rec => rec.recommendationType === 'COST_SAVINGS')
                     .reduce((total, rec) => total + (rec.monthlySavings || 0), 0);
             },
 
-            get totalCostIncreases() {
-                return Math.abs(this.filteredRecommendations
-                    .filter(rec => (rec.monthlySavings || 0) < 0)
-                    .reduce((total, rec) => total + (rec.monthlySavings || 0), 0));
+            // ✅ FIXED: Show historical cost for underprovisioned resources
+            get totalCurrentCosts() {
+                return this.filteredRecommendations
+                    .filter(rec => rec.recommendationType === 'PERFORMANCE_IMPROVEMENT')
+                    .reduce((total, rec) => total + (rec.monthlySavings || 0), 0);
             },
 
             get recommendationCount() {
@@ -583,16 +584,30 @@
                 return Object.keys(counts).reduce((a, b) => counts[a] > counts[b] ? a : b);
             },
 
-            isCostIncrease(rec) {
-                return (rec.monthlySavings || 0) < 0;
+            // ✅ FIXED: Check by recommendationType
+            isUnderprovisioned(rec) {
+                return rec.recommendationType === 'PERFORMANCE_IMPROVEMENT';
             },
 
+            // ✅ FIXED: Format impact properly
             formatImpact(rec) {
-                const savings = rec.monthlySavings || 0;
-                const isIncrease = savings < 0;
-                const absoluteValue = Math.abs(savings);
-                const formatted = this.formatCurrency(absoluteValue);
-                return isIncrease ? `+${formatted} / mo` : `${formatted} / mo`;
+                const value = rec.monthlySavings || 0;
+                return this.formatCurrency(Math.abs(value)) + ' / mo';
+            },
+
+            // ✅ NEW: Get proper reason text
+            getReasonText(rec) {
+                if (rec.reason && rec.reason !== 'No details available') {
+                    return rec.reason;
+                }
+
+                if (rec.recommendationType === 'PERFORMANCE_IMPROVEMENT') {
+                    return 'Resource is underprovisioned. Upgrade recommended for better performance.';
+                } else if (rec.recommendationType === 'COST_SAVINGS') {
+                    return 'Resource is overprovisioned. Downgrade recommended to reduce costs.';
+                }
+
+                return rec.description || 'Optimization recommended';
             },
 
             formatCurrency(value) {

@@ -478,7 +478,7 @@ private String normalizeMonthString(String monthStr) {
             freshData = getAwsDashboardData(account, forceRefresh, userDetails);
         }
 
-        redisCache.put(cacheKey, freshData);
+        redisCache.put(cacheKey, freshData, 10);
         return freshData;
     }
 
@@ -685,7 +685,7 @@ private String normalizeMonthString(String monthStr) {
         }
 
         DashboardData.CloudWatchStatus status = new DashboardData.CloudWatchStatus(0, 0, 0);
-        redisCache.put(cacheKey, status);
+        redisCache.put(cacheKey, status, 10);
         return CompletableFuture.completedFuture(status);
     }
 
@@ -754,7 +754,7 @@ private String normalizeMonthString(String monthStr) {
         try { roles = iam.listRoles().roles().size(); } catch (Exception e) { logger.error("IAM check failed for Roles on account {}", account.getAwsAccountId(), e); }
 
         DashboardData.IamResources resources = new DashboardData.IamResources(users, groups, policies, roles);
-        redisCache.put(cacheKey, resources);
+        redisCache.put(cacheKey, resources, 10);
         return CompletableFuture.completedFuture(resources);
     }
 
