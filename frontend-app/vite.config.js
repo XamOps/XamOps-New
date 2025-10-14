@@ -100,7 +100,9 @@ export default defineConfig({
         // 'gcp_highlighting': resolve(__dirname, 'gcp/highlighting.html'),
          'gcp_rightsizing': resolve(__dirname, 'gcp_rightsizing.html'),
          'gcp_security': resolve(__dirname, 'gcp_security.html'),
-         'gcp_waste': resolve(__dirname, 'gcp_waste.html')
+         'gcp_waste': resolve(__dirname, 'gcp_waste.html'),
+         gcp_performance: resolve(__dirname, 'gcp_performance.html'),
+         gcp_alerts: resolve(__dirname, 'gcp_alerts.html')
         // Add any additional .html files here if missing from the directory listing
       },
     },
