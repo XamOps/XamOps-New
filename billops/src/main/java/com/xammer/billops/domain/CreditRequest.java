@@ -12,8 +12,10 @@ public class CreditRequest {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    // --- START OF FINAL FIX ---
     @Column(name = "aws_account_id", nullable = false)
-    private String awsAccountId;
+    private String awsAccountId; // Reverted to match the database column
+    // --- END OF FINAL FIX ---
 
     @Column(name = "expected_credits", nullable = false)
     private BigDecimal expectedCredits;
@@ -42,8 +44,10 @@ public class CreditRequest {
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
+    // --- START OF FINAL FIX ---
     public String getAwsAccountId() { return awsAccountId; }
     public void setAwsAccountId(String awsAccountId) { this.awsAccountId = awsAccountId; }
+    // --- END OF FINAL FIX ---
 
     public BigDecimal getExpectedCredits() { return expectedCredits; }
     public void setExpectedCredits(BigDecimal expectedCredits) { this.expectedCredits = expectedCredits; }

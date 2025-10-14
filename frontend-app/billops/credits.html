@@ -27,16 +27,14 @@
         selectedFilter: 'all',
 
         init() {
-            // It's better to load the sidebar first, then fetch data.
             this.loadSidebar().then(() => {
                 this.fetchRequests();
-                setInterval(() => this.fetchRequests(), 5000); // Poll for updates every 5 seconds
+                setInterval(() => this.fetchRequests(), 5000);
             });
         },
 
         async fetchRequests() {
             try {
-                // CORRECTED: This now fetches requests only for the specific user.
                 const response = await fetch(`/api/billops/credits/user/${this.userId}`);
                 if (!response.ok) throw new Error('Network response was not ok');
                 this.creditRequests = await response.json();
@@ -59,7 +57,7 @@
                 });
                 if (!response.ok) throw new Error('Submission failed');
 
-                await this.fetchRequests(); // Re-fetch the list
+                await this.fetchRequests();
                 this.showForm = false;
                 this.resetForm();
                 this.showNotification('Request submitted successfully!', 'success');
@@ -91,7 +89,6 @@
             document.body.appendChild(notification);
             setTimeout(() => notification.remove(), 3000);
         },
-        // ADDED: loadSidebar to handle sidebar loading
         async loadSidebar() {
             try {
                 const response = await fetch('/_sidebar.html');
@@ -135,8 +132,8 @@
                     <div class="flex flex-wrap gap-2">
                         <button @click="selectedFilter = 'all'" :class="selectedFilter === 'all' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'" class="px-4 py-2 rounded-lg font-medium transition-colors">All Requests</button>
                         <button @click="selectedFilter = 'submitted'" :class="selectedFilter === 'submitted' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'" class="px-4 py-2 rounded-lg font-medium transition-colors">Submitted</button>
-                        <button @click="selectedFilter = 'documentation'" :class="selectedFilter === 'documentation' ? 'bg-cyan-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'" class="px-4 py-2 rounded-lg font-medium transition-colors">Documentation</button>
-                        <button @click="selectedFilter = 'verification'" :class="selectedFilter === 'verification' ? 'bg-yellow-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'" class="px-4 py-2 rounded-lg font-medium transition-colors">Verification</button>
+                        <button @click="selectedFilter = 'documentation_review'" :class="selectedFilter === 'documentation_review' ? 'bg-cyan-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'" class="px-4 py-2 rounded-lg font-medium transition-colors">Documentation</button>
+                        <button @click="selectedFilter = 'technical_verification'" :class="selectedFilter === 'technical_verification' ? 'bg-yellow-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'" class="px-4 py-2 rounded-lg font-medium transition-colors">Verification</button>
                         <button @click="selectedFilter = 'approved'" :class="selectedFilter === 'approved' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'" class="px-4 py-2 rounded-lg font-medium transition-colors">Approved</button>
                         <button @click="selectedFilter = 'rejected'" :class="selectedFilter === 'rejected' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'" class="px-4 py-2 rounded-lg font-medium transition-colors">Rejected</button>
                     </div>
@@ -148,7 +145,7 @@
                     <h4 class="text-xl font-semibold mb-6">Request AWS Credits</h4>
                     <form @submit.prevent="submitRequest">
                         <div class="space-y-4">
-                            <input type="text" x-model="newRequestData.awsAccountId" placeholder="AWS Account ID (e.g., 1234-5678-9012)" class="w-full p-2 border rounded" required>
+                            <input type="text" x-model="newRequestData.awsAccountId" placeholder="AWS Account ID or GCP Project ID" class="w-full p-2 border rounded" required>
                             <input type="number" x-model="newRequestData.expectedCredits" placeholder="Expected Credits ($)" class="w-full p-2 border rounded" required>
                             <select x-model="newRequestData.priority" class="w-full p-2 border rounded">
                                 <option value="low">Low Priority</option>
@@ -175,7 +172,7 @@
                                     <div class="flex items-center space-x-3">
                                         <h4 class="text-xl font-bold">AWS Account</h4>
                                         <span class="font-mono text-lg bg-white bg-opacity-20 px-3 py-1 rounded-lg" x-text="request.awsAccountId"></span>
-                                    </div>
+                                        </div>
                                     <div class="flex items-center space-x-4 mt-2">
                                         <span class="text-indigo-100 text-sm">Request ID: <span class="font-mono" x-text="request.id"></span></span>
                                         <span class="text-indigo-100 text-sm">Submitted: <span x-text="new Date(request.submittedDate).toLocaleDateString()"></span></span>
@@ -217,10 +214,10 @@
                                                     <span class="text-xs text-green-600 font-medium">✓ Completed</span>
                                                 </div>
                                             </div>
-                                            <div class="flex items-center" :class="{'opacity-40': !['documentation', 'verification', 'approved', 'rejected'].includes(request.status)}">
+                                            <div class="flex items-center" :class="{'opacity-40': !['documentation_review', 'technical_verification', 'approved', 'rejected'].includes(request.status)}">
                                                 <div class="rounded-full h-12 w-12 flex items-center justify-center text-white z-10 shadow-lg"
                                                      :class="{
-                                                          'bg-gradient-to-r from-blue-500 to-indigo-600': ['documentation', 'verification', 'approved'].includes(request.status),
+                                                          'bg-gradient-to-r from-blue-500 to-indigo-600': ['documentation_review', 'technical_verification', 'approved'].includes(request.status),
                                                           'bg-gray-300': request.status === 'submitted',
                                                           'bg-red-500': request.status === 'rejected'
                                                       }">
@@ -230,25 +227,25 @@
                                                     <h5 class="font-bold text-gray-900">Documentation Review</h5>
                                                     <p class="text-sm text-gray-600">We are reviewing your documentation</p>
                                                     <span class="text-xs font-medium" :class="request.status === 'submitted' ? 'text-gray-500' : 'text-green-600'">
-                                                         <span x-text="['documentation', 'verification', 'approved'].includes(request.status) ? '✓ Completed' : 'Pending'"></span>
+                                                         <span x-text="['documentation_review', 'technical_verification', 'approved'].includes(request.status) ? '✓ Completed' : 'Pending'"></span>
                                                       </span>
                                                 </div>
                                             </div>
-                                            <div class="flex items-center" :class="{'opacity-40': !['verification', 'approved', 'rejected'].includes(request.status)}">
+                                            <div class="flex items-center" :class="{'opacity-40': !['technical_verification', 'approved', 'rejected'].includes(request.status)}">
                                                 <div class="rounded-full h-12 w-12 flex items-center justify-center text-white z-10 shadow-lg"
                                                      :class="{
-                                                          'bg-gradient-to-r from-yellow-500 to-orange-500 animate-pulse-slow': request.status === 'verification',
+                                                          'bg-gradient-to-r from-yellow-500 to-orange-500 animate-pulse-slow': request.status === 'technical_verification',
                                                           'bg-gradient-to-r from-blue-500 to-indigo-600': ['approved'].includes(request.status),
-                                                          'bg-gray-300': ['submitted', 'documentation'].includes(request.status),
+                                                          'bg-gray-300': ['submitted', 'documentation_review'].includes(request.status),
                                                           'bg-red-500': request.status === 'rejected'
                                                       }">
-                                                    <i class="fas text-sm" :class="request.status === 'verification' ? 'fa-search' : (['approved'].includes(request.status) ? 'fa-check' : 'fa-hourglass-start')"></i>
+                                                    <i class="fas text-sm" :class="request.status === 'technical_verification' ? 'fa-search' : (['approved'].includes(request.status) ? 'fa-check' : 'fa-hourglass-start')"></i>
                                                 </div>
                                                 <div class="ml-6">
                                                     <h5 class="font-bold text-gray-900">Technical Verification</h5>
                                                     <p class="text-sm text-gray-600">AWS is verifying your use case</p>
-                                                    <span class="text-xs font-medium" :class="request.status === 'verification' ? 'text-yellow-600 animate-pulse' : (request.status === 'approved' ? 'text-green-600' : 'text-gray-500')">
-                                                         <span x-text="request.status === 'verification' ? '⏳ In Progress' : (request.status === 'approved' ? '✓ Completed' : 'Pending')"></span>
+                                                    <span class="text-xs font-medium" :class="request.status === 'technical_verification' ? 'text-yellow-600 animate-pulse' : (request.status === 'approved' ? 'text-green-600' : 'text-gray-500')">
+                                                         <span x-text="request.status === 'technical_verification' ? '⏳ In Progress' : (request.status === 'approved' ? '✓ Completed' : 'Pending')"></span>
                                                       </span>
                                                 </div>
                                             </div>
