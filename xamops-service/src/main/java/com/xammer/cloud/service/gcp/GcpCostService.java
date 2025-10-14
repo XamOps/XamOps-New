@@ -83,7 +83,7 @@ public class GcpCostService {
         );
 
         List<GcpCostDto> result = executeQuery(bigquery, query, gcpProjectId);
-        redisCacheService.put(cacheKey, result);
+        redisCacheService.put(cacheKey, result, 10);
         return result;
     }
 
@@ -124,7 +124,7 @@ public class GcpCostService {
             TableResult results = bigquery.query(QueryJobConfiguration.newBuilder(query).build());
             FieldValue value = results.getValues().iterator().next().get("total_cost");
             Double result = value.isNull() ? 0.0 : value.getDoubleValue();
-            redisCacheService.put(cacheKey, result);
+            redisCacheService.put(cacheKey, result, 10);
             return result;
         } catch (Exception e) {
             log.error("BigQuery query failed for MTD spend on project {}: {}", gcpProjectId, e.getMessage(), e);
@@ -161,7 +161,7 @@ public class GcpCostService {
         LocalDate startDate = endDate.withDayOfMonth(1);
 
         List<GcpCostDto> result = queryCostData(bqOpt.get(), gcpProjectId, "service.description", startDate, endDate);
-        redisCacheService.put(cacheKey, result);
+        redisCacheService.put(cacheKey, result, 10);
         return result;
     }
 
@@ -205,7 +205,7 @@ public class GcpCostService {
         );
 
         List<GcpCostDto> result = executeQuery(bigquery, query, gcpProjectId);
-        redisCacheService.put(cacheKey, result);
+        redisCacheService.put(cacheKey, result, 10);
         return result;
     }
 
@@ -237,7 +237,7 @@ public class GcpCostService {
         LocalDate startDate = endDate.withDayOfMonth(1);
 
         List<GcpCostDto> result = queryCostData(bqOpt.get(), gcpProjectId, "location.region", startDate, endDate);
-        redisCacheService.put(cacheKey, result);
+        redisCacheService.put(cacheKey, result, 10);
         return result;
     }
 
@@ -289,7 +289,7 @@ public class GcpCostService {
             List<Map<String, Object>> result = StreamSupport.stream(results.iterateAll().spliterator(), false)
                     .map(row -> Map.<String, Object>of("date", row.get("date").getStringValue(), "cost", row.get("cost").getDoubleValue()))
                     .collect(Collectors.toList());
-            redisCacheService.put(cacheKey, result);
+            redisCacheService.put(cacheKey, result, 10);
             return result;
         } catch (Exception e) {
             log.error("Error fetching daily GCP costs for forecast", e);
@@ -335,7 +335,7 @@ public class GcpCostService {
         LocalDate startDate = endDate.withDayOfMonth(1);
 
         List<GcpCostDto> result = queryCostData(bqOpt.get(), gcpProjectId, dimension, startDate, endDate);
-        redisCacheService.put(cacheKey, result);
+        redisCacheService.put(cacheKey, result, 10);
         return result;
     }
 

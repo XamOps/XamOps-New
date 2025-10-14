@@ -85,6 +85,11 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-cache</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+        </dependency>
+
 
         <dependency>
             <groupId>com.github.ben-manes.caffeine</groupId>
@@ -228,7 +233,8 @@
         <dependency><groupId>com.google.cloud</groupId><artifactId>google-cloud-compute</artifactId></dependency>
         <dependency><groupId>com.google.cloud</groupId><artifactId>google-cloud-billing</artifactId></dependency>
         <dependency><groupId>com.google.cloud</groupId><artifactId>google-cloud-bigquery</artifactId></dependency>
-        <dependency><groupId>com.google.cloud</groupId><artifactId>google-cloud-recommender</artifactId></dependency>
+        <dependency><groupId>com.google.cloud</groupId><artifactId>google-cloud-recommender</artifactId>
+        </dependency>
         <dependency><groupId>com.google.cloud</groupId><artifactId>google-cloud-monitoring</artifactId>
             <version>3.21.0</version>
         </dependency>

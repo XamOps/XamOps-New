@@ -26,9 +26,10 @@ public class GcpCloudlistController {
      * @param accountId The GCP Project ID.
      * @return A CompletableFuture with a list of all discovered resources.
      */
-@GetMapping("/resources")
-    public CompletableFuture<ResponseEntity<List<GcpResourceDto>>> getAllResources(@RequestParam String accountId) {
-        return gcpDataService.getAllResources(accountId)
+    @GetMapping("/resources")
+    public CompletableFuture<ResponseEntity<List<GcpResourceDto>>> getAllResources(@RequestParam String accountId,
+                                                                                  @RequestParam(name = "forceRefresh", required = false, defaultValue = "false") boolean forceRefresh) {
+        return gcpDataService.getAllResources(accountId, forceRefresh)
                 .thenApply(ResponseEntity::ok);
     }
 }

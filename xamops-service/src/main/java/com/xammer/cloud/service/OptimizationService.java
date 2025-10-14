@@ -104,7 +104,7 @@ public class OptimizationService {
             return CompletableFuture.allOf(ec2, ebs, lambda).thenApply(v -> {
                 List<DashboardData.OptimizationRecommendation> allRecs = Stream.of(ec2.join(), ebs.join(), lambda.join()).flatMap(List::stream).collect(Collectors.toList());
                 logger.debug("Fetched a total of {} optimization recommendations for account {}", allRecs.size(), accountId);
-                redisCache.put(cacheKey, allRecs);
+                redisCache.put(cacheKey, allRecs, 10);
                 return allRecs;
             });
         });
@@ -176,7 +176,7 @@ double savings = bestOption.savingsOpportunity() != null && bestOption.savingsOp
             
             return recommendations;
         }, "EC2 Recommendations").thenApply(result -> {
-            redisCache.put(cacheKey, result);
+            redisCache.put(cacheKey, result, 10);
             return result;
         });
     }
@@ -230,7 +230,7 @@ double savings = bestOption.savingsOpportunity() != null && bestOption.savingsOp
 
             return recommendations;
         }, "EBS Recommendations").thenApply(result -> {
-            redisCache.put(cacheKey, result);
+            redisCache.put(cacheKey, result, 10);
             return result;
         });
     }
@@ -286,7 +286,7 @@ double savings = bestOption.savingsOpportunity() != null && bestOption.savingsOp
             }
             return recommendations;
         }, "Lambda Recommendations").thenApply(result -> {
-            redisCache.put(cacheKey, result);
+            redisCache.put(cacheKey, result, 10);
             return result;
         });
     }
@@ -323,7 +323,7 @@ double savings = bestOption.savingsOpportunity() != null && bestOption.savingsOp
                             .flatMap(List::stream)
                             .collect(Collectors.toList());
                     logger.debug("... found {} total wasted resources for account {}.", allWasted.size(), account.getAwsAccountId());
-                    redisCache.put(cacheKey, allWasted);
+                    redisCache.put(cacheKey, allWasted, 10);
                     return allWasted;
                 });
     }

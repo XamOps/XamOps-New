@@ -90,13 +90,13 @@ export default defineConfig({
         // // GCP subdir files
          'gcp_cloudlist': resolve(__dirname, 'gcp_cloudlist.html'),
          'gcp_cloudmap': resolve(__dirname, 'gcp_cloudmap.html'),
-        // 'gcp_cost': resolve(__dirname, 'gcp/cost.html'),
-        // 'gcp_dashboard': resolve(__dirname, 'gcp/dashboard.html'),
-        // 'gcp_finops': resolve(__dirname, 'gcp/finops.html'),
+            'gcp_cost': resolve(__dirname, 'gcp_cost.html'),
+         'gcp_dashboard': resolve(__dirname, 'gcp_dashboard.html'),
+         'gcp_finops': resolve(__dirname, 'gcp_finops.html'),
         // 'gcp_highlighting': resolve(__dirname, 'gcp/highlighting.html'),
-        // 'gcp_rightsizing': resolve(__dirname, 'gcp/rightsizing.html'),
-        // 'gcp_security': resolve(__dirname, 'gcp/security.html'),
-        // 'gcp_waste': resolve(__dirname, 'gcp/waste.html')
+         'gcp_rightsizing': resolve(__dirname, 'gcp_rightsizing.html'),
+         'gcp_security': resolve(__dirname, 'gcp_security.html'),
+         'gcp_waste': resolve(__dirname, 'gcp_waste.html')
         // Add any additional .html files here if missing from the directory listing
       },
     },
