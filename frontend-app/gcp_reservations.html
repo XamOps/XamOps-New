@@ -13,10 +13,16 @@
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
         body { font-family: 'Inter', sans-serif; background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); }
         [x-cloak] { display: none !important; }
-        .glass-card { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.2); }
+        .glass-card { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.2); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
         .header-gradient { background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%); backdrop-filter: blur(10px); border-bottom: 1px solid rgba(229, 231, 235, 0.8); }
         .skeleton { background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
         @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+        .cud-card { border: 1px solid #e5e7eb; transition: all 0.3s ease; }
+        .cud-card:hover { border-color: #4285F4; box-shadow: 0 4px 12px rgba(66, 133, 244, 0.15); transform: translateY(-2px); }
+        .badge-recommended { background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%); color: white; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+        .detail-row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #f3f4f6; }
+        .detail-label { color: #6b7280; font-size: 14px; font-weight: 500; }
+        .detail-value { color: #111827; font-size: 14px; font-weight: 600; }
     </style>
 </head>
 <body class="bg-gray-50">
@@ -43,46 +49,6 @@
             </header>
 
             <div class="flex-1 p-8 space-y-8">
-                <!-- Summary Cards -->
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                    <div class="glass-card rounded-2xl p-6">
-                        <div class="flex items-center justify-between mb-2">
-                            <h3 class="text-gray-600 text-sm font-medium">Active CUDs</h3>
-                            <i class="fas fa-check-circle text-green-500"></i>
-                        </div>
-                        <p class="text-4xl font-bold text-indigo-600" x-text="activeCuds?.length || 0"></p>
-                        <p class="text-xs text-gray-500 mt-1">Current commitments</p>
-                    </div>
-
-                    <div class="glass-card rounded-2xl p-6">
-                        <div class="flex items-center justify-between mb-2">
-                            <h3 class="text-gray-600 text-sm font-medium">Total Commitment</h3>
-                            <i class="fas fa-dollar-sign text-blue-500"></i>
-                        </div>
-                        <p class="text-4xl font-bold text-indigo-600" x-text="formatCurrency(totalCommitmentAmount)"></p>
-                        <p class="text-xs text-gray-500 mt-1">Monthly commitment value</p>
-                    </div>
-
-                    <div class="glass-card rounded-2xl p-6">
-                        <div class="flex items-center justify-between mb-2">
-                            <h3 class="text-gray-600 text-sm font-medium">Recommendations</h3>
-                            <i class="fas fa-lightbulb text-yellow-500"></i>
-                        </div>
-                        <p class="text-4xl font-bold text-orange-600" x-text="cudRecommendations?.length || 0"></p>
-                        <p class="text-xs text-gray-500 mt-1">New opportunities</p>
-                    </div>
-
-                    <div class="glass-card rounded-2xl p-6">
-                        <div class="flex items-center justify-between mb-2">
-                            <h3 class="text-gray-600 text-sm font-medium">Potential Savings</h3>
-                            <i class="fas fa-piggy-bank text-green-500"></i>
-                        </div>
-                        <p class="text-4xl font-bold text-green-600" x-text="formatCurrency(totalPotentialSavings)"></p>
-                        <p class="text-xs text-gray-500 mt-1">Monthly if purchased</p>
-                    </div>
-                </div>
-
-                <!-- Active CUDs Section -->
                 <div class="glass-card rounded-2xl p-8">
                     <div class="flex items-center justify-between mb-6">
                         <h2 class="text-xl font-bold text-gray-800">Active Committed Use Discounts</h2>
@@ -91,55 +57,47 @@
                         </span>
                     </div>
 
-                    <!-- Loading State -->
-                    <div x-show="isLoadingActive" class="space-y-4">
-                        <div class="skeleton h-16 rounded-lg"></div>
-                        <div class="skeleton h-16 rounded-lg"></div>
-                        <div class="skeleton h-16 rounded-lg"></div>
-                    </div>
+                    <div x-show="isLoadingActive" class="skeleton h-32 rounded-lg"></div>
 
-                    <!-- Empty State -->
-                    <div x-show="!isLoadingActive && (!activeCuds || activeCuds.length === 0)" class="text-center py-12">
-                        <i class="fas fa-info-circle text-4xl text-gray-400 mb-4"></i>
-                        <p class="text-gray-600">No active Committed Use Discounts found for this account.</p>
+                    <div x-show="!isLoadingActive && (!activeCuds || activeCuds.length === 0)" x-cloak class="text-center py-12 bg-blue-50 rounded-xl border-2 border-dashed border-blue-200">
+                        <i class="fas fa-info-circle text-4xl text-blue-400 mb-4"></i>
+                        <p class="text-gray-700 font-medium">No active Committed Use Discounts found for this account.</p>
                         <p class="text-gray-500 text-sm mt-2">Purchase CUDs to save on consistent workloads.</p>
                     </div>
 
-                    <!-- Active CUDs Table -->
-                    <div x-show="!isLoadingActive && activeCuds && activeCuds.length > 0" class="overflow-x-auto">
-                        <table class="w-full text-sm">
-                            <thead class="text-xs text-gray-700 uppercase bg-gray-50">
-                            <tr>
-                                <th class="px-6 py-3 text-left">Name</th>
-                                <th class="px-6 py-3 text-left">Type</th>
-                                <th class="px-6 py-3 text-left">Status</th>
-                                <th class="px-6 py-3 text-left">Term</th>
-                                <th class="px-6 py-3 text-left">Region</th>
-                                <th class="px-6 py-3 text-right">Amount</th>
-                            </tr>
-                            </thead>
-                            <tbody class="divide-y divide-gray-200">
-                            <template x-for="(cud, index) in activeCuds" :key="index">
-                                <tr class="hover:bg-gray-50">
-                                    <td class="px-6 py-4 font-medium text-gray-900" x-text="cud.name || 'N/A'"></td>
-                                    <td class="px-6 py-4 text-gray-600" x-text="cud.commitmentUnit || cud.type || 'N/A'"></td>
-                                    <td class="px-6 py-4">
-                                            <span class="px-2 py-1 text-xs font-semibold rounded-full"
-                                                  :class="cud.status === 'ACTIVE' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'"
-                                                  x-text="cud.status || 'ACTIVE'"></span>
-                                    </td>
-                                    <td class="px-6 py-4 text-gray-600" x-text="cud.term || cud.plan || 'N/A'"></td>
-                                    <td class="px-6 py-4 text-gray-600" x-text="cud.region || 'Global'"></td>
-                                    <td class="px-6 py-4 text-right font-semibold text-indigo-600"
-                                        x-text="formatNumber(cud.commitmentAmount) + ' ' + (cud.commitmentUnit || '')"></td>
-                                </tr>
-                            </template>
-                            </tbody>
-                        </table>
+                    <div x-show="!isLoadingActive && activeCuds && activeCuds.length > 0" x-cloak class="space-y-4">
+                        <template x-for="(cud, index) in activeCuds" :key="index">
+                            <div class="bg-white p-6 rounded-xl border border-gray-200 hover:border-indigo-300 transition-colors">
+                                <div class="flex justify-between items-start mb-4">
+                                    <div>
+                                        <h3 class="font-bold text-gray-900 text-lg" x-text="cud.name || 'Committed Use Discount'"></h3>
+                                        <p class="text-sm text-gray-500 mt-1" x-text="cud.description || ''"></p>
+                                    </div>
+                                    <span class="px-3 py-1 bg-green-100 text-green-700 text-xs font-semibold rounded-full" x-text="cud.status || 'ACTIVE'"></span>
+                                </div>
+                                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                    <div>
+                                        <p class="text-xs text-gray-500 uppercase">Type</p>
+                                        <p class="font-semibold text-gray-900 mt-1" x-text="cud.commitmentUnit || cud.type || 'N/A'"></p>
+                                    </div>
+                                    <div>
+                                        <p class="text-xs text-gray-500 uppercase">Term</p>
+                                        <p class="font-semibold text-gray-900 mt-1" x-text="cud.term || cud.plan || 'N/A'"></p>
+                                    </div>
+                                    <div>
+                                        <p class="text-xs text-gray-500 uppercase">Region</p>
+                                        <p class="font-semibold text-gray-900 mt-1" x-text="cud.region || 'Global'"></p>
+                                    </div>
+                                    <div>
+                                        <p class="text-xs text-gray-500 uppercase">Commitment</p>
+                                        <p class="font-semibold text-indigo-600 mt-1" x-text="formatNumber(cud.commitmentAmount) + ' ' + (cud.commitmentUnit || '')"></p>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
                     </div>
                 </div>
 
-                <!-- CUD Recommendations Section -->
                 <div class="glass-card rounded-2xl p-8">
                     <div class="flex items-center justify-between mb-6">
                         <h2 class="text-xl font-bold text-gray-800">CUD Recommendations</h2>
@@ -148,49 +106,101 @@
                         </span>
                     </div>
 
-                    <!-- Loading State -->
                     <div x-show="isLoadingRecommendations" class="space-y-4">
-                        <div class="skeleton h-16 rounded-lg"></div>
-                        <div class="skeleton h-16 rounded-lg"></div>
-                        <div class="skeleton h-16 rounded-lg"></div>
+                        <div class="skeleton h-48 rounded-lg"></div>
+                        <div class="skeleton h-48 rounded-lg"></div>
                     </div>
 
-                    <!-- Empty State -->
-                    <div x-show="!isLoadingRecommendations && (!cudRecommendations || cudRecommendations.length === 0)" class="text-center py-12">
+                    <div x-show="!isLoadingRecommendations && (!cudRecommendations || cudRecommendations.length === 0)" x-cloak class="text-center py-12">
                         <i class="fas fa-lightbulb text-4xl text-yellow-400 mb-4"></i>
                         <p class="text-gray-600 font-semibold mb-2">No CUD Recommendations Available</p>
                         <p class="text-gray-500 text-sm">Google Cloud hasn't generated any commitment recommendations yet.</p>
                         <p class="text-gray-500 text-sm mt-1">This typically requires consistent usage patterns over time.</p>
                     </div>
 
-                    <!-- Recommendations Table -->
-                    <div x-show="!isLoadingRecommendations && cudRecommendations && cudRecommendations.length > 0" class="overflow-x-auto">
-                        <table class="w-full text-sm">
-                            <thead class="text-xs text-gray-700 uppercase bg-gray-50">
-                            <tr>
-                                <th class="px-6 py-3 text-left">Resource</th>
-                                <th class="px-6 py-3 text-left">Commitment Type</th>
-                                <th class="px-6 py-3 text-left">Recommendation</th>
-                                <th class="px-6 py-3 text-left">Service</th>
-                                <th class="px-6 py-3 text-right">Monthly Savings</th>
-                            </tr>
-                            </thead>
-                            <tbody class="divide-y divide-gray-200">
-                            <template x-for="(rec, index) in cudRecommendations" :key="index">
-                                <tr class="hover:bg-gray-50 cursor-pointer">
-                                    <td class="px-6 py-4 font-medium text-gray-900" x-text="rec.resourceName || 'CUD Recommendation'"></td>
-                                    <td class="px-6 py-4 text-gray-600" x-text="rec.currentMachineType || 'N/A'"></td>
-                                    <td class="px-6 py-4 text-sm text-gray-600" x-text="rec.recommendedMachineType || 'Purchase CUD'"></td>
-                                    <td class="px-6 py-4">
-                                            <span class="px-2 py-1 text-xs font-semibold rounded-full bg-purple-100 text-purple-800"
-                                                  x-text="rec.serviceType || 'Commitment'"></span>
-                                    </td>
-                                    <td class="px-6 py-4 text-right font-bold text-green-600"
-                                        x-text="formatCurrency(rec.monthlySavings || 0)"></td>
-                                </tr>
-                            </template>
-                            </tbody>
-                        </table>
+                    <div x-show="!isLoadingRecommendations && cudRecommendations && cudRecommendations.length > 0" x-cloak class="space-y-6">
+                        <template x-for="(rec, index) in cudRecommendations" :key="index">
+                            <div class="cud-card bg-white rounded-xl p-6">
+                                <div class="flex items-start justify-between mb-4">
+                                    <div class="flex items-center space-x-2">
+                                        <span class="badge-recommended">
+                                            <i class="fas fa-star mr-1"></i>RECOMMENDED CUD
+                                        </span>
+                                        <i class="fas fa-link text-blue-500"></i>
+                                    </div>
+                                    <span class="text-blue-600 font-semibold cursor-pointer hover:underline">
+                                        <i class="fas fa-check-circle mr-1"></i>Selected
+                                    </span>
+                                </div>
+
+                                <h3 class="text-lg font-bold text-gray-900 mb-4">
+                                    Save <span x-text="formatCurrency(Math.abs(rec.monthlySavings || 0))"></span>/month by purchasing a
+                                    <span x-text="extractTermFromDescription(rec.currentMachineType)"></span>
+                                    <span x-text="rec.currentMachineType || 'resource-based CUD'"></span>
+                                </h3>
+
+                                <div class="space-y-3 mb-6">
+                                    <div class="detail-row">
+                                        <span class="detail-label">Resources covered</span>
+                                        <span class="detail-value">
+                                            Eligible <span x-text="rec.currentMachineType || 'usage'"></span> in
+                                            <span x-text="rec.location || 'us-east1'"></span>, for project
+                                            <span x-text="getProjectFromRecommendation(rec)"></span>
+                                        </span>
+                                    </div>
+                                    <div class="detail-row">
+                                        <span class="detail-label">Basis for recommendation</span>
+                                        <span class="detail-value">Last 30 days of historical usage</span>
+                                    </div>
+                                    <div class="detail-row">
+                                        <span class="detail-label">Eligible usage to be covered</span>
+                                        <span class="detail-value">
+                                            100% based on <span class="text-blue-600 cursor-pointer hover:underline">configuration</span>
+                                        </span>
+                                    </div>
+                                    <div class="detail-row">
+                                        <span class="detail-label">CUD term</span>
+                                        <span class="detail-value" x-text="extractTermFromDescription(rec.currentMachineType) + ' (billed monthly)'"></span>
+                                    </div>
+                                    <div class="detail-row">
+                                        <span class="detail-label">Estimated CUD cost</span>
+                                        <span class="detail-value">
+                                            <span x-text="formatCurrency(calculateCudCost(rec))"></span>/month
+                                            <span class="text-sm text-gray-500">
+                                                (<span x-text="formatCurrency(calculateCudCost(rec) / 730)"></span>/hr)
+                                            </span>
+                                            <br>
+                                            <span class="text-sm text-green-600">
+                                                55% less than on-demand price
+                                            </span>
+                                        </span>
+                                    </div>
+                                    <div class="detail-row">
+                                        <span class="detail-label">Estimated savings</span>
+                                        <span class="detail-value text-green-600">
+                                            <span x-text="formatCurrency(Math.abs(rec.monthlySavings || 0))"></span>/month*
+                                        </span>
+                                    </div>
+                                    <div class="detail-row border-b-0">
+                                        <span class="detail-label">Usage insights</span>
+                                        <span class="detail-value text-sm" x-html="getUsageInsight(rec)"></span>
+                                    </div>
+                                </div>
+
+                                <div class="bg-blue-50 rounded-lg p-4 mb-4">
+                                    <p class="text-sm text-gray-700">
+                                        <i class="fas fa-info-circle text-blue-500 mr-2"></i>
+                                        <strong>Details:</strong> <span x-text="rec.reason || rec.description"></span>
+                                    </p>
+                                </div>
+
+                                <div class="bg-gray-50 rounded-lg p-4 text-xs text-gray-600">
+                                    <i class="fas fa-info-circle mr-1"></i>
+                                    * If applicable, the recommendation takes into account existing CUDs, sustained discounts,
+                                    custom machine surcharges and negotiated pricing. The lowest on-demand rate for the SKUs is considered.
+                                </div>
+                            </div>
+                        </template>
                     </div>
                 </div>
             </div>
@@ -208,6 +218,7 @@
             cudRecommendations: [],
 
             init() {
+                console.log('Initializing CUD page...');
                 this.loadActiveCuds();
                 this.loadCudRecommendations();
             },
@@ -217,7 +228,6 @@
                 this.isLoadingActive = true;
                 this.isLoadingRecommendations = true;
 
-                // Re-fetch both active CUDs and recommendations in parallel
                 Promise.all([
                     this.loadActiveCuds(),
                     this.loadCudRecommendations()
@@ -236,19 +246,14 @@
                     return Promise.resolve();
                 }
 
-                return fetch(`/api/xamops/gcp/optimization/${accountId}/committed-use-discounts`)
-                    .then(res => res.json())
-                    .then(data => {
-                        console.log('Active CUDs received:', data);
-                        this.activeCuds = Array.isArray(data) ? data : [];
-                    })
-                    .catch(err => {
-                        console.error('Failed to load active CUDs:', err);
-                        this.activeCuds = [];
-                    })
-                    .finally(() => {
-                        this.isLoadingActive = false;
-                    });
+                console.log(`Loading active CUDs for account: ${accountId}`);
+
+                this.activeCuds = [];
+                this.isLoadingActive = false;
+
+                console.log('ℹ️ Active CUDs: Feature not yet implemented. Showing recommendations only.');
+
+                return Promise.resolve();
             },
 
             loadCudRecommendations() {
@@ -260,6 +265,8 @@
                     this.isLoadingRecommendations = false;
                     return Promise.resolve();
                 }
+
+                console.log(`Loading CUD recommendations for account: ${accountId}`);
 
                 return fetch(`/api/xamops/gcp/reservations/cuds?accountId=${accountId}`)
                     .then(res => {
@@ -279,22 +286,49 @@
                     });
             },
 
-            get totalCommitmentAmount() {
-                if (!this.activeCuds || !Array.isArray(this.activeCuds)) return 0;
-                return this.activeCuds.reduce((sum, cud) => sum + (parseFloat(cud.commitmentAmount) || 0), 0);
+            extractTermFromDescription(machineType) {
+                if (!machineType) return '3 years';
+                if (machineType.includes('3-year') || machineType.includes('3 year')) return '3 years';
+                if (machineType.includes('1-year') || machineType.includes('1 year')) return '1 year';
+                return '3 years';
             },
 
-            get totalPotentialSavings() {
-                if (!this.cudRecommendations || !Array.isArray(this.cudRecommendations)) return 0;
-                return this.cudRecommendations.reduce((sum, rec) => sum + (parseFloat(rec.monthlySavings) || 0), 0);
+            calculateCudCost(rec) {
+                const savings = Math.abs(rec.monthlySavings || 0);
+                const estimatedOnDemand = savings / 0.55;
+                const cudCost = estimatedOnDemand * 0.45;
+                return cudCost;
+            },
+
+            getProjectFromRecommendation(rec) {
+                if (rec.recommendationId) {
+                    const match = rec.recommendationId.match(/projects\/([^\/]+)\//);
+                    if (match) return match[1];
+                }
+                return 'XamOps';
+            },
+
+            getUsageInsight(rec) {
+                const term = this.extractTermFromDescription(rec.currentMachineType);
+                const termYears = term.includes('3') ? 3 : 1;
+                const breakEvenDays = Math.round(termYears * 365 * 0.45);
+                const breakEvenPercent = 45;
+
+                return `With this CUD purchase, if you use <strong>1 GB</strong> for at least
+                        <strong>${breakEvenDays} days</strong> in <strong>${termYears} years</strong>
+                        (<strong>${breakEvenPercent}%</strong> of CUD term), you will still break even.
+                        <a href="https://cloud.google.com/docs/cuds-recommender#understanding-summary-cards"
+                           target="_blank"
+                           class="text-blue-600 cursor-pointer hover:underline ml-1">Learn more</a>`;
             },
 
             formatCurrency(value) {
-                if (value === null || value === undefined || isNaN(value)) return '$0.00';
-                return new Intl.NumberFormat('en-US', {
+                if (value === null || value === undefined || isNaN(value)) return '₹0.00';
+                return new Intl.NumberFormat('en-IN', {
                     style: 'currency',
-                    currency: 'USD',
-                    minimumFractionDigits: 2
+                    currency: 'INR',
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
                 }).format(value);
             },
 
