@@ -18,21 +18,15 @@ import software.amazon.awssdk.services.servicequotas.model.ListServiceQuotasRequ
 import software.amazon.awssdk.services.servicequotas.model.ListServiceQuotasResponse;
 import software.amazon.awssdk.services.servicequotas.model.ServiceQuota;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 @Service
 public class CloudGuardService {
 
     private static final Logger logger = LoggerFactory.getLogger(CloudGuardService.class);
-
-    // Set a threshold for quota alerts (e.g., 75% utilization)
     private static final double ALERT_THRESHOLD_PERCENTAGE = 75.0;
 
     private final CloudAccountRepository cloudAccountRepository;
@@ -60,12 +54,23 @@ public class CloudGuardService {
     }
 
     private CloudAccount getAccount(String accountId) {
-        // MODIFIED: Handle list of accounts to prevent crash
         List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
         if (accounts.isEmpty()) {
             throw new RuntimeException("Account not found in database: " + accountId);
         }
-        return accounts.get(0); // Return the first one found
+
+        CloudAccount account = accounts.get(0);
+
+        // Force initialization of the Client proxy
+        if (account.getClient() != null) {
+            try {
+                account.getClient().getEmail();
+            } catch (Exception e) {
+                logger.warn("Could not initialize client for account {}", accountId);
+            }
+        }
+
+        return account;
     }
 
     @Async("awsTaskExecutor")
@@ -81,13 +86,13 @@ public class CloudGuardService {
         }
 
         CloudAccount account = getAccount(accountId);
-
         CompletableFuture<List<DashboardData.RegionStatus>> activeRegionsFuture = cloudListService.getRegionStatusForAccount(account, forceRefresh);
 
         return activeRegionsFuture.thenCompose(activeRegions -> {
-            if (activeRegions == null) {
+            if (activeRegions == null || activeRegions.isEmpty()) {
                 return CompletableFuture.completedFuture(Collections.emptyList());
             }
+
             CompletableFuture<List<ResourceDto>> vpcResourcesFuture = cloudListService.fetchVpcsForCloudlist(account, activeRegions);
 
             return vpcResourcesFuture.thenApplyAsync(vpcResources -> {
@@ -105,14 +110,14 @@ public class CloudGuardService {
                                             .build();
                                     ListServiceQuotasResponse listResponse = sqClient.listServiceQuotas(listRequest);
                                     Optional<ServiceQuota> quota = listResponse.quotas().stream()
-                                            .filter(q -> q.quotaCode().equals("L-F678F1CE")) // VPCs per Region quota code
+                                            .filter(q -> q.quotaCode().equals("L-F678F1CE"))
                                             .findFirst();
 
                                     return quota.map(serviceQuota -> {
                                         double currentCount = vpcCountsByRegion.getOrDefault(region.getRegionId(), 0L).doubleValue();
                                         double usage = currentCount;
-
                                         double utilization = (serviceQuota.value() > 0) ? (usage / serviceQuota.value()) * 100.0 : 0.0;
+
                                         if (utilization > ALERT_THRESHOLD_PERCENTAGE || usage > 0) {
                                             return new DashboardData.ServiceQuotaInfo(
                                                     "VPC",
@@ -151,54 +156,110 @@ public class CloudGuardService {
     @Async("awsTaskExecutor")
     @Transactional(readOnly = true)
     public CompletableFuture<List<AlertDto>> getAlerts(String accountId, boolean forceRefresh) {
+        logger.info("🔍 Fetching alerts for account: {}", accountId);
+
         CloudAccount account = getAccount(accountId);
+
+        // Eagerly fetch email before async
+        String clientEmail = null;
+        try {
+            if (account.getClient() != null) {
+                clientEmail = account.getClient().getEmail();
+            }
+        } catch (Exception e) {
+            logger.warn("Could not fetch client email for account {}: {}", accountId, e.getMessage());
+        }
+
+        final String email = clientEmail;
+
         CompletableFuture<List<DashboardData.ServiceQuotaInfo>> quotasFuture = getVpcQuotaAlerts(accountId, forceRefresh);
         CompletableFuture<List<DashboardData.CostAnomaly>> anomaliesFuture = finOpsService.getCostAnomalies(account, forceRefresh);
 
         return quotasFuture.thenCombine(anomaliesFuture, (quotas, anomalies) -> {
             List<AlertDto> alerts = new ArrayList<>();
-            List<AlertDto> quotaAlerts = quotas.stream()
-                    .map(q -> new AlertDto(
-                            q.getQuotaName() + "-" + q.getRegionId(),
-                            "VPC",
-                            q.getQuotaName(),
-                            "Limit: " + q.getLimit(),
-                            q.getStatus(),
-                            q.getUsage(),
-                            q.getLimit(),
-                            "QUOTA",
-                            q.getRegionId()
-                    ))
-                    .collect(Collectors.toList());
-            if (anomalies == null) {
-                anomalies = Collections.emptyList();
+            AtomicInteger counter = new AtomicInteger(1);
+
+            // Process quota alerts
+            if (quotas != null && !quotas.isEmpty()) {
+                List<AlertDto> quotaAlerts = quotas.stream()
+                        .map(q -> {
+                            // Generate unique ID
+                            String uniqueId = String.format("quota-%s-%s-%d",
+                                    q.getQuotaName().replaceAll("[^a-zA-Z0-9]", "-").toLowerCase(),
+                                    q.getRegionId(),
+                                    counter.getAndIncrement());
+
+                            return new AlertDto(
+                                    uniqueId,
+                                    "VPC",
+                                    q.getQuotaName(),
+                                    String.format("Current usage: %.0f / %.0f (%.1f%%)",
+                                            q.getUsage(), q.getLimit(), (q.getUsage() / q.getLimit() * 100)),
+                                    determineQuotaStatus(q.getUsage(), q.getLimit()),
+                                    q.getUsage(),
+                                    q.getLimit(),
+                                    "QUOTA",
+                                    q.getRegionId()
+                            );
+                        })
+                        .collect(Collectors.toList());
+                alerts.addAll(quotaAlerts);
+                logger.info("✅ Added {} quota alerts", quotaAlerts.size());
             }
 
-            List<AlertDto> anomalyAlerts = anomalies.stream()
-                    .map(a -> new AlertDto(
-                            a.getAnomalyId(),
-                            a.getService(),
-                            "Cost Anomaly Detected",
-                            "Unexpected spend of $" + String.format("%.2f", a.getUnexpectedSpend()),
-                            "CRITICAL",
-                            a.getUnexpectedSpend(),
-                            0,
-                            "ANOMALY",
-                            "Global"
-                    ))
-                    .collect(Collectors.toList());
-            alerts.addAll(quotaAlerts);
-            alerts.addAll(anomalyAlerts);
+            // Process anomaly alerts
+            if (anomalies != null && !anomalies.isEmpty()) {
+                List<AlertDto> anomalyAlerts = anomalies.stream()
+                        .map(a -> {
+                            String uniqueId = a.getAnomalyId() != null && !a.getAnomalyId().isEmpty()
+                                    ? a.getAnomalyId()
+                                    : String.format("anomaly-%s-%d", a.getService(), counter.getAndIncrement());
 
-            // Send email for each alert
-            for (AlertDto alert : alerts) {
-                String email = account.getClient().getEmail();
-                if (email != null && !email.isEmpty()) {
-                    emailService.sendEmail(email, "New Alert: " + alert.getName(), alert.getDescription());
+                            return new AlertDto(
+                                    uniqueId,
+                                    a.getService(),
+                                    "Cost Anomaly Detected",
+                                    String.format("Unexpected spend of $%.2f", a.getUnexpectedSpend()),
+                                    "CRITICAL",
+                                    a.getUnexpectedSpend(),
+                                    0,
+                                    "ANOMALY",
+                                    "Global"
+                            );
+                        })
+                        .collect(Collectors.toList());
+                alerts.addAll(anomalyAlerts);
+                logger.info("✅ Added {} anomaly alerts", anomalyAlerts.size());
+            }
+
+            // Send emails
+            if (email != null && !email.isEmpty() && !alerts.isEmpty()) {
+                for (AlertDto alert : alerts) {
+                    try {
+                        emailService.sendEmail(email, "New Alert: " + alert.getName(), alert.getDescription());
+                    } catch (Exception e) {
+                        logger.error("Failed to send alert email: {}", e.getMessage());
+                    }
                 }
             }
 
+            logger.info("✅ Returning {} total alerts for account {}", alerts.size(), accountId);
             return alerts;
+
+        }).exceptionally(ex -> {
+            logger.error("❌ Error fetching alerts for account {}: {}", accountId, ex.getMessage(), ex);
+            return Collections.emptyList();
         });
+    }
+
+    /**
+     * Determine quota status based on usage percentage
+     */
+    private String determineQuotaStatus(double usage, double limit) {
+        if (limit == 0) return "UNKNOWN";
+        double percentage = (usage / limit) * 100;
+        if (percentage >= 90) return "CRITICAL";
+        if (percentage >= 75) return "WARNING";
+        return "OK";
     }
 }
