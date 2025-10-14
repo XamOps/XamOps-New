@@ -14,14 +14,8 @@ import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
+import java.util.*;
 import java.util.stream.Collectors;
-
 @Service
 public class XamOpsRightsizingService {
 
@@ -44,13 +38,9 @@ public class XamOpsRightsizingService {
         this.recommendationsMap = loadRecommendationsFromCsv();
     }
 
-    /**
-     * Get XamOps rightsizing recommendations with Redis caching.
-     */
     public List<XamOpsRightsizingRecommendation> getLiveRecommendations(String accountId, boolean forceRefresh) {
         String cacheKey = CACHE_KEY_PREFIX + accountId;
 
-        // Try to get from cache if not forcing refresh
         if (!forceRefresh) {
             Optional<List<XamOpsRightsizingRecommendation>> cachedData =
                     redisCacheService.get(cacheKey, new TypeReference<List<XamOpsRightsizingRecommendation>>() {});
@@ -64,7 +54,6 @@ public class XamOpsRightsizingService {
 
         logger.info("🔄 Generating fresh XamOps recommendations for account {}", accountId);
 
-        // 1. Get all EC2 instances
         List<ResourceDto> ec2Instances = cloudListService.getAllResources(
                         cloudListService.getAccount(accountId), false)
                 .join()
@@ -77,20 +66,26 @@ public class XamOpsRightsizingService {
             return Collections.emptyList();
         }
 
+        // ✅ Use a Set to track processed instances and prevent duplicates
+        Set<String> processedInstances = new HashSet<>();
         List<XamOpsRightsizingRecommendation> finalRecommendations = new ArrayList<>();
 
-        // 2. For each instance, get utilization and find matching recommendation
         for (ResourceDto instanceDto : ec2Instances) {
             String instanceId = instanceDto.getId();
             String region = instanceDto.getRegion();
             String instanceType = instanceDto.getDetails().get("Type");
+
+            // ✅ Skip if already processed
+            if (processedInstances.contains(instanceId)) {
+                logger.debug("Instance {} already processed, skipping duplicate", instanceId);
+                continue;
+            }
 
             if (instanceType == null) {
                 logger.warn("Instance type is null for instance {}. Skipping.", instanceId);
                 continue;
             }
 
-            // 3. Get max CPU utilization over the last 14 days
             Optional<Double> maxCpu = metricsService.getMaxCpuUtilization(accountId, instanceId, region, 14);
 
             if (maxCpu.isEmpty()) {
@@ -102,31 +97,43 @@ public class XamOpsRightsizingService {
             logger.info("Instance {} ({}) has max CPU utilization of {}%",
                     instanceId, instanceType, String.format("%.2f", utilization));
 
-            // 4. Find matching recommendation
+            // ✅ Find matching recommendation and add to list
             findMatchingRecommendation(instanceType, utilization, instanceId, region)
-                    .ifPresent(finalRecommendations::add);
+                    .ifPresent(rec -> {
+                        finalRecommendations.add(rec);
+                        processedInstances.add(instanceId); // Mark as processed
+                        logger.debug("Added recommendation for instance {}", instanceId);
+                    });
         }
 
-        // 5. Cache the results
-        if (!finalRecommendations.isEmpty()) {
-            redisCacheService.put(cacheKey, finalRecommendations, 10);
+        // ✅ Additional deduplication check based on instanceId
+        List<XamOpsRightsizingRecommendation> uniqueRecommendations = finalRecommendations.stream()
+                .collect(Collectors.toMap(
+                        XamOpsRightsizingRecommendation::getInstanceId,
+                        rec -> rec,
+                        (existing, replacement) -> existing // Keep first occurrence
+                ))
+                .values()
+                .stream()
+                .collect(Collectors.toList());
+
+        logger.info("✅ Generated {} unique recommendations (removed {} duplicates)",
+                uniqueRecommendations.size(),
+                finalRecommendations.size() - uniqueRecommendations.size());
+
+        if (!uniqueRecommendations.isEmpty()) {
+            redisCacheService.put(cacheKey, uniqueRecommendations, 60);
             logger.info("✅ Cached {} XamOps recommendations for account {}",
-                    finalRecommendations.size(), accountId);
+                    uniqueRecommendations.size(), accountId);
         }
 
-        return finalRecommendations;
+        return uniqueRecommendations;
     }
 
-    /**
-     * Overloaded method for backward compatibility
-     */
     public List<XamOpsRightsizingRecommendation> getLiveRecommendations(String accountId) {
         return getLiveRecommendations(accountId, false);
     }
 
-    /**
-     * Find matching recommendation from CSV data and enrich with instance details
-     */
     private Optional<XamOpsRightsizingRecommendation> findMatchingRecommendation(
             String instanceType, double utilization, String instanceId, String region) {
 
@@ -135,6 +142,7 @@ public class XamOpsRightsizingService {
             return Optional.empty();
         }
 
+        // ✅ Return ONLY the first matching recommendation
         for (XamOpsRightsizingRecommendation rec : recommendationsMap.get(instanceType.trim())) {
             String[] range = rec.getLoadRange().replace("%", "").split("-");
             if (range.length == 2) {
@@ -143,7 +151,6 @@ public class XamOpsRightsizingService {
                     double upperBound = Double.parseDouble(range[1].trim());
 
                     if (utilization >= lowerBound && utilization < upperBound) {
-                        // Create enriched recommendation with instance details
                         return Optional.of(XamOpsRightsizingRecommendation.builder()
                                 .currentInstance(rec.getCurrentInstance())
                                 .instanceId(instanceId)
@@ -165,9 +172,6 @@ public class XamOpsRightsizingService {
         return Optional.empty();
     }
 
-    /**
-     * Load CSV recommendations into memory at startup
-     */
     private Map<String, List<XamOpsRightsizingRecommendation>> loadRecommendationsFromCsv() {
         try (InputStream inputStream = getClass().getResourceAsStream(CSV_FILE_PATH)) {
             if (inputStream == null) {
@@ -195,9 +199,6 @@ public class XamOpsRightsizingService {
         }
     }
 
-    /**
-     * Parse CSV record to recommendation object
-     */
     private XamOpsRightsizingRecommendation parseRecordToRecommendation(CSVRecord csvRecord) {
         try {
             return XamOpsRightsizingRecommendation.builder()
@@ -215,9 +216,6 @@ public class XamOpsRightsizingService {
         }
     }
 
-    /**
-     * Clear cache for a specific account
-     */
     public void clearCache(String accountId) {
         String cacheKey = CACHE_KEY_PREFIX + accountId;
         redisCacheService.evict(cacheKey);
