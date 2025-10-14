@@ -95,7 +95,7 @@ public class CostService {
                         .sorted((a, b) -> Double.compare(b.getAmount(), a.getAmount()))
                         .collect(Collectors.toList());
 
-                redisCache.put(cacheKey, costs);
+                redisCache.put(cacheKey, costs, 10);
                 logger.info("✅ Cost breakdown fetched: {} items for account {}", costs.size(), accountId);
                 return costs;
 
@@ -193,7 +193,7 @@ public class CostService {
                 }
 
                 HistoricalCostDto historicalCost = new HistoricalCostDto(labels, costs);
-                redisCache.put(cacheKey, historicalCost);
+                redisCache.put(cacheKey, historicalCost, 10);
 
                 logger.info("✅ Historical cost fetched: {} days for account {}", labels.size(), accountId);
                 return historicalCost;
@@ -265,7 +265,7 @@ public class CostService {
                 }
 
                 HistoricalCostDto historicalCost = new HistoricalCostDto(labels, costs);
-                redisCache.put(cacheKey, historicalCost);
+                redisCache.put(cacheKey, historicalCost, 10);
 
                 logger.info("✅ Historical cost for dimension fetched: 6 months for {}", dimensionValue);
                 return historicalCost;

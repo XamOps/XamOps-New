@@ -109,7 +109,7 @@ public class XamOpsRightsizingService {
 
         // 5. Cache the results
         if (!finalRecommendations.isEmpty()) {
-            redisCacheService.put(cacheKey, finalRecommendations);
+            redisCacheService.put(cacheKey, finalRecommendations, 10);
             logger.info("✅ Cached {} XamOps recommendations for account {}",
                     finalRecommendations.size(), accountId);
         }

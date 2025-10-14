@@ -6,7 +6,6 @@ import com.xammer.cloud.dto.AlertDto;
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.ResourceDto;
 import com.xammer.cloud.repository.CloudAccountRepository;
-import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -139,7 +138,7 @@ public class CloudGuardService {
                             .collect(Collectors.toList());
 
                     logger.info("Successfully fetched {} VPC quota alerts for account {}.", allQuotaInfo.size(), accountId);
-                    redisCache.put(cacheKey, allQuotaInfo);
+                    redisCache.put(cacheKey, allQuotaInfo, 10);
                     return allQuotaInfo;
                 } catch (Exception e) {
                     logger.error("Could not fetch VPC quota alerts for account {}.", accountId, e);
