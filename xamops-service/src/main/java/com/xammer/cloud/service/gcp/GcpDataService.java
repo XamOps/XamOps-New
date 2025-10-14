@@ -1,5 +1,7 @@
 package com.xammer.cloud.service.gcp;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.appengine.v1.Application;
 import com.google.appengine.v1.ApplicationsClient;
 import com.google.cloud.aiplatform.v1.EndpointServiceClient;
@@ -43,6 +45,7 @@ import com.google.cloud.apigateway.v1.ApiGatewayServiceClient;
 import com.google.cloud.bigquery.BigQuery;
 import com.google.cloud.bigquery.Dataset;
 
+import javax.transaction.Transactional;
 import java.io.IOException;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -65,6 +68,7 @@ public class GcpDataService {
     private final com.xammer.cloud.repository.CloudAccountRepository cloudAccountRepository;
     private final ExecutorService executor = Executors.newCachedThreadPool();
     private final Map<String, double[]> regionCoordinates = loadRegionCoordinates();
+    private final ObjectMapper objectMapper;
 
     @Value("${tagging.compliance.required-tags}")
     private List<String> requiredTags;
@@ -73,12 +77,13 @@ public class GcpDataService {
                           GcpCostService gcpCostService,
                           GcpOptimizationService gcpOptimizationService,
                           GcpSecurityService gcpSecurityService,
-                          com.xammer.cloud.repository.CloudAccountRepository cloudAccountRepository) {
+                          com.xammer.cloud.repository.CloudAccountRepository cloudAccountRepository, ObjectMapper objectMapper) {
         this.gcpClientProvider = gcpClientProvider;
         this.gcpCostService = gcpCostService;
         this.gcpOptimizationService = gcpOptimizationService;
         this.gcpSecurityService = gcpSecurityService;
         this.cloudAccountRepository = cloudAccountRepository;
+        this.objectMapper = objectMapper;
     }
 
     private Map<String, double[]> loadRegionCoordinates() {
@@ -539,30 +544,93 @@ public class GcpDataService {
         });
     }
 
-    public void createGcpAccount(GcpAccountRequestDto request, Client client) throws IOException {
+    @Transactional
+    public CloudAccount createGcpAccount(GcpAccountRequestDto request, Client client) {
+        log.info("Creating GCP account: {} for client: {}", request.getAccountName(), client.getId());
+
         try {
-            Optional<Storage> storageOpt = gcpClientProvider.createStorageClient(request.getServiceAccountKey());
-            if (storageOpt.isEmpty()) {
-                throw new IllegalStateException("Failed to create GCP Storage client");
+            // Parse service account JSON to extract email
+            String serviceAccountEmail = extractServiceAccountEmail(request.getServiceAccountKey());
+
+            // Validate billing export table format if provided
+            if (request.getBillingExportTable() != null && !request.getBillingExportTable().isEmpty()) {
+                validateBillingTableFormat(request.getBillingExportTable());
             }
-            Storage storage = storageOpt.get();
-            storage.list(Storage.BucketListOption.pageSize(1));
+
+            // Create CloudAccount entity
             CloudAccount account = new CloudAccount();
             account.setAccountName(request.getAccountName());
             account.setProvider("GCP");
-            account.setAwsAccountId(request.getProjectId());
-            account.setGcpServiceAccountKey(request.getServiceAccountKey());
             account.setStatus("CONNECTED");
             account.setAccessType("read-only");
             account.setClient(client);
-            account.setExternalId(request.getProjectId());
-            account.setGcpProjectId(request.getProjectId());
-            cloudAccountRepository.save(account);
+
+            // GCP specific fields
+            String projectId = request.getGcpProjectId() != null ? request.getGcpProjectId() : request.getProjectId();
+            account.setGcpProjectId(projectId);
+            account.setGcpServiceAccountEmail(serviceAccountEmail);
+            account.setGcpServiceAccountKey(request.getServiceAccountKey());
+            account.setGcpWorkloadIdentityPoolId(request.getGcpWorkloadIdentityPoolId());
+            account.setGcpWorkloadIdentityProviderId(request.getGcpWorkloadIdentityProviderId());
+
+            // ✅ NEW: Set billing export table
+            account.setBillingExportTable(request.getBillingExportTable());
+
+            // Save to database
+            CloudAccount savedAccount = cloudAccountRepository.save(account);
+            log.info("✅ GCP account created successfully with ID: {}", savedAccount.getId());
+
+            if (savedAccount.getBillingExportTable() != null) {
+                log.info("📊 Billing export table configured: {}", savedAccount.getBillingExportTable());
+            } else {
+                log.warn("⚠️ No billing export table configured - cost data will not be available");
+            }
+
+            return savedAccount;
+
         } catch (Exception e) {
-            throw new RuntimeException("GCP error: " + e.getMessage(), e);
+            log.error("❌ Failed to create GCP account: {}", e.getMessage(), e);
+            throw new RuntimeException("Failed to create GCP account: " + e.getMessage());
         }
     }
 
+    private String extractServiceAccountEmail(String serviceAccountKey) {
+        try {
+            JsonNode jsonNode = objectMapper.readTree(serviceAccountKey);
+            String email = jsonNode.get("client_email").asText();
+
+            if (email == null || email.isEmpty()) {
+                throw new RuntimeException("Service account email not found in JSON key");
+            }
+
+            log.info("✅ Extracted service account email: {}", email);
+            return email;
+
+        } catch (Exception e) {
+            log.error("Failed to parse service account key", e);
+            throw new RuntimeException("Invalid service account key format: " + e.getMessage());
+        }
+    }
+
+    private void validateBillingTableFormat(String billingTable) {
+        String[] parts = billingTable.split("\\.");
+
+        if (parts.length != 3) {
+            throw new RuntimeException(
+                    "Invalid BigQuery table format. Expected format: project.dataset.table " +
+                            "(e.g., my-project.billing_export.gcp_billing_export_v1_XXXXXX_XXXXXX_XXXXXX)"
+            );
+        }
+
+        // Validate each part is not empty
+        for (int i = 0; i < parts.length; i++) {
+            if (parts[i].trim().isEmpty()) {
+                throw new RuntimeException("Invalid BigQuery table format: Part " + (i + 1) + " is empty");
+            }
+        }
+
+        log.info("✅ Billing export table validated: {}", billingTable);
+    }
     public CompletableFuture<List<GcpResourceDto>> getVpcListForCloudmap(String gcpProjectId) {
         return CompletableFuture.supplyAsync(() -> getVpcNetworks(gcpProjectId));
     }
