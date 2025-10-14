@@ -54,15 +54,23 @@ public class InvoiceDto {
         dto.setDiscountAmount(invoice.getDiscountAmount());
         dto.setAmount(invoice.getAmount());
 
-        dto.setAccountName(invoice.getCloudAccount().getAccountName());
-        dto.setAwsAccountId(invoice.getCloudAccount().getAwsAccountId());
+        // --- START OF FIX ---
+        // This try-catch block will prevent the error if a CloudAccount is missing.
+        try {
+            if (invoice.getCloudAccount() != null) {
+                dto.setAccountName(invoice.getCloudAccount().getAccountName());
+                dto.setAwsAccountId(invoice.getCloudAccount().getAwsAccountId());
+            }
+        } catch (jakarta.persistence.EntityNotFoundException e) {
+            // If the CloudAccount is not found, set placeholder values.
+            dto.setAccountName("Unknown/Deleted Account");
+            dto.setAwsAccountId("N/A");
+        }
+        // --- END OF FIX ---
 
         if (invoice.getLineItems() != null) {
             dto.setLineItems(invoice.getLineItems().stream()
-                // --- START: THIS IS THE FIX ---
-                // This filter removes any hidden items before sending the data to the user's invoice page.
                 .filter(item -> !item.isHidden())
-                // --- END: THIS IS THE FIX ---
                 .map(item -> {
                     LineItemDto itemDto = new LineItemDto();
                     itemDto.setServiceName(item.getServiceName());
@@ -71,7 +79,7 @@ public class InvoiceDto {
                     itemDto.setUsageQuantity(item.getUsageQuantity());
                     itemDto.setUnit(item.getUnit());
                     itemDto.setCost(item.getCost());
-                    itemDto.setHidden(item.isHidden()); // This is still useful for the admin view
+                    itemDto.setHidden(item.isHidden());
                     return itemDto;
                 }).collect(Collectors.toList()));
         }
