@@ -5,7 +5,9 @@ import java.util.Date;
 
 public class CreditRequestDto {
     private Long id;
-    private String awsAccountId;
+    // --- START OF FINAL FIX ---
+    private String awsAccountId; // Reverted
+    // --- END OF FINAL FIX ---
     private BigDecimal expectedCredits;
     private String services;
     private String useCase;
@@ -20,8 +22,10 @@ public class CreditRequestDto {
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
+    // --- START OF FINAL FIX ---
     public String getAwsAccountId() { return awsAccountId; }
     public void setAwsAccountId(String awsAccountId) { this.awsAccountId = awsAccountId; }
+    // --- END OF FINAL FIX ---
 
     public BigDecimal getExpectedCredits() { return expectedCredits; }
     public void setExpectedCredits(BigDecimal expectedCredits) { this.expectedCredits = expectedCredits; }
