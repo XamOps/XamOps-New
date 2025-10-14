@@ -322,3 +322,42 @@ g5xn.2xlarge,20-35%,g5xn.2xlarge ($0.912/h),"g4ad.2xlarge (~$0.677/h, switch)",~
 g5xn.2xlarge,35-50%,g5xn.2xlarge ($0.912/h),"g4ad.2xlarge (~$0.677/h, switch)",~50%,0% / ~26%,No downsizing for critical range to support ML training spikes; AMD switch for savings.
 g5xn.4xlarge,0-10%,g5xn.xlarge ($0.656/h),g4ad.xlarge (~$0.473/h),~40%,~75% / ~80%,"Aggressive two-step downsize for very low utilization, halving GPUs/vCPUs."
 g5xn.4xlarge,10-20%,g5xn.2xlarge ($0.912/h),g4ad.2xlarge (~$0.677/h),~40-60%,~50% / ~55%,"Standard one-step downsize for <40% utilization, maintaining GPU throughput."
+,,,,,,
+,,,,,,
+,,,,,,
+c6g.xlarge,0-10%,c5.medium ($0.0425/h),c5a.medium ($0.0385/h),~40%,~75% / ~72%,"Aggressive two-step downsize for very low utilization, halving vCPUs to ensure <70% utilization, per AWS cost optimization best practices."
+c6g.xlarge,10-35%,c5.large ($0.085/h),c5a.large ($0.077/h),~40-70%,~50% / ~43%,"Standard one-step downsize for moderate utilization, maintaining compute performance with headroom, per AWS Balanced preset."
+c6g.xlarge,35-50%,c5.xlarge ($0.17/h),c5a.xlarge ($0.154/h),~50%,~ -25% / ~ -13%,"No downsizing; match to equivalent x86 instance for critical compute-intensive workloads, per AWS Max Performance preset. x86 costs higher than Graviton ($0.136/h)."
+,,,,,,
+c6in.2xlarge,0-10%,c5.large ($0.085/h),c5a.large ($0.077/h),~40%,~75% / ~77%,"Aggressive two-step downsize for very low utilization, halving vCPUs to ensure <70% utilization, per AWS cost optimization best practices."
+c6in.2xlarge,10-20%,c5.xlarge ($0.17/h),c5a.xlarge ($0.154/h),~40-60%,~50% / ~54%,"Standard one-step downsize for <40% utilization, maintaining compute performance, per AWS Balanced preset."
+c6in.2xlarge,20-35%,c5.xlarge ($0.17/h),c5a.xlarge ($0.154/h),~60-70%,~50% / ~54%,"Conservative one-step downsize for mid-range utilization, ensuring <70% utilization with headroom, per AWS P95 thresholds."
+c6in.2xlarge,35-50%,c5.2xlarge ($0.34/h),c5a.2xlarge ($0.308/h),~50%,0% / ~9%,"No downsizing; match to equivalent size for critical compute-intensive workloads, per AWS Max Performance preset. AMD slightly cheaper than Intel ($0.34/h)."
+,,,,,,
+t2.xlarge,0-10%,t3.micro ($0.0104/h),t3a.micro ($0.0094/h),~40%,~92% / ~92%,"Aggressive two-step downsize for very low utilization, halving vCPUs/memory to ensure <70% utilization with CPU credits, per AWS cost optimization best practices."
+t2.xlarge,10-20%,t3.small ($0.0208/h),t3a.small ($0.0188/h),~40-60%,~83% / ~84%,"Standard one-step downsize for <40% utilization, maintaining burstable performance, per AWS Balanced preset."
+t2.xlarge,20-35%,t3.medium ($0.0416/h),t3a.medium ($0.0376/h),~60-70%,~66% / ~69%,"Conservative downsize to nearest size for mid-range utilization, ensuring <70% utilization with headroom, per AWS P95 thresholds."
+t2.xlarge,35-50%,t3.xlarge ($0.1664/h),t3a.xlarge ($0.1504/h),~50%,~ -33% / ~ -20%,"No downsizing; match to equivalent size for critical range to support potential spikes, per AWS Max Performance preset. T2.xlarge ($0.1256/h) cheaper than T3/T3a."
+,,,,,,
+r6g.medium,0-10%,m5.medium ($0.048/h),m5a.medium ($0.043/h),~40%,~5% / ~14%,"Switch to general-purpose M5/M5a for very low utilization to balance memory/compute, ensuring <70% utilization, per AWS cost optimization guidelines."
+r6g.medium,10-50%,r5.medium ($0.063/h),r5a.medium ($0.0566/h),<70%,~ -25% / ~ -12%,"No downsizing; match to equivalent x86 instance for standard memory-optimized workloads, per AWS Balanced preset. x86 costs higher than Graviton ($0.0504/h)."
+,,,,,,
+r7g.medium,0-10%,m5.medium ($0.048/h),m5a.medium ($0.043/h),~40%,~10% / ~20%,"Switch to general-purpose M5/M5a for very low utilization to balance memory/compute, ensuring <70% utilization, per AWS cost optimization guidelines."
+r7g.medium,10-50%,r5.medium ($0.063/h),r5a.medium ($0.0566/h),<70%,~ -18% / ~ -6%,"No downsizing; match to equivalent x86 instance for standard memory-optimized workloads, per AWS Balanced preset. x86 costs higher than Graviton ($0.0535/h)."
+,,,,,,
+m7g.medium,0-10%,t3.medium ($0.0416/h),t3a.medium ($0.0376/h),~40%,~ -2% / ~8%,"Switch to burstable T3/T3a for very low utilization to optimize costs, ensuring <70% utilization with CPU credits, per AWS cost optimization guidelines."
+m7g.medium,10-50%,m5.medium ($0.048/h),m5a.medium ($0.043/h),<70%,~ -18% / ~ -5%,"No downsizing; match to equivalent x86 instance for standard general-purpose workloads, per AWS Balanced preset. x86 costs higher than Graviton ($0.0408/h)."
+,,,,,,
+x8g.medium,0-10%,t3.medium ($0.0416/h),t3a.medium ($0.0376/h),~40%,~13% / ~22%,"Switch to burstable T3/T3a for very low utilization to optimize costs, ensuring <70% utilization with CPU credits, per AWS cost optimization guidelines."
+x8g.medium,10-50%,m5.medium ($0.048/h),m5a.medium ($0.043/h),<70%,0% / ~10%,"No downsizing; match to equivalent x86 instance for standard general-purpose workloads, per AWS Balanced preset. M5a slightly cheaper than x8g.medium ($0.0478/h)."
+,,,,,,
+x8g.large,0-20%,m5.medium ($0.048/h),m5a.medium ($0.043/h),~40-60%,~50% / ~55%,"Standard one-step downsize for low to moderate utilization, halving vCPUs/memory to ensure <70% utilization, per AWS Balanced preset."
+x8g.large,20-50%,m5.large ($0.096/h),m5a.large ($0.086/h),<70%,0% / ~10%,"No downsizing; match to equivalent x86 instance for mid-range to critical utilization, per AWS P95 guidelines. M5a slightly cheaper than x8g.large ($0.0956/h)."
+,,,,,,
+t4g.small,0-10%,t3.nano ($0.0052/h),t3a.nano ($0.0047/h),~40%,~69% / ~72%,"Aggressive two-step downsize for very low utilization, halving vCPUs/memory to ensure <70% utilization with CPU credits, per AWS cost optimization best practices."
+t4g.small,10-20%,t3.micro ($0.0104/h),t3a.micro ($0.0094/h),~40-60%,~38% / ~44%,"Standard one-step downsize for <40% utilization, ensuring burstable performance, per AWS Balanced preset."
+t4g.small,20-50%,t3.small ($0.0208/h),t3a.small ($0.0188/h),<70%,~ -24% / ~ -12%,"No downsizing; match to equivalent x86 instance for mid-range to critical utilization, per AWS P95 guidelines. x86 costs higher than Graviton ($0.0168/h)."
+,,,,,,
+t4g.large,0-10%,t3.small ($0.0208/h),t3a.small ($0.0188/h),~40%,~69% / ~72%,"Aggressive two-step downsize for very low utilization, halving vCPUs/memory to ensure <70% utilization with CPU credits, per AWS cost optimization best practices."
+t4g.large,10-35%,t3.medium ($0.0416/h),t3a.medium ($0.0376/h),~40-70%,~38% / ~44%,"Standard one-step downsize for moderate utilization, maintaining burstable performance with headroom, per AWS Balanced preset."
+t4g.large,35-50%,t3.large ($0.0832/h),t3a.large ($0.0752/h),~50%,~ -24% / ~ -12%,"No downsizing; match to equivalent x86 instance for critical range to support potential spikes, per AWS Max Performance preset. x86 costs higher than Graviton ($0.0672/h)."

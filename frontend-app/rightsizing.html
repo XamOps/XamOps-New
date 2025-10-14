@@ -25,10 +25,19 @@
         body {
             font-family: 'Inter', sans-serif;
             background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-            min-height: 100vh;
+            overflow: hidden;
+            margin: 0;
+            padding: 0;
         }
 
         [x-cloak] { display: none !important; }
+
+        .main-container {
+            margin-left: 16rem;
+            width: calc(100vw - 16rem);
+            height: 100vh;
+            overflow: hidden;
+        }
 
         .glass-card {
             background: var(--glass-bg);
@@ -37,6 +46,8 @@
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             border-radius: 1.5rem;
+            max-width: 100%;
+            overflow: hidden;
         }
 
         .skeleton {
@@ -64,9 +75,14 @@
             transition: all 0.3s ease;
         }
 
-        .btn-primary:hover {
+        .btn-primary:hover:not(:disabled) {
             transform: translateY(-2px);
             box-shadow: 0 10px 15px -3px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
         }
 
         .table-enhanced {
@@ -74,6 +90,7 @@
             border-radius: 12px;
             overflow-x: auto;
             border: 1px solid var(--glass-border);
+            max-width: 100%;
         }
 
         .table-enhanced table {
@@ -173,7 +190,6 @@
             border-bottom-color: #667eea;
         }
 
-        /* ✅ Compact Sparkle Button for Table */
         .sparkle-button-compact {
             --active: 0;
             --bg: radial-gradient(40% 50% at center 100%, hsl(270 calc(var(--active) * 97%) 72% / var(--active)), transparent),
@@ -248,7 +264,6 @@
             max-width: 200px;
         }
 
-        /* Markdown styling */
         .ai-content {
             line-height: 1.8;
             color: #1f2937;
@@ -306,19 +321,35 @@
             font-style: italic;
             color: #4b5563;
         }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
     </style>
 </head>
 <body class="bg-gray-50">
 
-<div class="flex">
-    <!-- Sidebar -->
-    <aside class="fixed top-0 left-0 h-screen w-64 bg-white border-r border-gray-200">
+<div class="flex h-screen overflow-hidden">
+    <aside class="fixed top-0 left-0 h-screen w-64 bg-white border-r border-gray-200 z-30">
         <div data-include-sidebar></div>
     </aside>
 
-    <!-- Main Content -->
-    <div class="ml-64 flex-1">
-        <main class="flex-1 flex flex-col min-h-screen" x-data="rightsizing()">
+    <div class="main-container flex flex-col">
+        <main class="flex-1 flex flex-col overflow-y-auto overflow-x-hidden" x-data="rightsizing()">
             <header class="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-20">
                 <div class="flex items-center space-x-4">
                     <div class="w-12 h-12 bg-gradient-to-br from-green-500 to-blue-600 rounded-xl flex items-center justify-center">
@@ -330,7 +361,7 @@
                     </div>
                 </div>
                 <div class="flex items-center space-x-4">
-                    <button @click="loadRecommendations(true)" class="btn-primary flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md" :disabled="isRefreshing">
+                    <button @click="refreshAll()" class="btn-primary flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md" :disabled="isRefreshing">
                         <i class="fas fa-sync-alt" :class="{ 'fa-spin': isRefreshing }"></i>
                         <span x-text="isRefreshing ? 'Analyzing...' : 'Refresh Analysis'"></span>
                     </button>
@@ -338,7 +369,6 @@
             </header>
 
             <div class="flex-1 p-8 space-y-8">
-                <!-- Tabs -->
                 <div class="flex border-b border-gray-200">
                     <button @click="activeTab = 'aws'" class="tab-button px-6 py-3 text-sm font-semibold" :class="{ 'active': activeTab === 'aws' }">
                         <i class="fab fa-aws mr-2"></i>AWS Recommendations
@@ -348,7 +378,6 @@
                     </button>
                 </div>
 
-                <!-- AWS Recommendations Tab -->
                 <div x-show="activeTab === 'aws'" x-cloak class="fade-in">
                     <div class="glass-card p-8">
                         <div x-show="isLoading" class="skeleton h-96 rounded-2xl"></div>
@@ -420,7 +449,6 @@
                     </div>
                 </div>
 
-                <!-- XamOps Recommendations Tab -->
                 <div x-show="activeTab === 'xamops'" x-cloak class="fade-in">
                     <div class="glass-card p-6">
                         <div class="flex items-center justify-between mb-6">
@@ -435,9 +463,9 @@
                             </div>
                         </div>
 
-                        <div x-show="isLoading" class="skeleton h-96 rounded-2xl"></div>
+                        <div x-show="isLoadingXamOps" class="skeleton h-96 rounded-2xl"></div>
 
-                        <div x-show="!isLoading && xamopsRecommendations.length === 0" x-cloak class="empty-state text-center py-20 px-8 rounded-2xl">
+                        <div x-show="!isLoadingXamOps && xamopsRecommendations.length === 0" x-cloak class="empty-state text-center py-20 px-8 rounded-2xl">
                             <div class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
                                 <i class="fas fa-lightbulb text-gray-400 text-2xl"></i>
                             </div>
@@ -445,7 +473,7 @@
                             <p class="text-gray-600">Could not load custom recommendations at this time.</p>
                         </div>
 
-                        <div x-show="!isLoading && xamopsRecommendations.length > 0" x-cloak class="table-enhanced">
+                        <div x-show="!isLoadingXamOps && xamopsRecommendations.length > 0" x-cloak class="table-enhanced">
                             <table>
                                 <thead>
                                 <tr>
@@ -509,7 +537,6 @@
                 </div>
             </div>
 
-            <!-- AI Modal -->
             <div x-show="showAiModal"
                  @keydown.escape.window="showAiModal = false"
                  class="fixed inset-0 z-50 overflow-y-auto bg-black bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4"
@@ -601,7 +628,9 @@
     function rightsizing() {
         return {
             isLoading: true,
+            isLoadingXamOps: true,
             isRefreshing: false,
+            isRefreshingXamOps: false,
             activeTab: 'xamops',
             recommendations: [],
             xamopsRecommendations: [],
@@ -610,22 +639,76 @@
             isAiLoading: false,
 
             init() {
+                console.log('🚀 Initializing Rightsizing page...');
                 this.loadRecommendations(false);
-                this.loadXamOpsRecommendations();
+                this.loadXamOpsRecommendations(false);
             },
 
-            loadXamOpsRecommendations() {
+            loadXamOpsRecommendations(forceRefresh = false) {
                 const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
                 const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
-                if (!selectedAccountId) return;
 
-                fetch(`/api/xamops/rightsizing/aws/xamops-recommendations?accountId=${selectedAccountId}`)
-                    .then(res => res.json())
-                    .then(data => {
-                        this.xamopsRecommendations = data;
-                        console.log('XamOps recommendations loaded:', data);
+                if (!selectedAccountId) {
+                    console.warn('⚠️ No account ID found for XamOps recommendations');
+                    this.isLoadingXamOps = false;
+                    return;
+                }
+
+                if (this.isRefreshingXamOps && forceRefresh) {
+                    console.warn('⚠️ XamOps refresh already in progress, skipping...');
+                    return;
+                }
+
+                const cacheKey = `xamopsRightsizing-${selectedAccountId}`;
+
+                if (!forceRefresh) {
+                    const cachedData = sessionStorage.getItem(cacheKey);
+                    if (cachedData) {
+                        try {
+                            const parsed = JSON.parse(cachedData);
+                            if (Array.isArray(parsed) && parsed.length > 0) {
+                                this.xamopsRecommendations = parsed;
+                                this.isLoadingXamOps = false;
+                                console.log(`✅ Loaded ${parsed.length} XamOps recommendations from cache`);
+                                return;
+                            }
+                        } catch (e) {
+                            console.error('Failed to parse cached XamOps data:', e);
+                            sessionStorage.removeItem(cacheKey);
+                        }
+                    }
+                } else {
+                    sessionStorage.removeItem(cacheKey);
+                }
+
+                console.log(`🌐 Fetching XamOps recommendations from server (forceRefresh: ${forceRefresh})...`);
+                this.isLoadingXamOps = true;
+                this.isRefreshingXamOps = true;
+
+                fetch(`/api/xamops/optimization/rightsizing/live?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`)
+                    .then(res => {
+                        if (!res.ok) {
+                            throw new Error(`HTTP error! status: ${res.status}`);
+                        }
+                        return res.json();
                     })
-                    .catch(err => { console.error('Failed to load XamOps recommendations:', err); });
+                    .then(data => {
+                        console.log(`✅ Received ${data.length} XamOps recommendations from server`);
+                        this.xamopsRecommendations = Array.isArray(data) ? data : [];
+
+                        if (this.xamopsRecommendations.length > 0) {
+                            sessionStorage.setItem(cacheKey, JSON.stringify(this.xamopsRecommendations));
+                            console.log(`💾 Cached ${this.xamopsRecommendations.length} XamOps recommendations`);
+                        }
+                    })
+                    .catch(err => {
+                        console.error('❌ Failed to load XamOps recommendations:', err);
+                        this.xamopsRecommendations = [];
+                    })
+                    .finally(() => {
+                        this.isLoadingXamOps = false;
+                        this.isRefreshingXamOps = false;
+                    });
             },
 
             loadRecommendations(forceRefresh = false) {
@@ -651,7 +734,6 @@
                 }
 
                 if (forceRefresh) {
-                    this.isRefreshing = true;
                     sessionStorage.removeItem(cacheKey);
                 }
 
@@ -667,8 +749,25 @@
                     })
                     .finally(() => {
                         this.isLoading = false;
-                        this.isRefreshing = false;
                     });
+            },
+
+            refreshAll() {
+                if (this.isRefreshing) {
+                    console.warn('⚠️ Refresh already in progress');
+                    return;
+                }
+
+                console.log('🔄 Refreshing all recommendations...');
+                this.isRefreshing = true;
+
+                this.loadRecommendations(true);
+                this.loadXamOpsRecommendations(true);
+
+                setTimeout(() => {
+                    this.isRefreshing = false;
+                    console.log('✅ All recommendations refreshed');
+                }, 2000);
             },
 
             getAiRecommendation(recommendation) {
