@@ -37,8 +37,10 @@ public class GcpCloudmapController {
     }
 
     @GetMapping("/vpcs")
-    public CompletableFuture<ResponseEntity<List<GcpResourceDto>>> getVpcs(@RequestParam String accountId) {
-        log.info("Fetching VPCs for accountId: {}", accountId);
+    public CompletableFuture<ResponseEntity<List<GcpResourceDto>>> getVpcListForCloudmap(
+            @RequestParam String accountId,
+            @RequestParam(required = false, defaultValue = "false") boolean forceRefresh) {
+        log.info("Fetching VPCs for accountId: {} (forceRefresh={})", accountId, forceRefresh);
 
         // Convert accountId to gcpProjectId
         Optional<String> gcpProjectIdOpt = getGcpProjectId(accountId);
@@ -53,7 +55,7 @@ public class GcpCloudmapController {
         String gcpProjectId = gcpProjectIdOpt.get();
         log.info("Resolved gcpProjectId: {} for accountId: {}", gcpProjectId, accountId);
 
-        return gcpDataService.getVpcListForCloudmap(gcpProjectId)
+        return gcpDataService.getVpcListForCloudmap(gcpProjectId, forceRefresh)
                 .thenApply(ResponseEntity::ok)
                 .exceptionally(ex -> {
                     log.error("Error fetching VPCs for gcpProjectId: {}", gcpProjectId, ex);

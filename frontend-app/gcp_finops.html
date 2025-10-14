@@ -37,7 +37,7 @@
             border: 1px solid var(--glass-border);
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            border-radius: 1.5rem; /* 24px */
+            border-radius: 1.5rem;
         }
 
         .kpi-card {
@@ -47,7 +47,7 @@
             backdrop-filter: blur(10px);
             border: 1px solid var(--glass-border);
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            border-radius: 1.5rem; /* 24px */
+            border-radius: 1.5rem;
         }
 
         .kpi-card:hover {
@@ -78,6 +78,7 @@
             transition: all 0.2s ease;
         }
         .btn-primary:hover { background-color: #3367D6; }
+        .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
 
         .header-gradient {
             background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%);
@@ -93,6 +94,10 @@
 
         .table-enhanced thead {
             background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+        }
+
+        .table-enhanced tr:hover {
+            background: rgba(66, 133, 244, 0.05);
         }
 
         .trend-indicator {
@@ -133,6 +138,11 @@
             0% { background-position: -200% 0; }
             100% { background-position: 200% 0; }
         }
+
+        .empty-state {
+            background: rgba(255, 255, 255, 0.5);
+            border: 2px dashed rgba(156, 163, 175, 0.3);
+        }
     </style>
 </head>
 <body class="bg-gray-50">
@@ -161,6 +171,7 @@
             </header>
 
             <div class="flex-1 p-8 space-y-8">
+                <!-- KPI Cards -->
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                     <template x-for="kpi in kpis" :key="kpi.label">
                         <div class="kpi-card p-6 fade-in">
@@ -182,14 +193,16 @@
                     </template>
                 </div>
 
+                <!-- Budgets & Alerts -->
                 <div class="glass-card p-8 fade-in">
                     <h3 class="text-xl font-bold text-gray-800 mb-4">Budgets & Alerts</h3>
                     <div x-show="isLoading" class="skeleton h-32 w-full rounded-xl"></div>
                     <div x-show="!isLoading && (!reportData.budgets || reportData.budgets.length === 0)" x-cloak class="empty-state text-center py-12 rounded-2xl">
+                        <i class="fas fa-wallet text-4xl text-gray-300 mb-4"></i>
                         <h4 class="text-lg font-bold text-gray-800 mb-2">No Budgets Found</h4>
                         <p class="text-gray-600">Set up budgets to track and control your cloud spending.</p>
                     </div>
-                    <div x-show="!isLoading && reportData.budgets && reportData.budgets.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div x-show="!isLoading && reportData.budgets && reportData.budgets.length > 0" x-cloak class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         <template x-for="budget in reportData.budgets" :key="budget.budgetName">
                             <div class="bg-white/70 rounded-xl p-6 border hover:shadow-lg transition-shadow">
                                 <h4 class="font-bold text-gray-800" x-text="budget.budgetName"></h4>
@@ -209,6 +222,7 @@
                     </div>
                 </div>
 
+                <!-- Charts -->
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
                     <div class="glass-card p-8 fade-in">
                         <h3 class="text-lg font-bold text-gray-800 mb-4">Cost by Service</h3>
@@ -222,11 +236,15 @@
                     </div>
                 </div>
 
-                <div class="glass-card p-8 fade-in" x-show="!isLoading && (reportData.rightsizingRecommendations.length > 0 || reportData.wastedResources.length > 0 || reportData.costAnomalies.length > 0)">
+                <!-- Insights & Opportunities -->
+                <div class="glass-card p-8 fade-in" x-show="!isLoading && (reportData.rightsizingRecommendations.length > 0 || reportData.wastedResources.length > 0 || reportData.costAnomalies.length > 0)" x-cloak>
                     <h3 class="text-xl font-bold text-gray-800 mb-6">Insights & Opportunities</h3>
 
+                    <!-- Cost Anomalies -->
                     <div x-show="reportData.costAnomalies.length > 0" x-cloak class="mb-8">
-                        <h4 class="text-lg font-semibold text-gray-800 mb-4"><i class="fas fa-exclamation-triangle text-red-500 mr-2"></i> Cost Anomaly Detection</h4>
+                        <h4 class="text-lg font-semibold text-gray-800 mb-4">
+                            <i class="fas fa-exclamation-triangle text-red-500 mr-2"></i> Cost Anomaly Detection
+                        </h4>
                         <div class="table-enhanced overflow-x-auto">
                             <table class="w-full text-sm text-left text-gray-600">
                                 <thead class="text-xs text-gray-700 uppercase">
@@ -238,7 +256,7 @@
                                 </thead>
                                 <tbody class="divide-y divide-gray-200">
                                 <template x-for="anomaly in reportData.costAnomalies" :key="anomaly.anomalyId">
-                                    <tr class="hover:bg-gray-50">
+                                    <tr>
                                         <td class="px-6 py-4 font-semibold" x-text="anomaly.service"></td>
                                         <td class="px-6 py-4" x-text="`${anomaly.startDate} to ${anomaly.endDate}`"></td>
                                         <td class="px-6 py-4 text-red-600 font-bold" x-text="formatCurrency(anomaly.unexpectedSpend)"></td>
@@ -249,27 +267,43 @@
                         </div>
                     </div>
 
+                    <!-- Rightsizing Recommendations - ✅ FIXED -->
                     <div x-show="reportData.rightsizingRecommendations.length > 0" x-cloak class="mb-8">
-                        <h4 class="text-lg font-semibold text-gray-800 mb-4"><i class="fas fa-cogs text-green-500 mr-2"></i> Rightsizing Recommendations</h4>
+                        <h4 class="text-lg font-semibold text-gray-800 mb-4">
+                            <i class="fas fa-cogs text-green-500 mr-2"></i> Rightsizing Recommendations
+                        </h4>
                         <div class="table-enhanced overflow-x-auto">
                             <table class="w-full text-sm text-left text-gray-600">
                                 <thead class="text-xs text-gray-700 uppercase">
                                 <tr>
-                                    <th class="px-6 py-4">Resource ID</th>
+                                    <th class="px-6 py-4">Resource Name</th>
                                     <th class="px-6 py-4">Service</th>
+                                    <th class="px-6 py-4">Location</th>
                                     <th class="px-6 py-4">Current</th>
                                     <th class="px-6 py-4">Recommended</th>
-                                    <th class="px-6 py-4">Savings</th>
+                                    <th class="px-6 py-4">Type</th>
+                                    <th class="px-6 py-4">Impact</th>
                                 </tr>
                                 </thead>
                                 <tbody class="divide-y divide-gray-200">
-                                <template x-for="rec in reportData.rightsizingRecommendations" :key="rec.resourceId">
-                                    <tr class="hover:bg-gray-50">
-                                        <td class="px-6 py-4 font-mono text-xs" x-text="rec.resourceId"></td>
+                                <template x-for="rec in reportData.rightsizingRecommendations" :key="rec.recommendationId || rec.resourceName">
+                                    <tr>
+                                        <td class="px-6 py-4 font-medium text-gray-800" x-text="rec.resourceName"></td>
                                         <td class="px-6 py-4" x-text="rec.service"></td>
-                                        <td class="px-6 py-4" x-text="rec.currentType"></td>
-                                        <td class="px-6 py-4 text-green-700 font-semibold" x-text="rec.recommendedType"></td>
-                                        <td class="px-6 py-4 text-green-700 font-bold" x-text="formatCurrency(rec.estimatedMonthlySavings)"></td>
+                                        <td class="px-6 py-4 text-xs text-gray-500" x-text="rec.location || 'global'"></td>
+                                        <td class="px-6 py-4 text-xs" x-text="rec.currentMachineType"></td>
+                                        <td class="px-6 py-4 text-xs text-blue-700 font-semibold" x-text="rec.recommendedMachineType"></td>
+                                        <td class="px-6 py-4">
+                                            <span
+                                                    class="px-2 py-1 text-xs rounded-full font-semibold"
+                                                    :class="rec.recommendationType === 'PERFORMANCE_IMPROVEMENT' ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'"
+                                                    x-text="rec.recommendationType === 'PERFORMANCE_IMPROVEMENT' ? 'Performance' : 'Cost Savings'">
+                                            </span>
+                                        </td>
+                                        <td class="px-6 py-4 font-bold"
+                                            :class="rec.recommendationType === 'PERFORMANCE_IMPROVEMENT' ? 'text-orange-600' : 'text-green-600'"
+                                            x-text="formatCurrency(rec.monthlySavings)">
+                                        </td>
                                     </tr>
                                 </template>
                                 </tbody>
@@ -277,8 +311,11 @@
                         </div>
                     </div>
 
+                    <!-- Wasted Resources -->
                     <div x-show="reportData.wastedResources.length > 0" x-cloak>
-                        <h4 class="text-lg font-semibold text-gray-800 mb-4"><i class="fas fa-trash-alt text-red-500 mr-2"></i> Wasted Resources</h4>
+                        <h4 class="text-lg font-semibold text-gray-800 mb-4">
+                            <i class="fas fa-trash-alt text-red-500 mr-2"></i> Wasted Resources
+                        </h4>
                         <div class="table-enhanced overflow-x-auto">
                             <table class="w-full text-sm text-left text-gray-600">
                                 <thead class="text-xs text-gray-700 uppercase">
@@ -287,12 +324,12 @@
                                     <th class="px-6 py-4">Type</th>
                                     <th class="px-6 py-4">Region</th>
                                     <th class="px-6 py-4">Reason</th>
-                                    <th class="px-6 py-4">Savings</th>
+                                    <th class="px-6 py-4">Potential Savings</th>
                                 </tr>
                                 </thead>
                                 <tbody class="divide-y divide-gray-200">
                                 <template x-for="res in reportData.wastedResources" :key="res.resourceId">
-                                    <tr class="hover:bg-gray-50">
+                                    <tr>
                                         <td class="px-6 py-4 font-mono text-xs" x-text="res.resourceId"></td>
                                         <td class="px-6 py-4" x-text="res.resourceType"></td>
                                         <td class="px-6 py-4" x-text="res.region"></td>
@@ -328,7 +365,10 @@
                 byRegion: null
             },
 
-            init() { this.loadReport(); },
+            init() {
+                console.log('Initializing FinOps Report...');
+                this.loadReport();
+            },
 
             loadReport(forceRefresh = false) {
                 const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
@@ -343,21 +383,48 @@
                 this.isRefreshing = forceRefresh;
                 this.isLoading = !forceRefresh;
 
+                console.log(`Fetching FinOps report for account: ${selectedAccountId}`);
+
                 fetch(`/api/xamops/gcp/finops/report?accountId=${selectedAccountId}`)
-                    .then(res => res.json())
+                    .then(res => {
+                        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                        return res.json();
+                    })
                     .then(data => {
+                        console.log('FinOps report received:', data);
                         this.reportData = data;
+
+                        // Ensure arrays exist
                         if (!this.reportData.rightsizingRecommendations) this.reportData.rightsizingRecommendations = [];
                         if (!this.reportData.wastedResources) this.reportData.wastedResources = [];
                         if (!this.reportData.costAnomalies) this.reportData.costAnomalies = [];
+                        if (!this.reportData.budgets) this.reportData.budgets = [];
+
+                        console.log(`Rightsizing recommendations: ${this.reportData.rightsizingRecommendations.length}`);
+                        console.log(`Wasted resources: ${this.reportData.wastedResources.length}`);
+
                         this.renderCharts();
                     })
-                    .catch(err => console.error("Failed to load FinOps report:", err))
-                    .finally(() => { this.isLoading = false; this.isRefreshing = false; });
+                    .catch(err => {
+                        console.error("Failed to load FinOps report:", err);
+                        this.reportData.rightsizingRecommendations = [];
+                        this.reportData.wastedResources = [];
+                        this.reportData.costAnomalies = [];
+                    })
+                    .finally(() => {
+                        this.isLoading = false;
+                        this.isRefreshing = false;
+                    });
             },
 
             formatCurrency(value) {
-                return (value || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+                if (value === null || value === undefined || isNaN(value)) return '₹0.00';
+                return (value || 0).toLocaleString('en-IN', {
+                    style: 'currency',
+                    currency: 'INR',
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                });
             },
 
             get kpis() {
@@ -402,30 +469,70 @@
             },
 
             renderCharts() {
-                this.renderServiceChart();
-                this.renderRegionChart();
+                this.$nextTick(() => {
+                    this.renderServiceChart();
+                    this.renderRegionChart();
+                });
             },
 
             renderServiceChart() {
                 const ctx = document.getElementById('costByServiceChart');
-                if (!ctx) return;
+                if (!ctx) {
+                    console.warn('Cost by service chart canvas not found');
+                    return;
+                }
+
                 if (this.charts.byService) this.charts.byService.destroy();
+
                 const data = this.reportData.costBreakdown?.byService || [];
+
+                if (data.length === 0) {
+                    console.warn('No service cost data to display');
+                    return;
+                }
+
                 this.charts.byService = new Chart(ctx.getContext('2d'), {
                     type: 'doughnut',
                     data: {
                         labels: data.map(d => d.name),
-                        datasets: [{ data: data.map(d => d.amount), backgroundColor: ['#4285F4', '#34A853', '#FBBC05', '#EA4335', '#667eea', '#764ba2'] }]
+                        datasets: [{
+                            data: data.map(d => d.amount),
+                            backgroundColor: ['#4285F4', '#34A853', '#FBBC05', '#EA4335', '#667eea', '#764ba2']
+                        }]
                     },
-                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } }
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { position: 'right' },
+                            tooltip: {
+                                callbacks: {
+                                    label: (context) => {
+                                        return `${context.label}: ${this.formatCurrency(context.parsed)}`;
+                                    }
+                                }
+                            }
+                        }
+                    }
                 });
             },
 
             renderRegionChart() {
                 const ctx = document.getElementById('costByRegionChart');
-                if (!ctx) return;
+                if (!ctx) {
+                    console.warn('Cost by region chart canvas not found');
+                    return;
+                }
+
                 if (this.charts.byRegion) this.charts.byRegion.destroy();
+
                 const data = this.reportData.costBreakdown?.byRegion || [];
+
+                if (data.length === 0) {
+                    console.warn('No region cost data to display');
+                    return;
+                }
+
                 this.charts.byRegion = new Chart(ctx.getContext('2d'), {
                     type: 'bar',
                     data: {
@@ -439,7 +546,21 @@
                             borderRadius: 8
                         }]
                     },
-                    options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { display: false } } }
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        indexAxis: 'y',
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    label: (context) => {
+                                        return `Cost: ${this.formatCurrency(context.parsed.x)}`;
+                                    }
+                                }
+                            }
+                        }
+                    }
                 });
             }
         }

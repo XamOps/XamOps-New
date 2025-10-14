@@ -50,7 +50,7 @@ public class RedisCacheService {
         return Optional.empty();
     }
 
-    public <T> void put(String key, T value) {
+    public <T> void put(String key, T value, int i) {
         try {
             String jsonData = objectMapper.writeValueAsString(value);
             redisTemplate.opsForValue().set(key, jsonData);

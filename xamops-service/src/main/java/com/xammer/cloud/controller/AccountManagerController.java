@@ -99,12 +99,8 @@ public class AccountManagerController {
     public ResponseEntity<?> addGcpAccount(@RequestBody GcpAccountRequestDto gcpAccountRequestDto, @AuthenticationPrincipal ClientUserDetails userDetails) {
         Long clientId = userDetails.getClientId();
         Client client = clientRepository.findById(clientId).orElse(null);
-        try {
-            gcpDataService.createGcpAccount(gcpAccountRequestDto, client);
-            return ResponseEntity.ok(Map.of("message", "GCP Account added successfully."));
-        } catch (java.io.IOException e) {
-            return ResponseEntity.status(500).body("IOException: " + e.getMessage());
-        }
+        gcpDataService.createGcpAccount(gcpAccountRequestDto, client);
+        return ResponseEntity.ok(Map.of("message", "GCP Account added successfully."));
     }
 
     private AccountDto mapToAccountDto(CloudAccount account) {

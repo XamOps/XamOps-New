@@ -33,8 +33,6 @@ import software.amazon.awssdk.services.budgets.model.SubscriptionType;
 import software.amazon.awssdk.services.budgets.model.ComparisonOperator;
 import com.xammer.cloud.domain.User;
 import com.xammer.cloud.repository.UserRepository;
-import software.amazon.awssdk.services.budgets.model.*;
-import java.security.Principal;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -140,7 +138,7 @@ public class FinOpsService {
                         FinOpsReportDto.CostBreakdown costBreakdown = new FinOpsReportDto.CostBreakdown(costByService, costByRegionFuture.join());
 
                         FinOpsReportDto report = new FinOpsReportDto(kpis, costBreakdown, rightsizingFuture.join(), wastedResourcesFuture.join(), anomaliesFuture.join(), taggingComplianceFuture.join(), budgetsFuture.join());
-                        redisCache.put(cacheKey, report);
+                        redisCache.put(cacheKey, report, 10);
                         return report;
                     });
         });
@@ -166,7 +164,7 @@ public class FinOpsService {
                             b.calculatedSpend() != null ? b.calculatedSpend().actualSpend().amount() : BigDecimal.ZERO,
                             b.calculatedSpend() != null && b.calculatedSpend().forecastedSpend() != null ? b.calculatedSpend().forecastedSpend().amount() : BigDecimal.ZERO
                     )).collect(Collectors.toList());
-            redisCache.put(cacheKey, result);
+            redisCache.put(cacheKey, result, 10);
             return CompletableFuture.completedFuture(result);
         } catch (Exception e) {
             logger.error("Failed to fetch AWS Budgets for account {}", account.getAwsAccountId(), e);
@@ -279,7 +277,7 @@ public class FinOpsService {
             int totalScanned = allResources.size();
             double percentage = (totalScanned > 0) ? ((double) taggedCount / totalScanned) * 100.0 : 100.0;
             DashboardData.TaggingCompliance result = new DashboardData.TaggingCompliance(percentage, totalScanned, untaggedList.size(), untaggedList.stream().limit(20).collect(Collectors.toList()));
-            redisCache.put(cacheKey, result);
+            redisCache.put(cacheKey, result, 10);
             return result;
         });
     }
@@ -314,7 +312,7 @@ public class FinOpsService {
                 })
                 .filter(map -> (double) map.get("cost") > 0.01)
                 .collect(Collectors.toList());
-            redisCache.put(cacheKey, result);
+            redisCache.put(cacheKey, result, 10);
             return CompletableFuture.completedFuture(result);
         } catch (Exception e) {
             logger.error("Could not fetch cost by tag key '{}' for account {}. This tag may not be activated in the billing console.", tagKey, e);
@@ -348,7 +346,7 @@ public class FinOpsService {
                     })
                     .filter(map -> (double) map.get("cost") > 0.01)
                     .collect(Collectors.toList());
-            redisCache.put(cacheKey, result);
+            redisCache.put(cacheKey, result, 10);
             return CompletableFuture.completedFuture(result);
         } catch (Exception e) {
             logger.error("Could not fetch cost by region for account {}", account.getAwsAccountId(), e);
@@ -377,7 +375,7 @@ public class FinOpsService {
                     .stream().flatMap(r -> r.groups().stream())
                     .map(g -> new DashboardData.BillingSummary(g.keys().get(0), Double.parseDouble(g.metrics().get("UnblendedCost").amount())))
                     .filter(s -> s.getMonthToDateCost() > 0.01).collect(Collectors.toList());
-            redisCache.put(cacheKey, result);
+            redisCache.put(cacheKey, result, 10);
             return CompletableFuture.completedFuture(result);
         } catch (Exception e) {
             logger.error("Could not fetch billing summary for account {}", account.getAwsAccountId(), e);
@@ -427,7 +425,7 @@ public class FinOpsService {
         }
         
         DashboardData.CostHistory result = new DashboardData.CostHistory(labels, costs, anomalies);
-        redisCache.put(cacheKey, result);
+        redisCache.put(cacheKey, result, 10);
         return CompletableFuture.completedFuture(result);
     }
     
@@ -456,7 +454,7 @@ public class FinOpsService {
                             a.anomalyEndDate() != null ? LocalDate.parse(a.anomalyEndDate().substring(0, 10)) : LocalDate.now()
                     ))
                     .collect(Collectors.toList());
-            redisCache.put(cacheKey, result);
+            redisCache.put(cacheKey, result, 10);
             return CompletableFuture.completedFuture(result);
         } catch (Exception e) {
             logger.error("Could not fetch Cost Anomalies for account {}. This might be a permissions issue or the service is not enabled.", account.getAwsAccountId(), e);

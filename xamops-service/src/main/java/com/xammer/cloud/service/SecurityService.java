@@ -89,7 +89,7 @@ public class SecurityService {
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
             .thenApply(v -> {
                 List<DashboardData.SecurityFinding> result = futures.stream().map(CompletableFuture::join).flatMap(List::stream).collect(Collectors.toList());
-                redisCache.put(cacheKey, result);
+                redisCache.put(cacheKey, result, 10);
                 return result;
             });
     }

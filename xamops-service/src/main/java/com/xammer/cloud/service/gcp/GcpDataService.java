@@ -1,7 +1,8 @@
 package com.xammer.cloud.service.gcp;
 
-import com.google.appengine.v1.Application;
-import com.google.appengine.v1.ApplicationsClient;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.cloud.aiplatform.v1.EndpointServiceClient;
 import com.google.cloud.aiplatform.v1.ModelServiceClient;
 import com.google.cloud.bigquery.reservation.v1.ReservationServiceClient;
@@ -10,7 +11,6 @@ import com.google.cloud.compute.v1.RoutersClient;
 import com.google.cloud.compute.v1.SecurityPolicy;
 import com.google.cloud.compute.v1.SecurityPoliciesClient;
 import com.google.cloud.dataplex.v1.DataplexServiceClient;
-import com.google.cloud.devtools.cloudbuild.v1.CloudBuildClient;
 import com.google.cloud.functions.v2.FunctionServiceClient;
 import com.google.cloud.kms.v1.CryptoKey;
 import com.google.cloud.kms.v1.KeyManagementServiceClient;
@@ -22,14 +22,13 @@ import com.google.cloud.pubsub.v1.TopicAdminClient;
 import com.google.cloud.scheduler.v1.CloudSchedulerClient;
 import com.google.cloud.secretmanager.v1.Secret;
 import com.google.cloud.secretmanager.v1.SecretManagerServiceClient;
-import com.google.cloud.storage.Storage;
-import com.google.devtools.artifactregistry.v1.ArtifactRegistryClient;
 import com.google.logging.v2.LogBucket;
 import com.xammer.cloud.domain.Client;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.GcpAccountRequestDto;
 import com.xammer.cloud.dto.gcp.*;
+import com.xammer.cloud.service.RedisCacheService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.Cacheable;
@@ -43,6 +42,7 @@ import com.google.cloud.apigateway.v1.ApiGatewayServiceClient;
 import com.google.cloud.bigquery.BigQuery;
 import com.google.cloud.bigquery.Dataset;
 
+import javax.transaction.Transactional;
 import java.io.IOException;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -65,6 +65,24 @@ public class GcpDataService {
     private final com.xammer.cloud.repository.CloudAccountRepository cloudAccountRepository;
     private final ExecutorService executor = Executors.newCachedThreadPool();
     private final Map<String, double[]> regionCoordinates = loadRegionCoordinates();
+    private final ObjectMapper objectMapper;
+    private final RedisCacheService redisCache;
+
+    private static final String DASHBOARD_CACHE_PREFIX = "gcp:dashboard:";
+    private static final String ALL_RESOURCES_CACHE_PREFIX = "gcp:all-resources:";
+    private static final String IAM_RESOURCES_CACHE_PREFIX = "gcp:iam-resources:";
+    private static final String COMPUTE_INSTANCES_CACHE_PREFIX = "gcp:compute-instances:";
+    private static final String STORAGE_BUCKETS_CACHE_PREFIX = "gcp:storage-buckets:";
+    private static final String GKE_CLUSTERS_CACHE_PREFIX = "gcp:gke-clusters:";
+    private static final String CLOUD_SQL_CACHE_PREFIX = "gcp:cloud-sql:";
+    private static final String VPC_NETWORKS_CACHE_PREFIX = "gcp:vpc-networks:";
+    private static final String DNS_ZONES_CACHE_PREFIX = "gcp:dns-zones:";
+    private static final String LOAD_BALANCERS_CACHE_PREFIX = "gcp:load-balancers:";
+    private static final String FIREWALL_RULES_CACHE_PREFIX = "gcp:firewall-rules:";
+    private static final String CLOUD_NAT_CACHE_PREFIX = "gcp:cloud-nat:";
+    private static final String KMS_KEYS_CACHE_PREFIX = "gcp:kms-keys:";
+    private static final String CLOUD_FUNCTIONS_CACHE_PREFIX = "gcp:cloud-functions:";
+    private static final String SECRET_MANAGER_CACHE_PREFIX = "gcp:secret-manager:";
 
     @Value("${tagging.compliance.required-tags}")
     private List<String> requiredTags;
@@ -73,12 +91,14 @@ public class GcpDataService {
                           GcpCostService gcpCostService,
                           GcpOptimizationService gcpOptimizationService,
                           GcpSecurityService gcpSecurityService,
-                          com.xammer.cloud.repository.CloudAccountRepository cloudAccountRepository) {
+                          com.xammer.cloud.repository.CloudAccountRepository cloudAccountRepository, RedisCacheService redisCache, ObjectMapper objectMapper) {
         this.gcpClientProvider = gcpClientProvider;
         this.gcpCostService = gcpCostService;
         this.gcpOptimizationService = gcpOptimizationService;
         this.gcpSecurityService = gcpSecurityService;
         this.cloudAccountRepository = cloudAccountRepository;
+        this.objectMapper = objectMapper;
+        this.redisCache = redisCache;
     }
 
     private Map<String, double[]> loadRegionCoordinates() {
@@ -140,11 +160,26 @@ public class GcpDataService {
         });
     }
 
-    @Cacheable(value = "gcpDashboardData", key = "'gcp:dashboard:' + #gcpProjectId")
+    public CompletableFuture<GcpDashboardData> getDashboardData(String gcpProjectId) {
+        return getDashboardData(gcpProjectId, false);
+    }
+
     public CompletableFuture<GcpDashboardData> getDashboardData(String gcpProjectId, boolean forceRefresh) {
+        String cacheKey = DASHBOARD_CACHE_PREFIX + gcpProjectId;
+
+        // Check cache first (unless force refresh)
+        if (!forceRefresh) {
+            Optional<GcpDashboardData> cached = redisCache.get(cacheKey, GcpDashboardData.class);
+            if (cached.isPresent()) {
+                log.info("✅ Returning cached GCP dashboard data for project: {}", gcpProjectId);
+                return CompletableFuture.completedFuture(cached.get());
+            }
+        }
+
+        log.info("🔍 Fetching GCP dashboard data for project {}", gcpProjectId);
         log.info("--- LAUNCHING EXPANDED ASYNC DATA AGGREGATION FOR GCP project {} ---", gcpProjectId);
 
-        CompletableFuture<List<GcpResourceDto>> resourcesFuture = getAllResources(gcpProjectId)
+        CompletableFuture<List<GcpResourceDto>> resourcesFuture = getAllResources(gcpProjectId, forceRefresh)
                 .exceptionally(ex -> {
                     log.error("Failed to get all resources for project {}: {}", gcpProjectId, ex.getMessage());
                     return Collections.emptyList();
@@ -156,7 +191,7 @@ public class GcpDataService {
                     return Collections.emptyList();
                 });
 
-        CompletableFuture<DashboardData.IamResources> iamResourcesFuture = getIamResources(gcpProjectId)
+        CompletableFuture<DashboardData.IamResources> iamResourcesFuture = getIamResources(gcpProjectId, forceRefresh)
                 .exceptionally(ex -> {
                     log.error("Failed to get IAM resources for project {}: {}", gcpProjectId, ex.getMessage());
                     return new DashboardData.IamResources(0, 0, 0, 0);
@@ -180,31 +215,33 @@ public class GcpDataService {
                     return Collections.emptyList();
                 });
 
-        CompletableFuture<List<GcpWasteItem>> wasteReportFuture = CompletableFuture.supplyAsync(() -> gcpOptimizationService.getWasteReport(gcpProjectId), executor)
+        CompletableFuture<List<GcpWasteItem>> wasteReportFuture = CompletableFuture.supplyAsync(() ->
+                        gcpOptimizationService.getWasteReport(gcpProjectId), executor)
                 .exceptionally(ex -> {
                     log.error("Failed to get waste report for project {}: {}", gcpProjectId, ex.getMessage());
                     return Collections.emptyList();
                 });
 
-        CompletableFuture<List<GcpOptimizationRecommendation>> rightsizingFuture = CompletableFuture.supplyAsync(() -> gcpOptimizationService.getRightsizingRecommendations(gcpProjectId), executor)
+        CompletableFuture<List<GcpOptimizationRecommendation>> rightsizingFuture = CompletableFuture.supplyAsync(() ->
+                        gcpOptimizationService.getRightsizingRecommendations(gcpProjectId), executor)
                 .exceptionally(ex -> {
                     log.error("Failed to get rightsizing recommendations for project {}: {}", gcpProjectId, ex.getMessage());
                     return Collections.emptyList();
                 });
 
-        CompletableFuture<DashboardData.SavingsSummary> savingsSummaryFuture = CompletableFuture.supplyAsync(() -> gcpOptimizationService.getSavingsSummary(gcpProjectId), executor)
+        CompletableFuture<DashboardData.SavingsSummary> savingsSummaryFuture = CompletableFuture.supplyAsync(() ->
+                        gcpOptimizationService.getSavingsSummary(gcpProjectId), executor)
                 .exceptionally(ex -> {
                     log.error("Failed to get savings summary for project {}: {}", gcpProjectId, ex.getMessage());
                     return new DashboardData.SavingsSummary(0.0, Collections.emptyList());
                 });
 
-
-        CompletableFuture<DashboardData.OptimizationSummary> optimizationSummaryFuture = CompletableFuture.supplyAsync(() -> gcpOptimizationService.getOptimizationSummary(gcpProjectId), executor)
+        CompletableFuture<DashboardData.OptimizationSummary> optimizationSummaryFuture = CompletableFuture.supplyAsync(() ->
+                        gcpOptimizationService.getOptimizationSummary(gcpProjectId), executor)
                 .exceptionally(ex -> {
                     log.error("Failed to get optimization summary for project {}: {}", gcpProjectId, ex.getMessage());
                     return new DashboardData.OptimizationSummary(0.0, 0);
                 });
-
 
         CompletableFuture<List<DashboardData.RegionStatus>> regionStatusFuture = resourcesFuture.thenCompose(this::getRegionStatusForGcp);
 
@@ -224,10 +261,14 @@ public class GcpDataService {
             data.setRightsizingRecommendations(rightsizingFuture.join());
             data.setOptimizationSummary(optimizationSummaryFuture.join());
             data.setSavingsSummary(savingsSummaryFuture.join());
+
             List<GcpResourceDto> resources = resourcesFuture.join();
             List<GcpSecurityFinding> securityFindings = securityFindingsFuture.join();
+
             DashboardData.ResourceInventory inventory = new DashboardData.ResourceInventory();
-            Map<String, Long> counts = resources.stream().collect(Collectors.groupingBy(GcpResourceDto::getType, Collectors.counting()));
+            Map<String, Long> counts = resources.stream()
+                    .collect(Collectors.groupingBy(GcpResourceDto::getType, Collectors.counting()));
+
             inventory.setEc2((int) counts.getOrDefault("Compute Engine", 0L).longValue());
             inventory.setS3Buckets((int) counts.getOrDefault("Cloud Storage", 0L).longValue());
             inventory.setRdsInstances((int) counts.getOrDefault("Cloud SQL", 0L).longValue());
@@ -248,8 +289,7 @@ public class GcpDataService {
 
             double currentMtdSpend = unfilteredMtdSpendFuture.join();
             data.setMonthToDateSpend(currentMtdSpend);
-
-            data.setForecastedSpend(calculateForecastedSpend(currentMtdSpend));
+            data.setForecastedSpend(gcpCostService.calculateForecastedSpend(currentMtdSpend));
 
             String lastMonthStr = LocalDate.now().minusMonths(1).format(DateTimeFormatter.ofPattern("yyyy-MM"));
             double lastMonthSpend = data.getCostHistory().stream()
@@ -259,6 +299,7 @@ public class GcpDataService {
             data.setLastMonthSpend(lastMonthSpend);
 
             data.setSecurityScore(gcpSecurityService.calculateSecurityScore(securityFindings));
+
             List<DashboardData.SecurityInsight> securityInsights = securityFindings.stream()
                     .collect(Collectors.groupingBy(GcpSecurityFinding::getCategory, Collectors.counting()))
                     .entrySet().stream()
@@ -271,8 +312,12 @@ public class GcpDataService {
                                 entry.getValue().intValue()
                         );
                     }).collect(Collectors.toList());
+
             data.setSecurityInsights(securityInsights);
             data.setIamResources(iamResourcesFuture.join());
+
+            // ✅ Cache the result for 10 minutes
+            redisCache.put(cacheKey, data, 10);
 
             return data;
         });
@@ -488,40 +533,85 @@ public class GcpDataService {
     }
 
 
-    @Cacheable(value = "gcpAllResources", key = "'gcp:all-resources:' + #gcpProjectId")
+
     public CompletableFuture<List<GcpResourceDto>> getAllResources(String gcpProjectId) {
-        log.info("Starting to fetch all GCP resources for project: {}", gcpProjectId);
+        return getAllResources(gcpProjectId, false);
+    }
+
+    public CompletableFuture<List<GcpResourceDto>> getAllResources(String gcpProjectId, boolean forceRefresh) {
+        String cacheKey = ALL_RESOURCES_CACHE_PREFIX + gcpProjectId;
+
+        // Check cache first
+        if (!forceRefresh) {
+            Optional<List<GcpResourceDto>> cached = redisCache.get(
+                    cacheKey,
+                    new TypeReference<List<GcpResourceDto>>() {});
+            if (cached.isPresent()) {
+                log.info("✅ Returning cached GCP resources for project: {}", gcpProjectId);
+                return CompletableFuture.completedFuture(cached.get());
+            }
+        }
+
+        log.info("🔍 Fetching all GCP resources for project: {}", gcpProjectId);
+
         List<CompletableFuture<List<GcpResourceDto>>> futures = List.of(
-                CompletableFuture.supplyAsync(() -> getComputeInstances(gcpProjectId), executor),
-                CompletableFuture.supplyAsync(() -> getStorageBuckets(gcpProjectId), executor),
-                CompletableFuture.supplyAsync(() -> getGkeClusters(gcpProjectId), executor),
-                CompletableFuture.supplyAsync(() -> getCloudSqlInstances(gcpProjectId), executor),
-                CompletableFuture.supplyAsync(() -> getVpcNetworks(gcpProjectId), executor),
-                CompletableFuture.supplyAsync(() -> getDnsZones(gcpProjectId), executor),
-                CompletableFuture.supplyAsync(() -> getLoadBalancers(gcpProjectId), executor),
-                CompletableFuture.supplyAsync(() -> getFirewallRules(gcpProjectId), executor),
-                CompletableFuture.supplyAsync(() -> getCloudNatRouters(gcpProjectId), executor),
-               // CompletableFuture.supplyAsync(() -> getArtifactRepositories(gcpProjectId), executor),
-                CompletableFuture.supplyAsync(() -> getKmsKeys(gcpProjectId), executor),
-                CompletableFuture.supplyAsync(() -> getCloudFunctions(gcpProjectId), executor),
-               // CompletableFuture.supplyAsync(() -> getCloudBuildTriggers(gcpProjectId), executor),
-                CompletableFuture.supplyAsync(() -> getSecretManagerSecrets(gcpProjectId), executor),
+                CompletableFuture.supplyAsync(() -> getComputeInstances(gcpProjectId, forceRefresh), executor),
+                CompletableFuture.supplyAsync(() -> getStorageBuckets(gcpProjectId, forceRefresh), executor),
+                CompletableFuture.supplyAsync(() -> getGkeClusters(gcpProjectId, forceRefresh), executor),
+                CompletableFuture.supplyAsync(() -> getCloudSqlInstances(gcpProjectId, forceRefresh), executor),
+                CompletableFuture.supplyAsync(() -> getVpcNetworks(gcpProjectId, forceRefresh), executor),
+                CompletableFuture.supplyAsync(() -> getDnsZones(gcpProjectId, forceRefresh), executor),
+                CompletableFuture.supplyAsync(() -> getLoadBalancers(gcpProjectId, forceRefresh), executor),
+                CompletableFuture.supplyAsync(() -> getFirewallRules(gcpProjectId, forceRefresh), executor),
+                CompletableFuture.supplyAsync(() -> getCloudNatRouters(gcpProjectId, forceRefresh), executor),
+                CompletableFuture.supplyAsync(() -> getKmsKeys(gcpProjectId, forceRefresh), executor),
+                CompletableFuture.supplyAsync(() -> getCloudFunctions(gcpProjectId, forceRefresh), executor),
+                CompletableFuture.supplyAsync(() -> getSecretManagerSecrets(gcpProjectId, forceRefresh), executor),
                 CompletableFuture.supplyAsync(() -> getCloudArmorPolicies(gcpProjectId), executor),
                 CompletableFuture.supplyAsync(() -> getApiGateways(gcpProjectId), executor),
                 //CompletableFuture.supplyAsync(() -> getAppEngineApplications(gcpProjectId), executor),
                 CompletableFuture.supplyAsync(() -> getBigQueryDatasets(gcpProjectId), executor),
-                CompletableFuture.supplyAsync(() -> getLoggingBuckets(gcpProjectId), executor)
+                CompletableFuture.supplyAsync(() -> getLoggingBuckets(gcpProjectId), executor),
+                //CompletableFuture.supplyAsync(() -> getArtifactRepositories(gcpProjectId), executor),
+               // CompletableFuture.supplyAsync(() -> getCloudBuildTriggers(gcpProjectId), executor),
+
+                // ✅ NEW - Vertex AI
+                getVertexAIModels(gcpProjectId),
+                getVertexAIEndpoints(gcpProjectId),
+
+                // ✅ NEW - PubSub
+                getPubSubTopics(gcpProjectId),
+                getPubSubSubscriptions(gcpProjectId),
+
+                // ✅ NEW - Monitoring
+                getMonitoringAlertPolicies(gcpProjectId),
+                getMonitoringUptimeChecks(gcpProjectId),
+
+                // ✅ NEW - Scheduler & Dataplex
+                getSchedulerJobs(gcpProjectId),
+                getDataplexLakes(gcpProjectId),
+
+                // ✅ NEW - BigQuery & VM Manager
+                getBigQueryReservations(gcpProjectId),
+                getVMManagerPatchDeployments(gcpProjectId)
         );
 
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                .thenApply(v -> futures.stream()
-                        .map(CompletableFuture::join)
-                        .flatMap(List::stream)
-                        .collect(Collectors.toList()));
+                .thenApply(v -> {
+                    List<GcpResourceDto> allResources = futures.stream()
+                            .map(CompletableFuture::join)
+                            .flatMap(List::stream)
+                            .collect(Collectors.toList());
+
+                    // ✅ Cache for 15 minutes
+                    redisCache.put(cacheKey, allResources, 15);
+
+                    return allResources;
+                });
     }
 
     @Cacheable(value = "gcpIamResources", key = "'gcp:iam-resources:' + #gcpProjectId")
-    public CompletableFuture<DashboardData.IamResources> getIamResources(String gcpProjectId) {
+    public CompletableFuture<DashboardData.IamResources> getIamResources(String gcpProjectId, boolean forceRefresh) {
         log.info("Attempting to get IAM resources for project: {}", gcpProjectId);
         return CompletableFuture.supplyAsync(() -> {
             Optional<com.google.cloud.resourcemanager.v3.ProjectsClient> clientOpt = gcpClientProvider.getProjectsClient(gcpProjectId);
@@ -539,32 +629,95 @@ public class GcpDataService {
         });
     }
 
-    public void createGcpAccount(GcpAccountRequestDto request, Client client) throws IOException {
+    @Transactional
+    public CloudAccount createGcpAccount(GcpAccountRequestDto request, Client client) {
+        log.info("Creating GCP account: {} for client: {}", request.getAccountName(), client.getId());
+
         try {
-            Optional<Storage> storageOpt = gcpClientProvider.createStorageClient(request.getServiceAccountKey());
-            if (storageOpt.isEmpty()) {
-                throw new IllegalStateException("Failed to create GCP Storage client");
+            // Parse service account JSON to extract email
+            String serviceAccountEmail = extractServiceAccountEmail(request.getServiceAccountKey());
+
+            // Validate billing export table format if provided
+            if (request.getBillingExportTable() != null && !request.getBillingExportTable().isEmpty()) {
+                validateBillingTableFormat(request.getBillingExportTable());
             }
-            Storage storage = storageOpt.get();
-            storage.list(Storage.BucketListOption.pageSize(1));
+
+            // Create CloudAccount entity
             CloudAccount account = new CloudAccount();
             account.setAccountName(request.getAccountName());
             account.setProvider("GCP");
-            account.setAwsAccountId(request.getProjectId());
-            account.setGcpServiceAccountKey(request.getServiceAccountKey());
             account.setStatus("CONNECTED");
             account.setAccessType("read-only");
             account.setClient(client);
-            account.setExternalId(request.getProjectId());
-            account.setGcpProjectId(request.getProjectId());
-            cloudAccountRepository.save(account);
+
+            // GCP specific fields
+            String projectId = request.getGcpProjectId() != null ? request.getGcpProjectId() : request.getProjectId();
+            account.setGcpProjectId(projectId);
+            account.setGcpServiceAccountEmail(serviceAccountEmail);
+            account.setGcpServiceAccountKey(request.getServiceAccountKey());
+            account.setGcpWorkloadIdentityPoolId(request.getGcpWorkloadIdentityPoolId());
+            account.setGcpWorkloadIdentityProviderId(request.getGcpWorkloadIdentityProviderId());
+
+            // ✅ NEW: Set billing export table
+            account.setBillingExportTable(request.getBillingExportTable());
+
+            // Save to database
+            CloudAccount savedAccount = cloudAccountRepository.save(account);
+            log.info("✅ GCP account created successfully with ID: {}", savedAccount.getId());
+
+            if (savedAccount.getBillingExportTable() != null) {
+                log.info("📊 Billing export table configured: {}", savedAccount.getBillingExportTable());
+            } else {
+                log.warn("⚠️ No billing export table configured - cost data will not be available");
+            }
+
+            return savedAccount;
+
         } catch (Exception e) {
-            throw new RuntimeException("GCP error: " + e.getMessage(), e);
+            log.error("❌ Failed to create GCP account: {}", e.getMessage(), e);
+            throw new RuntimeException("Failed to create GCP account: " + e.getMessage());
         }
     }
 
-    public CompletableFuture<List<GcpResourceDto>> getVpcListForCloudmap(String gcpProjectId) {
-        return CompletableFuture.supplyAsync(() -> getVpcNetworks(gcpProjectId));
+    private String extractServiceAccountEmail(String serviceAccountKey) {
+        try {
+            JsonNode jsonNode = objectMapper.readTree(serviceAccountKey);
+            String email = jsonNode.get("client_email").asText();
+
+            if (email == null || email.isEmpty()) {
+                throw new RuntimeException("Service account email not found in JSON key");
+            }
+
+            log.info("✅ Extracted service account email: {}", email);
+            return email;
+
+        } catch (Exception e) {
+            log.error("Failed to parse service account key", e);
+            throw new RuntimeException("Invalid service account key format: " + e.getMessage());
+        }
+    }
+
+    private void validateBillingTableFormat(String billingTable) {
+        String[] parts = billingTable.split("\\.");
+
+        if (parts.length != 3) {
+            throw new RuntimeException(
+                    "Invalid BigQuery table format. Expected format: project.dataset.table " +
+                            "(e.g., my-project.billing_export.gcp_billing_export_v1_XXXXXX_XXXXXX_XXXXXX)"
+            );
+        }
+
+        // Validate each part is not empty
+        for (int i = 0; i < parts.length; i++) {
+            if (parts[i].trim().isEmpty()) {
+                throw new RuntimeException("Invalid BigQuery table format: Part " + (i + 1) + " is empty");
+            }
+        }
+
+        log.info("✅ Billing export table validated: {}", billingTable);
+    }
+    public CompletableFuture<List<GcpResourceDto>> getVpcListForCloudmap(String gcpProjectId, boolean forceRefresh) {
+        return CompletableFuture.supplyAsync(() -> getVpcNetworks(gcpProjectId, forceRefresh));
     }
 
     public CompletableFuture<List<Map<String, Object>>> getVpcTopologyGraph(String gcpProjectId, String vpcId) {
@@ -686,12 +839,12 @@ public class GcpDataService {
         }
     }
 
-    private List<GcpResourceDto> getComputeInstances(String gcpProjectId) {
+    private List<GcpResourceDto> getComputeInstances(String gcpProjectId, boolean forceRefresh) {
         return getRawComputeInstances(gcpProjectId).stream()
                 .map(this::mapInstanceToDto).collect(Collectors.toList());
     }
 
-    private List<GcpResourceDto> getStorageBuckets(String gcpProjectId) {
+    private List<GcpResourceDto> getStorageBuckets(String gcpProjectId, boolean forceRefresh) {
         log.info("Fetching Cloud Storage buckets for project: {}", gcpProjectId);
         Optional<com.google.cloud.storage.Storage> clientOpt = gcpClientProvider.getStorageClient(gcpProjectId);
         if (clientOpt.isEmpty()) return List.of();
@@ -705,7 +858,7 @@ public class GcpDataService {
         }
     }
 
-    private List<GcpResourceDto> getGkeClusters(String gcpProjectId) {
+    private List<GcpResourceDto> getGkeClusters(String gcpProjectId, boolean forceRefresh) {
         log.info("Fetching Kubernetes Engine clusters for project: {}", gcpProjectId);
         Optional<com.google.cloud.container.v1.ClusterManagerClient> clientOpt = gcpClientProvider.getClusterManagerClient(gcpProjectId);
         if (clientOpt.isEmpty()) return List.of();
@@ -721,7 +874,7 @@ public class GcpDataService {
         }
     }
 
-    private List<GcpResourceDto> getCloudSqlInstances(String gcpProjectId) {
+    private List<GcpResourceDto> getCloudSqlInstances(String gcpProjectId, boolean forceRefresh) {
         log.info("Fetching Cloud SQL instances for project: {}", gcpProjectId);
         Optional<com.google.api.services.sqladmin.SQLAdmin> sqlAdminClientOpt = gcpClientProvider.getSqlAdminClient(gcpProjectId);
         if (sqlAdminClientOpt.isEmpty()) return List.of();
@@ -740,12 +893,12 @@ public class GcpDataService {
         }
     }
 
-    private List<GcpResourceDto> getVpcNetworks(String gcpProjectId) {
+    private List<GcpResourceDto> getVpcNetworks(String gcpProjectId, boolean forceRefresh) {
         return getRawVpcNetworks(gcpProjectId).stream()
                 .map(this::mapVpcToDto).collect(Collectors.toList());
     }
 
-    private List<GcpResourceDto> getDnsZones(String gcpProjectId) {
+    private List<GcpResourceDto> getDnsZones(String gcpProjectId, boolean forceRefresh) {
         log.info("Fetching Cloud DNS zones for project: {}", gcpProjectId);
         Optional<com.google.api.services.dns.Dns> clientOpt = gcpClientProvider.getDnsZonesClient(gcpProjectId);
         if (clientOpt.isEmpty()) return List.of();
@@ -763,7 +916,7 @@ public class GcpDataService {
         }
     }
 
-    private List<GcpResourceDto> getLoadBalancers(String gcpProjectId) {
+    private List<GcpResourceDto> getLoadBalancers(String gcpProjectId, boolean forceRefresh) {
         log.info("Fetching Load Balancers for project: {}", gcpProjectId);
         Optional<com.google.cloud.compute.v1.ForwardingRulesClient> clientOpt = gcpClientProvider.getForwardingRulesClient(gcpProjectId);
         if (clientOpt.isEmpty()) return List.of();
@@ -778,7 +931,7 @@ public class GcpDataService {
         }
     }
 
-    private List<GcpResourceDto> getFirewallRules(String gcpProjectId) {
+    private List<GcpResourceDto> getFirewallRules(String gcpProjectId, boolean forceRefresh) {
         log.info("Fetching Firewall Rules for project: {}", gcpProjectId);
         Optional<com.google.cloud.compute.v1.FirewallsClient> clientOpt = gcpClientProvider.getFirewallsClient(gcpProjectId);
         if (clientOpt.isEmpty()) return List.of();
@@ -792,7 +945,7 @@ public class GcpDataService {
         }
     }
 
-    private List<GcpResourceDto> getCloudNatRouters(String gcpProjectId) {
+    private List<GcpResourceDto> getCloudNatRouters(String gcpProjectId, boolean forceRefresh) {
         log.info("Fetching Cloud NAT routers for project: {}", gcpProjectId);
         Optional<RoutersClient> clientOpt = gcpClientProvider.getRoutersClient(gcpProjectId);
         if (clientOpt.isEmpty()) return List.of();
@@ -823,7 +976,7 @@ public class GcpDataService {
 //         }
 //     }
 
-    private List<GcpResourceDto> getKmsKeys(String gcpProjectId) {
+    private List<GcpResourceDto> getKmsKeys(String gcpProjectId, boolean forceRefresh) {
         log.info("Fetching KMS keys for project: {}", gcpProjectId);
         Optional<KeyManagementServiceClient> clientOpt = gcpClientProvider.getKeyManagementServiceClient(gcpProjectId);
         if (clientOpt.isEmpty()) return List.of();
@@ -848,7 +1001,7 @@ public class GcpDataService {
         }
     }
 
-    private List<GcpResourceDto> getCloudFunctions(String gcpProjectId) {
+    private List<GcpResourceDto> getCloudFunctions(String gcpProjectId, boolean forceRefresh) {
         log.info("Fetching Cloud Functions for project: {}", gcpProjectId);
         Optional<FunctionServiceClient> clientOpt = gcpClientProvider.getFunctionServiceClient(gcpProjectId);
         if (clientOpt.isEmpty()) return List.of();
@@ -877,7 +1030,7 @@ public class GcpDataService {
 //         }
 //     }
 
-    private List<GcpResourceDto> getSecretManagerSecrets(String gcpProjectId) {
+    private List<GcpResourceDto> getSecretManagerSecrets(String gcpProjectId, boolean forceRefresh) {
         log.info("Fetching secrets from Secret Manager for project: {}", gcpProjectId);
         Optional<SecretManagerServiceClient> clientOpt = gcpClientProvider.getSecretManagerServiceClient(gcpProjectId);
         if (clientOpt.isEmpty()) return List.of();
@@ -1349,6 +1502,50 @@ public class GcpDataService {
             }
         }, executor);
     }
+    /**
+     * Clear all caches for a specific GCP project
+     */
+    public void clearProjectCache(String gcpProjectId) {
+        log.info("🗑️ Clearing all cache for GCP project: {}", gcpProjectId);
+
+        // Dashboard and main resources
+        redisCache.evict(DASHBOARD_CACHE_PREFIX + gcpProjectId);
+        redisCache.evict(ALL_RESOURCES_CACHE_PREFIX + gcpProjectId);
+        redisCache.evict(IAM_RESOURCES_CACHE_PREFIX + gcpProjectId);
+
+        // Individual resource caches
+        redisCache.evict(COMPUTE_INSTANCES_CACHE_PREFIX + gcpProjectId);
+        redisCache.evict(STORAGE_BUCKETS_CACHE_PREFIX + gcpProjectId);
+        redisCache.evict(GKE_CLUSTERS_CACHE_PREFIX + gcpProjectId);
+        redisCache.evict(CLOUD_SQL_CACHE_PREFIX + gcpProjectId);
+        redisCache.evict(VPC_NETWORKS_CACHE_PREFIX + gcpProjectId);
+        redisCache.evict(DNS_ZONES_CACHE_PREFIX + gcpProjectId);
+        redisCache.evict(LOAD_BALANCERS_CACHE_PREFIX + gcpProjectId);
+        redisCache.evict(FIREWALL_RULES_CACHE_PREFIX + gcpProjectId);
+        redisCache.evict(CLOUD_NAT_CACHE_PREFIX + gcpProjectId);
+        redisCache.evict(KMS_KEYS_CACHE_PREFIX + gcpProjectId);
+        redisCache.evict(CLOUD_FUNCTIONS_CACHE_PREFIX + gcpProjectId);
+        redisCache.evict(SECRET_MANAGER_CACHE_PREFIX + gcpProjectId);
+
+        // Also clear cost-related caches
+        gcpCostService.clearCostCacheForProject(gcpProjectId);
+
+        log.info("✅ Cleared all cache for GCP project: {}", gcpProjectId);
+    }
+
+    /**
+     * Clear specific cache types
+     */
+    public void clearDashboardCache(String gcpProjectId) {
+        redisCache.evict(DASHBOARD_CACHE_PREFIX + gcpProjectId);
+        log.info("🗑️ Cleared dashboard cache for project {}", gcpProjectId);
+    }
+
+    public void clearResourcesCache(String gcpProjectId) {
+        redisCache.evict(ALL_RESOURCES_CACHE_PREFIX + gcpProjectId);
+        log.info("🗑️ Cleared resources cache for project {}", gcpProjectId);
+    }
 
 
 }
+

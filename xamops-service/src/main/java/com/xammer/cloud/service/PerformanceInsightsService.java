@@ -124,7 +124,7 @@ public class PerformanceInsightsService {
                     .collect(Collectors.toList());
             
             // Cache the complete, unfiltered dataset.
-            redisCache.put(cacheKey, allInsights);
+            redisCache.put(cacheKey, allInsights, 10);
             logger.info("Total insights generated and cached across all regions: {}", allInsights.size());
 
             // Filter the newly fetched data before returning.
@@ -217,7 +217,7 @@ public class PerformanceInsightsService {
                     peakCpu, projectedPeakCpu,
                     "Projected peak CPU utilization would be approximately " + String.format("%.1f", projectedPeakCpu) + "%."
             );
-            redisCache.put(cacheKey, result);
+            redisCache.put(cacheKey, result, 10);
             return result;
         });
     }
@@ -642,7 +642,7 @@ private List<PerformanceInsightDto> getEC2InsightsForRegion(CloudAccount account
         summary.put("potentialSavings", allInsights.stream().mapToDouble(PerformanceInsightDto::getPotentialSavings).sum());
         summary.put("performanceScore", calculatePerformanceScore(allInsights));
         
-        redisCache.put(cacheKey, summary);
+        redisCache.put(cacheKey, summary, 10);
         return summary;
     }
 

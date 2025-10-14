@@ -59,7 +59,7 @@ public class GcpSecurityService {
             List<GcpIamPolicyDriftDto> result = new ArrayList<>();
 
             // Cache the result
-            redisCacheService.put(cacheKey, result);
+            redisCacheService.put(cacheKey, result, 10);
 
             return result;
         });
@@ -89,7 +89,7 @@ public class GcpSecurityService {
             List<GcpContainerVulnerabilityDto> result = new ArrayList<>();
 
             // Cache the result
-            redisCacheService.put(cacheKey, result);
+            redisCacheService.put(cacheKey, result, 10);
 
             return result;
         });
@@ -144,7 +144,7 @@ public class GcpSecurityService {
                         findings.size(), gcpProjectId);
 
                 // Cache the successful result in Redis
-                redisCacheService.put(cacheKey, findings);
+                redisCacheService.put(cacheKey, findings, 10);
                 log.info("💾 Cached {} security findings for project {}", findings.size(), gcpProjectId);
 
             } catch (Exception e) {

@@ -1,6 +1,5 @@
 package com.xammer.cloud.service.gcp;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.gcp.*;
 import com.xammer.cloud.service.RedisCacheService;
@@ -156,7 +155,7 @@ public class GcpFinOpsReportService {
             report.setCostAnomalies(costAnomaliesFuture.join());
 
             // ✅ Cache the complete report
-            redisCacheService.put(cacheKey, report);
+            redisCacheService.put(cacheKey, report, 10);
             logger.info("💾 Successfully generated and cached FinOps report for GCP project: {}", gcpProjectId);
 
             return report;
