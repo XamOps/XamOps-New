@@ -6,13 +6,37 @@
     <title>XamOps - Grafana Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
     <script type="module" src="/src/main.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
         body { font-family: 'Inter', sans-serif; background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); }
+        [x-cloak] { display: none !important; }
         .header-gradient { background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%); backdrop-filter: blur(10px); border-bottom: 1px solid rgba(229, 231, 235, 0.8); }
         .fade-in { animation: fadeIn 0.5s ease-in-out; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        /* Styles for the new Help Modal */
+        .modal-overlay { background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px); }
+        .modal-content { background: rgba(255, 255, 255, 0.98); backdrop-filter: blur(10px); border: 1px solid rgba(229, 231, 235, 0.8); }
+        .code-block {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            font-family: 'Courier New', Courier, monospace;
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 40vh;
+            overflow-y: auto;
+        }
+        .placeholder-highlight {
+            background-color: #fef3c7;
+            color: #92400e;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-weight: 600;
+        }
     </style>
 </head>
 <body class="bg-gray-50">
@@ -23,7 +47,7 @@
     </aside>
 
     <div class="ml-64 flex-1">
-        <main class="flex-1 flex flex-col min-h-screen">
+        <main class="flex-1 flex flex-col min-h-screen" x-data="grafanaDashboard()">
             <header class="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-10">
                 <div class="flex items-center space-x-4">
                     <div class="w-12 h-12 bg-gradient-to-br from-orange-400 to-orange-600 rounded-xl flex items-center justify-center">
@@ -43,87 +67,195 @@
             <div class="flex-1 p-2 bg-gray-200">
                 <iframe id="grafana-iframe" class="w-full h-[calc(100vh-6rem)] border-0 rounded-lg fade-in"></iframe>
             </div>
+
+            <div @click="isHelpModalOpen = true" class="fixed bottom-8 right-8 w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center text-white text-2xl shadow-lg cursor-pointer hover:scale-110 transition-transform z-30">
+                <i class="fas fa-question"></i>
+            </div>
+
+            <div x-show="isHelpModalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
+                <div @click="isHelpModalOpen = false" class="modal-overlay fixed inset-0"></div>
+                <div class="modal-content rounded-2xl p-8 w-full max-w-4xl mx-auto max-h-[90vh] overflow-y-auto fade-in" @click.stop>
+                    <div class="flex items-center justify-between pb-4 border-b">
+                        <h3 class="font-bold text-xl text-gray-800">Setup Instructions for AWS Monitoring</h3>
+                        <button @click="isHelpModalOpen = false" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+                    </div>
+                    <div class="space-y-6 mt-6 text-sm text-gray-700">
+                        <div>
+                            <h4 class="font-semibold text-lg text-gray-800">Part A: Create the Required IAM Role</h4>
+                            <ol class="list-decimal list-inside mt-2 space-y-1">
+                                <li>Navigate to the IAM service in your AWS Console. Go to Roles and click "Create role".</li>
+                                <li>Select "AWS account" as the trusted entity type.</li>
+                                <li>Choose "Another AWS account" and enter the Account ID: <span class="placeholder-highlight">YOUR_MANAGEMENT_ACCOUNT_ID</span>.</li>
+                                <li>Click Next, then "Create policy". In the new tab, switch to the JSON editor and paste the policy below.</li>
+                            </ol>
+                            <div class="code-block mt-2 text-xs">
+<pre><code>{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "AllowResourceCreation",
+            "Effect": "Allow",
+            "Action": [
+                "ec2:CreateVpc", "ec2:CreateSubnet", "ec2:CreateInternetGateway",
+                "ec2:CreateRouteTable", "ec2:CreateRoute", "ec2:AssociateRouteTable",
+                "ec2:CreateSecurityGroup", "ec2:AuthorizeSecurityGroupIngress",
+                "ec2:RunInstances", "ec2:CreateTags", "ec2:CreateKeyPair",
+                "ec2:DeleteKeyPair", "iam:CreateInstanceProfile", "iam:AddRoleToInstanceProfile",
+                "iam:CreateRole", "iam:AttachRolePolicy", "iam:DeleteInstanceProfile",
+                "iam:RemoveRoleFromInstanceProfile", "iam:DeleteRole"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "AllowDiscoveryAndAgentInstallation",
+            "Effect": "Allow",
+            "Action": [
+                "ec2:DescribeInstances", "ec2:DescribeRegions", "ssm:CreateAssociation",
+                "ssm:DeleteAssociation", "ssm:DescribeInstanceInformation",
+                "ssm:UpdateAssociationStatus", "ssm:SendCommand", "ssm:PutParameter"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "AllowPassRoleToServices",
+            "Effect": "Allow",
+            "Action": "iam:PassRole",
+            "Resource": "arn:aws:iam::*:role/*",
+            "Condition": { "StringEquals": { "iam:PassedToService": ["ssm.amazonaws.com", "ec2.amazonaws.com"] } }
+        },
+        {
+            "Sid": "AllowCloudWatchAccess",
+            "Effect": "Allow",
+            "Action": ["cloudwatch:ListMetrics", "cloudwatch:GetMetricData"],
+            "Resource": "*"
+        }
+    ]
+}</code></pre>
+                            </div>
+                            <ol class="list-decimal list-inside mt-2 space-y-1" start="5">
+                                <li>Give the policy a name (e.g., <code class="text-xs">XamOpsMonitoringPermissionsPolicy</code>) and create it.</li>
+                                <li>Go back to the "Create role" tab, refresh, and attach the new policy.</li>
+                                <li>Give the role a name (e.g., <code class="text-xs">XamOpsMonitoringProvisioningRole</code>) and create it.</li>
+                                <li>Copy the Role ARN and provide it to XamOps.</li>
+                            </ol>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-lg text-gray-800">Part B: Run the CloudWatch Agent Installation Script</h4>
+                            <p class="mt-2">Open AWS CloudShell and run the command below. It finds all running instances and uses SSM to install the CloudWatch agent.
+                                <br><strong>Prerequisite:</strong> Instances must have the SSM Agent and the <code class="text-xs">AmazonSSMManagedInstanceCore</code> IAM policy.
+                            </p>
+                            <div class="code-block mt-2 text-xs">
+<pre><code>#!/bin/bash
+AGENT_CONFIG='{
+  "agent": { "metrics_collection_interval": 60 },
+  "metrics": {
+    "metrics_collected": {
+      "cpu": { "measurement": ["cpu_usage_idle", "cpu_usage_user", "cpu_usage_system"], "totalcpu": true },
+      "disk": { "measurement": ["used_percent"], "resources": ["*"] },
+      "mem": { "measurement": ["mem_used_percent"] }
+    }
+  }
+}'
+
+for region in $(aws ec2 describe-regions --query "Regions[].RegionName" --output text); do
+    echo "Processing region: $region"
+    aws ssm put-parameter --name "AmazonCloudWatch-XamOps-AgentConfig" --type "String" --value "$AGENT_CONFIG" --overwrite --region $region
+done
+
+INSTANCE_IDS=$(aws ec2 describe-instances --filters "Name=instance-state-name,Values=running" --query "Reservations[].Instances[].InstanceId" --output text)
+
+if [ -z "$INSTANCE_IDS" ]; then
+    echo "No running instances found."
+    exit 0
+fi
+
+aws ssm create-association \
+    --name "AmazonCloudWatch-ManageAgent" \
+    --targets "Key=InstanceIds,Values=${INSTANCE_IDS// /,}" \
+    --parameters 'action=configure,mode=ec2,optionalConfigurationSource=ssm,optionalConfigurationLocation=AmazonCloudWatch-XamOps-AgentConfig,optionalRestart=yes'
+
+echo "CloudWatch Agent installation initiated."</code></pre>
+                            </div>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-lg text-gray-800">How to Install the Agent on a Selective Instance</h4>
+                             <div class="code-block mt-2 text-xs">
+<pre><code># Replace with your actual instance ID
+INSTANCE_ID="i-0123456789abcdef0"
+
+aws ssm create-association \
+    --name "AmazonCloudWatch-ManageAgent" \
+    --targets "Key=InstanceIds,Values=$INSTANCE_ID" \
+    --parameters 'action=configure,mode=ec2,optionalConfigurationSource=ssm,optionalConfigurationLocation=AmazonCloudWatch-XamOps-AgentConfig,optionalRestart=yes'
+
+echo "Agent installation initiated on instance $INSTANCE_ID."</code></pre>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </main>
     </div>
 </div>
 
 <script>
+    function grafanaDashboard() {
+        return {
+            isHelpModalOpen: false,
+            // ... any other properties for this component
+        }
+    }
+
     document.addEventListener('DOMContentLoaded', function() {
         const dashboardUid = 'a953939e-450f-4835-9190-26514f77a760';
         const iframe = document.getElementById('grafana-iframe');
         const subtitle = document.getElementById('dashboard-subtitle');
         const externalLink = document.getElementById('view-in-grafana-link');
 
-        // --- START: Hardcoded Fallback Map ---
-        // This map will be used if the API doesn't provide an IP.
-        // IMPORTANT: Keep this updated with your Terraform output IPs.
         const grafanaIpFallbackMap = {
             'xammermarketplace': '13.232.109.53',
             'xammer1': '13.233.143.19'
-            // Add other account names and their IPs here as needed
         };
-        // --- END: Hardcoded Fallback Map ---
 
         const selectedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-        
+
         if (selectedIds.length > 0) {
             fetch('/api/xamops/account-manager/accounts')
-                .then(res => {
-                    if (!res.ok) throw new Error(`API returned status ${res.status}`);
-                    // Handle both XML and JSON responses gracefully
-                    const contentType = res.headers.get("content-type");
-                    if (contentType && contentType.includes("application/json")) {
-                        return res.json();
-                    }
-                    // If it's not JSON, it might be the XML you provided. We can't parse XML here.
-                    // Let's assume for now the backend will be fixed to send JSON.
-                    // If not, this is where a more complex XML parser would be needed.
-                    // For now, we will rely on the fallback.
-                    return res.json(); 
-                })
+                .then(res => res.json())
                 .then(accounts => {
-                    sessionStorage.setItem('accounts', JSON.stringify(accounts));
                     const selectedAccount = accounts.find(acc => acc.id === selectedIds[0]);
                     if (selectedAccount) {
                         loadDashboardFor(selectedAccount);
                     } else {
                         showError('Selected account not found.');
                     }
-                }).catch(() => showError('Could not load account details. Please check the API.'));
+                }).catch(() => showError('Could not load account details.'));
         } else {
-            showError('No account selected. Please choose an account from the sidebar.');
+            showError('No account selected.');
         }
 
         function loadDashboardFor(account) {
-            let grafanaIp = account.grafanaIp; // 1. Try to get the IP from the API response
-
-            // 2. If the API value is empty, use the fallback map
+            let grafanaIp = account.grafanaIp;
             if (!grafanaIp) {
                 console.warn(`Grafana IP for "${account.name}" is missing from API. Using fallback map.`);
-                // Find a key in the map that matches the account name (case-insensitive)
-                const fallbackKey = Object.keys(grafanaIpFallbackMap).find(key => 
-                    account.name.toLowerCase().includes(key)
-                );
+                const fallbackKey = Object.keys(grafanaIpFallbackMap).find(key => account.name.toLowerCase().includes(key));
                 grafanaIp = grafanaIpFallbackMap[fallbackKey];
             }
             
             if (grafanaIp) {
-                // Build and set the iframe URL
                 const iframeUrl = new URL(`http://${grafanaIp}:3000/d/${dashboardUid}/aws-infrastructure-overview`);
                 iframeUrl.searchParams.append('orgId', '1');
                 iframeUrl.searchParams.append('kiosk', 'true');
                 iframe.src = iframeUrl.toString();
 
-                // Build and set the external link URL
                 const externalUrl = new URL(`http://${grafanaIp}:3000/d/${dashboardUid}/aws-infrastructure-overview`);
                 externalUrl.searchParams.append('orgId', '1');
                 externalUrl.searchParams.append('refresh', '10s');
                 externalLink.href = externalUrl.toString();
                 
-                // Update text and make the link visible
                 subtitle.textContent = `Live Grafana Dashboard for ${account.name}`;
-                externalLink.classList.remove('hidden', 'items-center', 'space-x-2');
-                externalLink.style.display = 'flex'; // Use style to ensure it becomes a flex container
+                externalLink.classList.remove('hidden');
+                externalLink.style.display = 'flex';
             } else {
                 showError(`No Grafana instance is configured for the account: "${account.name}".`);
             }
@@ -132,7 +264,7 @@
         function showError(message) {
             subtitle.textContent = message;
             subtitle.classList.add('text-red-500', 'font-semibold');
-            iframe.src = 'about:blank'; // Clear the iframe
+            iframe.src = 'about:blank';
             externalLink.classList.add('hidden');
         }
     });

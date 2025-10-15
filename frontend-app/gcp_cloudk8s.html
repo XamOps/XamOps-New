@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XamOps - GKE Insights</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.0/dist/cdn.min.js"></script>
+    <script type="module" src="/src/main.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+        }
+
+        .coming-soon-gradient {
+            background: linear-gradient(135deg, #326ce5 0%, #4285f4 100%);
+        }
+
+        .float-animation {
+            animation: float 6s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-20px); }
+        }
+
+        .glow-effect {
+            box-shadow: 0 0 20px rgba(50, 108, 229, 0.3);
+        }
+
+        .feature-card {
+            background: white;
+            border-left: 4px solid;
+            transition: all 0.3s ease;
+        }
+
+        .feature-card:hover {
+            transform: translateX(4px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+<div class="flex h-screen overflow-hidden">
+    <!-- Sidebar -->
+    <aside class="fixed top-0 left-0 h-screen w-64 bg-white border-r border-gray-200 z-30">
+        <div data-include-sidebar></div>
+    </aside>
+
+    <!-- Main Content -->
+    <div class="ml-64 flex-1 flex flex-col h-screen overflow-hidden">
+        <main class="flex-1 flex items-center justify-center p-8">
+            <!-- Coming Soon Card -->
+            <div class="max-w-5xl w-full">
+                <div class="relative overflow-hidden bg-white rounded-2xl shadow-xl p-8">
+                    <!-- Background Pattern -->
+                    <div class="absolute inset-0 opacity-5">
+                        <div class="absolute inset-0" style="background-image: repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(50, 108, 229, 0.1) 10px, rgba(50, 108, 229, 0.1) 20px);"></div>
+                    </div>
+
+                    <!-- Content -->
+                    <div class="relative z-10 text-center">
+                        <!-- Icon -->
+                        <div class="mb-6 flex justify-center">
+                            <div class="relative">
+                                <div class="w-20 h-20 coming-soon-gradient rounded-full flex items-center justify-center float-animation glow-effect">
+                                    <i class="fab fa-docker text-white text-3xl"></i>
+                                </div>
+                                <div class="absolute -top-2 -right-2">
+                                        <span class="flex h-7 w-7">
+                                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                                            <span class="relative inline-flex rounded-full h-7 w-7 bg-blue-500 items-center justify-center">
+                                                <i class="fas fa-rocket text-white text-xs"></i>
+                                            </span>
+                                        </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Title -->
+                        <h2 class="text-3xl font-bold text-gray-800 mb-3">
+                                <span class="bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+                                    Coming Soon
+                                </span>
+                        </h2>
+
+                        <!-- Description -->
+                        <p class="text-lg text-gray-800 mb-1 font-semibold">
+                            GKE (Google Kubernetes Engine) Insights
+                        </p>
+                        <p class="text-gray-600 mb-6 max-w-2xl mx-auto text-sm">
+                            Comprehensive monitoring, optimization, and management for your Kubernetes workloads on GCP.
+                            Get deep insights into cluster health, resource utilization, and cost optimization.
+                        </p>
+
+                        <!-- Features Grid -->
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6 text-left">
+                            <!-- Cluster Health & Monitoring -->
+                            <div class="feature-card p-4 rounded-lg border-blue-500 shadow-sm">
+                                <div class="flex items-start space-x-3">
+                                    <div class="flex-shrink-0 w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                                        <i class="fas fa-heartbeat text-blue-600"></i>
+                                    </div>
+                                    <div class="flex-1 min-w-0">
+                                        <h3 class="font-bold text-gray-900 text-sm mb-1">Cluster Health & Monitoring</h3>
+                                        <p class="text-xs text-gray-600">Real-time monitoring of node health, pod status, and cluster events</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Resource Optimization -->
+                            <div class="feature-card p-4 rounded-lg border-green-500 shadow-sm">
+                                <div class="flex items-start space-x-3">
+                                    <div class="flex-shrink-0 w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+                                        <i class="fas fa-tachometer-alt text-green-600"></i>
+                                    </div>
+                                    <div class="flex-1 min-w-0">
+                                        <h3 class="font-bold text-gray-900 text-sm mb-1">Resource Optimization</h3>
+                                        <p class="text-xs text-gray-600">CPU/Memory recommendations and right-sizing for pods and nodes</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Cost Analysis -->
+                            <div class="feature-card p-4 rounded-lg border-purple-500 shadow-sm">
+                                <div class="flex items-start space-x-3">
+                                    <div class="flex-shrink-0 w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
+                                        <i class="fas fa-dollar-sign text-purple-600"></i>
+                                    </div>
+                                    <div class="flex-1 min-w-0">
+                                        <h3 class="font-bold text-gray-900 text-sm mb-1">Cost Analysis</h3>
+                                        <p class="text-xs text-gray-600">Namespace-level cost breakdown and optimization opportunities</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Workload Performance -->
+                            <div class="feature-card p-4 rounded-lg border-indigo-500 shadow-sm">
+                                <div class="flex items-start space-x-3">
+                                    <div class="flex-shrink-0 w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center">
+                                        <i class="fas fa-chart-line text-indigo-600"></i>
+                                    </div>
+                                    <div class="flex-1 min-w-0">
+                                        <h3 class="font-bold text-gray-900 text-sm mb-1">Workload Performance</h3>
+                                        <p class="text-xs text-gray-600">Application metrics, latency tracking, and bottleneck detection</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Security & Compliance -->
+                            <div class="feature-card p-4 rounded-lg border-red-500 shadow-sm">
+                                <div class="flex items-start space-x-3">
+                                    <div class="flex-shrink-0 w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
+                                        <i class="fas fa-shield-alt text-red-600"></i>
+                                    </div>
+                                    <div class="flex-1 min-w-0">
+                                        <h3 class="font-bold text-gray-900 text-sm mb-1">Security & Compliance</h3>
+                                        <p class="text-xs text-gray-600">Vulnerability scanning, RBAC analysis, and policy enforcement</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Auto-scaling Insights -->
+                            <div class="feature-card p-4 rounded-lg border-yellow-500 shadow-sm">
+                                <div class="flex items-start space-x-3">
+                                    <div class="flex-shrink-0 w-10 h-10 bg-yellow-100 rounded-lg flex items-center justify-center">
+                                        <i class="fas fa-expand-arrows-alt text-yellow-600"></i>
+                                    </div>
+                                    <div class="flex-1 min-w-0">
+                                        <h3 class="font-bold text-gray-900 text-sm mb-1">Auto-scaling Insights</h3>
+                                        <p class="text-xs text-gray-600">HPA/VPA recommendations and cluster autoscaler optimization</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Status Badge -->
+                        <div class="inline-flex items-center px-5 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-500 text-white rounded-full shadow-lg mb-6">
+                            <i class="fab fa-kubernetes mr-2 text-sm"></i>
+                            <span class="font-semibold text-sm">In Development</span>
+                            <span class="ml-3 px-3 py-1 bg-white bg-opacity-20 rounded-full text-xs">
+                                    Q4 2025
+                                </span>
+                        </div>
+
+                        <!-- Info Box -->
+                        <div class="p-4 bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-xl">
+                            <div class="flex items-start space-x-3">
+                                <div class="flex-shrink-0">
+                                    <i class="fas fa-info-circle text-blue-600 text-lg mt-0.5"></i>
+                                </div>
+                                <div class="text-left">
+                                    <h4 class="font-bold text-gray-900 mb-2 text-sm">Advanced GKE Features</h4>
+                                    <ul class="space-y-1 text-xs text-gray-700">
+                                        <li class="flex items-center">
+                                            <i class="fas fa-check-circle text-green-600 mr-2 text-sm"></i>
+                                            <span><strong>Multi-cluster management:</strong> Unified dashboard for all GKE clusters</span>
+                                        </li>
+                                        <li class="flex items-center">
+                                            <i class="fas fa-check-circle text-green-600 mr-2 text-sm"></i>
+                                            <span><strong>GitOps integration:</strong> Track deployments and configuration drift</span>
+                                        </li>
+                                        <li class="flex items-center">
+                                            <i class="fas fa-check-circle text-green-600 mr-2 text-sm"></i>
+                                            <span><strong>Cost allocation:</strong> Team, project, and department-level cost breakdowns</span>
+                                        </li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+</div>
+</body>
+</html>
