@@ -298,12 +298,19 @@ function cloudK8s() {
         navigateToClusters() {
             window.location.href = `/cloudk8s.html?accountIds=${this.selectedAccountId}`;
         },
+        
+        // --- THIS IS THE CORRECTED FUNCTION ---
         navigateToDetails(cluster) {
+            // Construct the URL with all necessary parameters
             const url = new URL(`${this.appBaseUrl}/eks-details.html`);
             url.searchParams.set('name', cluster.name);
-            history.pushState(cluster, '', url); // Save cluster data to history state
+            url.searchParams.set('region', cluster.region); // Added region
+            url.searchParams.set('accountId', this.selectedAccountId); // Added accountId
+
+            // Redirect to the details page
             window.location.href = url.toString();
         },
+
         fetchClusters(forceRefresh = false) {
             const cacheKey = `k8sClusters-${this.selectedAccountId}`;
             if (forceRefresh) {
@@ -320,7 +327,6 @@ function cloudK8s() {
             this.isLoading.clusters = !cachedData;
             this.isRefreshing = forceRefresh;
 
-            // --- THIS IS THE CORRECTED LINE ---
             fetch(`/api/xamops/k8s/clusters?accountIds=${this.selectedAccountId}&forceRefresh=${forceRefresh}`)
                 .then(res => {
                     if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
@@ -336,6 +342,7 @@ function cloudK8s() {
                     this.isRefreshing = false;
                 });
         },
+        // ... (the rest of your JavaScript functions remain the same)
         async fetchClusterUsage() {
             if (!this.selectedCluster) return;
             this.isLoading.usage = true;
@@ -345,6 +352,7 @@ function cloudK8s() {
                 const response = await fetch(`/api/xamops/k8s/clusters/usage?accountId=${this.selectedAccountId}&clusterName=${name}&region=${region}`, { method: 'POST' });
                 if (!response.ok) throw new Error('Failed to fetch usage data');
                 this.clusterUsage = await response.json();
+                this.$nextTick(() => this.renderUsageCharts());
             } catch (err) {
                 console.error('Failed to fetch cluster usage', err);
                 this.clusterUsage = null;
@@ -354,7 +362,6 @@ function cloudK8s() {
         },
         renderUsageCharts() {
             if (!this.clusterUsage) return;
-
             if (window.cpuChartInstance) window.cpuChartInstance.destroy();
             if (window.memChartInstance) window.memChartInstance.destroy();
 
@@ -436,6 +443,3 @@ function cloudK8s() {
     }
 }
 </script>
-
-</body>
-</html>

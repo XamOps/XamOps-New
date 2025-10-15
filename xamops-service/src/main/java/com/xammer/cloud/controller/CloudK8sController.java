@@ -13,7 +13,8 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 @RestController
-@RequestMapping("/api/k8s")
+// --- FIX: Standardized the RequestMapping to include "/xamops" ---
+@RequestMapping("/api/xamops/k8s")
 public class CloudK8sController {
 
     private final EksService eksService;
@@ -33,13 +34,13 @@ public class CloudK8sController {
             .thenApply(ResponseEntity::ok)
             .exceptionally(ex -> ResponseEntity.status(500).body(new ClusterUsageDto()));
     }
-    
+
     @GetMapping("/clusters")
     public CompletableFuture<ResponseEntity<List<K8sClusterInfo>>> getClusters(
-            @RequestParam String accountIds, // <-- FIX: Changed parameter name
-            @RequestParam(defaultValue = "false") boolean forceRefresh) { 
-        
-        String accountIdToUse = accountIds.split(",")[0]; // Use the first ID
+            @RequestParam String accountIds,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+
+        String accountIdToUse = accountIds.split(",")[0];
 
         return eksService.getEksClusterInfo(accountIdToUse, forceRefresh)
                 .thenApply(ResponseEntity::ok)
@@ -48,7 +49,7 @@ public class CloudK8sController {
 
     @GetMapping("/clusters/{clusterName}/nodes")
     public CompletableFuture<ResponseEntity<List<K8sNodeInfo>>> getNodes(
-            @RequestParam String accountId, 
+            @RequestParam String accountId,
             @PathVariable String clusterName) {
         return eksService.getK8sNodes(accountId, clusterName, false)
                 .thenApply(ResponseEntity::ok)
