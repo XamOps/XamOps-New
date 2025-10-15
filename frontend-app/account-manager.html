@@ -280,6 +280,32 @@
         .azure-icon {
             background: linear-gradient(135deg, #0089D6 0%, #0072C6 100%);
         }
+
+        /* Enhanced styles for Help Modal */
+        .code-block {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            font-family: 'Courier New', Courier, monospace;
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 40vh;
+            overflow-y: auto;
+        }
+        .accordion-header {
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+            border-bottom: 1px solid #e5e7eb;
+            padding: 1rem;
+            cursor: pointer;
+            transition: background 0.3s ease;
+        }
+        .accordion-header:hover {
+            background: #e5e7eb;
+        }
+        .accordion-content {
+            padding: 1rem;
+        }
     </style>
 </head>
 <body class="bg-gray-50">
@@ -462,6 +488,362 @@
                 </div>
             </div>
 
+            <div @click="isHelpModalOpen = true" class="fixed bottom-8 right-8 w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center text-white text-2xl shadow-lg cursor-pointer hover:scale-110 transition-transform z-30">
+                <i class="fas fa-question"></i>
+            </div>
+
+            <div x-show="isHelpModalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
+                <div @click="isHelpModalOpen = false" class="modal-overlay fixed inset-0"></div>
+                <div class="modal-content rounded-2xl p-8 w-full max-w-4xl mx-auto max-h-[90vh] overflow-y-auto fade-in" @click.stop x-data="{ openAws: false, openGcp: false, openAzure: false }">
+                    <div class="flex items-center justify-between pb-4 border-b">
+                        <h3 class="font-bold text-xl text-gray-800">Xamops Tool Help Desk: Pre-Onboarding Guide</h3>
+                        <button @click="isHelpModalOpen = false" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+                    </div>
+                    <div class="space-y-6 mt-6 text-sm text-gray-700">
+                        <p>Welcome to the Xamops Tool Help Desk! This guide supports clients onboarding to our Managed Partner Account (MPA) under the Partner-Led Billing (PLB) model across AWS, GCP, and Azure. As an MPA, we handle each customer account with utmost care, ensuring isolation, security, and autonomy. Every account is treated as a unique entity, with dedicated organizational units, custom policies, and delegated controls to prevent any cross-client interference or risks. We use zero-trust principles, meaning no shared resources unless explicitly requested and isolated, and all actions are logged and auditable. Our team conducts regular reviews and consultations to adapt to your evolving needs, providing transparency through Xamops dashboards that allow you to monitor billing, security, and compliance in real-time. This approach not only secures your setup but also empowers you with control over your environment while we manage the backend governance and billing.</p>
+
+                        <p>We collaborate through personalized consultations to customize integrations, ensuring fit for your industry. Xamops differentiates with "+1 level of security": real-time dashboards, simulation tools, and delegated controls for empowerment. Contact support at <a href="mailto:support@xamops.com">support@xamops.com</a>.</p>
+
+                        <p>Explore provider-specific guides below:</p>
+
+                        <!-- AWS Accordion -->
+                        <div x-data="{ open: false }">
+                            <div class="accordion-header flex items-center justify-between" @click="open = !open">
+                                <h4 class="font-semibold text-lg text-gray-800">AWS Pre-Onboarding Guide</h4>
+                                <i class="fas" :class="{ 'fa-chevron-down': !open, 'fa-chevron-up': open }"></i>
+                            </div>
+                            <div x-show="open" class="accordion-content space-y-4">
+                                <p>At Xamops, we handle each AWS customer account with a structured, secure, and collaborative approach. From the moment you accept our invitation, your account is isolated in a dedicated Organizational Unit (OU) within our AWS Organization. This OU serves as a logical boundary, applying policies specifically to your accounts without affecting others. We ensure that all data, identities, and resources are segregated, using features like AWS RAM for controlled sharing if needed, but by default, everything is private to you. Our MPA role allows us to manage billing and high-level governance, but operational control remains with you through delegated IAM roles and permission sets. We conduct initial assessments to map your workloads, compliance needs, and team structure, then tailor the setup accordingly. Regular check-ins via Xamops ensure ongoing optimization, with tools for you to simulate changes before applying them.</p>
+
+                                <h5 class="font-semibold text-md">Guided Step 1: Initial Consultation and Connection to Our MPA</h5>
+                                <p>We begin with a personalized consultation via Xamops video or chat to understand your business needs, such as workload types (e.g., web apps, databases) or compliance requirements. This solves questions like "How does this fit my industry?" by customizing the integration early. During this step, we discuss your current AWS setup, if any, and plan the migration or integration to minimize downtime. We also review your team structure to ensure identity federation aligns with your existing processes.</p>
+                                <ul class="list-disc pl-5">
+                                    <li><strong>Invitation and Organization Join</strong>: We send a secure invitation from our MPA's management account for you to join our AWS Organization. Accept via the AWS Management Console, AWS CLI, or SDK—Xamops provides step-by-step tutorials with screenshots. This join is reversible, but we apply policies to prevent accidental exits for stability.</li>
+                                    <li><strong>Creating Your Dedicated Organizational Unit (OU)</strong>: Once joined, we create a top-level OU called `Clients` (if not already present) and a sub-OU just for you (e.g., `YourCompany-OU`). All your AWS accounts (e.g., Production, Development, Testing) will live exclusively here. The OU acts as a policy boundary, ensuring security controls are scoped only to your environment. This prevents any cross-client visibility or "reverse security" risks, where one client could potentially access another's resources. OUs enable hierarchical policy application: organization-wide policies for baseline security, OU-level for client-specific customizations, and account-level for fine-tuning. This structure enhances security by allowing granular control—e.g., denying actions in non-production OUs while allowing them in dev. It also facilitates cost allocation and auditing, as all resources under your OU are tagged and reported separately. In practice, this makes your setup more secure by enforcing least privilege at scale, reducing blast radius of incidents, and enabling quick isolation if needed. As an MPA, we monitor OU integrity but delegate management to you for autonomy.</li>
+                                    <li><strong>Billing Setup</strong>: PLB enables centralized invoicing, with Xamops-integrated AWS Cost Explorer showing your costs via tags (e.g., `Client:YourCompany`). Set up budgets and alerts to avoid surprises. We provide detailed breakdowns and forecasting to help you optimize spend.</li>
+                                    <li><strong>Industry Alignment and Our +1 Security</strong>: Like consultants (e.g., Deloitte's multi-account strategies for enterprise isolation), we ensure OU-based separation. Our +1: Use the Xamops pre-onboarding simulator to preview your OU structure and verify isolation before activation, including policy simulations.</li>
+                                </ul>
+
+                                <h5 class="font-semibold text-md">Guided Step 2: Establishing Your Governed Environment with AWS Control Tower</h5>
+                                <p>In collaborative Xamops sessions, we enable AWS Control Tower to automate a governed landing zone, reducing setup time and misconfigurations. This step involves reviewing your compliance needs (e.g., PCI DSS, SOC 2) and applying baselines accordingly.</p>
+                                <ul class="list-disc pl-5">
+                                    <li><strong>Enabling Control Tower</strong>: Activated at the Organization level, it provisions a Log Archive Account with immutable S3 buckets for CloudTrail logs and an Audit Account for security tools and auditor access.</li>
+                                    <li><strong>Drift Detection for Transparency</strong>: Monitors for unauthorized changes, triggering alerts via EventBridge and SNS to your team. Details include what changed, who, and when, empowering immediate action.</li>
+                                    <li><strong>Custom Options</strong>: Standard shared setup for efficiency or dedicated for ultimate isolation.</li>
+                                </ul>
+
+                                <h5 class="font-semibold text-md">Guided Step 3: Configuring Identity & Access Management – Your Control First</h5>
+                                <p>Using Xamops workflows, we federate identities, ensuring your IdP is the source of truth. We support scenarios with or without an existing IdP, with layers like MFA and ABAC.</p>
+                                <ul class="list-disc pl-5">
+                                    <li><strong>Federation Process (With IdP)</strong>: Exchange SAML metadata, enable SCIM for syncing, map groups to Permission Sets.</li>
+                                    <li><strong>Directory Setup (Without IdP)</strong>: Isolated directory with delegated admin.</li>
+                                    <li><strong>Options</strong>: Direct, account instance, or separate Organization.</li>
+                                </ul>
+
+                                <h5 class="font-semibold text-md">Guided Step 4: Implementing Preventive Security – Custom Guardrails</h5>
+                                <p>We co-design SCPs attached to your OU, denying risky actions. As an MPA, we allow industry-standard policies like denying IAM user creation, restricting public S3 access, and enforcing encryption. Here are three example SCPs:</p>
+                                <div class="code-block">
+<pre><code>{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyIAMUserCreation",
+      "Effect": "Deny",
+      "Action": [
+        "iam:CreateUser",
+        "iam:CreateAccessKey"
+      ],
+      "Resource": "*"
+    }
+  ]
+}</code></pre>
+                                </div>
+                                <p>This policy prevents creation of long-term IAM users and access keys, forcing federated access for security.</p>
+                                <div class="code-block">
+<pre><code>{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyPublicS3Buckets",
+      "Effect": "Deny",
+      "Action": [
+        "s3:PutBucketPublicAccessBlock",
+        "s3:PutBucketAcl"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "Bool": {
+          "s3:PublicAccessBlock": "false"
+        }
+      }
+    }
+  ]
+}</code></pre>
+                                </div>
+                                <p>This enforces public access blocks on S3 buckets, preventing data exposure.</p>
+                                <div class="code-block">
+<pre><code>{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "RequireEncryption",
+      "Effect": "Deny",
+      "Action": [
+        "s3:PutObject"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": {
+          "s3:x-amz-server-side-encryption": "AES256"
+        }
+      }
+    }
+  ]
+}</code></pre>
+                                </div>
+                                <p>This requires server-side encryption for S3 objects, ensuring data at rest protection.</p>
+                                <ul class="list-disc pl-5">
+                                    <li><strong>Managing SCPs</strong>: Delegated admin role for modifications.</li>
+                                    <li><strong>Additional Measures</strong>: PrivateLink, customer-managed KMS keys.</li>
+                                    <li><strong>Options</strong>: Guided templates, client-managed, or separate.</li>
+                                </ul>
+
+                                <h5 class="font-semibold text-md">Guided Step 5: Architecture Options</h5>
+                                <p>Design sessions to choose multi-account, siloed, pooled, hybrid, or serverless architectures, tailored to your workloads.</p>
+
+                                <h5 class="font-semibold text-md">Guided Step 6: Activation and Go-Live</h5>
+                                <p>Activate services like Security Hub, GuardDuty, with simulations and handover.</p>
+
+                                <h5 class="font-semibold text-md">Special Section: Enhanced Considerations for FinTech Clients</h5>
+                                <p>For FinTech, we add SCIM, stricter SCPs, and PII monitoring, with siloed architectures for high-risk data.</p>
+
+                                <h5 class="font-semibold text-md">Common Client Questions and How We Solve Them</h5>
+                                <ul class="list-disc pl-5">
+                                    <li><strong>Q: How do you ensure my data is isolated from other clients?</strong> A: Through dedicated OUs and SCPs that enforce boundaries, preventing cross-account access.</li>
+                                    <li><strong>Q: Can I control my own identities?</strong> A: Yes, via federation with your IdP or delegated directory management.</li>
+                                    <li><strong>Q: What if there's a configuration change I didn't authorize?</strong> A: Drift detection alerts you immediately with details for quick remediation.</li>
+                                    <li><strong>Q: How is billing handled without hidden costs?</strong> A: Centralized PLB with tagged cost breakdowns and budgets in Cost Explorer.</li>
+                                    <li><strong>Q: Can I customize security policies?</strong> A: Absolutely, with delegated roles to modify SCPs in your OU.</li>
+                                    <li><strong>Q: What about compliance for my industry?</strong> A: We align with standards like PCI DSS, applying relevant controls during setup.</li>
+                                    <li><strong>Q: How do you prevent backdoors?</strong> A: Zero-trust with temporary roles, no persistent access, and auditable logs.</li>
+                                    <li><strong>Q: Can I test changes before applying?</strong> A: Yes, using Xamops simulators for policies and architectures.</li>
+                                    <li><strong>Q: What if I need to leave the MPA?</strong> A: Reversible join, with policies to ensure smooth exit without data loss.</li>
+                                    <li><strong>Q: How do you handle account monitoring?</strong> A: Real-time Xamops dashboards for you to view metrics and alerts.</li>
+                                    <li><strong>Q: Is there support for multiple environments?</strong> A: Yes, separate accounts per env (prod/dev) under your OU.</li>
+                                    <li><strong>Q: How secure is encryption?</strong> A: Customer-managed KMS keys, with policies enforcing usage.</li>
+                                </ul>
+
+                                <p>Final Assurances: Your data and control are paramount—we're your secure foundation. Start onboarding or contact support.</p>
+                            </div>
+                        </div>
+
+                        <!-- GCP Accordion -->
+                        <div x-data="{ open: false }">
+                            <div class="accordion-header flex items-center justify-between" @click="open = !open">
+                                <h4 class="font-semibold text-lg text-gray-800">GCP Pre-Onboarding Guide</h4>
+                                <i class="fas" :class="{ 'fa-chevron-down': !open, 'fa-chevron-up': open }"></i>
+                            </div>
+                            <div x-show="open" class="accordion-content space-y-4">
+                                <p>At Xamops, each GCP customer account is managed with isolation in mind, using dedicated folders within our Google Cloud Organization. This folder structure acts as a policy boundary, similar to AWS OUs, ensuring your projects are segregated. We apply organization policies at the folder level for custom security, while MPA handles billing and governance. Initial assessments map your workloads, and we provide delegated roles for autonomy. Regular Xamops reviews adapt to changes, with dashboards for monitoring.</p>
+
+                                <h5 class="font-semibold text-md">Guided Step 1: Initial Consultation and Connection to Our MPA</h5>
+                                <p>Personalized consultation to understand needs, plan integration.</p>
+                                <ul class="list-disc pl-5">
+                                    <li><strong>Invitation and Organization Join</strong>: Secure invitation to join our Organization.</li>
+                                    <li><strong>Creating Your Dedicated Folder</strong>: Top-level `Clients` and sub-folder `YourCompany-Folder`. Folders enable hierarchical policy enforcement: org-wide baselines, folder-level customizations, project-level fine-tuning. This secures your setup by scoping policies to your environment, reducing risk spread, and enabling isolated auditing. As MPA, we oversee folder integrity but delegate management.</li>
+                                    <li><strong>Billing Setup</strong>: Centralized with labels for cost tracking.</li>
+                                    <li><strong>Our +1 Security</strong>: Simulator for preview.</li>
+                                </ul>
+
+                                <h5 class="font-semibold text-md">Guided Step 2: Establishing Your Governed Environment with Organization Policies</h5>
+                                <p>Set up policies for secure landing zone.</p>
+                                <ul class="list-disc pl-5">
+                                    <li><strong>Enabling Organization Policies</strong>: Constraints and logging sinks.</li>
+                                    <li><strong>Policy Monitoring</strong>: Scanning and alerts.</li>
+                                    <li><strong>Options</strong>: Shared or dedicated.</li>
+                                </ul>
+
+                                <h5 class="font-semibold text-md">Guided Step 3: Configuring Identity & Access Management</h5>
+                                <p>Federate for control.</p>
+                                <ul class="list-disc pl-5">
+                                    <li><strong>With IdP</strong>: SAML/SCIM.</li>
+                                    <li><strong>Without IdP</strong>: Isolated domain.</li>
+                                    <li><strong>Options</strong>: Direct, isolated, separate.</li>
+                                </ul>
+
+                                <h5 class="font-semibold text-md">Guided Step 4: Implementing Preventive Security</h5>
+                                <p>Custom policies. Examples:</p>
+                                <div class="code-block">
+<pre><code>constraint: "constraints/compute.requireShieldedVm"
+enforcement: DENY
+</code></pre>
+                                </div>
+                                <p>Requires shielded VMs for integrity.</p>
+                                <div class="code-block">
+<pre><code>constraint: "constraints/iam.disableServiceAccountKeyCreation"
+enforcement: DENY
+</code></pre>
+                                </div>
+                                <p>Prevents long-term key creation.</p>
+                                <div class="code-block">
+<pre><code>constraint: "constraints/storage.publicAccessPrevention"
+enforcement: DENY
+</code></pre>
+                                </div>
+                                <p>Blocks public bucket access.</p>
+                                <ul class="list-disc pl-5">
+                                    <li><strong>Managing Policies</strong>: Delegated role.</li>
+                                    <li><strong>Additional Measures</strong>: VPC Controls, CMEK.</li>
+                                    <li><strong>Options</strong>: Guided, client-managed, separate.</li>
+                                </ul>
+
+                                <h5 class="font-semibold text-md">Guided Step 5: Architecture Options</h5>
+                                <p>Multi-project, siloed, etc.</p>
+
+                                <h5 class="font-semibold text-md">Guided Step 6: Activation and Go-Live</h5>
+                                <p>Activate Security Command Center, etc.</p>
+
+                                <h5 class="font-semibold text-md">Special Section: FinTech Enhancements</h5>
+                                <p>Stricter policies, PII monitoring.</p>
+
+                                <h5 class="font-semibold text-md">Common Client Questions and How We Solve Them</h5>
+                                <ul class="list-disc pl-5">
+                                    <li><strong>Q: How is my data isolated?</strong> A: Dedicated folders with scoped policies.</li>
+                                    <li><strong>Q: Identity control?</strong> A: Federation or delegated domain.</li>
+                                    <li><strong>Q: Drift alerts?</strong> A: Continuous monitoring with notifications.</li>
+                                    <li><strong>Q: Billing transparency?</strong> A: Labeled costs and budgets.</li>
+                                    <li><strong>Q: Policy customization?</strong> A: Delegated admin.</li>
+                                    <li><strong>Q: Compliance support?</strong> A: Tailored for PCI, SOC 2.</li>
+                                    <li><strong>Q: Backdoor prevention?</strong> A: Short-lived tokens, audits.</li>
+                                    <li><strong>Q: Test changes?</strong> A: Xamops simulators.</li>
+                                    <li><strong>Q: Exit process?</strong> A: Smooth, policy-protected.</li>
+                                    <li><strong>Q: Monitoring?</strong> A: Dashboards for metrics.</li>
+                                    <li><strong>Q: Multiple envs?</strong> A: Separate projects per env.</li>
+                                    <li><strong>Q: Encryption security?</strong> A: CMEK enforcement.</li>
+                                </ul>
+
+                                <p>Final Assurances: Secure foundation with your control.</p>
+                            </div>
+                        </div>
+
+                        <!-- Azure Accordion -->
+                        <div x-data="{ open: false }">
+                            <div class="accordion-header flex items-center justify-between" @click="open = !open">
+                                <h4 class="font-semibold text-lg text-gray-800">Azure Pre-Onboarding Guide</h4>
+                                <i class="fas" :class="{ 'fa-chevron-down': !open, 'fa-chevron-up': open }"></i>
+                            </div>
+                            <div x-show="open" class="accordion-content space-y-4">
+                                <p>Each Azure account is isolated in a dedicated Management Group within our tenant. This hierarchy scopes policies, ensuring segregation. MPA manages billing, but you control operations via delegated RBAC. Assessments and reviews via Xamops.</p>
+
+                                <h5 class="font-semibold text-md">Guided Step 1: Initial Consultation and Connection to Our MPA</h5>
+                                <p>Consultation to tailor integration.</p>
+                                <ul class="list-disc pl-5">
+                                    <li><strong>Invitation and Management Group Join</strong>: Secure invitation.</li>
+                                    <li><strong>Creating Your Dedicated Management Group</strong>: `Clients` and `YourCompany-MG`. Management Groups provide policy scoping, inheritance for efficiency, and isolation. Secures by limiting scope, reducing risks. MPA oversees but delegates.</li>
+                                    <li><strong>Billing Setup</strong>: Centralized with tags.</li>
+                                    <li><strong>Our +1 Security</strong>: Simulator.</li>
+                                </ul>
+
+                                <h5 class="font-semibold text-md">Guided Step 2: Establishing Your Governed Environment with Azure Policy</h5>
+                                <p>Automate with policies.</p>
+                                <ul class="list-disc pl-5">
+                                    <li><strong>Enabling Azure Policy</strong>: Compliance and logs.</li>
+                                    <li><strong>Monitoring</strong>: Alerts for violations.</li>
+                                    <li><strong>Options</strong>: Shared or dedicated tenant.</li>
+                                </ul>
+
+                                <h5 class="font-semibold text-md">Guided Step 3: Configuring Identity & Access Management</h5>
+                                <p>Integrate for control.</p>
+                                <ul class="list-disc pl-5">
+                                    <li><strong>With IdP</strong>: SAML/SCIM.</li>
+                                    <li><strong>Without IdP</strong>: Isolated directory.</li>
+                                    <li><strong>Options</strong>: Direct, isolated, separate.</li>
+                                </ul>
+
+                                <h5 class="font-semibold text-md">Guided Step 4: Implementing Preventive Security</h5>
+                                <p>Policies with examples:</p>
+                                <div class="code-block">
+<pre><code>{
+  "properties": {
+    "policyRule": {
+      "if": {
+        "allOf": [
+          {"field": "type", "equals": "Microsoft.Storage/storageAccounts"},
+          {"field": "Microsoft.Storage/storageAccounts/allowBlobPublicAccess", "equals": "true"}
+        ]
+      },
+      "then": {"effect": "deny"}
+    }
+  }
+}</code></pre>
+                                </div>
+                                <p>Denies public blob access.</p>
+                                <div class="code-block">
+<pre><code>{
+  "properties": {
+    "policyRule": {
+      "if": {
+        "field": "Microsoft.Compute/virtualMachines/extensions/publisher",
+        "equals": "Microsoft.Azure.Security"
+      },
+      "then": {"effect": "auditIfNotExists"}
+    }
+  }
+}</code></pre>
+                                </div>
+                                <p>Audits security extensions.</p>
+                                <div class="code-block">
+<pre><code>{
+  "properties": {
+    "policyRule": {
+      "if": {
+        "field": "Microsoft.Sql/servers/databases/encryptionProtector",
+        "exists": "false"
+      },
+      "then": {"effect": "deny"}
+    }
+  }
+}</code></pre>
+                                </div>
+                                <p>Requires database encryption.</p>
+                                <ul class="list-disc pl-5">
+                                    <li><strong>Managing Policies</strong>: Custom RBAC role.</li>
+                                    <li><strong>Additional Measures</strong>: Endpoints, CMK.</li>
+                                    <li><strong>Options</strong>: Guided, client-managed, separate.</li>
+                                </ul>
+
+                                <h5 class="font-semibold text-md">Guided Step 5: Architecture Options</h5>
+                                <p>Multi-subscription, etc.</p>
+
+                                <h5 class="font-semibold text-md">Guided Step 6: Activation and Go-Live</h5>
+                                <p>Activate Defender, Sentinel.</p>
+
+                                <h5 class="font-semibold text-md">Special Section: FinTech Enhancements</h5>
+                                <p>Deny public access, PII monitoring.</p>
+
+                                <h5 class="font-semibold text-md">Common Client Questions and How We Solve Them</h5>
+                                <ul class="list-disc pl-5">
+                                    <li><strong>Q: Data isolation?</strong> A: Dedicated Management Groups.</li>
+                                    <li><strong>Q: Identity?</strong> A: Federation or delegated.</li>
+                                    <li><strong>Q: Drift?</strong> A: Monitoring alerts.</li>
+                                    <li><strong>Q: Billing?</strong> A: Tagged costs.</li>
+                                    <li><strong>Q: Customization?</strong> A: Delegated roles.</li>
+                                    <li><strong>Q: Compliance?</strong> A: Tailored controls.</li>
+                                    <li><strong>Q: Backdoors?</strong> A: Conditional access, audits.</li>
+                                    <li><strong>Q: Testing?</strong> A: Simulators.</li>
+                                    <li><strong>Q: Exit?</strong> A: Smooth process.</li>
+                                    <li><strong>Q: Monitoring?</strong> A: Dashboards.</li>
+                                    <li><strong>Q: Envs?</strong> A: Separate subscriptions.</li>
+                                    <li><strong>Q: Encryption?</strong> A: CMK enforcement.</li>
+                                </ul>
+
+                                <p>Final Assurances: Your secure Azure partner.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
         </main>
     </div>
 </div>
@@ -487,6 +869,7 @@
             },
             providerSelection: null,
             addAccountModal: false,
+            isHelpModalOpen: false,
             init() {
                 this.fetchAccounts();
             },
