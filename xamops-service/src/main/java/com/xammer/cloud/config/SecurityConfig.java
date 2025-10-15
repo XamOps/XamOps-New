@@ -51,7 +51,6 @@ public class SecurityConfig {
                         )
                 )
                 .authorizeHttpRequests((requests) -> requests
-                        // **FIX**: Updated to use the correct `AntPathRequestMatcher` syntax
                         .requestMatchers(
                                 new AntPathRequestMatcher("/"),
                                 new AntPathRequestMatcher("/index.html"),
@@ -61,9 +60,16 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("/images/**"),
                                 new AntPathRequestMatcher("/icons/**"),
                                 new AntPathRequestMatcher("/webjars/**"),
-    new AntPathRequestMatcher("/gcp_*.html"), // Use this wildcard to match all GCP pages
-                            new AntPathRequestMatcher("/azure_dashboard.html") ,// Add this line
-                                new AntPathRequestMatcher("/ws/**")
+                                new AntPathRequestMatcher("/gcp_*.html"),
+                                new AntPathRequestMatcher("/azure_dashboard.html"),
+                                new AntPathRequestMatcher("/ws/**"),
+
+                                // --- FIX: ADDED THE FOLLOWING TWO LINES ---
+                                new AntPathRequestMatcher("/cloudk8s.html"),
+                             new AntPathRequestMatcher("/eks-details.html"),
+
+                                new AntPathRequestMatcher("/api/xamops/k8s/**")
+
                         ).permitAll()
                         .anyRequest().authenticated()
                 )
