@@ -501,15 +501,15 @@ public class GcpDataService {
         return dto;
     }
 
-//    private GcpResourceDto mapAppEngineToDto(Application app) {
-//        GcpResourceDto dto = new GcpResourceDto();
-//        dto.setId(app.getName());
-//        dto.setName(app.getName());
-//        dto.setType("App Engine");
-//        dto.setLocation(app.getLocationId());
-//        dto.setStatus(app.getServingStatus().name());
-//        return dto;
-//    }
+//  private GcpResourceDto mapAppEngineToDto(Application app) {
+//      GcpResourceDto dto = new GcpResourceDto();
+//      dto.setId(app.getName());
+//      dto.setName(app.getName());
+//      dto.setType("App Engine");
+//      dto.setLocation(app.getLocationId());
+//      dto.setStatus(app.getServingStatus().name());
+//      return dto;
+//  }
 
     private GcpResourceDto mapBigQueryDatasetToDto(Dataset dataset) {
         GcpResourceDto dto = new GcpResourceDto();
@@ -573,7 +573,7 @@ public class GcpDataService {
                 CompletableFuture.supplyAsync(() -> getBigQueryDatasets(gcpProjectId), executor),
                 CompletableFuture.supplyAsync(() -> getLoggingBuckets(gcpProjectId), executor),
                 //CompletableFuture.supplyAsync(() -> getArtifactRepositories(gcpProjectId), executor),
-               // CompletableFuture.supplyAsync(() -> getCloudBuildTriggers(gcpProjectId), executor),
+                // CompletableFuture.supplyAsync(() -> getCloudBuildTriggers(gcpProjectId), executor),
 
                 // ✅ NEW - Vertex AI
                 getVertexAIModels(gcpProjectId),
@@ -657,6 +657,12 @@ public class GcpDataService {
             account.setGcpServiceAccountKey(request.getServiceAccountKey());
             account.setGcpWorkloadIdentityPoolId(request.getGcpWorkloadIdentityPoolId());
             account.setGcpWorkloadIdentityProviderId(request.getGcpWorkloadIdentityProviderId());
+            
+            //
+            // ✨ --- FIX IMPLEMENTED --- ✨
+            // Set the external_id to the projectId for GCP accounts to satisfy the not-null constraint.
+            //
+            account.setExternalId(projectId);
 
             // ✅ NEW: Set billing export table
             account.setBillingExportTable(request.getBillingExportTable());
@@ -961,20 +967,20 @@ public class GcpDataService {
         }
     }
 
-//     private List<GcpResourceDto> getArtifactRepositories(String gcpProjectId) {
-//         log.info("Fetching Artifact Registry repositories for project: {}", gcpProjectId);
-//         Optional<ArtifactRegistryClient> clientOpt = gcpClientProvider.getArtifactRegistryClient(gcpProjectId);
-//         if (clientOpt.isEmpty()) return List.of();
-//         try (ArtifactRegistryClient client = clientOpt.get()) {
-//             String parent = "projects/" + gcpProjectId + "/locations/-";
-//             return StreamSupport.stream(client.listRepositories(parent).iterateAll().spliterator(), false)
-//                 .map(this::mapArtifactRepositoryToDto)
-//                 .collect(Collectors.toList());
-//         } catch (Exception e) {
-//             log.error("Error fetching Artifact Registry repositories for project: {}", gcpProjectId, e);
-//             return List.of();
-//         }
-//     }
+//   private List<GcpResourceDto> getArtifactRepositories(String gcpProjectId) {
+//       log.info("Fetching Artifact Registry repositories for project: {}", gcpProjectId);
+//       Optional<ArtifactRegistryClient> clientOpt = gcpClientProvider.getArtifactRegistryClient(gcpProjectId);
+//       if (clientOpt.isEmpty()) return List.of();
+//       try (ArtifactRegistryClient client = clientOpt.get()) {
+//           String parent = "projects/" + gcpProjectId + "/locations/-";
+//           return StreamSupport.stream(client.listRepositories(parent).iterateAll().spliterator(), false)
+//               .map(this::mapArtifactRepositoryToDto)
+//               .collect(Collectors.toList());
+//       } catch (Exception e) {
+//           log.error("Error fetching Artifact Registry repositories for project: {}", gcpProjectId, e);
+//           return List.of();
+//       }
+//   }
 
     private List<GcpResourceDto> getKmsKeys(String gcpProjectId, boolean forceRefresh) {
         log.info("Fetching KMS keys for project: {}", gcpProjectId);
@@ -1016,19 +1022,19 @@ public class GcpDataService {
         }
     }
 
-//     private List<GcpResourceDto> getCloudBuildTriggers(String gcpProjectId) {
-//         log.info("Fetching Cloud Build triggers for project: {}", gcpProjectId);
-//         Optional<CloudBuildClient> clientOpt = gcpClientProvider.getCloudBuildClient(gcpProjectId);
-//         if (clientOpt.isEmpty()) return List.of();
-//         try (CloudBuildClient client = clientOpt.get()) {
-//             return client.listBuildTriggers(gcpProjectId).stream()
-//                 .map(this::mapCloudBuildTriggerToDto)
-//                 .collect(Collectors.toList());
-//         } catch (Exception e) {
-//             log.error("Error fetching Cloud Build triggers for project: {}", gcpProjectId, e);
-//             return List.of();
-//         }
-//     }
+//   private List<GcpResourceDto> getCloudBuildTriggers(String gcpProjectId) {
+//       log.info("Fetching Cloud Build triggers for project: {}", gcpProjectId);
+//       Optional<CloudBuildClient> clientOpt = gcpClientProvider.getCloudBuildClient(gcpProjectId);
+//       if (clientOpt.isEmpty()) return List.of();
+//       try (CloudBuildClient client = clientOpt.get()) {
+//           return client.listBuildTriggers(gcpProjectId).stream()
+//               .map(this::mapCloudBuildTriggerToDto)
+//               .collect(Collectors.toList());
+//       } catch (Exception e) {
+//           log.error("Error fetching Cloud Build triggers for project: {}", gcpProjectId, e);
+//           return List.of();
+//       }
+//   }
 
     private List<GcpResourceDto> getSecretManagerSecrets(String gcpProjectId, boolean forceRefresh) {
         log.info("Fetching secrets from Secret Manager for project: {}", gcpProjectId);
@@ -1085,21 +1091,21 @@ public class GcpDataService {
         }
     }
 
-//   private List<GcpResourceDto> getAppEngineApplications(String gcpProjectId) {
-//        log.info("Fetching App Engine applications for project: {}", gcpProjectId);
-//        Optional<ApplicationsClient> clientOpt = gcpClientProvider.getAppsClient(gcpProjectId);
-//        if (clientOpt.isEmpty()) return List.of();
-//        try (ApplicationsClient client = clientOpt.get()) {
-//            Application app = client.getApplication("apps/" + gcpProjectId);
-//            if (app != null) {
-//                return List.of(mapAppEngineToDto(app));
-//            }
-//            return List.of();
-//        } catch (Exception e) {
-//            log.error("Error fetching App Engine application for project {}: {}", gcpProjectId, e.getMessage());
-//            return List.of();
-//        }
- //  }
+//  private List<GcpResourceDto> getAppEngineApplications(String gcpProjectId) {
+//       log.info("Fetching App Engine applications for project: {}", gcpProjectId);
+//       Optional<ApplicationsClient> clientOpt = gcpClientProvider.getAppsClient(gcpProjectId);
+//       if (clientOpt.isEmpty()) return List.of();
+//       try (ApplicationsClient client = clientOpt.get()) {
+//           Application app = client.getApplication("apps/" + gcpProjectId);
+//           if (app != null) {
+//               return List.of(mapAppEngineToDto(app));
+//           }
+//           return List.of();
+//       } catch (Exception e) {
+//           log.error("Error fetching App Engine application for project {}: {}", gcpProjectId, e.getMessage());
+//           return List.of();
+//       }
+    //}
 
     private List<GcpResourceDto> getBigQueryDatasets(String gcpProjectId) {
         log.info("Fetching BigQuery datasets for project: {}", gcpProjectId);
@@ -1548,4 +1554,3 @@ public class GcpDataService {
 
 
 }
-
