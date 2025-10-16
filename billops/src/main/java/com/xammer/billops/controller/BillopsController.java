@@ -34,7 +34,7 @@ import org.springframework.web.bind.annotation.RequestMethod; // Add this import
 
 @RestController
 @RequestMapping("/api/billops")
-@CrossOrigin(origins = {"http://localhost:5173", "http://127.0.0.1:5500", "https://uat.xamops.com"},
+@CrossOrigin(origins = {"http://localhost:5173", "http://127.0.0.1:5500", "https://uat.xamops.com" , "https://live.xamops.com"},
              methods = {RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.DELETE, RequestMethod.OPTIONS},
              allowCredentials = "true")
 public class BillopsController {

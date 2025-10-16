@@ -18,7 +18,7 @@ import java.io.ByteArrayInputStream;
  */
 @RestController
 @RequestMapping("/api/billops/invoices")
-@CrossOrigin(origins = {"http://localhost:5173", "http://127.0.0.1:5500", "https://uat.xamops.com"}, allowCredentials = "true")
+@CrossOrigin(origins = {"http://localhost:5173", "http://127.0.0.1:5500", "https://uat.xamops.com", "https://live.xamops.com"}, allowCredentials = "true")
 public class InvoiceViewController {
 
     private static final Logger logger = LoggerFactory.getLogger(InvoiceViewController.class);

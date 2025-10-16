@@ -52,6 +52,8 @@ export default defineConfig({
       input: {
         index: resolve(__dirname, 'index.html'),
         'account-manager': resolve(__dirname, 'account-manager.html'),
+        'user-manager': resolve(__dirname, 'user-manager.html'),
+
         'add-account': resolve(__dirname, 'add-account.html'),
         'add-gcp-account': resolve(__dirname, 'add-gcp-account.html'),
         alerts: resolve(__dirname, 'alerts.html'),
@@ -69,10 +71,15 @@ export default defineConfig({
         waste: resolve(__dirname, 'waste.html'),
         performance: resolve(__dirname, 'performance.html'),
         xamops_tickets: resolve(__dirname, 'xamops_tickets.html'),
-        xamops_tickets: resolve(__dirname, 'xamops_tickets.html'),
+        gcp_xamops_tickets: resolve(__dirname, 'gcp_xamops_tickets.html'),
         xamops_ticket_detail: resolve(__dirname, 'xamops_ticket_detail.html'),
+        gcp_xamops_ticket_detail: resolve(__dirname, 'gcp_xamops_ticket_detail.html'),
+        'grafana-dashboard.html': resolve(__dirname, 'grafana-dashboard.html'),
+        'devops_in_the_box.html': resolve(__dirname, 'devops_in_the_box.html'),
+         'gcp_devops_in_the_box.html': resolve(__dirname, 'gcp_devops_in_the_box.html'),
 
 
+        
 
 
         _sidebar:resolve(__dirname,'_sidebar.html'),
@@ -87,6 +94,7 @@ export default defineConfig({
         'admin_tickets': resolve(__dirname, 'billops/admin_tickets.html'),
                 'billing': resolve(__dirname, 'billops/billing.html'),
                 'tickets': resolve(__dirname, 'billops/tickets.html'),
+
                 'ticket_detail': resolve(__dirname, 'billops/ticket_detail.html'),
                 'credits': resolve(__dirname, 'billops/credits.html'),
                 'invoices': resolve(__dirname, 'billops/invoices.html'),
@@ -101,8 +109,10 @@ export default defineConfig({
          'gcp_rightsizing': resolve(__dirname, 'gcp_rightsizing.html'),
          'gcp_security': resolve(__dirname, 'gcp_security.html'),
          'gcp_waste': resolve(__dirname, 'gcp_waste.html'),
-         gcp_performance: resolve(__dirname, 'gcp_performance.html'),
-         gcp_alerts: resolve(__dirname, 'gcp_alerts.html')
+         'gcp_cloudk8s.html': resolve(__dirname, 'gcp_cloudk8s.html'),
+         'gcp_performance.html': resolve(__dirname, 'gcp_performance.html'),
+         'gcp_alerts.html': resolve(__dirname, 'gcp_alerts.html')
+
         // Add any additional .html files here if missing from the directory listing
       },
     },
