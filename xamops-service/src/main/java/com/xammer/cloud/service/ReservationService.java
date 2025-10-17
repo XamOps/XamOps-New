@@ -106,7 +106,7 @@ public class ReservationService {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
         }
-        
+
         CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
         logger.info("Fetching reservation analysis for account {}...", account.getAwsAccountId());
         try {
@@ -119,7 +119,7 @@ public class ReservationService {
             List<CoverageByTime> coverages = ce.getReservationCoverage(covRequest).coveragesByTime();
             double utilizationPercentage = utilizations.isEmpty() || utilizations.get(0).total() == null ? 0.0 : Double.parseDouble(utilizations.get(0).total().utilizationPercentage());
             double coveragePercentage = coverages.isEmpty() || coverages.get(0).total() == null ? 0.0 : Double.parseDouble(coverages.get(0).total().coverageHours().coverageHoursPercentage());
-            
+
             DashboardData.ReservationAnalysis result = new DashboardData.ReservationAnalysis(utilizationPercentage, coveragePercentage);
             redisCache.put(cacheKey, result, 10);
             return CompletableFuture.completedFuture(result);
@@ -148,38 +148,45 @@ public class ReservationService {
                     .paymentOption(PaymentOption.fromValue(paymentOption))
                     // .offeringClass(OfferingClass.fromValue(offeringClass))
                     .service("Amazon Elastic Compute Cloud - Compute").build();
-            
+
             GetReservationPurchaseRecommendationResponse response = ce.getReservationPurchaseRecommendation(request);
 
             List<DashboardData.ReservationPurchaseRecommendation> result = response.recommendations().stream()
-                .filter(rec -> rec.recommendationDetails() != null && !rec.recommendationDetails().isEmpty())
-                .flatMap(rec -> rec.recommendationDetails().stream()
-                    .map(details -> {
-                        try {
-                            EC2InstanceDetails ec2Details = details.instanceDetails().ec2InstanceDetails();
-                            return new DashboardData.ReservationPurchaseRecommendation(
-                                ec2Details.family(),
-                                String.valueOf(details.recommendedNumberOfInstancesToPurchase()),
-                                String.valueOf(details.recommendedNormalizedUnitsToPurchase()),
-                                String.valueOf(details.minimumNumberOfInstancesUsedPerHour()),
-                                String.valueOf(details.estimatedMonthlySavingsAmount()),
-                                String.valueOf(details.estimatedMonthlyOnDemandCost()),
-                                String.valueOf(details.upfrontCost()),
-                                String.valueOf(rec.termInYears()),
-                                ec2Details.instanceType(),
-                                ec2Details.region(),
-                                ec2Details.platform(),
-                                ec2Details.tenancy(),
-                                ec2Details.currentGeneration() ? "Current" : "Previous",
-                                ec2Details.sizeFlexEligible()
-                            );
-                        } catch (Exception e) {
-                            logger.warn("Failed to process recommendation detail: {}", e.getMessage());
-                            return null;
-                        }
-                    }))
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
+                    .filter(rec -> rec.recommendationDetails() != null && !rec.recommendationDetails().isEmpty())
+                    .flatMap(rec -> rec.recommendationDetails().stream()
+                            .map(details -> {
+                                try {
+                                    EC2InstanceDetails ec2Details = details.instanceDetails().ec2InstanceDetails();
+
+                                    // FIX START: Calculate Estimated Recurring Monthly Cost
+                                    double monthlySavings = Double.parseDouble(details.estimatedMonthlySavingsAmount());
+                                    double monthlyOnDemandCost = Double.parseDouble(details.estimatedMonthlyOnDemandCost());
+                                    double estimatedRecurringMonthlyCost = monthlyOnDemandCost - monthlySavings;
+                                    // FIX END
+
+                                    return new DashboardData.ReservationPurchaseRecommendation(
+                                            ec2Details.family(),
+                                            String.valueOf(details.recommendedNumberOfInstancesToPurchase()),
+                                            String.valueOf(details.recommendedNormalizedUnitsToPurchase()),
+                                            String.valueOf(details.minimumNumberOfInstancesUsedPerHour()),
+                                            String.valueOf(monthlySavings),
+                                            String.valueOf(monthlyOnDemandCost),
+                                            String.valueOf(estimatedRecurringMonthlyCost), // <-- USED TO BE upfrontCost. Now it's the calculated recurring cost.
+                                            String.valueOf(rec.termInYears()),
+                                            ec2Details.instanceType(),
+                                            ec2Details.region(),
+                                            ec2Details.platform(),
+                                            ec2Details.tenancy(),
+                                            ec2Details.currentGeneration() ? "Current" : "Previous",
+                                            ec2Details.sizeFlexEligible()
+                                    );
+                                } catch (Exception e) {
+                                    logger.warn("Failed to process recommendation detail: {}", e.getMessage());
+                                    return null;
+                                }
+                            }))
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
             redisCache.put(cacheKey, result, 10);
             return CompletableFuture.completedFuture(result);
         } catch (Exception e) {
@@ -224,7 +231,7 @@ public class ReservationService {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
         }
-        
+
         CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
         logger.info("Fetching historical reservation data for the last 6 months for account {}...", account.getAwsAccountId());
         try {
@@ -241,7 +248,7 @@ public class ReservationService {
             List<String> labels = utilizations.stream().map(u -> LocalDate.parse(u.timePeriod().start()).format(DateTimeFormatter.ofPattern("MMM uuuu"))).collect(Collectors.toList());
             List<Double> utilPercentages = utilizations.stream().map(u -> Double.parseDouble(u.total().utilizationPercentage())).collect(Collectors.toList());
             List<Double> covPercentages = coverages.stream().map(c -> Double.parseDouble(c.total().coverageHours().coverageHoursPercentage())).collect(Collectors.toList());
-            
+
             HistoricalReservationDataDto result = new HistoricalReservationDataDto(labels, utilPercentages, covPercentages);
             redisCache.put(cacheKey, result, 10);
             return CompletableFuture.completedFuture(result);
@@ -352,7 +359,7 @@ public class ReservationService {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
         }
-        
+
         CloudAccount account = getAccount(accountId);
         CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
         logger.info("Fetching reservation cost by tag: {} for account {}", tagKey, accountId);
@@ -373,14 +380,14 @@ public class ReservationService {
 
             List<ResultByTime> results = ce.getCostAndUsage(request).resultsByTime();
             List<CostByTagDto> resultList = results.stream()
-                .flatMap(r -> r.groups().stream())
-                .map(g -> {
-                    String tagValue = g.keys().isEmpty() || g.keys().get(0).isEmpty() ? "Untagged" : g.keys().get(0);
-                    double cost = Double.parseDouble(g.metrics().get("AmortizedCost").amount());
-                    return new CostByTagDto(tagValue, cost);
-                })
-                .filter(dto -> dto.getCost() > 0.01)
-                .collect(Collectors.toList());
+                    .flatMap(r -> r.groups().stream())
+                    .map(g -> {
+                        String tagValue = g.keys().isEmpty() || g.keys().get(0).isEmpty() ? "Untagged" : g.keys().get(0);
+                        double cost = Double.parseDouble(g.metrics().get("AmortizedCost").amount());
+                        return new CostByTagDto(tagValue, cost);
+                    })
+                    .filter(dto -> dto.getCost() > 0.01)
+                    .collect(Collectors.toList());
             redisCache.put(cacheKey, resultList, 10);
             return CompletableFuture.completedFuture(resultList);
         } catch (Exception e) {
@@ -407,23 +414,23 @@ public class ReservationService {
             return CompletableFuture.completedFuture(Collections.emptyList());
         }
         List<CompletableFuture<List<T>>> futures = activeRegions.stream()
-            .map(regionStatus -> CompletableFuture.supplyAsync(() -> {
-                try {
-                    return fetchFunction.apply(regionStatus.getRegionId());
-                } catch (AwsServiceException e) {
-                    logger.warn("Reservation task failed for account {}: {} in region {}. AWS Error: {}", account.getAwsAccountId(), serviceName, regionStatus.getRegionId(), e.awsErrorDetails().errorMessage());
-                    return Collections.<T>emptyList();
-                } catch (Exception e) {
-                    logger.error("Reservation task failed for account {}: {} in region {}.", account.getAwsAccountId(), serviceName, regionStatus.getRegionId(), e);
-                    return Collections.<T>emptyList();
-                }
-            }))
-            .collect(Collectors.toList());
+                .map(regionStatus -> CompletableFuture.supplyAsync(() -> {
+                    try {
+                        return fetchFunction.apply(regionStatus.getRegionId());
+                    } catch (AwsServiceException e) {
+                        logger.warn("Reservation task failed for account {}: {} in region {}. AWS Error: {}", account.getAwsAccountId(), serviceName, regionStatus.getRegionId(), e.awsErrorDetails().errorMessage());
+                        return Collections.<T>emptyList();
+                    } catch (Exception e) {
+                        logger.error("Reservation task failed for account {}: {} in region {}.", account.getAwsAccountId(), serviceName, regionStatus.getRegionId(), e);
+                        return Collections.<T>emptyList();
+                    }
+                }))
+                .collect(Collectors.toList());
 
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-            .thenApply(v -> futures.stream()
-                .map(CompletableFuture::join)
-                .flatMap(List::stream)
-                .collect(Collectors.toList()));
+                .thenApply(v -> futures.stream()
+                        .map(CompletableFuture::join)
+                        .flatMap(List::stream)
+                        .collect(Collectors.toList()));
     }
 }
