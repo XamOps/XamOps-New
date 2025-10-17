@@ -23,4 +23,5 @@ public class ReservationInventoryDto {
     private Instant end;
     private int instanceCount;
     private String state;
+    private double utilizationPercentage;
 }
