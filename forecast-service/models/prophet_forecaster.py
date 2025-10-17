@@ -42,8 +42,8 @@ class ProphetForecaster:
             df = df.sort_values('ds').reset_index(drop=True)
 
             # Minimum data validation
-            if len(df) < 14:
-                raise ValueError(f"Insufficient data: {len(df)} points (minimum 14 required)")
+            if len(df) < 7:
+                raise ValueError(f"Insufficient data: {len(df)} points (minimum 7 required)")
 
             # ✅ CRITICAL FIX: Calculate statistics on NON-ZERO values for sparse data
             non_zero_costs = df[df['y'] > 0.01]['y']
