@@ -111,6 +111,7 @@ export default defineConfig({
          'gcp_waste': resolve(__dirname, 'gcp_waste.html'),
          'gcp_cloudk8s.html': resolve(__dirname, 'gcp_cloudk8s.html'),
          'gcp_performance.html': resolve(__dirname, 'gcp_performance.html'),
+         'gcp_reservations.html': resolve(__dirname, 'gcp_reservations.html'),
          'gcp_alerts.html': resolve(__dirname, 'gcp_alerts.html')
 
         // Add any additional .html files here if missing from the directory listing
