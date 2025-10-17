@@ -20,13 +20,13 @@ public class CloudDashboardApplication {
         SpringApplication.run(CloudDashboardApplication.class, args);
     }
 
-    @Bean
-    public RestTemplate restTemplate(RestTemplateBuilder builder) {
-        return builder
-                .setConnectTimeout(java.time.Duration.ofSeconds(30))
-                .setReadTimeout(java.time.Duration.ofSeconds(60))
-                .build();
-    }
+//    @Bean
+//    public RestTemplate restTemplate(RestTemplateBuilder builder) {
+//        return builder
+//                .setConnectTimeout(java.time.Duration.ofSeconds(30))
+//                .setReadTimeout(java.time.Duration.ofSeconds(60))
+//                .build();
+//    }
 
     @Bean
     public ObjectMapper objectMapper() {
