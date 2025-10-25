@@ -67,6 +67,10 @@ import com.google.cloud.scheduler.v1.CloudSchedulerClient;
 import com.google.cloud.bigquery.reservation.v1.ReservationServiceClient;
 import com.google.appengine.v1.ApplicationsClient;
 import com.google.appengine.v1.ApplicationsSettings;
+import com.google.cloud.compute.v1.RegionCommitmentsClient; // Added import
+import com.google.cloud.compute.v1.RegionCommitmentsSettings; // Added import
+import com.google.cloud.compute.v1.RegionsClient; // Added import
+import com.google.cloud.compute.v1.RegionsSettings; // Added import
 
 
 import lombok.extern.slf4j.Slf4j;
@@ -845,5 +849,18 @@ public class GcpClientProvider {
             log.error("Failed to create BigQuery Reservation client for project {}: {}", gcpProjectId, e.getMessage());
             return Optional.empty();
         }
+    }
+    public Optional<RegionsClient> getRegionsClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                RegionsSettings settings = RegionsSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials)
+                        .build();
+                return RegionsClient.create(settings);
+            } catch (IOException e) {
+                log.error("Failed to create RegionsClient for project ID: {}", gcpProjectId, e);
+                return null;
+            }
+        });
     }
 }
