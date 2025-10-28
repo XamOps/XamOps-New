@@ -31,7 +31,8 @@ public class GcpOptimizationRecommendation {
 
     /**
      * The estimated potential savings per month in USD.
-     * Negative value indicates cost increase (for underprovisioned resources).
+     * This is the calculated *savings* (current_price - recommended_price).
+     * A negative value indicates a cost increase (for underprovisioned resources).
      */
     private double monthlySavings;
 
@@ -60,11 +61,17 @@ public class GcpOptimizationRecommendation {
      */
     private String reason;
 
-    // Constructor for backward compatibility (without reason)
+    /**
+     * The actual cost of this specific resource over the last 30 days, if available.
+     * Populated from BigQuery billing export.
+     */
+    private Double last30DayCost;
+
+    // Constructor with 'reason' (9 args)
     public GcpOptimizationRecommendation(String resourceName, String currentMachineType,
                                          String recommendedMachineType, double monthlySavings,
                                          String service, String location, String recommendationId,
-                                         String recommendationType) {
+                                         String recommendationType, String reason) {
         this.resourceName = resourceName;
         this.currentMachineType = currentMachineType;
         this.recommendedMachineType = recommendedMachineType;
@@ -73,21 +80,25 @@ public class GcpOptimizationRecommendation {
         this.location = location;
         this.recommendationId = recommendationId;
         this.recommendationType = recommendationType;
-        this.reason = "";
+        this.reason = reason;
+        this.last30DayCost = null; // Set new field to null
     }
 
-    // Constructor for even older backward compatibility
+    // Constructor for backward compatibility (8 args)
+    public GcpOptimizationRecommendation(String resourceName, String currentMachineType,
+                                         String recommendedMachineType, double monthlySavings,
+                                         String service, String location, String recommendationId,
+                                         String recommendationType) {
+        this(resourceName, currentMachineType, recommendedMachineType, monthlySavings,
+                service, location, recommendationId, recommendationType, "");
+    }
+
+    // Constructor for even older backward compatibility (5 args)
     public GcpOptimizationRecommendation(String resourceName, String currentMachineType,
                                          String recommendedMachineType, double monthlySavings, String service) {
-        this.resourceName = resourceName;
-        this.currentMachineType = currentMachineType;
-        this.recommendedMachineType = recommendedMachineType;
-        this.monthlySavings = monthlySavings;
-        this.service = service;
-        this.location = "global";
-        this.recommendationId = "";
-        this.recommendationType = monthlySavings >= 0 ? "COST_SAVINGS" : "PERFORMANCE_IMPROVEMENT";
-        this.reason = "";
+        this(resourceName, currentMachineType, recommendedMachineType, monthlySavings,
+                service, "global", "",
+                monthlySavings >= 0 ? "COST_SAVINGS" : "PERFORMANCE_IMPROVEMENT", "");
     }
 
     /**

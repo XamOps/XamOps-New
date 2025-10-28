@@ -23,10 +23,12 @@ public class AiAdvisorService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
 
-    public AiAdvisorService(@Value("${groq.api.key}") String apiKey) {
+    public AiAdvisorService(@Value("${groq.api.key}") String apiKey,
+                            RestTemplate restTemplate,
+                            ObjectMapper objectMapper) {
         this.apiKey = apiKey;
-        this.restTemplate = new RestTemplate();
-        this.objectMapper = new ObjectMapper();
+        this.restTemplate = restTemplate;
+        this.objectMapper = objectMapper;
         logger.info("✅ AI Advisor Service initialized with Groq API");
     }
 

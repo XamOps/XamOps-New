@@ -420,16 +420,16 @@ public class DashboardData {
   }
 
   @Data
-  @AllArgsConstructor
   @NoArgsConstructor
+  @AllArgsConstructor
   public static class SecurityFinding {
-    private String resourceId;
-    private String region;
-    private String category;
+    private String id;
+    private String type;
     private String severity;
     private String description;
-    private String complianceFramework;
-    private String controlId;
+    private String region;
+    private String resource;
+    private String remediation;
   }
 
   @Data
