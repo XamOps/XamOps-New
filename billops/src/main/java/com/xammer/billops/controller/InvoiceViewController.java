@@ -29,7 +29,7 @@ public class InvoiceViewController {
     }
 
     /**
-     * MODIFIED: Endpoint to fetch a FINALIZED invoice for viewing on the frontend.
+     * MODIFIED: Endpoint to fetch a FINALIZED invoice DTO for viewing on the frontend.
      * This corresponds to the fetch call in invoices.html.
      */
     @GetMapping("/view")
@@ -38,17 +38,19 @@ public class InvoiceViewController {
             @RequestParam int year,
             @RequestParam int month) {
         try {
-            Invoice finalizedInvoice = invoiceManagementService.getInvoiceForUser(accountId, year, month);
-            if (finalizedInvoice == null) {
-                // This is the correct use of 404 - when the item truly isn't found
+            // Service method now returns InvoiceDto directly
+            InvoiceDto finalizedInvoiceDto = invoiceManagementService.getInvoiceForUser(accountId, year, month);
+
+            if (finalizedInvoiceDto == null) {
+                // Return 404 if the DTO is null (meaning the invoice wasn't found)
                 return ResponseEntity.notFound().build();
             }
-            // The error is likely happening in this fromEntity conversion
-            return ResponseEntity.ok(InvoiceDto.fromEntity(finalizedInvoice));
+            // Return the DTO directly
+            return ResponseEntity.ok(finalizedInvoiceDto);
         } catch (Exception e) {
-            // This will now log the real error (e.g., NullPointerException)
+            // Log the actual error
             logger.error("Error occurred while processing finalized invoice for account {}:", accountId, e);
-            // And return the correct 500 Internal Server Error status
+            // Return 500 Internal Server Error
             return ResponseEntity.internalServerError().build();
         }
     }
@@ -59,9 +61,22 @@ public class InvoiceViewController {
      */
     @PostMapping("/apply-discount-preview")
     public ResponseEntity<InvoiceDto> applyDiscountPreview(@RequestBody ApplyDiscountPreviewRequest request) {
-        InvoiceDto updatedInvoice = invoiceManagementService.applyDiscountToTemporaryInvoice(request.getInvoice(), request.getDiscount());
-        return ResponseEntity.ok(updatedInvoice);
+        // Ensure request and its contents are not null
+        if (request == null || request.getInvoice() == null || request.getDiscount() == null) {
+            logger.warn("Received invalid ApplyDiscountPreviewRequest: {}", request);
+            return ResponseEntity.badRequest().build();
+        }
+        try {
+            InvoiceDto updatedInvoice = invoiceManagementService.applyDiscountToTemporaryInvoice(request.getInvoice(), request.getDiscount());
+            return ResponseEntity.ok(updatedInvoice);
+        } catch (Exception e) {
+             logger.error("Error applying discount preview for account {}: {}",
+                          (request.getInvoice() != null ? request.getInvoice().getAwsAccountId() : "UNKNOWN"),
+                          e.getMessage(), e);
+            return ResponseEntity.internalServerError().build();
+        }
     }
+
 
     /**
      * Endpoint to generate and download a PDF of an invoice DTO.
@@ -69,18 +84,29 @@ public class InvoiceViewController {
      */
     @PostMapping("/download-preview")
     public ResponseEntity<byte[]> downloadInvoicePreview(@RequestBody InvoiceDto invoiceDto) {
+         // Basic validation
+        if (invoiceDto == null || invoiceDto.getAwsAccountId() == null || invoiceDto.getBillingPeriod() == null) {
+             logger.warn("Received invalid InvoiceDto for PDF download: {}", invoiceDto);
+             return ResponseEntity.badRequest().build();
+        }
         try {
             ByteArrayInputStream pdfStream = invoiceManagementService.generatePdfFromDto(invoiceDto);
             byte[] contents = pdfStream.readAllBytes();
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_PDF);
-            String filename = String.format("invoice-%s-%s.pdf", invoiceDto.getAwsAccountId(), invoiceDto.getBillingPeriod());
+             // Sanitize filename parts if necessary
+            String filename = String.format("invoice-%s-%s.pdf",
+                    invoiceDto.getAwsAccountId().replaceAll("[^a-zA-Z0-9_-]", ""), // Basic sanitization
+                    invoiceDto.getBillingPeriod().replaceAll("[^a-zA-Z0-9_-]", "") // Basic sanitization
+            );
+
             headers.setContentDispositionFormData("attachment", filename);
             headers.setCacheControl("must-revalidate, post-check=0, pre-check=0");
 
             return ResponseEntity.ok().headers(headers).body(contents);
         } catch (Exception e) {
+             logger.error("Error generating PDF preview for account {}: {}", invoiceDto.getAwsAccountId(), e.getMessage(), e);
             return ResponseEntity.internalServerError().build();
         }
     }

@@ -19,6 +19,9 @@ public class BillingDashboardDto {
     public static class CostHistory {
         private String date;
         private double cost;
+        
+        public CostHistory() {}
+
         public CostHistory(String date, double cost) {
             this.date = date;
             this.cost = cost;
@@ -30,6 +33,9 @@ public class BillingDashboardDto {
     public static class ServiceBreakdown {
         private String name;
         private double cost;
+
+        public ServiceBreakdown() {} // Add this no-argument constructor
+
         public ServiceBreakdown(String name, double cost) {
             this.name = name;
             this.cost = cost;
