@@ -100,6 +100,7 @@ public class GcpOptimizationService {
 
     @Cacheable(value = "gcpCudUtilization", key = "'gcp:cud-utilization:' + #gcpProjectId + ':' + #cudId")
     public GcpCudUtilizationDto getCudUtilizationSync(String gcpProjectId, String cudId) {
+        // Placeholder implementation
         return new GcpCudUtilizationDto();
     }
 
@@ -177,85 +178,29 @@ public class GcpOptimizationService {
 
     /**
      * Enhance Cloud SQL recommendations with actual instance details from SQL Admin API
+     * @deprecated Replaced by enhanceCloudSqlRecommendationsWithHistoricalCost
      */
+    @Deprecated
     private void enhanceCloudSqlRecommendations(String gcpProjectId, List<GcpOptimizationRecommendation> results) {
-        Optional<SQLAdmin> clientOpt = gcpClientProvider.getSqlAdminClient(gcpProjectId);
-        if (clientOpt.isEmpty()) {
-            log.warn("SQLAdmin client not available for project {}. Skipping instance details enhancement.", gcpProjectId);
-            return;
-        }
-
-        for (GcpOptimizationRecommendation dto : results) {
-            if ("Cloud SQL".equals(dto.getService())) {
-                // Skip if resource name is Unknown or looks like a UUID
-                if ("Unknown".equals(dto.getResourceName()) || isUuid(dto.getResourceName())) {
-                    log.warn("Skipping enhancement for invalid/UUID resource name: {}", dto.getResourceName());
-                    continue;
-                }
-
-                try {
-                    log.info("Fetching Cloud SQL instance details for: {}", dto.getResourceName());
-                    DatabaseInstance instance = clientOpt.get().instances()
-                            .get(gcpProjectId, dto.getResourceName())
-                            .execute();
-
-                    String currentTier = instance.getSettings().getTier();
-                    String region = instance.getRegion();
-
-                    // Calculate current price
-                    double currentPrice = calculateCloudSqlPrice(currentTier, region);
-
-                    dto.setCurrentMachineType(buildReadableTierDescription(currentTier, currentPrice));
-                    log.info("Enhanced recommendation for {} - current tier: {} (${}/mo)",
-                            dto.getResourceName(), currentTier, String.format("%.2f", currentPrice));
-
-                    // Format recommended tier if already extracted
-                    if (dto.getRecommendedMachineType() != null &&
-                            !"Unknown".equals(dto.getRecommendedMachineType()) &&
-                            !dto.getRecommendedMachineType().contains("$")) {
-
-                        // Calculate recommended price
-                        double recommendedPrice = calculateCloudSqlPrice(dto.getRecommendedMachineType(), region);
-                        dto.setRecommendedMachineType(buildReadableTierDescription(
-                                dto.getRecommendedMachineType(), recommendedPrice));
-
-                        // Recalculate actual savings based on pricing
-                        double actualSavings = currentPrice - recommendedPrice;
-                        dto.setMonthlySavings(actualSavings);
-                        log.info("Recalculated savings: current ${}/mo -> recommended ${}/mo = ${}/mo savings",
-                                String.format("%.2f", currentPrice),
-                                String.format("%.2f", recommendedPrice),
-                                String.format("%.2f", actualSavings));
-                    } else if ("Unknown".equals(dto.getRecommendedMachineType())) {
-                        // Infer recommended tier if not extracted
-                        String recommendedTier = inferRecommendedTier(currentTier, dto.getRecommendationType());
-                        double recommendedPrice = calculateCloudSqlPrice(recommendedTier, region);
-                        dto.setRecommendedMachineType(buildReadableTierDescription(recommendedTier, recommendedPrice));
-                    }
-
-                } catch (com.google.api.client.googleapis.json.GoogleJsonResponseException e) {
-                    if (e.getStatusCode() == 404) {
-                        log.error("Cloud SQL instance '{}' not found in project {}. It may have been deleted or renamed.",
-                                dto.getResourceName(), gcpProjectId);
-                    } else {
-                        log.error("API error fetching Cloud SQL instance details for {} in project {}: {} - {}",
-                                dto.getResourceName(), gcpProjectId, e.getStatusCode(), e.getMessage());
-                    }
-                } catch (Exception e) {
-                    log.error("Failed to fetch Cloud SQL instance details for {} in project {}: {}",
-                            dto.getResourceName(), gcpProjectId, e.getMessage());
-                }
-            }
-        }
+        // This method is kept for reference but logic is moved to
+        // enhanceCloudSqlRecommendationsWithHistoricalCost
     }
+
 
     /**
      * Calculate Cloud SQL monthly price based on tier
      * Prices from https://cloud.google.com/sql/pricing (2025)
+     *
+     * ✅ IMPROVEMENT (Point 2): Added warning for hardcoded region.
      */
     private double calculateCloudSqlPrice(String tier, String region) {
         if (tier == null || "Unknown".equals(tier)) {
             return 0.0;
+        }
+
+        // ✅ IMPROVEMENT (Point 2): Warn about hardcoded pricing
+        if (region != null && !region.startsWith("us-central1")) {
+            log.warn("Cloud SQL pricing is hardcoded for us-central1. Price for region '{}' may be inaccurate.", region);
         }
 
         // Hourly prices in USD (us-central1 region)
@@ -323,7 +268,7 @@ public class GcpOptimizationService {
         } else if ("db-g1-small".equals(tier)) {
             specs = "shared vCPU, 1.7 GB";
         } else if (tier.startsWith("db-n1-")) {
-            specs = "N1 standard";
+            specs = "N1 standard"; // Specs are implied by standard tier name
         }
 
         return String.format("%s (%s, $%.2f/mo)", tier, specs, monthlyPrice);
@@ -355,7 +300,7 @@ public class GcpOptimizationService {
                     int currentVcpu = Integer.parseInt(parts[2]);
                     int currentMemMb = Integer.parseInt(parts[3]);
                     int newVcpu = Math.max(1, currentVcpu / 2);
-                    int newMemMb = Math.max(3840, currentMemMb / 2);
+                    int newMemMb = Math.max(3840, currentMemMb / 2); // Ensure minimum memory for custom
                     return String.format("db-custom-%d-%d", newVcpu, newMemMb);
                 }
             }
@@ -392,7 +337,7 @@ public class GcpOptimizationService {
 
         double wasteSavings = waste.stream().mapToDouble(GcpWasteItem::getMonthlySavings).sum();
         double rightsizingSavings = rightsizing.stream()
-                .filter(r -> r.getMonthlySavings() >= 0)
+                .filter(r -> r.getMonthlySavings() >= 0) // Only count actual savings
                 .mapToDouble(GcpOptimizationRecommendation::getMonthlySavings)
                 .sum();
 
@@ -410,10 +355,10 @@ public class GcpOptimizationService {
 
         double totalSavings = waste.stream().mapToDouble(GcpWasteItem::getMonthlySavings).sum()
                 + rightsizing.stream()
-                .filter(r -> r.getMonthlySavings() >= 0)
+                .filter(r -> r.getMonthlySavings() >= 0) // Only count actual savings
                 .mapToDouble(GcpOptimizationRecommendation::getMonthlySavings)
                 .sum();
-        long criticalAlerts = rightsizing.size();
+        long criticalAlerts = rightsizing.size(); // Count all recommendations as alerts
 
         return new DashboardData.OptimizationSummary(totalSavings, criticalAlerts);
     }
@@ -442,9 +387,10 @@ public class GcpOptimizationService {
                     "google.compute.commitment.UsageCommitmentRecommender",
                     location,
                     this::mapToCudRecommendationDto,
-                    false));
+                    false)); // Billing account scope
         }
 
+        // Add project-level recommendations as well
         futures.add(getProjectLevelCudRecommendations(gcpProjectId));
 
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
@@ -452,7 +398,7 @@ public class GcpOptimizationService {
                     List<GcpOptimizationRecommendation> allRecommendations = futures.stream()
                             .map(CompletableFuture::join)
                             .flatMap(List::stream)
-                            .distinct()
+                            .distinct() // Ensure uniqueness based on content
                             .collect(Collectors.toList());
 
                     if (allRecommendations.isEmpty()) {
@@ -512,13 +458,13 @@ public class GcpOptimizationService {
                         GcpOptimizationRecommendation dto = mapToCudRecommendationDto(rec);
 
                         if (dto.getMonthlySavings() > 0) {
-                            dto.setLocation(location);
+                            dto.setLocation(location); // Set location based on query
 
                             // ✅ ENHANCED DEDUPLICATION: Create unique key based on actual content
                             String uniqueKey = String.format("%s|%s|%.2f",
                                     dto.getCurrentMachineType(),  // e.g., "3-year General-purpose E2 Memory"
                                     dto.getLocation(),             // e.g., "us-east1"
-                                    dto.getMonthlySavings()        // e.g., 1.16
+                                    dto.getMonthlySavings()        // e.g., 96.09
                             );
 
                             if (!uniqueKeys.contains(uniqueKey)) {
@@ -552,7 +498,7 @@ public class GcpOptimizationService {
 
 
     private CompletableFuture<List<GcpOptimizationRecommendation>> getProjectLevelCudRecommendations(String gcpProjectId) {
-        List<String> locations = Arrays.asList("global", "us-east1", "us-central1", "us-west1", "europe-west1");
+        List<String> locations = Arrays.asList("global", "us-east1", "us-central1", "us-west1", "europe-west1"); // Add more relevant regions if needed
 
         List<CompletableFuture<List<GcpOptimizationRecommendation>>> futures = locations.stream()
                 .map(location -> getRecommendationsForRecommender(
@@ -560,7 +506,7 @@ public class GcpOptimizationService {
                         "google.compute.commitment.UsageCommitmentRecommender",
                         location,
                         this::mapToCudRecommendationDto,
-                        true))
+                        true)) // Project scope
                 .collect(Collectors.toList());
 
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
@@ -576,10 +522,12 @@ public class GcpOptimizationService {
             if (clientOpt.isPresent()) {
                 try (ProjectsClient client = clientOpt.get()) {
                     Project project = client.getProject("projects/" + gcpProjectId);
+                    // Project name format is "projects/{project_number}"
                     String projectName = project.getName();
                     if (projectName.contains("/")) {
                         return projectName.split("/")[1];
                     }
+                    // Fallback, though typically the format includes the slash
                     return projectName;
                 }
             }
@@ -697,7 +645,7 @@ public class GcpOptimizationService {
                                         backup.getId().toString(),
                                         "Old Cloud SQL Backup",
                                         instance.getRegion(),
-                                        0.01
+                                        0.01 // Nominal cost, actual cost depends on size/duration
                                 ))
                                 .forEach(wasteItems::add);
                     }
@@ -726,8 +674,8 @@ public class GcpOptimizationService {
                         .map(disk -> new GcpWasteItem(
                                 disk.getName(),
                                 "Unattached Persistent Disk",
-                                disk.getZone().substring(disk.getZone().lastIndexOf('/') + 1),
-                                calculateDiskCost(disk.getSizeGb())
+                                disk.getZone().substring(disk.getZone().lastIndexOf('/') + 1), // Extract zone name
+                                calculateDiskCost(disk.getSizeGb()) // Estimate cost
                         ))
                         .collect(Collectors.toList());
             } catch (Exception e) {
@@ -745,13 +693,14 @@ public class GcpOptimizationService {
 
             try (ImagesClient client = clientOpt.get()) {
                 return StreamSupport.stream(client.list(gcpProjectId).iterateAll().spliterator(), false)
-                        .filter(image -> image.getFamily() == null || image.getFamily().isEmpty()
-                                && image.getDeprecated().getState().equals("DEPRECATED"))
+                        // Simple check: Look for deprecated images without families (might miss some)
+                        .filter(image -> (image.getFamily() == null || image.getFamily().isEmpty())
+                                && image.getDeprecated() != null && "DEPRECATED".equals(image.getDeprecated().getState()))
                         .map(image -> new GcpWasteItem(
                                 image.getName(),
                                 "Unused Custom Image",
                                 "global",
-                                0.05 * image.getDiskSizeGb()
+                                0.05 * image.getDiskSizeGb() // Estimate storage cost ($0.05/GB/month)
                         ))
                         .collect(Collectors.toList());
             } catch (Exception e) {
@@ -769,12 +718,12 @@ public class GcpOptimizationService {
 
             try (FirewallsClient client = clientOpt.get()) {
                 return StreamSupport.stream(client.list(gcpProjectId).iterateAll().spliterator(), false)
-                        .filter(Firewall::getDisabled)
+                        .filter(Firewall::getDisabled) // Only finds explicitly disabled rules
                         .map(firewall -> new GcpWasteItem(
                                 firewall.getName(),
-                                "Unused Firewall Rule",
+                                "Disabled Firewall Rule", // More specific type
                                 "global",
-                                0.0
+                                0.0 // No direct cost, but potential security risk or clutter
                         ))
                         .collect(Collectors.toList());
             } catch (Exception e) {
@@ -794,6 +743,7 @@ public class GcpOptimizationService {
             if (clientOpt.isEmpty()) return new ArrayList<>();
 
             try (RecommenderClient client = clientOpt.get()) {
+                // Most idle recommenders are global, but check specific recommender docs if needed
                 RecommenderName recommenderName = RecommenderName.of(gcpProjectId, "global", recommenderId);
                 log.info("Querying recommender '{}' for project {}", recommenderId, gcpProjectId);
 
@@ -812,15 +762,28 @@ public class GcpOptimizationService {
 
     private GcpWasteItem mapToWasteDto(Recommendation rec, String wasteType) {
         String resourceName = "N/A";
-        if (rec.getContent().getOverview().getFieldsMap().containsKey("resource")) {
-            resourceName = rec.getContent().getOverview().getFieldsMap().get("resource").getStringValue();
+        // Attempt to extract resource name more robustly
+        var overviewFields = rec.getContent().getOverview().getFieldsMap();
+        if (overviewFields.containsKey("resourceName")) {
+             resourceName = overviewFields.get("resourceName").getStringValue();
+        } else if (overviewFields.containsKey("resource")) {
+            resourceName = overviewFields.get("resource").getStringValue();
             resourceName = resourceName.substring(resourceName.lastIndexOf('/') + 1);
         }
 
         double monthlySavings = 0;
         if (rec.getPrimaryImpact().hasCostProjection()) {
-            monthlySavings = rec.getPrimaryImpact().getCostProjection().getCost().getNanos() / -1_000_000_000.0;
+            // Cost projection is negative for savings
+            Money costMoney = rec.getPrimaryImpact().getCostProjection().getCost();
+            double costImpact = costMoney.getUnits() + (costMoney.getNanos() / 1_000_000_000.0);
+            if (costImpact < 0) {
+                 monthlySavings = Math.abs(costImpact);
+            }
         }
+        
+        // TODO: Apply INR conversion if needed
+        // final double USD_TO_INR_RATE = 83.0;
+        // monthlySavings = monthlySavings * USD_TO_INR_RATE;
 
         return new GcpWasteItem(resourceName, wasteType, rec.getName(), monthlySavings);
     }
@@ -830,16 +793,31 @@ public class GcpOptimizationService {
         String currentMachineType = "N/A";
         String recommendedMachineType = "N/A";
 
+        // Extract machine types from description
         if (rec.getDescription().contains(" to ")) {
             String[] parts = rec.getDescription().split(" to ");
-            currentMachineType = parts[0].replace("Change machine type from ", "");
-            recommendedMachineType = parts[1];
+            // Example: "Change machine type from n1-standard-4 to n1-standard-2"
+            currentMachineType = parts[0].substring(parts[0].lastIndexOf(" ") + 1).trim();
+            recommendedMachineType = parts[1].trim();
         }
 
         double monthlySavings = 0;
         if (rec.getPrimaryImpact().hasCostProjection()) {
-            monthlySavings = rec.getPrimaryImpact().getCostProjection().getCost().getNanos() / -1_000_000_000.0;
+            // Cost projection is negative for savings
+            Money costMoney = rec.getPrimaryImpact().getCostProjection().getCost();
+            double costImpact = costMoney.getUnits() + (costMoney.getNanos() / 1_000_000_000.0);
+            
+            if (costImpact < 0) {
+                monthlySavings = Math.abs(costImpact); // Savings are positive
+            } else {
+                monthlySavings = -costImpact; // Cost increase is negative
+            }
         }
+        
+        // TODO: Apply INR conversion if needed
+        // final double USD_TO_INR_RATE = 83.0;
+        // monthlySavings = monthlySavings * USD_TO_INR_RATE;
+
 
         String location = extractLocation(rec.getName());
         String recommendationType = monthlySavings >= 0 ? "COST_SAVINGS" : "PERFORMANCE_IMPROVEMENT";
@@ -850,23 +828,26 @@ public class GcpOptimizationService {
                 currentMachineType,
                 recommendedMachineType,
                 monthlySavings,
-                "Compute Engine",
+                "Compute Engine", // Assuming this mapper is for Compute Engine
                 location,
                 rec.getName(),
                 recommendationType,
                 description);
     }
 
+    /**
+     * ✅ IMPROVEMENT (Point 1A):
+     * Refactored to correctly interpret cost projection from Recommender API.
+     * Negative cost projection = savings (positive monthlySavings).
+     * Positive cost projection = cost increase (negative monthlySavings).
+     */
     private GcpOptimizationRecommendation mapToSqlRightsizingDto(Recommendation rec) {
         String description = rec.getDescription();
         log.info("📊 Processing Cloud SQL Recommendation: {}", rec.getName());
         log.info("Description: {}", description);
 
         // Extract instance name
-        String resourceName = extractInstanceNameFromDescription(description);
-        if ("Unknown".equals(resourceName)) {
-            resourceName = extractResourceName(rec);
-        }
+        String resourceName = extractResourceName(rec);
         log.info("Instance name: {}", resourceName);
 
         // Determine recommendation type
@@ -892,13 +873,28 @@ public class GcpOptimizationService {
         String recommendedTier = extractRecommendedTierFromDescription(description);
         log.info("Recommended tier: {}", recommendedTier);
 
-        // Get cost projection (will be replaced with historical cost)
-        double costImpact = 0;
+        // ✅ IMPROVEMENT (Point 1A): Get cost projection from Recommender API (USD)
+        double monthlySavingsUsd = 0.0;
         if (rec.getPrimaryImpact().hasCostProjection()) {
-            double costNanos = rec.getPrimaryImpact().getCostProjection().getCost().getNanos();
-            double costUnits = rec.getPrimaryImpact().getCostProjection().getCost().getUnits();
-            costImpact = Math.abs(costUnits + (costNanos / 1_000_000_000.0));
+            Money costMoney = rec.getPrimaryImpact().getCostProjection().getCost();
+            double costImpactUsd = costMoney.getUnits() + (costMoney.getNanos() / 1_000_000_000.0);
+
+            if (costImpactUsd < 0) {
+                // Negative costImpact from API means savings
+                monthlySavingsUsd = Math.abs(costImpactUsd);
+                log.info("Recommender API savings (USD): ${}", String.format("%.2f", monthlySavingsUsd));
+            } else if (costImpactUsd > 0 && isUnderprovisioned) {
+                // Positive costImpact for underprovisioned means cost increase
+                monthlySavingsUsd = -costImpactUsd; // Store as negative
+                log.info("Recommender API cost increase (USD): ${}", String.format("%.2f", costImpactUsd));
+            }
+            // If costImpactUsd is 0, monthlySavingsUsd remains 0.0
         }
+
+        // Apply INR conversion immediately if value exists
+        final double USD_TO_INR_RATE = 83.0;
+        double monthlySavingsInr = monthlySavingsUsd * USD_TO_INR_RATE;
+
 
         String location = extractLocation(rec.getName());
 
@@ -906,7 +902,7 @@ public class GcpOptimizationService {
                 resourceName,
                 currentTier,
                 recommendedTier,
-                costImpact,  // Will be replaced with historical 30-day cost
+                monthlySavingsInr,  // Store INR value directly
                 "Cloud SQL",
                 location,
                 rec.getName(),
@@ -924,7 +920,7 @@ public class GcpOptimizationService {
             return "Unknown";
         }
 
-        log.info("Attempting to extract instance name from: {}", description);
+        log.debug("Attempting to extract instance name from: {}", description);
 
         try {
             // Pattern 1: "Instance: basic-mysql has had..." (WITH COLON - MOST COMMON)
@@ -933,7 +929,7 @@ public class GcpOptimizationService {
 
             if (matcher1.find()) {
                 String instanceName = matcher1.group(1);
-                log.info("✓ Successfully extracted instance name '{}' from description (pattern 1 - with colon)", instanceName);
+                log.debug("✓ Successfully extracted instance name '{}' (pattern 1)", instanceName);
                 return instanceName;
             }
 
@@ -943,7 +939,7 @@ public class GcpOptimizationService {
 
             if (matcher2.find()) {
                 String instanceName = matcher2.group(1);
-                log.info("✓ Successfully extracted instance name '{}' from description (pattern 2 - with colon)", instanceName);
+                log.debug("✓ Successfully extracted instance name '{}' (pattern 2)", instanceName);
                 return instanceName;
             }
 
@@ -953,7 +949,7 @@ public class GcpOptimizationService {
 
             if (matcher3.find()) {
                 String instanceName = matcher3.group(1);
-                log.info("✓ Successfully extracted instance name '{}' from description (pattern 3 - without colon)", instanceName);
+                log.debug("✓ Successfully extracted instance name '{}' (pattern 3)", instanceName);
                 return instanceName;
             }
 
@@ -963,9 +959,9 @@ public class GcpOptimizationService {
 
             if (matcher4.find()) {
                 String instanceName = matcher4.group(1);
-                // Filter out common English words
-                if (!instanceName.matches("(?i)(has|had|may|the|and|with|this)")) {
-                    log.info("✓ Successfully extracted instance name '{}' from description (pattern 4 - broadest)", instanceName);
+                // Filter out common English words that might be caught
+                if (!instanceName.matches("(?i)(has|had|may|the|and|with|this|perform|better)")) {
+                    log.debug("✓ Successfully extracted instance name '{}' (pattern 4)", instanceName);
                     return instanceName;
                 }
             }
@@ -974,7 +970,7 @@ public class GcpOptimizationService {
             log.error("ERROR while extracting instance name: {}", e.getMessage(), e);
         }
 
-        log.error("✗ FAILED to extract instance name from description: {}", description);
+        log.warn("✗ FAILED to extract instance name from description: {}", description);
         return "Unknown";
     }
 
@@ -1006,26 +1002,19 @@ public class GcpOptimizationService {
             log.warn("Failed to parse machine type from description: {}", e.getMessage());
         }
 
-        log.warn("✗ Could not extract recommended tier from description");
+        log.warn("✗ Could not extract recommended tier from description: {}", description);
         return "Unknown";
     }
 
     /**
      * Extract resource name from recommendation using multiple strategies
+     *
+     * ✅ IMPROVEMENT (Point 3): Prioritize structured fields, fall back to Regex.
      */
     private String extractResourceName(Recommendation rec) {
-        // Method 1: Parse instance name from description (HIGHEST PRIORITY for Cloud SQL)
-        String description = rec.getDescription();
-        if (description != null && description.toLowerCase().contains("instance")) {
-            String extracted = extractInstanceNameFromDescription(description);
-            if (!"Unknown".equals(extracted)) {
-                log.debug("Extracted resource name '{}' from description", extracted);
-                return extracted;
-            }
-        }
-
-        // Method 2: Direct resourceName field (but skip if it's a UUID)
         var fieldsMap = rec.getContent().getOverview().getFieldsMap();
+
+        // ✅ Method 1: Direct resourceName field (HIGHEST PRIORITY)
         if (fieldsMap.containsKey("resourceName")) {
             String resourceName = fieldsMap.get("resourceName").getStringValue();
             if (!isUuid(resourceName)) {
@@ -1036,7 +1025,7 @@ public class GcpOptimizationService {
             }
         }
 
-        // Method 3: Resource field (full path) - but skip if it's a UUID
+        // ✅ Method 2: Resource field (full path)
         if (fieldsMap.containsKey("resource")) {
             String fullPath = fieldsMap.get("resource").getStringValue();
             String extracted = fullPath.substring(fullPath.lastIndexOf('/') + 1);
@@ -1045,6 +1034,16 @@ public class GcpOptimizationService {
                 return extracted;
             } else {
                 log.debug("Skipping UUID from resource path: {}", extracted);
+            }
+        }
+
+        // ✅ Method 3: Parse instance name from description (FALLBACK, especially for Cloud SQL)
+        String description = rec.getDescription();
+        if (description != null && description.toLowerCase().contains("instance")) {
+            String extracted = extractInstanceNameFromDescription(description);
+            if (!"Unknown".equals(extracted)) {
+                log.debug("Extracted resource name '{}' from description as fallback", extracted);
+                return extracted;
             }
         }
 
@@ -1068,17 +1067,17 @@ public class GcpOptimizationService {
      */
     private String extractLocation(String recommendationName) {
         // Format: projects/{project}/locations/{location}/recommenders/{recommender}/recommendations/{id}
+        // or billingAccounts/{billing}/locations/{location}/recommenders/{recommender}/recommendations/{id}
         try {
-            String[] parts = recommendationName.split("/");
-            for (int i = 0; i < parts.length - 1; i++) {
-                if ("locations".equals(parts[i])) {
-                    return parts[i + 1];
-                }
+            Pattern pattern = Pattern.compile("/locations/([^/]+)/");
+            Matcher matcher = pattern.matcher(recommendationName);
+            if (matcher.find()) {
+                return matcher.group(1);
             }
         } catch (Exception e) {
-            log.debug("Failed to extract location from recommendation name", e);
+            log.debug("Failed to extract location from recommendation name: {}", recommendationName, e);
         }
-        return "global";
+        return "global"; // Default if pattern fails
     }
 
     private GcpOptimizationRecommendation mapToCudRecommendationDto(Recommendation rec) {
@@ -1086,7 +1085,7 @@ public class GcpOptimizationService {
         String description = rec.getDescription();
 
         // ✅ ENHANCED LOGGING: Log the full cost projection
-        log.info("🔍 Full recommendation details:");
+        log.info("🔍 Full CUD recommendation details:");
         log.info("  Name: {}", rec.getName());
         log.info("  Description: {}", description);
 
@@ -1100,8 +1099,9 @@ public class GcpOptimizationService {
         }
 
         // Extract ALL cost-related data from the recommendation
-        double monthlySavings = 0.0;
+        double monthlySavingsInr = 0.0;
         String currencyCode = "USD"; // Default
+        final double USD_TO_INR_RATE = 83.0; // Define conversion rate
 
         if (rec.getPrimaryImpact().hasCostProjection() &&
                 rec.getPrimaryImpact().getCostProjection().hasCost()) {
@@ -1117,56 +1117,66 @@ public class GcpOptimizationService {
                 long units = costMoney.getUnits();
                 int nanos = costMoney.getNanos();
 
-                // Calculate total cost
-                double totalCost = units + (nanos / 1000000000.0);
-                monthlySavings = Math.abs(totalCost);
-
-                // ✅ Convert USD to INR if needed (1 USD ≈ 83 INR as of 2025)
-                if ("USD".equals(currencyCode)) {
-                    monthlySavings = monthlySavings * 83.0; // USD to INR conversion
-                    log.info("💱 Converted from USD to INR: ${} → ₹{}",
-                            String.format("%.2f", Math.abs(totalCost)),
-                            String.format("%.2f", monthlySavings));
+                // Cost projection is negative for savings
+                double totalCostImpact = units + (nanos / 1000000000.0);
+                double monthlySavingsUsd = 0.0;
+                
+                // Savings = negative impact
+                if (totalCostImpact < 0) {
+                     monthlySavingsUsd = Math.abs(totalCostImpact);
                 }
 
-                log.info("💰 Final CUD savings: ₹{} (Currency: {})",
-                        String.format("%.2f", monthlySavings), currencyCode);
+                // ✅ Convert USD to INR
+                if ("USD".equals(currencyCode)) {
+                    monthlySavingsInr = monthlySavingsUsd * USD_TO_INR_RATE; // USD to INR conversion
+                    log.info("💱 Converted CUD savings from USD to INR: ${} → ₹{}",
+                            String.format("%.2f", monthlySavingsUsd),
+                            String.format("%.2f", monthlySavingsInr));
+                } else {
+                    // If currency is already INR or something else, use the absolute value
+                    monthlySavingsInr = Math.abs(totalCostImpact);
+                }
+
+
+                log.info("💰 Final CUD savings: ₹{} (Original Currency: {})",
+                        String.format("%.2f", monthlySavingsInr), currencyCode);
 
             } catch (Exception e) {
-                log.error("Failed to parse cost: {}", e.getMessage());
+                log.error("Failed to parse CUD cost: {}", e.getMessage());
             }
         }
 
-        // Rest of your code...
-        String commitmentType = "3-year";
+        // Extract commitment details from description
+        String commitmentType = "Unknown"; // Default
         String resourceType = "";
 
         if (description != null) {
-            if (description.contains("3-year") || description.contains("3 year")) {
+             if (description.contains("3 year")) {
                 commitmentType = "3-year";
-            } else if (description.contains("1-year") || description.contains("1 year")) {
+            } else if (description.contains("1 year")) {
                 commitmentType = "1-year";
             }
 
-            Pattern resourcePattern = Pattern.compile("(General-purpose [A-Z0-9]+ [A-Za-z]+)");
+            // Extract resource type like "General-purpose E2 Memory"
+            Pattern resourcePattern = Pattern.compile("for\\s+(General-purpose\\s+[A-Z0-9]+\\s+[A-Za-z]+)", Pattern.CASE_INSENSITIVE);
             Matcher resourceMatcher = resourcePattern.matcher(description);
             if (resourceMatcher.find()) {
                 resourceType = resourceMatcher.group(1);
-            }
-
-            if (!resourceType.isEmpty()) {
-                commitmentType = commitmentType + " " + resourceType;
+                commitmentType = commitmentType + " " + resourceType; // Combine like "3-year General-purpose E2 Memory"
+            } else if (commitmentType.equals("Unknown")) {
+                 // Fallback if year term wasn't found either
+                 commitmentType = description; // Use the description itself if parsing fails
             }
         }
 
-        String location = extractLocationFromRecommendationName(rec.getName());
+        String location = extractLocation(rec.getName()); // Use the general location extractor
 
         return new GcpOptimizationRecommendation(
                 resourceName,
-                commitmentType,
-                description != null ? description : "Purchase CUD",
-                monthlySavings,
-                "Commitment",
+                commitmentType, // This now holds the combined term and type
+                description != null ? description : "Purchase CUD", // Recommended Machine Type or Action
+                monthlySavingsInr, // Use the INR savings value
+                "Commitment", // Service category
                 location,
                 rec.getName(),
                 "COST_SAVINGS",
@@ -1177,37 +1187,31 @@ public class GcpOptimizationService {
 
     /**
      * Extract commitment amount from description, e.g., "for 1 GB"
+     * @deprecated This logic might be too specific and is better handled within mapToCudRecommendationDto if needed.
      */
+    @Deprecated
     private String extractCommitmentAmountFromDescription(String description) {
-        if (description == null) return "";
-
-        // Pattern: "for 1 GB" or "for X units"
+       // ... (kept for reference, but usage removed from mapToCudRecommendationDto)
+         if (description == null) return "";
         Pattern pattern = Pattern.compile("for\\s+(\\d+(?:\\.\\d+)?)\\s+([A-Z]+)", Pattern.CASE_INSENSITIVE);
         Matcher matcher = pattern.matcher(description);
         if (matcher.find()) {
             return String.format("%s %s", matcher.group(1), matcher.group(2));
         }
-
-        return "1 GB"; // Default for E2 Memory
+        return "N/A";
     }
     /**
      * ✅ HELPER: Extract location from recommendation name
+     * @deprecated Replaced by the general `extractLocation` method.
      */
+     @Deprecated
     private String extractLocationFromRecommendationName(String recommendationName) {
-        // Format: projects/{project}/locations/{location}/recommenders/{recommender}/recommendations/{id}
-        try {
-            Pattern pattern = Pattern.compile("/locations/([^/]+)/");
-            Matcher matcher = pattern.matcher(recommendationName);
-            if (matcher.find()) {
-                return matcher.group(1);
-            }
-        } catch (Exception e) {
-            log.debug("Could not extract location from: {}", recommendationName);
-        }
-        return "global";
+        return extractLocation(recommendationName);
     }
 
     private double calculateDiskCost(long sizeGb) {
+        // Standard PD cost: $0.10 per GB/month (us-central1, estimate)
+        // TODO: Apply INR conversion if needed
         return (sizeGb * 0.10);
     }
 
@@ -1217,26 +1221,32 @@ public class GcpOptimizationService {
         }
 
         try {
-            // Pattern: "uses the db-f1-micro machine type"
+            // Pattern: "uses the db-f1-micro machine type" or "Instance: ... uses the ..."
             Pattern pattern1 = Pattern.compile("uses the ([a-z0-9-]+) machine type", Pattern.CASE_INSENSITIVE);
             Matcher matcher1 = pattern1.matcher(description);
             if (matcher1.find()) {
                 String tier = matcher1.group(1);
-                log.info("✅ Extracted current tier: {}", tier);
+                log.info("✅ Extracted current tier '{}' from description", tier);
                 return tier;
             }
 
-            log.warn("⚠️ Could not extract current tier from description");
+            log.warn("⚠️ Could not extract current tier from description: {}", description);
             return "Unknown";
 
         } catch (Exception e) {
-            log.error("❌ Error extracting current tier: {}", e.getMessage(), e);
+            log.error("❌ Error extracting current tier from description '{}': {}", description, e.getMessage(), e);
             return "Unknown";
         }
     }
 
     /**
-     * ✅ FIXED: Enhance with historical cost data from Cloud SQL API + BigQuery
+     * ✅ IMPROVEMENT (Point 1B, 1C, 4):
+     * Enhance with historical cost data from BigQuery (for the new `last30DayCost` field).
+     * If Recommender API did not provide savings, calculate savings/cost
+     * from hardcoded prices as a fallback.
+     *
+     * ✅ FIX 2025-10-28 (v2): Apply INR conversion (x83) to the
+     * fallback savings calculation to match the dashboard currency.
      */
     private void enhanceCloudSqlRecommendationsWithHistoricalCost(
             String gcpProjectId,
@@ -1244,16 +1254,23 @@ public class GcpOptimizationService {
 
         Optional<SQLAdmin> clientOpt = gcpClientProvider.getSqlAdminClient(gcpProjectId);
         if (clientOpt.isEmpty()) {
-            log.warn("SQLAdmin client not available");
+            log.warn("SQLAdmin client not available for project {}. Skipping Cloud SQL enhancement.", gcpProjectId);
             return;
         }
 
         SQLAdmin sqlAdmin = clientOpt.get();
+        
+        // Conversion rate (USD to INR, matches CUD logic)
+        final double USD_TO_INR_RATE = 83.0;
 
         for (GcpOptimizationRecommendation dto : results) {
             if (!"Cloud SQL".equals(dto.getService())) continue;
 
             String instanceName = dto.getResourceName();
+            if ("Unknown".equals(instanceName) || isUuid(instanceName)) {
+                log.warn("Skipping enhancement for invalid/UUID resource name: {}", instanceName);
+                continue;
+            }
 
             try {
                 log.info("🔍 Fetching details for Cloud SQL instance: {}", instanceName);
@@ -1264,45 +1281,111 @@ public class GcpOptimizationService {
                 String currentTier = instance.getSettings().getTier();
                 String region = instance.getRegion();
 
-                // Update current tier if not extracted
-                if ("Unknown".equals(dto.getCurrentMachineType())) {
+                // Update current tier if it wasn't extracted successfully earlier
+                if ("Unknown".equals(dto.getCurrentMachineType()) || dto.getCurrentMachineType() == null) {
                     dto.setCurrentMachineType(currentTier);
+                    log.info("Updated current tier for '{}' from instance details: {}", instanceName, currentTier);
+                } else if (!dto.getCurrentMachineType().equals(currentTier)) {
+                     log.warn("Mismatch between extracted tier ('{}') and actual tier ('{}') for instance {}",
+                              dto.getCurrentMachineType(), currentTier, instanceName);
+                     // Optionally update to the actual tier: dto.setCurrentMachineType(currentTier);
                 }
 
-                // ✅ Calculate HISTORICAL 30-day cost from BigQuery billing data
-                double historicalCost = calculateCloudSqlHistoricalCost(gcpProjectId, instanceName);
 
-                // ✅ Set historical cost as the "monthly savings" field
-                dto.setMonthlySavings(historicalCost);
+                // ✅ IMPROVEMENT (Point 1C): Calculate *instance-specific* 30-day cost (INR)
+                double historicalCostInr = calculateCloudSqlHistoricalCost(gcpProjectId, instanceName);
 
-                log.info("💰 Instance '{}': Historical 30-day cost = ${}",
-                        instanceName, String.format("%.2f", historicalCost));
+                // ✅ IMPROVEMENT (Point 1C): Set historical cost to the new DTO field
+                if (historicalCostInr > 0) {
+                    dto.setLast30DayCost(historicalCostInr);
+                    log.info("💰 Instance '{}': Historical 30-day cost = ₹{}",
+                            instanceName, String.format("%.2f", historicalCostInr));
+                } else {
+                     log.warn("Could not retrieve historical cost for instance '{}'. last30DayCost will be null.", instanceName);
+                     dto.setLast30DayCost(null); // Explicitly set to null if no cost found
+                }
 
-                // Build readable descriptions
-                double currentPrice = calculateCloudSqlPrice(currentTier, region);
-                double recommendedPrice = calculateCloudSqlPrice(dto.getRecommendedMachineType(), region);
+                // Calculate estimated monthly prices in USD (used for descriptions and fallback)
+                double currentPriceUsd = calculateCloudSqlPrice(currentTier, region);
+                // Ensure recommended type is not null or unknown before calculating price
+                String recommendedTier = dto.getRecommendedMachineType();
+                double recommendedPriceUsd = ("Unknown".equals(recommendedTier) || recommendedTier == null)
+                                            ? 0.0
+                                            : calculateCloudSqlPrice(recommendedTier, region);
 
-                dto.setCurrentMachineType(buildReadableTierDescription(currentTier, currentPrice));
-                dto.setRecommendedMachineType(
-                        buildReadableTierDescription(dto.getRecommendedMachineType(), recommendedPrice));
 
-                log.info("✅ Enhanced recommendation for '{}': ${}/mo",
-                        instanceName, String.format("%.2f", historicalCost));
+                // ✅ IMPROVEMENT (Point 1B & 4): Fallback savings calculation (INR)
+                // If Recommender API gave no savings (INR value is 0.0), calculate from prices.
+                if (dto.getMonthlySavings() == 0.0 && currentPriceUsd > 0 && recommendedPriceUsd > 0) {
+                    if (dto.getRecommendationType().equals("COST_SAVINGS")) {
+                        double calculatedSavingsUsd = currentPriceUsd - recommendedPriceUsd;
+                        // Only set if savings are positive
+                        if (calculatedSavingsUsd > 0) {
+                             double calculatedSavingsInr = calculatedSavingsUsd * USD_TO_INR_RATE; // Convert to INR
+                             dto.setMonthlySavings(calculatedSavingsInr);
+                             log.info("Populated 'monthlySavings' from price diff: ₹{} ({} -> {})",
+                                    String.format("%.2f", calculatedSavingsInr), currentTier, recommendedTier);
+                        } else {
+                             log.warn("Calculated price difference for COST_SAVINGS recommendation is not positive (Current: ${}, Recommended: ${}). Keeping savings as 0.",
+                                       String.format("%.2f", currentPriceUsd), String.format("%.2f", recommendedPriceUsd));
+                        }
+                    } else if (dto.getRecommendationType().equals("PERFORMANCE_IMPROVEMENT")) {
+                        double calculatedCostIncreaseUsd = recommendedPriceUsd - currentPriceUsd;
+                         // Only set if cost increase is positive
+                         if (calculatedCostIncreaseUsd > 0) {
+                            double calculatedCostIncreaseInr = calculatedCostIncreaseUsd * USD_TO_INR_RATE; // Convert to INR
+                            dto.setMonthlySavings(-calculatedCostIncreaseInr); // Store as negative INR
+                             log.info("Populated 'monthlySavings' (cost increase) from price diff: ₹{} ({} -> {})",
+                                    String.format("%.2f", -calculatedCostIncreaseInr), currentTier, recommendedTier);
+                         } else {
+                              log.warn("Calculated price difference for PERFORMANCE_IMPROVEMENT recommendation is not positive (Current: ${}, Recommended: ${}). Keeping cost increase as 0.",
+                                       String.format("%.2f", currentPriceUsd), String.format("%.2f", recommendedPriceUsd));
+                         }
+                    }
+                }
 
+                // Build readable descriptions using the calculated USD prices
+                dto.setCurrentMachineType(buildReadableTierDescription(currentTier, currentPriceUsd));
+                dto.setRecommendedMachineType(buildReadableTierDescription(recommendedTier, recommendedPriceUsd));
+
+                log.info("✅ Enhanced recommendation for '{}': Savings: ₹{}/mo, Last 30d Cost: ₹{}/mo",
+                        instanceName,
+                        String.format("%.2f", dto.getMonthlySavings()),
+                        dto.getLast30DayCost() != null ? String.format("%.2f", dto.getLast30DayCost()) : "N/A");
+
+            } catch (com.google.api.client.googleapis.json.GoogleJsonResponseException e) {
+                if (e.getStatusCode() == 404) {
+                    log.error("Cloud SQL instance '{}' not found in project {}. It may have been deleted.",
+                            instanceName, gcpProjectId);
+                } else {
+                    log.error("API error enhancing Cloud SQL instance '{}' in project {}: {} - {}",
+                            instanceName, gcpProjectId, e.getStatusCode(), e.getMessage());
+                }
+                 // Set cost to null if instance details fail
+                 dto.setLast30DayCost(null);
+                 dto.setCurrentMachineType(buildReadableTierDescription(dto.getCurrentMachineType(), 0.0)); // Clear price if error
+                 dto.setRecommendedMachineType(buildReadableTierDescription(dto.getRecommendedMachineType(), 0.0));
             } catch (Exception e) {
-                log.error("❌ Failed to enhance instance '{}': {}", instanceName, e.getMessage(), e);
+                log.error("❌ Failed to enhance instance '{}' in project {}: {}", instanceName, gcpProjectId, e.getMessage(), e);
+                 // Set cost to null if instance details fail
+                 dto.setLast30DayCost(null);
+                 dto.setCurrentMachineType(buildReadableTierDescription(dto.getCurrentMachineType(), 0.0)); // Clear price if error
+                 dto.setRecommendedMachineType(buildReadableTierDescription(dto.getRecommendedMachineType(), 0.0));
             }
         }
     }
 
+
     /**
-     * ✅ NEW: Calculate historical 30-day cost from BigQuery billing export
+     * ✅ BUG FIX: Calculate historical 30-day cost *for a specific instance* (in INR)
+     * from BigQuery billing export.
+     * * ✅ FIX 2025-10-28: Changed query to use 'labels' instead of 'resource.name'.
      */
     private double calculateCloudSqlHistoricalCost(String gcpProjectId, String instanceName) {
         try {
             Optional<BigQuery> bqOpt = gcpClientProvider.getBigQueryClient(gcpProjectId);
             if (bqOpt.isEmpty()) {
-                log.warn("BigQuery client not available");
+                log.warn("BigQuery client not available for project {}", gcpProjectId);
                 return 0.0;
             }
 
@@ -1310,47 +1393,95 @@ public class GcpOptimizationService {
             Optional<String> tableNameOpt = getBillingTableName(bigquery, gcpProjectId);
 
             if (tableNameOpt.isEmpty()) {
-                log.warn("Billing table not found");
+                log.warn("Billing table not found for project {}. Cannot calculate historical cost.", gcpProjectId);
                 return 0.0;
             }
 
             LocalDate today = LocalDate.now();
             LocalDate startDate = today.minusDays(30);
 
+            // ✅ FIX: Use the label key for Cloud SQL instance name
+            String sqlInstanceLabelKey = "cloudsql.googleapis.com/instance_name";
+
             String query = String.format(
-                    "SELECT SUM(cost) as total_cost " +
+                    "SELECT SUM(cost) as total_cost, currency " + // Select currency as well
                             "FROM `%s` " +
                             "WHERE DATE(usage_start_time) >= '%s' " +
                             "  AND DATE(usage_start_time) <= '%s' " +
                             "  AND service.description = 'Cloud SQL' " +
                             "  AND project.id = '%s' " +
-                            "  AND cost > 0",
+                            // ✅ FIX: Query 'labels' array (UNNEST) instead of 'resource.name'
+                            "  AND EXISTS (SELECT 1 FROM UNNEST(labels) AS l WHERE l.key = '%s' AND l.value = '%s') " +
+                            "  AND cost > 0 " +
+                            "GROUP BY currency", // Group by currency
                     tableNameOpt.get(),
                     startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
                     today.format(DateTimeFormatter.ISO_LOCAL_DATE),
-                    gcpProjectId
+                    gcpProjectId,
+                    sqlInstanceLabelKey, // Pass the label key
+                    instanceName       // Pass the simple instance name (e.g., "basic-mysql")
             );
 
-            log.info("📊 Querying Cloud SQL 30-day cost for project: {}", gcpProjectId);
+            log.info("📊 Querying 30-day cost for Cloud SQL instance: {}", instanceName);
+            log.debug("BigQuery SQL: {}", query);
+
 
             TableResult results = bigquery.query(QueryJobConfiguration.newBuilder(query).build());
 
-            if (results.getTotalRows() > 0) {
-                FieldValue costField = results.getValues().iterator().next().get("total_cost");
+            double totalCostInr = 0.0;
+            final double USD_TO_INR_RATE = 83.0; // Keep consistent
 
-                if (!costField.isNull()) {
-                    double totalCost = costField.getDoubleValue();
-                    log.info("✅ Cloud SQL 30-day cost: ₹{} (project: {}, includes instance: {})",
-                            String.format("%.2f", totalCost), gcpProjectId, instanceName);
-                    return totalCost;
+             if (results.getTotalRows() == 0) {
+                 log.warn("⚠️ No 30-day Cloud SQL cost data found for instance: {} in project {}", instanceName, gcpProjectId);
+                 return 0.0;
+             }
+
+            for (FieldValueList row : results.iterateAll()) {
+                FieldValue costField = row.get("total_cost");
+                FieldValue currencyField = row.get("currency");
+
+                if (!costField.isNull() && !currencyField.isNull()) {
+                    double costValue = costField.getDoubleValue();
+                    String currency = currencyField.getStringValue();
+
+                    if ("USD".equalsIgnoreCase(currency)) {
+                        totalCostInr += costValue * USD_TO_INR_RATE;
+                        log.info("  Cost contribution (USD converted to INR): ${} -> ₹{}",
+                                 String.format("%.2f", costValue), String.format("%.2f", costValue * USD_TO_INR_RATE));
+                    } else if ("INR".equalsIgnoreCase(currency)) {
+                        totalCostInr += costValue;
+                         log.info("  Cost contribution (INR): ₹{}", String.format("%.2f", costValue));
+                    } else {
+                        log.warn("  Unsupported currency '{}' found in billing data for instance {}. Cost: {}",
+                                 currency, instanceName, costValue);
+                        // Decide how to handle other currencies - for now, add directly assuming it might be INR or local
+                        totalCostInr += costValue;
+                    }
                 }
             }
 
-            log.warn("⚠️ No Cloud SQL cost data found for project: {}", gcpProjectId);
-            return 0.0;
 
-        } catch (Exception e) {
-            log.error("❌ Error querying Cloud SQL cost for '{}': {}", instanceName, e.getMessage());
+            if (totalCostInr > 0) {
+                 log.info("✅ Total Cloud SQL 30-day cost for '{}': ₹{}",
+                            instanceName, String.format("%.2f", totalCostInr));
+                 return totalCostInr;
+            } else {
+                 // This case should ideally be covered by getTotalRows == 0, but added for safety
+                  log.warn("⚠️ Calculated total 30-day Cloud SQL cost for instance '{}' is zero or negative.", instanceName);
+                  return 0.0;
+            }
+
+
+        } catch (BigQueryException bqEx) {
+             log.error("❌ BigQuery Error querying Cloud SQL cost for '{}' in project {}: {} - {}",
+                      instanceName, gcpProjectId, bqEx.getCode(), bqEx.getMessage());
+             if (bqEx.getError() != null) {
+                  log.error("   Reason: {}, Location: {}", bqEx.getError().getReason(), bqEx.getError().getLocation());
+             }
+             return 0.0;
+        }
+        catch (Exception e) {
+            log.error("❌ Unexpected Error querying Cloud SQL cost for '{}' in project {}: {}", instanceName, gcpProjectId, e.getMessage(), e);
             return 0.0;
         }
     }
@@ -1358,21 +1489,30 @@ public class GcpOptimizationService {
      * ✅ Helper: Get billing table name
      */
     private Optional<String> getBillingTableName(BigQuery bigquery, String gcpProjectId) {
+        // Simple caching could be added here if this becomes a performance bottleneck
         try {
+            // Try searching in the project first
             for (Dataset dataset : bigquery.listDatasets(gcpProjectId).iterateAll()) {
                 for (Table table : bigquery.listTables(dataset.getDatasetId()).iterateAll()) {
-                    if (table.getTableId().getTable().startsWith("gcp_billing_export_v1")) {
+                    // Match standard v1 export pattern
+                    if (table.getTableId().getTable().startsWith("gcp_billing_export_v1_")) {
                         String fullName = String.format("%s.%s.%s",
                                 table.getTableId().getProject(),
                                 table.getTableId().getDataset(),
                                 table.getTableId().getTable());
-                        log.info("Found billing table: {}", fullName);
+                        log.info("Found billing table in project {}: {}", gcpProjectId, fullName);
                         return Optional.of(fullName);
                     }
                 }
             }
+            
+            // Fallback: If not in the project, it might be in a central billing project
+            // This requires knowing the billing project ID, which isn't directly available here.
+            // For now, log a warning and return empty. Consider passing billing project ID if available.
+            log.warn("Could not find billing table matching 'gcp_billing_export_v1_...' in project {}", gcpProjectId);
+
         } catch (Exception e) {
-            log.error("Failed to find billing table: {}", e.getMessage());
+            log.error("Failed to find billing table in project {}: {}", gcpProjectId, e.getMessage());
         }
         return Optional.empty();
     }
