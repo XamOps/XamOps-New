@@ -8,6 +8,7 @@ import com.xammer.cloud.dto.HistoricalCostDto;
 import com.xammer.cloud.service.gcp.GcpCostService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -33,6 +34,13 @@ public class ForecastingService {
     private final GcpCostService gcpCostService;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    // ✅ ADD THESE FIELD DECLARATIONS
+    @Value("${forecast.service.url}")
+    private String forecastServiceUrl;
+
+    @Value("${app.environment:local}")
+    private String environment;
 
     @Autowired
     public ForecastingService(CostService costService, GcpCostService gcpCostService, RestTemplate restTemplate) {
@@ -162,12 +170,10 @@ public class ForecastingService {
      * Generate AWS cost forecast with improved outlier preprocessing
      */
     public CompletableFuture<List<ForecastDto>> getCostForecast(String accountId, String serviceName, int periods) {
-        // Fetch 3x the forecast periods (or max 180 days) for better accuracy
         int historicalDays = Math.min(periods * 3, 180);
 
         return costService.getHistoricalCost(accountId, "ALL".equalsIgnoreCase(serviceName) ? null : serviceName, null, historicalDays, false)
                 .thenCompose(historicalCostData -> {
-                    // Validate sufficient historical data
                     if (historicalCostData == null || historicalCostData.getLabels() == null || historicalCostData.getLabels().size() < 14) {
                         log.warn("❌ Not enough historical cost data for AWS account {} to generate a forecast (found {} days).",
                                 accountId,
@@ -175,7 +181,6 @@ public class ForecastingService {
                         return CompletableFuture.completedFuture(new ArrayList<ForecastDto>());
                     }
 
-                    // Format historical data for Prophet
                     List<Map<String, Object>> formattedData = new ArrayList<>();
                     for (int i = 0; i < historicalCostData.getLabels().size(); i++) {
                         Map<String, Object> point = new HashMap<>();
@@ -184,10 +189,8 @@ public class ForecastingService {
                         formattedData.add(point);
                     }
 
-                    // ✅ Apply improved outlier filtering
                     List<Map<String, Object>> cleanedData = removeOutliers(formattedData);
 
-                    // ✅ NEW: For very sparse data (< 20% non-zero), filter out zero days entirely
                     long nonZeroCount = cleanedData.stream()
                             .filter(point -> ((Number) point.get("y")).doubleValue() > 0.01)
                             .count();
@@ -199,7 +202,6 @@ public class ForecastingService {
                     }
 
                     try {
-                        // Prepare HTTP request to Python Prophet service
                         HttpHeaders headers = new HttpHeaders();
                         headers.setContentType(MediaType.APPLICATION_JSON);
 
@@ -211,39 +213,39 @@ public class ForecastingService {
 
                         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
 
-                        log.info("📡 Calling Prophet forecast service with {} cleaned data points for {} periods",
-                                cleanedData.size(), periods);
+                        // ✅ CHANGED: Use configurable URL instead of hardcoded localhost
+                        String forecastUrl = forecastServiceUrl + "/forecast/cost";
 
-                        // Call Python Flask service
-                        String forecastJson = restTemplate.postForObject("http://localhost:5002/forecast/cost", entity, String.class);
+                        log.info("📡 [{}] Calling Prophet forecast service at {} with {} cleaned data points for {} periods",
+                                environment, forecastUrl, cleanedData.size(), periods);
 
-                        // ✅ FIX: Parse JSON response with "forecast" wrapper
+                        // ✅ CHANGED: Use forecastUrl variable
+                        String forecastJson = restTemplate.postForObject(forecastUrl, entity, String.class);
+
                         JsonNode responseNode = objectMapper.readTree(forecastJson);
 
-                        // Check for success status
                         if (responseNode.has("status") && !"success".equals(responseNode.get("status").asText())) {
                             log.error("❌ Prophet service returned error status");
                             return CompletableFuture.completedFuture(new ArrayList<ForecastDto>());
                         }
 
-                        // Extract forecast array
                         JsonNode forecastArray = responseNode.get("forecast");
                         if (forecastArray == null || !forecastArray.isArray()) {
                             log.error("❌ Invalid forecast response format - missing 'forecast' array");
                             return CompletableFuture.completedFuture(new ArrayList<ForecastDto>());
                         }
 
-                        // Deserialize forecast array to List<ForecastDto>
                         List<ForecastDto> forecast = objectMapper.readValue(
                                 forecastArray.toString(),
                                 new TypeReference<List<ForecastDto>>() {});
 
-                        log.info("✅ Forecast generated successfully: {} predictions", forecast.size());
+                        log.info("✅ [{}] Forecast generated successfully: {} predictions", environment, forecast.size());
 
                         return CompletableFuture.completedFuture(forecast);
 
                     } catch (Exception e) {
-                        log.error("❌ Error calling Python forecast service for AWS account {}", accountId, e);
+                        log.error("❌ [{}] Error calling Python forecast service for AWS account {}: {}",
+                                environment, accountId, e.getMessage());
                         return CompletableFuture.completedFuture(new ArrayList<ForecastDto>());
                     }
                 })

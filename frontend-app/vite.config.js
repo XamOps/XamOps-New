@@ -110,7 +110,9 @@ export default defineConfig({
             'gcp_cost': resolve(__dirname, 'gcp_cost.html'),
          'gcp_dashboard': resolve(__dirname, 'gcp_dashboard.html'),
          'gcp_finops': resolve(__dirname, 'gcp_finops.html'),
-        // 'gcp_highlighting': resolve(__dirname, 'ggcp_highlighting.html'),
+        'gcp-billing': resolve(__dirname, 'gcp-billing.html'),
+                'gcp_billing': resolve(__dirname, 'gcp_billing.html'),
+
          'gcp_rightsizing': resolve(__dirname, 'gcp_rightsizing.html'),
          'gcp_security': resolve(__dirname, 'gcp_security.html'),
          'gcp_waste': resolve(__dirname, 'gcp_waste.html'),

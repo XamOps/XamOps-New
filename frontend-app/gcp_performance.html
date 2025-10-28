@@ -3,45 +3,180 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>XamOps - GCP Performance</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>XamOps - GCP Performance Insights</title> <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-        <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
-<link rel="apple-touch-icon" href="/icons/XamOps.png">
-    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.0/dist/cdn.min.js"></script>
-    <script type="module" src="/src/main.js"></script>
+    <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
+    <link rel="apple-touch-icon" href="/icons/XamOps.png">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script type="module" src="/src/main.js"></script> <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+    body {
+        font-family: 'Inter', sans-serif;
+        background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+        min-height: 100vh;
+    }
 
-        body {
-            font-family: 'Inter', sans-serif;
-            overflow: hidden;
+    [x-cloak] {
+        display: none !important;
+    }
+
+    .glass-card {
+        background: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .severity-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: capitalize;
+    }
+
+    .severity-critical {
+        background: #fee2e2;
+        color: #dc2626;
+        border: 1px solid #fecaca;
+    }
+
+    .severity-warning {
+        background: #fef3c7;
+        color: #d97706;
+        border: 1px solid #fde68a;
+    }
+
+    .severity-weak-warning {
+        background: #fef9c3;
+        color: #ca8a04;
+        border: 1px solid #fef08a;
+    }
+
+    .insight-row {
+        transition: all 0.2s ease;
+        border-left: 4px solid transparent;
+    }
+
+    .insight-row:hover {
+        background: rgba(59, 130, 246, 0.05);
+        border-left-color: #3b82f6;
+    }
+
+    .filter-button {
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .filter-button.active {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        box-shadow: 0 4px 6px -1px rgba(102, 126, 234, 0.4);
+    }
+
+    .tab-button.active {
+        border-bottom-color: #4f46e5;
+        color: #4f46e5;
+    }
+
+    .bulk-action-bar {
+        background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(59, 130, 246, 0.05) 100%);
+        border: 1px solid rgba(59, 130, 246, 0.2);
+        animation: slideDown 0.3s ease-out;
+    }
+
+    @keyframes slideDown {
+        from {
+            transform: translateY(-20px);
+            opacity: 0;
         }
-
-        .coming-soon-gradient {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        to {
+            transform: translateY(0);
+            opacity: 1;
         }
+    }
 
-        .float-animation {
-            animation: float 6s ease-in-out infinite;
-        }
+    .skeleton {
+        background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+        background-size: 200% 100%;
+        animation: shimmer 1.5s infinite;
+        border-radius: 8px;
+    }
 
-        @keyframes float {
-            0%, 100% { transform: translateY(0px); }
-            50% { transform: translateY(-20px); }
+    @keyframes shimmer {
+        0% {
+            background-position: -200% 0;
         }
+        100% {
+            background-position: 200% 0;
+        }
+    }
 
-        .glow-effect {
-            box-shadow: 0 0 20px rgba(102, 126, 234, 0.3);
+    .metric-card {
+        position: relative;
+        overflow: hidden;
+    }
+
+    .metric-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 4px;
+        background: linear-gradient(90deg, #3b82f6, #8b5cf6, #06b6d4, #10b981);
+        background-size: 400% 100%;
+        animation: gradient 3s ease infinite;
+    }
+
+    @keyframes gradient {
+        0%, 100% {
+            background-position: 0% 50%;
         }
-    </style>
+        50% {
+            background-position: 100% 50%;
+        }
+    }
+
+    .btn-success {
+        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        border: none;
+        color: white;
+    }
+
+    .toast {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 12px 20px;
+        border-radius: 8px;
+        background: #10b981;
+        color: white;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        z-index: 1000;
+        transform: translateY(-100px);
+        transition: transform 0.3s ease;
+    }
+
+    .toast.show {
+        transform: translateY(0);
+    }
+
+    .toast.error {
+        background: #ef4444;
+    }
+
+</style>
 </head>
 <body class="bg-gray-50">
 <div class="flex h-screen overflow-hidden">
     <!-- Sidebar -->
   <include file="/_sidebar.html"></include>
-
 
     <!-- Main Content -->
     <div class="flex-1 flex flex-col h-screen overflow-hidden pl-64">
@@ -54,105 +189,204 @@
                         <div class="absolute inset-0" style="background-image: repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(102, 126, 234, 0.1) 10px, rgba(102, 126, 234, 0.1) 20px);"></div>
                     </div>
 
-                    <!-- Content -->
-                    <div class="relative z-10 text-center">
-                        <!-- Icon -->
-                        <div class="mb-6 flex justify-center">
-                            <div class="relative">
-                                <div class="w-20 h-20 coming-soon-gradient rounded-full flex items-center justify-center float-animation glow-effect">
-                                    <i class="fas fa-chart-line text-white text-3xl"></i>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6" x-show="!isLoading">
+                    <div class="glass-card metric-card rounded-2xl p-6 lg:col-span-1">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h3 class="text-gray-600 text-sm font-medium">Performance Score</h3>
+                                <p class="text-3xl font-bold text-gray-800 mt-1" x-text="summary.performanceScore || 0"></p>
+                            </div>
+                            <div class="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
+                                <i class="fas fa-tachometer-alt text-blue-600"></i>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="glass-card metric-card rounded-2xl p-6">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h3 class="text-gray-600 text-sm font-medium">Total Insights</h3>
+                                <p class="text-3xl font-bold text-gray-800 mt-1" x-text="summary.totalInsights || 0"></p>
+                            </div>
+                            <div class="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
+                                <i class="fas fa-lightbulb text-blue-600"></i>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="glass-card metric-card rounded-2xl p-6">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h3 class="text-gray-600 text-sm font-medium">Critical</h3>
+                                <p class="text-3xl font-bold text-red-600 mt-1" x-text="summary.critical || 0"></p>
+                            </div>
+                            <div class="w-12 h-12 bg-red-100 rounded-xl flex items-center justify-center">
+                                <i class="fas fa-exclamation-triangle text-red-600"></i>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="glass-card metric-card rounded-2xl p-6">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h3 class="text-gray-600 text-sm font-medium">Warnings</h3>
+                                <p class="text-3xl font-bold text-orange-600 mt-1" x-text="(summary.warning || 0) + (summary.weakWarning || 0)"></p>
+                            </div>
+                            <div class="w-12 h-12 bg-orange-100 rounded-xl flex items-center justify-center">
+                                <i class="fas fa-exclamation-circle text-orange-600"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6" x-show="isLoading" x-cloak>
+                    <template x-for="i in 4" :key="i">
+                        <div class="glass-card rounded-2xl p-6">
+                            <div class="flex items-center justify-between">
+                                <div class="flex-1">
+                                    <div class="skeleton h-4 w-20 mb-2"></div>
+                                    <div class="skeleton h-8 w-16"></div>
                                 </div>
-                                <div class="absolute -top-2 -right-2">
-                                        <span class="flex h-7 w-7">
-                                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75"></span>
-                                            <span class="relative inline-flex rounded-full h-7 w-7 bg-purple-500 items-center justify-center">
-                                                <i class="fas fa-rocket text-white text-xs"></i>
-                                            </span>
-                                        </span>
+                                <div class="skeleton w-12 h-12 rounded-xl"></div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <div class="glass-card rounded-2xl p-8">
+                    <div class="mb-6 border-b border-gray-200">
+                        <nav class="flex -mb-px" aria-label="Tabs">
+                            <button @click="activeTab = 'insights'" :class="{ 'active': activeTab === 'insights'}" class="tab-button w-1/2 py-4 px-1 text-center border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">
+                                Critical Insights
+                            </button>
+                            <button @click="activeTab = 'best_practices'" :class="{ 'active': activeTab === 'best_practices'}" class="tab-button w-1/2 py-4 px-1 text-center border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">
+                                Best Practice Audits
+                            </button>
+                        </nav>
+                    </div>
+
+                    <div x-show="activeTab === 'insights'">
+                        <div class="flex flex-wrap justify-between items-center gap-6 mb-8">
+                            <div x-show="selectedInsights.length === 0" class="flex flex-wrap items-center gap-4">
+                                <button @click="currentSeverity = 'ALL'" :class="{ 'active': currentSeverity === 'ALL' }" class="filter-button px-4 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-100">All Insights</button>
+                                <button @click="currentSeverity = 'CRITICAL'" :class="{ 'active': currentSeverity === 'CRITICAL' }" class="filter-button px-4 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-100">Critical</button>
+                                <button @click="currentSeverity = 'WARNING'" :class="{ 'active': currentSeverity === 'WARNING' }" class="filter-button px-4 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-100">Warning</button>
+                                <button @click="currentSeverity = 'WEAK_WARNING'" :class="{ 'active': currentSeverity === 'WEAK_WARNING' }" class="filter-button px-4 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-100">Weak warning</button>
+                            </div>
+
+                            <div x-show="selectedInsights.length > 0" x-cloak class="bulk-action-bar flex items-center gap-4 p-4 rounded-xl w-full">
+                                <div class="flex items-center space-x-2">
+                                    <i class="fas fa-check-circle text-blue-600"></i>
+                                    <span class="text-sm font-bold text-blue-800" x-text="`${selectedInsights.length} insight${selectedInsights.length > 1 ? 's' : ''} selected`"></span>
+                                </div>
+                                <div class="flex items-center gap-3 ml-auto">
+                                    <button @click="bulkArchive()" class="px-4 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-all">
+                                        <i class="fas fa-archive mr-2"></i>Archive Selected
+                                    </button>
+                                    <button @click="selectedInsights = []" class="text-gray-400 hover:text-gray-600 transition-colors">
+                                        <i class="fas fa-times"></i>
+                                    </button>
                                 </div>
                             </div>
                         </div>
 
-                        <!-- Title -->
-                        <h2 class="text-3xl font-bold text-gray-800 mb-3">
-                                <span class="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                                    Coming Soon
-                                </span>
-                        </h2>
-
-                        <!-- Description -->
-                        <p class="text-lg text-gray-600 mb-1 font-medium">
-                            GCP Performance Monitoring
-                        </p>
-                        <p class="text-gray-500 mb-6 max-w-2xl mx-auto text-sm">
-                            Track and analyze performance metrics of your running GCP services in real-time.
-                            Monitor CPU, memory, disk I/O, and network performance with beautiful visualizations.
-                        </p>
-
-                        <!-- Features Grid -->
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                            <div class="p-4 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl border border-blue-100">
-                                <div class="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center mb-3 mx-auto">
-                                    <i class="fas fa-tachometer-alt text-white text-lg"></i>
+                        <div x-show="isLoading" x-cloak class="space-y-4">
+                            <template x-for="i in 5" :key="i">
+                                <div class="flex items-center space-x-4 p-4 border border-gray-200 rounded-lg">
+                                    <div class="skeleton w-6 h-6 rounded"></div>
+                                    <div class="flex-1 space-y-2">
+                                        <div class="skeleton h-4 w-3/4 rounded"></div>
+                                        <div class="skeleton h-3 w-1/2 rounded"></div>
+                                    </div>
+                                    <div class="skeleton h-6 w-16 rounded-full"></div>
                                 </div>
-                                <h3 class="font-semibold text-gray-800 mb-1 text-sm">Real-time Metrics</h3>
-                                <p class="text-xs text-gray-600">Monitor live performance data from your GCP services</p>
-                            </div>
-
-                            <div class="p-4 bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl border border-purple-100">
-                                <div class="w-10 h-10 bg-purple-500 rounded-lg flex items-center justify-center mb-3 mx-auto">
-                                    <i class="fas fa-chart-area text-white text-lg"></i>
-                                </div>
-                                <h3 class="font-semibold text-gray-800 mb-1 text-sm">Visual Analytics</h3>
-                                <p class="text-xs text-gray-600">Beautiful charts and graphs for performance insights</p>
-                            </div>
-
-                            <div class="p-4 bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl border border-green-100">
-                                <div class="w-10 h-10 bg-green-500 rounded-lg flex items-center justify-center mb-3 mx-auto">
-                                    <i class="fas fa-bell text-white text-lg"></i>
-                                </div>
-                                <h3 class="font-semibold text-gray-800 mb-1 text-sm">Smart Alerts</h3>
-                                <p class="text-xs text-gray-600">Get notified when performance thresholds are exceeded</p>
-                            </div>
+                            </template>
                         </div>
 
-                        <!-- Status Badge -->
-                        <div class="inline-flex items-center px-5 py-2.5 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-full shadow-lg mb-6">
-                            <i class="fas fa-code-branch mr-2 text-sm"></i>
-                            <span class="font-semibold text-sm">In Development</span>
-                            <span class="ml-3 px-3 py-1 bg-white bg-opacity-20 rounded-full text-xs">
-                                    Q4 2025
-                                </span>
+                        <div x-show="!isLoading && filteredInsights.length > 0" x-cloak class="overflow-x-auto">
+                            <table class="w-full text-sm">
+                                <thead class="text-xs text-gray-700 uppercase bg-gray-50">
+                                <tr>
+                                    <th class="p-4 w-8">
+                                        <input type="checkbox" @change="toggleAllInsights" :checked="isAllSelected" class="rounded">
+                                    </th>
+                                    <th class="px-6 py-4 text-left font-bold">Insight</th>
+                                    <th class="px-6 py-4 text-center font-bold">Qty</th> <th class="px-6 py-4 text-left font-bold">Resource</th> </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200">
+                                <template x-for="insight in filteredInsights" :key="insight.id">
+                                    <tr class="insight-row" :class="selectedInsights.includes(insight.id) ? 'bg-blue-50 border-l-blue-500' : ''">
+                                        <td class="p-4">
+                                            <input type="checkbox" :value="insight.id" x-model="selectedInsights" class="rounded">
+                                        </td>
+                                        <td class="px-6 py-4">
+                                            <div class="flex items-start space-x-3">
+                                                <div class="flex-shrink-0 mt-1">
+                                                    <i class="fas" :class="{
+                                                        'fa-exclamation-triangle text-red-500': insight.severity === 'CRITICAL',
+                                                        'fa-exclamation-circle text-orange-500': insight.severity === 'WARNING',
+                                                        'fa-info-circle text-yellow-500': insight.severity === 'WEAK_WARNING'
+                                                    }"></i>
+                                                </div>
+                                                <div class="flex-1">
+                                                    <p class="font-medium text-gray-900 leading-relaxed" x-text="insight.insight"></p>
+                                                    <p class="text-xs text-gray-500 mt-1" x-text="insight.description" x-show="insight.description"></p>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td class="px-6 py-4 text-center">
+                                            <span class="inline-flex items-center justify-center w-6 h-6 text-xs font-bold text-white bg-blue-500 rounded-full"
+                                                  x-text="insight.quantity || 1"></span> </td>
+                                        <td class="px-6 py-4">
+                                            <span class="font-medium text-gray-900" x-text="insight.resourceType"></span>
+                                            <p class="text-xs text-gray-500 font-mono" x-text="insight.resourceId" x-show="insight.resourceId"></p>
+                                            <p class="text-xs text-gray-500" x-text="insight.region" x-show="insight.region"></p>
+                                        </td>
+                                    </tr>
+                                </template>
+                                </tbody>
+                            </table>
                         </div>
 
-                        <!-- Info Box -->
-                        <div class="p-5 bg-blue-50 border border-blue-200 rounded-xl">
-                            <div class="flex items-start space-x-3">
-                                <div class="flex-shrink-0">
-                                    <i class="fas fa-info-circle text-blue-500 text-xl mt-0.5"></i>
-                                </div>
-                                <div class="text-left">
-                                    <h4 class="font-semibold text-gray-800 mb-2 text-sm">What to Expect</h4>
-                                    <ul class="space-y-1.5 text-xs text-gray-600">
-                                        <li class="flex items-center">
-                                            <i class="fas fa-check-circle text-green-500 mr-2 text-sm"></i>
-                                            CPU, Memory, Disk, and Network monitoring
-                                        </li>
-                                        <li class="flex items-center">
-                                            <i class="fas fa-check-circle text-green-500 mr-2 text-sm"></i>
-                                            Customizable dashboards with multiple time ranges
-                                        </li>
-                                        <li class="flex items-center">
-                                            <i class="fas fa-check-circle text-green-500 mr-2 text-sm"></i>
-                                            Historical data analysis and trend predictions
-                                        </li>
-                                        <li class="flex items-center">
-                                            <i class="fas fa-check-circle text-green-500 mr-2 text-sm"></i>
-                                            Integration with GCP Cloud Monitoring API
-                                        </li>
-                                    </ul>
-                                </div>
+                        <div x-show="!isLoading && filteredInsights.length === 0" x-cloak class="text-center py-16">
+                            <div class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <i class="fas fa-search text-gray-400 text-xl"></i>
                             </div>
+                            <h3 class="text-lg font-semibold text-gray-800 mb-2">No insights found</h3>
+                            <p class="text-gray-600 mb-4">No performance insights available for the selected severity.</p>
+                            <button @click="loadInsights(true)" class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all">
+                                <i class="fas fa-sync-alt mr-2"></i>Refresh Insights
+                            </button>
+                        </div>
+                    </div>
+
+                    <div x-show="activeTab === 'best_practices'" x-cloak>
+                        <div x-show="!isLoading && bestPracticeInsights.length > 0" class="overflow-x-auto">
+                            <table class="w-full text-sm">
+                                <thead class="text-xs text-gray-700 uppercase bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-4 text-left font-bold">Recommendation</th>
+                                    <th class="px-6 py-4 text-left font-bold">Resource</th>
+                                    <th class="px-6 py-4 text-center font-bold">Savings</th>
+                                </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200">
+                                <template x-for="insight in bestPracticeInsights" :key="insight.id">
+                                    <tr class="insight-row">
+                                        <td class="px-6 py-4">
+                                            <p class="font-medium text-gray-900" x-text="insight.insight"></p>
+                                            <p class="text-xs text-gray-500" x-text="insight.description"></p>
+                                        </td>
+                                        <td class="px-6 py-4">
+                                            <p class="font-mono text-xs text-gray-700" x-text="insight.resourceId"></p>
+                                        </td>
+                                        <td class="px-6 py-4 text-center">
+                                            <span class="text-green-600 font-semibold" x-text="'$' + (insight.potentialSavings || 0).toFixed(2)"></span>
+                                        </td>
+                                    </tr>
+                                </template>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div x-show="!isLoading && bestPracticeInsights.length === 0" class="text-center py-16">
+                            <h3 class="text-lg font-semibold text-gray-800 mb-2">No Best Practice violations found!</h3>
                         </div>
                     </div>
                 </div>
@@ -160,5 +394,295 @@
         </main>
     </div>
 </div>
+
+<script>
+    function gcpPerformanceInsights() { // Changed function name
+        return {
+            isLoading: true,
+            isRefreshing: false,
+            isExporting: false,
+            insights: [],
+            selectedInsights: [],
+            currentSeverity: 'ALL',
+            summary: {},
+            activeTab: 'insights',
+            selectedGcpProjectId: null, // Changed from selectedAccountId
+            deduplicationCount: 0,
+            showToast: false,
+            toastMessage: '',
+            toastType: 'success',
+
+            init() {
+                const urlParams = new URLSearchParams(window.location.search);
+                // Use 'accountId' from URL for GCP Project ID
+                this.selectedGcpProjectId = urlParams.get('accountId');
+
+                if (!this.selectedGcpProjectId) {
+                    // Fallback to sessionStorage if needed (adjust key if necessary)
+                    const storedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                    // Assuming the first ID is the GCP Project ID if in single-select mode for GCP
+                    if (storedIds.length > 0) {
+                        this.selectedGcpProjectId = storedIds[0];
+                    }
+                }
+
+                if (this.selectedGcpProjectId) {
+                    this.loadInsights(false);
+                    this.loadSummary(false);
+                } else {
+                    console.error('GCP Project ID not found in URL or sessionStorage.');
+                    this.isLoading = false;
+                    this.showToastMessage('GCP Project ID missing', 'error');
+                }
+            },
+
+            loadInsights(forceRefresh = false) {
+                if (!this.selectedGcpProjectId) {
+                    this.isLoading = false;
+                    return;
+                }
+
+                // Changed cache key prefix
+                const cacheKey = `gcpPerformanceInsights-${this.selectedGcpProjectId}`;
+                const cachedData = sessionStorage.getItem(cacheKey);
+
+                if (cachedData && !forceRefresh) {
+                    this.insights = this.deduplicateInsights(JSON.parse(cachedData));
+                    this.isLoading = false;
+                    return;
+                }
+
+                 if (!cachedData || forceRefresh) { // Simplified condition
+                    this.isLoading = true; // Always show loading when fetching
+                }
+
+                if (forceRefresh) {
+                    this.isRefreshing = true;
+                    sessionStorage.removeItem(cacheKey); // Clear cache on force refresh
+                }
+
+                // Changed API endpoint and parameter name
+                fetch(`/api/xamops/gcp/performance-insights/insights?accountId=${this.selectedGcpProjectId}&forceRefresh=${forceRefresh}`)
+                    .then(res => {
+                        if (!res.ok) { throw new Error(`HTTP error! status: ${res.status}`); }
+                        return res.json();
+                     })
+                    .then(data => {
+                        const uniqueInsights = this.deduplicateInsights(data);
+                        this.insights = uniqueInsights;
+                        sessionStorage.setItem(cacheKey, JSON.stringify(uniqueInsights));
+
+                        if (this.deduplicationCount > 0) {
+                            this.showToastMessage(`Removed ${this.deduplicationCount} duplicate insights`, 'success');
+                        }
+                    })
+                    .catch(err => {
+                        console.error('Failed to load GCP insights', err);
+                        this.insights = [];
+                        this.showToastMessage('Failed to load GCP insights', 'error');
+                    })
+                    .finally(() => {
+                        this.isLoading = false;
+                        this.isRefreshing = false;
+                    });
+            },
+
+            // deduplicateInsights and createInsightKey remain largely the same, but ensure fields match GCP data
+             deduplicateInsights(insights) {
+                const seen = new Set();
+                const uniqueInsights = [];
+                this.deduplicationCount = 0;
+
+                (insights || []).forEach(insight => { // Added null check
+                    const key = this.createInsightKey(insight);
+
+                    if (!seen.has(key)) {
+                        seen.add(key);
+                        uniqueInsights.push(insight);
+                    } else {
+                        this.deduplicationCount++;
+                    }
+                });
+
+                return uniqueInsights;
+            },
+
+            // Make sure fields used here match the GcpPerformanceInsightDto (or the mapped PerformanceInsightDto)
+            createInsightKey(insight) {
+                 // Use resourceId if available, otherwise fallback to potentially generated ID
+                const idPart = insight.resourceId || insight.id || '';
+                return `${idPart}-${insight.insight || ''}-${insight.account || this.selectedGcpProjectId}-${insight.region || ''}`;
+            },
+
+
+            showToastMessage(message, type = 'success') {
+                this.toastMessage = message;
+                this.toastType = type;
+                this.showToast = true;
+
+                setTimeout(() => {
+                    this.showToast = false;
+                }, 3000);
+            },
+
+            loadSummary(forceRefresh = false) {
+                if (!this.selectedGcpProjectId) return;
+
+                // Changed cache key prefix
+                const cacheKey = `gcpPerformanceSummary-${this.selectedGcpProjectId}`;
+                const cachedData = sessionStorage.getItem(cacheKey);
+
+                if (cachedData && !forceRefresh) {
+                    this.summary = JSON.parse(cachedData);
+                    return;
+                }
+
+                if (forceRefresh) {
+                    sessionStorage.removeItem(cacheKey);
+                }
+
+                 // Changed API endpoint and parameter name
+                fetch(`/api/xamops/gcp/performance-insights/summary?accountId=${this.selectedGcpProjectId}&forceRefresh=${forceRefresh}`)
+                    .then(res => {
+                         if (!res.ok) { throw new Error(`HTTP error! status: ${res.status}`); }
+                        return res.json();
+                    })
+                    .then(data => {
+                        this.summary = data;
+                        sessionStorage.setItem(cacheKey, JSON.stringify(data));
+                    })
+                    .catch(err => {
+                        console.error('Failed to load GCP summary', err);
+                        this.summary = {}; // Reset summary on error
+                        this.showToastMessage('Failed to load summary data', 'error');
+                    });
+            },
+
+            // filteredInsights getter remains the same logic
+            get filteredInsights() {
+                return (this.insights || []).filter(i => { // Added null check
+                    if (i.category === 'BEST_PRACTICE') {
+                        return false;
+                    }
+                    if (this.currentSeverity === 'ALL') {
+                        return true;
+                    }
+                    // Ensure case-insensitivity for comparison
+                    return i.severity && i.severity.toUpperCase() === this.currentSeverity;
+                });
+            },
+
+
+            // bestPracticeInsights getter remains the same logic
+             get bestPracticeInsights() {
+                return (this.insights || []).filter(i => i.category === 'BEST_PRACTICE'); // Added null check
+            },
+
+
+            // isAllSelected getter remains the same logic
+            get isAllSelected() {
+                 const currentFiltered = this.filteredInsights; // Store result
+                 return currentFiltered.length > 0 &&
+                    this.selectedInsights.length === currentFiltered.length;
+            },
+
+
+            // toggleAllInsights remains the same logic
+             toggleAllInsights() {
+                const currentFiltered = this.filteredInsights; // Store result
+                if (this.isAllSelected) {
+                    this.selectedInsights = [];
+                } else {
+                    // Make sure 'id' field exists and is unique
+                    this.selectedInsights = currentFiltered.map(i => i.id || this.createInsightKey(i));
+                }
+            },
+
+            // bulkArchive remains the same logic, but uses GCP endpoint (currently placeholder)
+             bulkArchive() {
+                if (this.selectedInsights.length === 0) return;
+                if (!confirm(`Are you sure you want to archive ${this.selectedInsights.length} insights?`)) return;
+
+                // ** TODO: Update API endpoint if/when GCP archive is implemented **
+                const archiveEndpoint = '/api/xamops/gcp/performance-insights/bulk-archive'; // Example
+
+                fetch(archiveEndpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(this.selectedInsights)
+                })
+                    .then(res => {
+                        if (res.ok) {
+                             // Use createInsightKey for filtering if 'id' might be missing
+                            const selectedKeys = new Set(this.selectedInsights.map(id => {
+                                const insight = this.insights.find(i => (i.id || this.createInsightKey(i)) === id);
+                                return insight ? this.createInsightKey(insight) : id;
+                             }));
+                            this.insights = this.insights.filter(i => !selectedKeys.has(this.createInsightKey(i)));
+                            const count = this.selectedInsights.length;
+                            this.selectedInsights = [];
+                            this.loadSummary(true); // Refresh summary after archive
+                            this.showToastMessage(`${count} insights archived successfully`);
+                        } else {
+                             res.text().then(text => this.showToastMessage(`Failed to archive: ${text || 'Server error'}`, 'error'));
+                        }
+                    })
+                    .catch(err => {
+                        console.error('Failed to bulk archive GCP insights', err);
+                        this.showToastMessage('Archive request failed', 'error');
+                    });
+            },
+
+
+            // exportData remains the same logic, exports currently filtered insights
+             exportData() {
+                if (this.isLoading || this.isRefreshing) {
+                     this.showToastMessage('Please wait for data to load before exporting.', 'error');
+                     return;
+                 }
+                if(this.filteredInsights.length === 0) {
+                     this.showToastMessage('No insights to export for the current filter.', 'error');
+                    return;
+                }
+
+                this.isExporting = true;
+                const headers = ["ID", "Insight", "Description", "Severity", "Category", "Account", "Quantity", "Resource Type", "Resource ID", "Recommendation", "Documentation URL", "Potential Savings", "Region", "Created Date"];
+                 // Use filteredInsights for export
+                const rows = this.filteredInsights.map(insight => [
+                    `"${insight.id || this.createInsightKey(insight)}"`, // Use key if ID missing
+                    `"${(insight.insight || '').replace(/"/g, '""')}"`,
+                    `"${(insight.description || '').replace(/"/g, '""')}"`,
+                    `"${insight.severity || ''}"`,
+                    `"${insight.category || ''}"`,
+                    `"${insight.account || this.selectedGcpProjectId}"`, // Use project ID if account missing
+                    `"${insight.quantity || 1}"`, // Default quantity
+                    `"${insight.resourceType || ''}"`,
+                    `"${insight.resourceId || ''}"`,
+                    `"${(insight.recommendation || '').replace(/"/g, '""')}"`,
+                    `"${insight.documentationUrl || ''}"`,
+                    `"${(insight.potentialSavings || 0).toFixed(2)}"`, // Format savings
+                    `"${insight.region || ''}"`,
+                    `"${insight.createdDate || ''}"`
+                ]);
+
+                let csvContent = "data:text/csv;charset=utf-8,"
+                    + headers.join(",") + "\n"
+                    + rows.map(e => e.join(",")).join("\n");
+
+                var encodedUri = encodeURI(csvContent);
+                var link = document.createElement("a");
+                link.setAttribute("href", encodedUri);
+                // Changed filename
+                link.setAttribute("download", `gcp_performance_insights_${this.selectedGcpProjectId}.csv`);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                this.isExporting = false;
+                this.showToastMessage('GCP report exported successfully');
+            }
+        }
+    }
+</script>
+
 </body>
 </html>
