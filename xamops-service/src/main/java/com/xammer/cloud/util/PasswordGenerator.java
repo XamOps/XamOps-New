@@ -6,7 +6,7 @@ public class PasswordGenerator {
 
     public static void main(String[] args) {
         BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
-        String plainPassword = "8g41aWGMAhJMvnKj"; // Change this to your desired password
+        String plainPassword = "Admin"; // Change this to your desired password
         String hashedPassword = encoder.encode(plainPassword);
 
         System.out.println("Your Bcrypt hash is:");

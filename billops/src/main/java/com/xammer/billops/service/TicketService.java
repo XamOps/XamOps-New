@@ -11,6 +11,8 @@ import com.xammer.billops.repository.TicketReplyRepository;
 import com.xammer.billops.repository.TicketRepository;
 import com.xammer.billops.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,14 +29,13 @@ public class TicketService {
     private ClientRepository clientRepository;
     @Autowired
     private EmailService emailService;
-    // --- START: ADDED DEPENDENCIES ---
     @Autowired
     private TicketReplyRepository ticketReplyRepository;
     @Autowired
     private UserRepository userRepository;
-    // --- END: ADDED DEPENDENCIES ---
 
     @Transactional
+    @CacheEvict(value = "tickets", allEntries = true)
     public TicketDto createTicket(TicketDto ticketDto) {
         Client client = clientRepository.findById(ticketDto.getClientId())
                 .orElseThrow(() -> new RuntimeException("Client not found"));
@@ -44,7 +45,6 @@ public class TicketService {
         ticket.setDescription(ticketDto.getDescription());
         ticket.setStatus("OPEN");
         ticket.setClient(client);
-
         ticket.setCategory(ticketDto.getCategory());
         ticket.setService(ticketDto.getService());
         ticket.setSeverity(ticketDto.getSeverity());
@@ -59,15 +59,15 @@ public class TicketService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable("tickets")
     public List<TicketDto> getAllTickets() {
         return ticketRepository.findAll().stream()
                 .map(this::convertToDto)
                 .collect(Collectors.toList());
     }
 
-    // --- START: NEW METHODS ---
-
     @Transactional(readOnly = true)
+    @Cacheable(value = "tickets", key = "#ticketId")
     public TicketDto getTicketById(Long ticketId) {
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new RuntimeException("Ticket not found"));
@@ -75,6 +75,7 @@ public class TicketService {
     }
 
     @Transactional
+    @CacheEvict(value = "tickets", allEntries = true)
     public TicketDto addReplyToTicket(Long ticketId, TicketReplyDto replyDto) {
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new RuntimeException("Ticket not found"));
@@ -99,6 +100,7 @@ public class TicketService {
     }
 
     @Transactional
+    @CacheEvict(value = "tickets", allEntries = true)
     public TicketDto closeTicket(Long ticketId) {
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new RuntimeException("Ticket not found"));
@@ -108,8 +110,6 @@ public class TicketService {
         return convertToDto(updatedTicket);
     }
 
-    // --- END: NEW METHODS ---
-
     private TicketDto convertToDto(Ticket ticket) {
         TicketDto dto = new TicketDto();
         dto.setId(ticket.getId());
@@ -117,7 +117,6 @@ public class TicketService {
         dto.setDescription(ticket.getDescription());
         dto.setStatus(ticket.getStatus());
         dto.setCreatedAt(ticket.getCreatedAt());
-
         dto.setCategory(ticket.getCategory());
         dto.setService(ticket.getService());
         dto.setSeverity(ticket.getSeverity());
@@ -128,19 +127,16 @@ public class TicketService {
             dto.setClientId(ticket.getClient().getId());
         }
 
-        // --- START: MODIFIED SECTION ---
         if (ticket.getReplies() != null) {
             dto.setReplies(ticket.getReplies().stream()
-                .map(this::convertReplyToDto)
-                .sorted(Comparator.comparing(TicketReplyDto::getCreatedAt)) // Ensure chronological order
-                .collect(Collectors.toList()));
+                    .map(this::convertReplyToDto)
+                    .sorted(Comparator.comparing(TicketReplyDto::getCreatedAt)) // Ensure chronological order
+                    .collect(Collectors.toList()));
         }
-        // --- END: MODIFIED SECTION ---
 
         return dto;
     }
-    
-    // --- START: NEW HELPER METHOD ---
+
     private TicketReplyDto convertReplyToDto(TicketReply reply) {
         TicketReplyDto dto = new TicketReplyDto();
         dto.setId(reply.getId());
@@ -153,5 +149,4 @@ public class TicketService {
         }
         return dto;
     }
-    // --- END: NEW HELPER METHOD ---
 }

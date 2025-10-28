@@ -17,6 +17,8 @@ import com.xammer.billops.dto.ChargesByServiceDto;
 import com.xammer.billops.dto.CostAndUsageRecord;
 import com.xammer.billops.dto.InvoiceSummaryItem;
 import com.xammer.billops.repository.CloudAccountRepository;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -49,6 +51,7 @@ public class AwsInvoiceService {
         this.awsClientProvider = awsClientProvider;
     }
 
+    @Cacheable(value = "awsInvoice", key = "{#accountId, #year, #month}")
     public AwsInvoiceDto getInvoiceData(String accountId, int year, int month) {
         CloudAccount account = cloudAccountRepository.findByAwsAccountIdIn(Collections.singletonList(accountId))
                 .stream().findFirst()
@@ -61,6 +64,11 @@ public class AwsInvoiceService {
         List<CostAndUsageRecord> records = parseCostAndUsageReport(account, year, month);
 
         return processRecordsToInvoice(records, account, year, month);
+    }
+
+    @CacheEvict(value = "awsInvoice", allEntries = true)
+    public void evictInvoiceCache() {
+        // Method to manually evict the cache
     }
 
     private List<CostAndUsageRecord> parseCostAndUsageReport(CloudAccount account, int year, int month) {
@@ -124,10 +132,10 @@ public class AwsInvoiceService {
         invoice.setTotalPostTax(total);
 
         invoice.setHighestServiceSpend(
-            chargesByServiceList.stream()
-                .max(Comparator.comparing(ChargesByServiceDto::getTotalAmount))
-                .map(s -> new InvoiceSummaryItem(s.getServiceName(), s.getTotalAmount(), "N/A"))
-                .orElse(null)
+                chargesByServiceList.stream()
+                        .max(Comparator.comparing(ChargesByServiceDto::getTotalAmount))
+                        .map(s -> new InvoiceSummaryItem(s.getServiceName(), s.getTotalAmount(), "N/A"))
+                        .orElse(null)
         );
         
         // Placeholder for region spend, requires grouping by region as well
