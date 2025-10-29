@@ -58,7 +58,7 @@ export default defineConfig({
       input: {
         index: resolve(__dirname, 'index.html'),
         'account-manager': resolve(__dirname, 'account-manager.html'),
-        'user-manager': resolve(__dirname, 'user-manager.html'),
+        'users-manager': resolve(__dirname, 'users-manager.html'),
 
         'add-account': resolve(__dirname, 'add-account.html'),
         'add-gcp-account': resolve(__dirname, 'add-gcp-account.html'),
@@ -110,8 +110,8 @@ export default defineConfig({
             'gcp_cost': resolve(__dirname, 'gcp_cost.html'),
          'gcp_dashboard': resolve(__dirname, 'gcp_dashboard.html'),
          'gcp_finops': resolve(__dirname, 'gcp_finops.html'),
-        'gcp-billing': resolve(__dirname, 'gcp-billing.html'),
-                'gcp_billing': resolve(__dirname, 'gcp_billing.html'),
+         'gcp-billing': resolve(__dirname, 'billops/gcp-billing.html'),
+        //         'gcp_billing': resolve(__dirname, 'gcp_billing.html'),
 
          'gcp_rightsizing': resolve(__dirname, 'gcp_rightsizing.html'),
          'gcp_security': resolve(__dirname, 'gcp_security.html'),

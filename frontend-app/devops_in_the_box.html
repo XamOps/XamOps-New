@@ -10,14 +10,14 @@
 <link rel="apple-touch-icon" href="/icons/XamOps.png">
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.0/dist/cdn.min.js"></script>
     <script type="module" src="/src/main.js"></script>
-   
+
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-       
+
         body {
             font-family: 'Inter', sans-serif;
         }
-       
+
         .script-card {
             background: white;
             border-left: 4px solid;
@@ -46,14 +46,11 @@
 </head>
 <body class="bg-gray-50">
     <div class="flex h-screen overflow-hidden">
-        <!-- Sidebar -->
-   <include file="/_sidebar.html"></include>
+        <include file="/_sidebar.html"></include>
 
 
-        <!-- Main Content -->
         <div class="flex-1 flex flex-col overflow-hidden pl-64">
             <main class="flex-1 overflow-y-auto p-8" x-data="devopsBox()">
-                <!-- Header -->
                 <header class="mb-8">
                     <div class="flex items-center justify-between">
                         <div class="flex items-center space-x-4">
@@ -72,7 +69,6 @@
                     </div>
                 </header>
 
-                <!-- Search and Filter -->
                 <div class="mb-6 flex flex-col md:flex-row gap-4">
                     <div class="flex-1">
                         <div class="relative">
@@ -84,22 +80,22 @@
                         </div>
                     </div>
                     <div class="flex gap-2">
-                        <button @click="filterCategory = 'all'"
+                        <button @click="filterCategory = 'all'; searchTerm = ''"
                                 class="px-4 py-2 rounded-lg font-medium transition-colors"
                                 :class="filterCategory === 'all' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'">
                             All
                         </button>
-                        <button @click="filterCategory = 'terraform'"
+                        <button @click="filterCategory = 'terraform'; searchTerm = ''"
                                 class="px-4 py-2 rounded-lg font-medium transition-colors"
                                 :class="filterCategory === 'terraform' ? 'bg-purple-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'">
                             <i class="fab fa-terraform mr-2"></i>Terraform
                         </button>
-                        <button @click="filterCategory = 'bash'"
+                        <button @click="filterCategory = 'bash'; searchTerm = ''"
                                 class="px-4 py-2 rounded-lg font-medium transition-colors"
                                 :class="filterCategory === 'bash' ? 'bg-green-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'">
                             <i class="fas fa-terminal mr-2"></i>Bash
                         </button>
-                        <button @click="filterCategory = 'python'"
+                        <button @click="filterCategory = 'python'; searchTerm = ''"
                                 class="px-4 py-2 rounded-lg font-medium transition-colors"
                                 :class="filterCategory === 'python' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'">
                             <i class="fab fa-python mr-2"></i>Python
@@ -107,12 +103,13 @@
                     </div>
                 </div>
 
-                <!-- Loading State -->
                 <div x-show="isLoading" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <div class="animate-pulse bg-gray-200 h-48 rounded-xl" x-for="i in 6"></div>
+                     <template x-for="i in 6" :key="i">
+                        <div class="animate-pulse bg-gray-200 h-48 rounded-xl"></div>
+                    </template>
                 </div>
 
-                <!-- Scripts Grid -->
+
                 <div x-show="!isLoading" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     <template x-for="script in filteredScripts" :key="script.id">
                         <div class="script-card rounded-xl p-6 cursor-pointer"
@@ -141,16 +138,14 @@
                     </template>
                 </div>
 
-                <!-- Empty State -->
                 <div x-show="!isLoading && filteredScripts.length === 0" class="text-center py-16">
                     <div class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
                         <i class="fas fa-search text-gray-400 text-2xl"></i>
                     </div>
                     <h3 class="text-xl font-bold text-gray-800 mb-2">No Scripts Found</h3>
-                    <p class="text-gray-600">Try adjusting your search or filters</p>
+                    <p class="text-gray-600">Your search or filter returned no results. Try fetching from the backend.</p>
                 </div>
 
-                <!-- Script Detail Modal -->
                 <div x-show="selectedScript"
                      @keydown.escape.window="selectedScript = null"
                      class="fixed inset-0 z-50 overflow-y-auto bg-black bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4"
@@ -159,7 +154,6 @@
                     <div class="relative bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden"
                          @click.away="selectedScript = null"
                          x-transition>
-                        <!-- Modal Header -->
                         <div class="sticky top-0 z-10 bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 px-8 py-6 text-white">
                             <div class="flex items-center justify-between">
                                 <div class="flex items-center space-x-3">
@@ -176,10 +170,8 @@
                             </div>
                         </div>
 
-                        <!-- Modal Content -->
                         <div class="overflow-y-auto max-h-[calc(90vh-200px)] px-8 py-6">
                             <div class="space-y-6">
-                                <!-- Script Details -->
                                 <div class="grid grid-cols-2 gap-4">
                                     <div class="bg-gray-50 p-4 rounded-lg">
                                         <p class="text-sm text-gray-600 mb-1">Category</p>
@@ -199,10 +191,9 @@
                                     </div>
                                 </div>
 
-                                <!-- Code Preview -->
                                 <div class="bg-gray-900 rounded-lg p-6 overflow-x-auto">
                                     <div class="flex items-center justify-between mb-4">
-                                        <span class="text-gray-400 text-sm font-mono">main.tf</span>
+                                        <span class="text-gray-400 text-sm font-mono" x-text="getFileName(selectedScript)">main.tf</span>
                                         <button @click="copyCode()" class="text-gray-400 hover:text-white transition-colors">
                                             <i class="fas fa-copy"></i> Copy
                                         </button>
@@ -210,7 +201,6 @@
                                     <pre class="text-green-400 text-sm font-mono" x-text="selectedScript?.code"></pre>
                                 </div>
 
-                                <!-- Usage Instructions -->
                                 <div class="bg-blue-50 border border-blue-200 rounded-lg p-6">
                                     <h3 class="font-bold text-gray-900 mb-3 flex items-center">
                                         <i class="fas fa-info-circle text-blue-600 mr-2"></i>
@@ -221,7 +211,6 @@
                             </div>
                         </div>
 
-                        <!-- Modal Footer -->
                         <div class="sticky bottom-0 bg-white border-t border-gray-200 px-8 py-4 flex items-center justify-between">
                             <button @click="downloadScript()" class="flex items-center space-x-2 px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium shadow-md">
                                 <i class="fas fa-download"></i>
@@ -239,232 +228,65 @@
 
     <script>
         function devopsBox() {
+            // Define a key for sessionStorage
+            const STORAGE_KEY = 'devopsBoxScripts';
+
             return {
                 isLoading: true,
                 searchTerm: '',
                 filterCategory: 'all',
                 selectedScript: null,
-                scripts: [
-                    {
-                        id: 1,
-                        name: 'AWS EC2 Auto-scaling Setup',
-                        description: 'Terraform script to set up AWS EC2 auto-scaling groups with load balancer',
-                        category: 'terraform',
-                        downloads: 1234,
-                        lastUpdated: '2 days ago',
-                        version: '1.2.0',
-                        code: `resource "aws_autoscaling_group" "main" {
-  name                 = "my-asg"
-  vpc_zone_identifier  = var.subnet_ids
-  target_group_arns    = [aws_lb_target_group.main.arn]
-  health_check_type    = "ELB"
-  min_size             = 2
-  max_size             = 10
-  desired_capacity     = 3
+                scripts: [], // Start with empty array
 
-  launch_template {
-    id      = aws_launch_template.main.id
-    version = "$Latest"
-  }
+                // Helper function to fetch data
+                fetchScripts() {
+                    this.isLoading = true;
+                    fetch('http://localhost:8080/api/devops-scripts') // Fetch from your backend API
+                        .then(response => {
+                            if (!response.ok) {
+                                throw new Error('Network response was not ok');
+                            }
+                            return response.json();
+                        })
+                        .then(data => {
+                            // Map 'usageInstructions' to 'usage'
+                            this.scripts = data.map(script => {
+                                return { ...script, usage: script.usageInstructions };
+                            });
 
-  tag {
-    key                 = "Name"
-    value               = "my-asg-instance"
-    propagate_at_launch = true
-  }
-}`,
-                        usage: '<ol class="list-decimal ml-5 space-y-1"><li>Configure AWS credentials</li><li>Update variables.tf with your values</li><li>Run terraform init</li><li>Run terraform plan</li><li>Run terraform apply</li></ol>'
-                    },
-                    {
-                        id: 2,
-                        name: 'Automated Backup Script',
-                        description: 'Daily backup script for MySQL databases with S3 upload',
-                        category: 'bash',
-                        downloads: 856,
-                        lastUpdated: '1 week ago',
-                        version: '2.1.5',
-                        code: `#!/bin/bash
-TIMESTAMP=$(date +"%F")
-BACKUP_DIR="/backups/mysql/$TIMESTAMP"
-MYSQL_USER="backup_user"
-MYSQL_PASSWORD="$DB_PASSWORD"
-MYSQL_HOST="localhost"
-S3_BUCKET="s3://my-backups/mysql"
+                            // *** NEW: Save fetched data to sessionStorage ***
+                            try {
+                                sessionStorage.setItem(STORAGE_KEY, JSON.stringify(this.scripts));
+                                console.log('Scripts saved to sessionStorage.');
+                            } catch (e) {
+                                console.error('Error saving scripts to sessionStorage:', e);
+                            }
 
-mkdir -p "$BACKUP_DIR"
+                            this.isLoading = false;
+                        })
+                        .catch(error => {
+                            console.error('Error fetching scripts:', error);
+                            this.isLoading = false;
+                        });
+                },
 
-# Backup all databases
-mysqldump -u$MYSQL_USER -p$MYSQL_PASSWORD -h$MYSQL_HOST --all-databases > "$BACKUP_DIR/all-databases.sql"
-
-# Compress
-tar -czf "$BACKUP_DIR.tar.gz" "$BACKUP_DIR"
-
-# Upload to S3
-aws s3 cp "$BACKUP_DIR.tar.gz" "$S3_BUCKET/"
-
-# Cleanup old backups (keep last 7 days)
-find /backups/mysql -type f -mtime +7 -delete
-
-echo "Backup completed successfully"`,
-                        usage: '<ol class="list-decimal ml-5 space-y-1"><li>Set DB_PASSWORD environment variable</li><li>Configure AWS CLI credentials</li><li>Update S3_BUCKET variable</li><li>Add to crontab: 0 2 * * * /path/to/backup.sh</li></ol>'
-                    },
-                    {
-                        id: 3,
-                        name: 'GKE Cluster Provisioning',
-                        description: 'Terraform configuration for Google Kubernetes Engine cluster with node pools',
-                        category: 'terraform',
-                        downloads: 723,
-                        lastUpdated: '3 days ago',
-                        version: '1.0.0',
-                        code: `resource "google_container_cluster" "primary" {
-  name     = "my-gke-cluster"
-  location = var.region
- 
-  remove_default_node_pool = true
-  initial_node_count       = 1
-
-  network    = google_compute_network.vpc.name
-  subnetwork = google_compute_subnetwork.subnet.name
-}
-
-resource "google_container_node_pool" "primary_nodes" {
-  name       = "my-node-pool"
-  location   = var.region
-  cluster    = google_container_cluster.primary.name
-  node_count = var.gke_num_nodes
-
-  node_config {
-    oauth_scopes = [
-      "https://www.googleapis.com/auth/cloud-platform"
-    ]
-
-    machine_type = "n1-standard-1"
-    disk_size_gb = 100
-    disk_type    = "pd-standard"
-  }
-}`,
-                        usage: '<ol class="list-decimal ml-5 space-y-1"><li>Set up GCP credentials</li><li>Create terraform.tfvars</li><li>Run terraform init</li><li>Run terraform apply</li><li>Configure kubectl: gcloud container clusters get-credentials</li></ol>'
-                    },
-                    {
-                        id: 4,
-                        name: 'Log Rotation & Cleanup',
-                        description: 'Python script to rotate and compress application logs automatically',
-                        category: 'python',
-                        downloads: 512,
-                        lastUpdated: '5 days ago',
-                        version: '1.3.2',
-                        code: `import os
-import gzip
-import shutil
-from datetime import datetime, timedelta
-
-LOG_DIR = "/var/log/myapp"
-MAX_AGE_DAYS = 30
-MAX_SIZE_MB = 100
-
-def rotate_logs():
-    for filename in os.listdir(LOG_DIR):
-        filepath = os.path.join(LOG_DIR, filename)
-       
-        if os.path.isfile(filepath):
-            # Check file age
-            file_time = datetime.fromtimestamp(os.path.getmtime(filepath))
-            if datetime.now() - file_time > timedelta(days=MAX_AGE_DAYS):
-                os.remove(filepath)
-                print(f"Deleted old log: {filename}")
-                continue
-           
-            # Compress large files
-            size_mb = os.path.getsize(filepath) / (1024 * 1024)
-            if size_mb > MAX_SIZE_MB and not filename.endswith('.gz'):
-                with open(filepath, 'rb') as f_in:
-                    with gzip.open(f"{filepath}.gz", 'wb') as f_out:
-                        shutil.copyfileobj(f_in, f_out)
-                os.remove(filepath)
-                print(f"Compressed: {filename}")
-
-if __name__ == "__main__":
-    rotate_logs()`,
-                        usage: '<ol class="list-decimal ml-5 space-y-1"><li>Update LOG_DIR variable</li><li>Adjust MAX_AGE_DAYS and MAX_SIZE_MB</li><li>Run: python log_rotate.py</li><li>Schedule with cron or systemd timer</li></ol>'
-                    },
-                    {
-                        id: 5,
-                        name: 'SSL Certificate Renewal',
-                        description: 'Automated Let\'s Encrypt SSL certificate renewal with nginx reload',
-                        category: 'bash',
-                        downloads: 943,
-                        lastUpdated: '1 day ago',
-                        version: '3.0.1',
-                        code: `#!/bin/bash
-DOMAIN="example.com"
-EMAIL="admin@example.com"
-WEBROOT="/var/www/html"
-
-# Request certificate
-certbot certonly --webroot -w $WEBROOT -d $DOMAIN -d www.$DOMAIN \\
-  --email $EMAIL --agree-tos --non-interactive
-
-# Check if renewal was successful
-if [ $? -eq 0 ]; then
-    echo "Certificate renewed successfully"
-   
-    # Reload nginx
-    systemctl reload nginx
-   
-    # Send notification
-    curl -X POST https://hooks.slack.com/services/YOUR/WEBHOOK/URL \\
-      -H 'Content-Type: application/json' \\
-      -d "{\"text\":\"SSL certificate renewed for $DOMAIN\"}"
-else
-    echo "Certificate renewal failed"
-    exit 1
-fi`,
-                        usage: '<ol class="list-decimal ml-5 space-y-1"><li>Install certbot</li><li>Update DOMAIN and EMAIL variables</li><li>Configure webhook URL for notifications</li><li>Add to crontab: 0 3 * * * /path/to/ssl-renew.sh</li></ol>'
-                    },
-                    {
-                        id: 6,
-                        name: 'Docker Cleanup Script',
-                        description: 'Remove unused Docker images, containers, and volumes to free up space',
-                        category: 'bash',
-                        downloads: 1567,
-                        lastUpdated: '4 days ago',
-                        version: '2.0.0',
-                        code: `#!/bin/bash
-
-echo "🧹 Starting Docker cleanup..."
-
-# Stop all running containers
-echo "Stopping all running containers..."
-docker stop $(docker ps -aq) 2>/dev/null
-
-# Remove all stopped containers
-echo "Removing stopped containers..."
-docker container prune -f
-
-# Remove unused images
-echo "Removing unused images..."
-docker image prune -a -f
-
-# Remove unused volumes
-echo "Removing unused volumes..."
-docker volume prune -f
-
-# Remove unused networks
-echo "Removing unused networks..."
-docker network prune -f
-
-# Show disk space freed
-docker system df
-
-echo "✅ Docker cleanup completed!"`,
-                        usage: '<ol class="list-decimal ml-5 space-y-1"><li>Ensure Docker is installed</li><li>Run with sudo if needed</li><li>WARNING: This will stop all containers</li><li>Schedule weekly: 0 2 * * 0 /path/to/docker-cleanup.sh</li></ol>'
-                    }
-                ],
-
+                // init() now checks sessionStorage first
                 init() {
-                    setTimeout(() => {
-                        this.isLoading = false;
-                    }, 1000);
+                    const cachedScripts = sessionStorage.getItem(STORAGE_KEY);
+                    if (cachedScripts) {
+                        console.log('Loading scripts from sessionStorage.');
+                        try {
+                            this.scripts = JSON.parse(cachedScripts);
+                            this.isLoading = false;
+                        } catch (e) {
+                            console.error('Error parsing scripts from sessionStorage:', e);
+                            sessionStorage.removeItem(STORAGE_KEY);
+                            this.fetchScripts();
+                        }
+                    } else {
+                        console.log('No scripts in sessionStorage, fetching from API.');
+                        this.fetchScripts();
+                    }
                 },
 
                 get filteredScripts() {
@@ -477,24 +299,26 @@ echo "✅ Docker cleanup completed!"`,
                     if (this.searchTerm) {
                         const term = this.searchTerm.toLowerCase();
                         filtered = filtered.filter(s =>
-                            s.name.toLowerCase().includes(term) ||
-                            s.description.toLowerCase().includes(term)
+                            (s.name && s.name.toLowerCase().includes(term)) ||
+                            (s.description && s.description.toLowerCase().includes(term))
                         );
                     }
 
                     return filtered;
                 },
 
+                // refreshScripts() now clears storage before fetching
                 refreshScripts() {
-                    this.isLoading = true;
-                    setTimeout(() => {
-                        this.isLoading = false;
-                    }, 1000);
+                    console.log('Clearing sessionStorage and refreshing scripts from API.');
+                    sessionStorage.removeItem(STORAGE_KEY);
+                    this.fetchScripts();
                 },
 
                 viewScript(script) {
                     this.selectedScript = script;
                 },
+
+                // --- Helper functions ---
 
                 getCategoryColor(category) {
                     const colors = {
@@ -526,20 +350,32 @@ echo "✅ Docker cleanup completed!"`,
                     return icons[category] || 'fas fa-file-code';
                 },
 
+                getFileName(script) {
+                    if (!script) return 'script.txt';
+                    const name = script.name.replace(/\s+/g, '-').toLowerCase();
+                    switch (script.category) {
+                        case 'python': return `${name}.py`;
+                        case 'bash': return `${name}.sh`;
+                        case 'terraform': return `main.tf`; // Consistent for Terraform
+                        default: return `${name}.txt`;
+                    }
+                },
+
                 copyCode() {
+                    if (!this.selectedScript?.code) return;
                     navigator.clipboard.writeText(this.selectedScript.code);
                     alert('Code copied to clipboard!');
                 },
 
                 downloadScript() {
+                    if (!this.selectedScript?.code) return;
                     const element = document.createElement('a');
                     const file = new Blob([this.selectedScript.code], {type: 'text/plain'});
                     element.href = URL.createObjectURL(file);
-                    element.download = `${this.selectedScript.name.replace(/\s+/g, '-').toLowerCase()}.${this.selectedScript.category === 'python' ? 'py' : 'sh'}`;
+                    element.download = this.getFileName(this.selectedScript);
                     document.body.appendChild(element);
                     element.click();
                     document.body.removeChild(element);
-
                 }
             }
         }

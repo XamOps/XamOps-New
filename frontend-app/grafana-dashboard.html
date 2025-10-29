@@ -244,12 +244,12 @@ echo "Agent installation initiated on instance $INSTANCE_ID."</code></pre>
             }
             
             if (grafanaIp) {
-                const iframeUrl = new URL(`http://${grafanaIp}:3000/d/${dashboardUid}/aws-infrastructure-overview`);
+                const iframeUrl = new URL(`https://${grafanaIp}/d/${dashboardUid}/aws-infrastructure-overview`);
                 iframeUrl.searchParams.append('orgId', '1');
                 iframeUrl.searchParams.append('kiosk', 'true');
                 iframe.src = iframeUrl.toString();
 
-                const externalUrl = new URL(`http://${grafanaIp}:3000/d/${dashboardUid}/aws-infrastructure-overview`);
+                const externalUrl = new URL(`https://${grafanaIp}/d/${dashboardUid}/aws-infrastructure-overview`);
                 externalUrl.searchParams.append('orgId', '1');
                 externalUrl.searchParams.append('refresh', '10s');
                 externalLink.href = externalUrl.toString();

@@ -51,6 +51,7 @@ public class SecurityConfig {
                         )
                 )
                 .authorizeHttpRequests((requests) -> requests
+                .requestMatchers(new AntPathRequestMatcher("/api/xamops/cloudguard/grafana-ingest", "POST")).permitAll()
                         .requestMatchers(
                                 new AntPathRequestMatcher("/"),
                                 new AntPathRequestMatcher("/index.html"),
@@ -63,6 +64,7 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("/gcp_*.html"),
                                 new AntPathRequestMatcher("/azure_dashboard.html"),
                                 new AntPathRequestMatcher("/ws/**"),
+                                new AntPathRequestMatcher("/api/devops-scripts"),
 
                                 // --- FIX: ADDED THE FOLLOWING TWO LINES ---
                                 new AntPathRequestMatcher("/cloudk8s.html"),
