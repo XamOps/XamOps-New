@@ -22,6 +22,8 @@ import com.google.cloud.billing.budgets.v1.BudgetServiceClient;
 import com.google.cloud.billing.budgets.v1.BudgetServiceSettings;
 import com.google.cloud.billing.v1.CloudBillingClient;
 import com.google.cloud.billing.v1.CloudBillingSettings;
+import com.google.cloud.billing.v1.CloudCatalogClient;
+import com.google.cloud.billing.v1.CloudCatalogSettings;
 import com.google.cloud.billing.v1.ProjectBillingInfo;
 import com.google.cloud.billing.v1.ProjectName;
 import com.google.cloud.compute.v1.*;
@@ -67,7 +69,12 @@ import com.google.cloud.scheduler.v1.CloudSchedulerClient;
 import com.google.cloud.bigquery.reservation.v1.ReservationServiceClient;
 import com.google.appengine.v1.ApplicationsClient;
 import com.google.appengine.v1.ApplicationsSettings;
-
+import com.google.cloud.compute.v1.RegionCommitmentsClient; // Added import
+import com.google.cloud.compute.v1.RegionCommitmentsSettings; // Added import
+import com.google.cloud.compute.v1.RegionsClient; // Added import
+import com.google.cloud.compute.v1.RegionsSettings; // Added import
+import com.google.cloud.billing.v1.CloudBillingClient;
+import com.google.cloud.billing.v1.CloudBillingSettings;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.Cacheable;
@@ -445,17 +452,42 @@ public class GcpClientProvider {
      * Uses google-cloud-billing instead of google-api-services-cloudbilling
      */
     public Optional<CloudBillingClient> getCloudBillingClient(String gcpProjectId) {
-        return getCredentials(gcpProjectId).map(credentials -> {
-            try {
-                CloudBillingSettings settings = CloudBillingSettings.newBuilder()
-                        .setCredentialsProvider(() -> credentials)
-                        .build();
-                return CloudBillingClient.create(settings);
-            } catch (IOException e) {
-                log.error("Failed to create CloudBillingClient for project ID: {}", gcpProjectId, e);
-                return null;
+        try {
+            Optional<GoogleCredentials> credentialsOpt = getCredentials(gcpProjectId);
+            if (credentialsOpt.isEmpty()) {
+                log.error("No credentials available for project {}", gcpProjectId);
+                return Optional.empty();
             }
-        });
+            GoogleCredentials credentials = credentialsOpt.get();
+            CloudBillingSettings settings = CloudBillingSettings.newBuilder()
+                    .setCredentialsProvider(FixedCredentialsProvider.create(credentials))
+                    .build();
+            return Optional.of(CloudBillingClient.create(settings));
+        } catch (Exception e) {
+            log.error("Failed to create CloudBillingClient for project {}: {}", gcpProjectId, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Cloud Catalog client for listing services/SKUs (supports listSkus)
+     */
+    public Optional<CloudCatalogClient> getCloudCatalogClient(String gcpProjectId) {
+        try {
+            Optional<GoogleCredentials> credentialsOpt = getCredentials(gcpProjectId);
+            if (credentialsOpt.isEmpty()) {
+                log.error("No credentials available for project {}", gcpProjectId);
+                return Optional.empty();
+            }
+            GoogleCredentials credentials = credentialsOpt.get();
+            CloudCatalogSettings settings = CloudCatalogSettings.newBuilder()
+                    .setCredentialsProvider(FixedCredentialsProvider.create(credentials))
+                    .build();
+            return Optional.of(CloudCatalogClient.create(settings));
+        } catch (Exception e) {
+            log.error("Failed to create CloudCatalogClient for project {}: {}", gcpProjectId, e.getMessage());
+            return Optional.empty();
+        }
     }
 
     /**
@@ -846,4 +878,18 @@ public class GcpClientProvider {
             return Optional.empty();
         }
     }
+    public Optional<RegionsClient> getRegionsClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                RegionsSettings settings = RegionsSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials)
+                        .build();
+                return RegionsClient.create(settings);
+            } catch (IOException e) {
+                log.error("Failed to create RegionsClient for project ID: {}", gcpProjectId, e);
+                return null;
+            }
+        });
+    }
+    
 }

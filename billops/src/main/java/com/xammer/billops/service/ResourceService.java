@@ -3,6 +3,7 @@ package com.xammer.billops.service;
 import com.xammer.billops.domain.CloudAccount;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.ec2.Ec2Client;
@@ -72,6 +73,11 @@ public class ResourceService {
         logger.warn("No resource listing implementation found for service: '{}'. Returning empty list.", serviceName);
         // Return an empty list for services without a specific resource listing implementation yet
         return Collections.emptyList();
+    }
+
+    @CacheEvict(value = "resources", allEntries = true)
+    public void evictResourceCache() {
+        logger.info("Evicting all resource caches.");
     }
 
     private List<Map<String, Object>> getEc2Instances(CloudAccount account, String region) {

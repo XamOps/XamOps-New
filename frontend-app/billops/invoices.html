@@ -91,9 +91,9 @@
 </head>
 <body class="bg-gray-100" x-data="invoicePage()">
 <div class="flex h-screen">
-    <div id="sidebar-container" class="flex-shrink-0"></div>
+  <include file="/_sidebar.html"></include>
 
-    <div class="flex-1 flex flex-col overflow-hidden">
+    <div class="flex-1 flex flex-col overflow-hidden pl-64">
         <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-6">
             <div class="container mx-auto">
                 <div class="flex justify-between items-center mb-6">
@@ -261,7 +261,7 @@
             // --- END: NEW PROPERTIES ---
 
             init() {
-                this.loadSidebar();
+                // this.loadSidebar();
                 const urlParams = new URLSearchParams(window.location.search);
                 const accountIds = urlParams.get('accountId') || urlParams.get('accountIds');
                 
@@ -404,14 +404,14 @@
             },
             // --- END: NEW TOGGLE METHODS ---
             
-            loadSidebar() {
-                fetch('/_sidebar.html')
-                    .then(response => response.text())
-                    .then(html => {
-                        document.getElementById('sidebar-container').innerHTML = html;
-                        if(window.Alpine) Alpine.start();
-                    });
-            }
+            // loadSidebar() {
+            //     fetch('/_sidebar.html')
+            //         .then(response => response.text())
+            //         .then(html => {
+            //             document.getElementById('sidebar-container').innerHTML = html;
+            //             if(window.Alpine) Alpine.start();
+            //         });
+            // }
         }
     }
 

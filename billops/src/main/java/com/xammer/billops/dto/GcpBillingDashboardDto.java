@@ -67,12 +67,17 @@ public class GcpBillingDashboardDto {
         private BigDecimal amount;
         private boolean isAnomaly;
 
+        // *** ADDED NO-ARGUMENT CONSTRUCTOR ***
+        public CostHistory() {}
+        // *** END OF ADDITION ***
+
         public CostHistory(String date, BigDecimal amount, boolean isAnomaly) {
             this.date = date;
             this.amount = amount;
             this.isAnomaly = isAnomaly;
         }
 
+        // Getters and Setters
         public String getDate() {
             return date;
         }
@@ -102,11 +107,16 @@ public class GcpBillingDashboardDto {
         private String serviceName;
         private BigDecimal amount;
 
+        // *** ADDED NO-ARGUMENT CONSTRUCTOR ***
+        public ServiceBreakdown() {}
+        // *** END OF ADDITION ***
+
         public ServiceBreakdown(String serviceName, BigDecimal amount) {
             this.serviceName = serviceName;
             this.amount = amount;
         }
 
+        // Getters and Setters
         public String getServiceName() {
             return serviceName;
         }

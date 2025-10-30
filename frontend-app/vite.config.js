@@ -1,7 +1,13 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
+import htmlInclude from 'vite-plugin-html-include'; // <-- ADDED: Import the plugin
 
 export default defineConfig({
+  // ADDED: Add the plugins array
+  plugins: [
+    htmlInclude(),
+  ],
+
   server: {
     port: 5173, // Your frontend port
     proxy: {
@@ -52,7 +58,7 @@ export default defineConfig({
       input: {
         index: resolve(__dirname, 'index.html'),
         'account-manager': resolve(__dirname, 'account-manager.html'),
-        'user-manager': resolve(__dirname, 'user-manager.html'),
+        'users-manager': resolve(__dirname, 'users-manager.html'),
 
         'add-account': resolve(__dirname, 'add-account.html'),
         'add-gcp-account': resolve(__dirname, 'add-gcp-account.html'),
@@ -82,7 +88,6 @@ export default defineConfig({
         
 
 
-        _sidebar:resolve(__dirname,'_sidebar.html'),
         security:resolve(__dirname,'security.html'),
         // invoices: resolve(__dirname, 'invoices.html'),
         // 'ticket_detail': resolve(__dirname, 'ticket_detail.html'),
@@ -105,7 +110,9 @@ export default defineConfig({
             'gcp_cost': resolve(__dirname, 'gcp_cost.html'),
          'gcp_dashboard': resolve(__dirname, 'gcp_dashboard.html'),
          'gcp_finops': resolve(__dirname, 'gcp_finops.html'),
-        // 'gcp_highlighting': resolve(__dirname, 'gcp/highlighting.html'),
+         'gcp-billing': resolve(__dirname, 'billops/gcp-billing.html'),
+        //         'gcp_billing': resolve(__dirname, 'gcp_billing.html'),
+
          'gcp_rightsizing': resolve(__dirname, 'gcp_rightsizing.html'),
          'gcp_security': resolve(__dirname, 'gcp_security.html'),
          'gcp_waste': resolve(__dirname, 'gcp_waste.html'),
