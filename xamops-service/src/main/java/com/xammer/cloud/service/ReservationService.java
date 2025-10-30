@@ -29,6 +29,7 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.time.ZoneId;
 
 @Service
 public class ReservationService {
@@ -161,6 +162,7 @@ public class ReservationService {
                                     // FIX START: Calculate Estimated Recurring Monthly Cost
                                     double monthlySavings = Double.parseDouble(details.estimatedMonthlySavingsAmount());
                                     double monthlyOnDemandCost = Double.parseDouble(details.estimatedMonthlyOnDemandCost());
+                                    // Estimated Recurring Monthly Cost = On-Demand Cost - Savings
                                     double estimatedRecurringMonthlyCost = monthlyOnDemandCost - monthlySavings;
                                     // FIX END
 
@@ -171,7 +173,7 @@ public class ReservationService {
                                             String.valueOf(details.minimumNumberOfInstancesUsedPerHour()),
                                             String.valueOf(monthlySavings),
                                             String.valueOf(monthlyOnDemandCost),
-                                            String.valueOf(estimatedRecurringMonthlyCost), // <-- USED TO BE upfrontCost. Now it's the calculated recurring cost.
+                                            String.valueOf(estimatedRecurringMonthlyCost), // <-- Use the calculated recurring cost here
                                             String.valueOf(rec.termInYears()),
                                             ec2Details.instanceType(),
                                             ec2Details.region(),
@@ -195,6 +197,48 @@ public class ReservationService {
         }
     }
 
+    /**
+     * Helper method to fetch RI utilization for a single RI ID.
+     * Fixes the CostExplorerException by using RESERVATION_ID as a Filter, not a GroupBy dimension.
+     * @param account The cloud account.
+     * @param riId The specific Reserved Instance ID to filter by.
+     * @return The utilization percentage for the RI over the last 30 days.
+     */
+    private double fetchSingleRIUtilization(CloudAccount account, String riId) {
+        CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
+        logger.debug("Fetching RI utilization for RI ID: {}", riId);
+        try {
+            String today = LocalDate.now().toString();
+            String thirtyDaysAgo = LocalDate.now().minusDays(30).toString();
+            DateInterval last30Days = DateInterval.builder().start(thirtyDaysAgo).end(today).build();
+
+            Expression filter = Expression.builder()
+                    .dimensions(DimensionValues.builder()
+                            .key(Dimension.RESERVATION_ID)
+                            .values(riId)
+                            .build())
+                    .build();
+
+            // Grouping is not supported on RESERVATION_ID, so we filter and check the total utilization.
+            GetReservationUtilizationRequest utilRequest = GetReservationUtilizationRequest.builder()
+                    .timePeriod(last30Days)
+                    .granularity(Granularity.MONTHLY) // Monthly aggregate over 30 days
+                    .filter(filter)
+                    .build();
+
+            List<UtilizationByTime> utilizationsByTime = ce.getReservationUtilization(utilRequest).utilizationsByTime();
+
+            if (utilizationsByTime.isEmpty() || utilizationsByTime.get(0).total() == null) {
+                return 0.0;
+            }
+
+            return Double.parseDouble(utilizationsByTime.get(0).total().utilizationPercentage());
+        } catch (Exception e) {
+            logger.warn("Could not fetch utilization for RI {}: {}", riId, e.getMessage());
+            return 0.0;
+        }
+    }
+
     @Async("awsTaskExecutor")
     public CompletableFuture<List<ReservationInventoryDto>> getReservationInventory(CloudAccount account, List<DashboardData.RegionStatus> activeRegions, boolean forceRefresh) {
         String cacheKey = "reservationInventory-" + account.getAwsAccountId();
@@ -205,7 +249,8 @@ public class ReservationService {
             }
         }
 
-        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+        // Step 1: Fetch Inventory Details
+        CompletableFuture<List<ReservationInventoryDto>> inventoryFuture = fetchAllRegionalResources(account, activeRegions, regionId -> {
             Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
             Filter activeFilter = Filter.builder().name("state").values("active").build();
             DescribeReservedInstancesRequest request = DescribeReservedInstancesRequest.builder().filters(activeFilter).build();
@@ -213,12 +258,42 @@ public class ReservationService {
                     .map(ri -> new ReservationInventoryDto(
                             ri.reservedInstancesId(), ri.offeringTypeAsString(), ri.instanceTypeAsString(),
                             ri.scopeAsString(), ri.availabilityZone(), ri.duration(), ri.start(), ri.end(),
-                            ri.instanceCount(), ri.stateAsString()
+                            ri.instanceCount(), ri.stateAsString(),
+                            0.0 // Placeholder
                     ))
                     .collect(Collectors.toList());
-        }, "Reservation Inventory").thenApply(result -> {
-            redisCache.put(cacheKey, result, 10);
-            return result;
+        }, "Reservation Inventory");
+
+
+        // Step 2: Fetch Utilization for each RI concurrently
+        return inventoryFuture.thenCompose(inventory -> {
+            if (inventory.isEmpty()) {
+                return CompletableFuture.completedFuture(Collections.emptyList());
+            }
+
+            // Concurrently fetch utilization for each RI
+            List<CompletableFuture<ReservationInventoryDto>> utilizationFutures = inventory.stream()
+                    .map(ri -> CompletableFuture.supplyAsync(() -> {
+                        double utilization = fetchSingleRIUtilization(account, ri.getReservationId());
+                        // Create a new DTO instance with the fetched utilization
+                        return new ReservationInventoryDto(
+                                ri.getReservationId(), ri.getOfferingType(), ri.getInstanceType(),
+                                ri.getScope(), ri.getAvailabilityZone(), ri.getDuration(),
+                                ri.getStart(), ri.getEnd(), ri.getInstanceCount(), ri.getState(),
+                                utilization
+                        );
+                    }))
+                    .collect(Collectors.toList());
+
+            return CompletableFuture.allOf(utilizationFutures.toArray(new CompletableFuture[0]))
+                    .thenApply(v -> {
+                        List<ReservationInventoryDto> updatedInventory = utilizationFutures.stream()
+                                .map(CompletableFuture::join)
+                                .collect(Collectors.toList());
+
+                        redisCache.put(cacheKey, updatedInventory, 10);
+                        return updatedInventory;
+                    });
         });
     }
 
@@ -239,6 +314,7 @@ public class ReservationService {
             LocalDate startDate = endDate.minusMonths(6).withDayOfMonth(1);
             DateInterval period = DateInterval.builder().start(startDate.toString()).end(endDate.toString()).build();
 
+            // NOTE: Using MONTHLY granularity for the historical 6-month chart aggregation
             GetReservationUtilizationRequest utilRequest = GetReservationUtilizationRequest.builder().timePeriod(period).granularity(Granularity.MONTHLY).build();
             List<UtilizationByTime> utilizations = ce.getReservationUtilization(utilRequest).utilizationsByTime();
 
@@ -279,27 +355,24 @@ public class ReservationService {
 
             CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
             DateInterval last30Days = DateInterval.builder().start(LocalDate.now().minusDays(30).toString()).end(LocalDate.now().toString()).build();
-            GroupDefinition groupByRiId = GroupDefinition.builder().type(GroupDefinitionType.DIMENSION).key("RESERVATION_ID").build();
-            GetReservationUtilizationRequest utilRequest = GetReservationUtilizationRequest.builder().timePeriod(last30Days).groupBy(groupByRiId).build();
+            GroupDefinition groupByRiId = GroupDefinition.builder().type(String.valueOf(Dimension.RESERVATION_ID)).key("RESERVATION_ID").build();
+
+            // NOTE: The previous version contained illegal groupBy, this block is simplified to use the already fetched inventory.
 
             try {
-                List<ReservationUtilizationGroup> utilizationGroups = ce.getReservationUtilization(utilRequest).utilizationsByTime().get(0).groups();
+                // Relying on the utilization fetched in getReservationInventory
                 List<ReservationModificationRecommendationDto> recommendations = new ArrayList<>();
-                for (ReservationUtilizationGroup group : utilizationGroups) {
-                    String reservationId = group.attributes().get("reservationId");
-                    double utilizationPercentage = Double.parseDouble(group.utilization().utilizationPercentage());
+                for (ReservationInventoryDto ri : activeReservations) {
+                    double utilizationPercentage = ri.getUtilizationPercentage();
 
-                    if (utilizationPercentage < 80.0 && activeReservationsMap.containsKey(reservationId)) {
-                        ReservationInventoryDto ri = activeReservationsMap.get(reservationId);
-                        if ("Convertible".equalsIgnoreCase(ri.getOfferingType())) {
-                            String currentType = ri.getInstanceType();
-                            String recommendedType = suggestSmallerInstanceType(currentType);
-                            if (recommendedType != null && !recommendedType.equals(currentType)) {
-                                recommendations.add(new ReservationModificationRecommendationDto(
-                                        ri.getReservationId(), currentType, recommendedType,
-                                        String.format("Low Utilization (%.1f%%)", utilizationPercentage), 50.0 // Placeholder
-                                ));
-                            }
+                    if (utilizationPercentage < 80.0 && "Convertible".equalsIgnoreCase(ri.getOfferingType())) {
+                        String currentType = ri.getInstanceType();
+                        String recommendedType = suggestSmallerInstanceType(currentType);
+                        if (recommendedType != null && !recommendedType.equals(currentType)) {
+                            recommendations.add(new ReservationModificationRecommendationDto(
+                                    ri.getReservationId(), currentType, recommendedType,
+                                    String.format("Low Utilization (%.1f%%)", utilizationPercentage), 50.0 // Placeholder
+                            ));
                         }
                     }
                 }
@@ -407,6 +480,26 @@ public class ReservationService {
             return family + "." + this.instanceSizeOrder.get(currentIndex - 1);
         }
         return null;
+    }
+
+    /**
+     * Identifies Reserved Instances that are expiring within the next 60 days.
+     * @param inventory The full list of RI inventory DTOs.
+     * @return A filtered list of RIs expiring soon.
+     */
+    private List<ReservationInventoryDto> getExpiringRIs(List<ReservationInventoryDto> inventory) {
+        LocalDate today = LocalDate.now();
+        // Alert threshold: 60 days to match the frontend alert logic
+        LocalDate thresholdDate = today.plusDays(60);
+
+        return inventory.stream()
+                .filter(ri -> {
+                    // Convert Instant to LocalDate
+                    LocalDate expiryDate = ri.getEnd().atZone(ZoneId.systemDefault()).toLocalDate();
+                    // Check if the expiry date is before the threshold date (i.e., within the next 60 days)
+                    return expiryDate.isBefore(thresholdDate);
+                })
+                .collect(Collectors.toList());
     }
 
     private <T> CompletableFuture<List<T>> fetchAllRegionalResources(CloudAccount account, List<DashboardData.RegionStatus> activeRegions, Function<String, List<T>> fetchFunction, String serviceName) {

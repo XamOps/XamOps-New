@@ -20,7 +20,7 @@
 </head>
 <body class="bg-gray-100">
 <div class="flex h-screen">
-    <div id="sidebar-container" class="flex-shrink-0"></div>
+  <include file="/_sidebar.html"></include>
     <div class="flex-1 flex flex-col overflow-hidden" x-data="{
         showForm: false,
         creditRequests: [],
@@ -91,18 +91,7 @@
             document.body.appendChild(notification);
             setTimeout(() => notification.remove(), 3000);
         },
-        async loadSidebar() {
-            try {
-                const response = await fetch('/_sidebar.html');
-                const html = await response.text();
-                document.getElementById('sidebar-container').innerHTML = html;
-                if (window.Alpine) {
-                    window.Alpine.start();
-                }
-            } catch (error) {
-                console.error('Error loading sidebar:', error);
-            }
-        }
+ 
     }">
         <div class="bg-white shadow-sm border-b border-gray-200">
             <div class="container mx-auto px-6 py-6">

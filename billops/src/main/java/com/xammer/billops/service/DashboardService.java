@@ -5,6 +5,10 @@ import com.xammer.billops.dto.DashboardCardDto;
 import com.xammer.billops.dto.DashboardDataDto;
 import com.xammer.billops.repository.CreditRequestRepository;
 import com.xammer.billops.repository.TicketRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -17,6 +21,7 @@ import java.util.concurrent.Executors;
 @Service
 public class DashboardService {
 
+    private static final Logger logger = LoggerFactory.getLogger(DashboardService.class);
     private final CostService costService;
     private final TicketRepository ticketRepository;
     private final CreditRequestRepository creditRequestRepository;
@@ -35,13 +40,16 @@ public class DashboardService {
         return new DashboardCardDto(
                 new BigDecimal("1234.56"),
                 new BigDecimal("1100.00"),
-                new BigDecimal("1350.00"),
+                new BigDecimal("1500.00"),
                 ticketsRaised,
                 creditRequests
         );
     }
 
-    public DashboardDataDto getDashboardData(CloudAccount account, Integer year, Integer month) {
+    @Cacheable(value = "dashboardData", key = "{#account.awsAccountId, #year, #month}")
+    public DashboardDataDto getDashboardData(CloudAccount account, int year, int month) {
+        logger.info("Fetching dashboard data for account: {}, period: {}-{}", account.getAwsAccountId(), year, month);
+
         CompletableFuture<List<Map<String, Object>>> costHistoryFuture = CompletableFuture.supplyAsync(() -> costService.getCostHistory(account, year, month), executor);
         CompletableFuture<List<Map<String, Object>>> costByServiceFuture = CompletableFuture.supplyAsync(() -> costService.getCostByDimension(account, "SERVICE", year, month), executor);
         CompletableFuture<List<Map<String, Object>>> costByRegionFuture = CompletableFuture.supplyAsync(() -> costService.getCostByDimension(account, "REGION", year, month), executor);
@@ -65,7 +73,16 @@ public class DashboardService {
             dto.setCostBreakdown(costByService);
             return dto;
         } catch (Exception e) {
-            throw new RuntimeException("Error fetching dashboard data", e);
+            logger.error("Error assembling dashboard data for account {}: {}", account.getAwsAccountId(), e.getMessage());
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            return new DashboardDataDto(); // Return empty DTO on error
         }
+    }
+
+    @CacheEvict(value = "dashboardData", allEntries = true)
+    public void evictDashboardCache() {
+        logger.info("Evicting all dashboard data caches.");
     }
 }

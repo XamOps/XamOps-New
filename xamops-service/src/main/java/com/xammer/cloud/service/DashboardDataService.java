@@ -589,7 +589,7 @@ private String normalizeMonthString(String monthStr) {
                 List<DashboardData.ServiceQuotaInfo> vpcQuotas = vpcQuotaInfoFuture.join();
 
                 List<DashboardData.SecurityInsight> securityInsights = securityFindings.stream()
-                        .collect(Collectors.groupingBy(DashboardData.SecurityFinding::getCategory, Collectors.groupingBy(DashboardData.SecurityFinding::getSeverity, Collectors.counting())))
+                        .collect(Collectors.groupingBy(DashboardData.SecurityFinding::getType, Collectors.groupingBy(DashboardData.SecurityFinding::getSeverity, Collectors.counting())))
                         .entrySet().stream()
                         .map(entry -> new DashboardData.SecurityInsight(
                                 String.format("%s has potential issues", entry.getKey()),
@@ -833,3 +833,4 @@ private String normalizeMonthString(String monthStr) {
         return Math.max(0, (int) Math.round(score));
     }
 }
+

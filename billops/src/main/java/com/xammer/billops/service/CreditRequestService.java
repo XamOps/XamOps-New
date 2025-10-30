@@ -6,6 +6,8 @@ import com.xammer.billops.dto.CreditRequestDto;
 import com.xammer.billops.repository.CreditRequestRepository;
 import com.xammer.billops.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,14 +28,13 @@ public class CreditRequestService {
     private EmailService emailService;
 
     @Transactional
+    @CacheEvict(value = "creditRequests", allEntries = true)
     public CreditRequestDto createCreditRequest(CreditRequestDto creditRequestDto) {
         User user = userRepository.findById(creditRequestDto.getUserId())
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
         CreditRequest creditRequest = new CreditRequest();
-        // --- START OF FINAL FIX ---
-        creditRequest.setAwsAccountId(creditRequestDto.getAwsAccountId()); // Reverted
-        // --- END OF FINAL FIX ---
+        creditRequest.setAwsAccountId(creditRequestDto.getAwsAccountId());
         creditRequest.setExpectedCredits(creditRequestDto.getExpectedCredits());
         creditRequest.setServices(creditRequestDto.getServices());
         creditRequest.setUseCase(creditRequestDto.getUseCase());
@@ -49,6 +50,7 @@ public class CreditRequestService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable("creditRequests")
     public List<CreditRequestDto> getAllCreditRequests() {
         return creditRequestRepository.findAllOrderBySubmittedDateDesc().stream()
                 .map(this::convertToDto)
@@ -56,6 +58,7 @@ public class CreditRequestService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(value = "creditRequests", key = "#userId")
     public List<CreditRequestDto> getCreditRequestsByUserId(Long userId) {
         return creditRequestRepository.findByUserId(userId).stream()
                 .map(this::convertToDto)
@@ -63,6 +66,7 @@ public class CreditRequestService {
     }
 
     @Transactional
+    @CacheEvict(value = "creditRequests", allEntries = true)
     public CreditRequestDto updateRequestStatus(Long id, String status) {
         CreditRequest creditRequest = creditRequestRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Credit Request not found"));
@@ -74,9 +78,7 @@ public class CreditRequestService {
     private CreditRequestDto convertToDto(CreditRequest creditRequest) {
         CreditRequestDto dto = new CreditRequestDto();
         dto.setId(creditRequest.getId());
-        // --- START OF FINAL FIX ---
-        dto.setAwsAccountId(creditRequest.getAwsAccountId()); // Reverted
-        // --- END OF FINAL FIX ---
+        dto.setAwsAccountId(creditRequest.getAwsAccountId());
         dto.setExpectedCredits(creditRequest.getExpectedCredits());
         dto.setServices(creditRequest.getServices());
         dto.setUseCase(creditRequest.getUseCase());

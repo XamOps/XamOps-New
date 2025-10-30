@@ -13,6 +13,8 @@ import com.xammer.billops.repository.CloudAccountRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,6 +42,7 @@ public class GcpCostService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(value = "gcpDashboard", key = "#accountIdentifier")
     public GcpBillingDashboardDto getGcpBillingDashboardDto(String accountIdentifier) throws IOException, InterruptedException {
         logger.info("Attempting to find GCP account with identifier: '{}'", accountIdentifier);
 
@@ -76,6 +79,7 @@ public class GcpCostService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(value = "gcpResourceCosts", key = "{#accountIdentifier, #serviceName}")
     public List<GcpResourceCostDto> getResourceCostsForService(String accountIdentifier, String serviceName) throws IOException, InterruptedException {
         logger.info("Fetching resource costs for service '{}' in account '{}'", serviceName, accountIdentifier);
         Optional<CloudAccount> accountOpt = findAccount(accountIdentifier);
@@ -95,41 +99,38 @@ public class GcpCostService {
         LocalDate today = LocalDate.now();
         LocalDate startDate = today.withDayOfMonth(1);
 
-        // Corrected Query: Group by resource.name instead of sku.description
         String query = String.format(
-            "SELECT resource.name as resource_name, SUM(cost) as total_cost " +
-            "FROM %s " +
-            "WHERE service.description = '%s' AND resource.name IS NOT NULL " +
-            "AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
-            "GROUP BY resource_name HAVING total_cost > 0.01 ORDER BY total_cost DESC LIMIT 50",
-            tableName,
-            serviceName,
-            startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
-            today.format(DateTimeFormatter.ISO_LOCAL_DATE));
+                "SELECT resource.name as resource_name, SUM(cost) as total_cost " +
+                "FROM %s " +
+                "WHERE service.description = '%s' AND resource.name IS NOT NULL " +
+                "AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
+                "GROUP BY resource_name HAVING total_cost > 0.01 ORDER BY total_cost DESC LIMIT 50",
+                tableName,
+                serviceName,
+                startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
+                today.format(DateTimeFormatter.ISO_LOCAL_DATE));
 
         return executeResourceCostQuery(bigquery, query);
     }
-    
+
+    @CacheEvict(value = {"gcpDashboard", "gcpResourceCosts"}, allEntries = true)
+    public void evictGcpCaches() {
+        logger.info("Evicting all GCP cost-related caches.");
+    }
+
     private List<GcpResourceCostDto> executeResourceCostQuery(BigQuery bq, String query) throws InterruptedException {
         QueryJobConfiguration queryConfig = QueryJobConfiguration.newBuilder(query).build();
         TableResult results = bq.query(queryConfig);
         List<GcpResourceCostDto> resourceCosts = new ArrayList<>();
         for (FieldValueList row : results.iterateAll()) {
             String fullResourceName = row.get("resource_name").getStringValue();
-            
-            // Parse the full name to get a user-friendly short name
             String shortResourceName = parseShortResourceName(fullResourceName);
-
             BigDecimal amount = row.get("total_cost").getNumericValue();
             resourceCosts.add(new GcpResourceCostDto(shortResourceName, amount));
         }
         return resourceCosts;
     }
 
-    /**
-    * Parses a fully qualified GCP resource name to extract the short name.
-    * Example: "projects/my-project/instances/my-vm" becomes "my-vm".
-    */
     private String parseShortResourceName(String fullName) {
         if (fullName == null || fullName.isEmpty()) {
             return "N/A";
@@ -198,17 +199,17 @@ public class GcpCostService {
 
         String query = String.format(
                 "WITH MonthlyCosts AS (" +
-                        "  SELECT FORMAT_DATE('%%%%Y-%%%%m', usage_start_time) as name, SUM(cost) as total_cost " +
-                        "  FROM %s " +
-                        "  WHERE DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
-                        "  GROUP BY 1" +
-                        "), " +
-                        "MonthlyCostsWithLag AS (" +
-                        "  SELECT name, total_cost, LAG(total_cost, 1, 0) OVER (ORDER BY name) as prev_month_cost " +
-                        "  FROM MonthlyCosts" +
-                        ") " +
-                        "SELECT name, total_cost, (total_cost > prev_month_cost * 1.2 AND prev_month_cost > 10) as is_anomaly " +
-                        "FROM MonthlyCostsWithLag ORDER BY name",
+                "  SELECT FORMAT_DATE('%%%%Y-%%%%m', usage_start_time) as name, SUM(cost) as total_cost " +
+                "  FROM %s " +
+                "  WHERE DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
+                "  GROUP BY 1" +
+                "), " +
+                "MonthlyCostsWithLag AS (" +
+                "  SELECT name, total_cost, LAG(total_cost, 1, 0) OVER (ORDER BY name) as prev_month_cost " +
+                "  FROM MonthlyCosts" +
+                ") " +
+                "SELECT name, total_cost, (total_cost > prev_month_cost * 1.2 AND prev_month_cost > 10) as is_anomaly " +
+                "FROM MonthlyCostsWithLag ORDER BY name",
                 tableName, startDate, endDate);
 
         QueryJobConfiguration queryConfig = QueryJobConfiguration.newBuilder(query).build();
@@ -228,9 +229,9 @@ public class GcpCostService {
 
         String query = String.format(
                 "SELECT service.description as service_name, SUM(cost) as total_cost " +
-                        "FROM %s " +
-                        "WHERE DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
-                        "GROUP BY service_name HAVING total_cost > 0 ORDER BY total_cost DESC",
+                "FROM %s " +
+                "WHERE DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
+                "GROUP BY service_name HAVING total_cost > 0 ORDER BY total_cost DESC",
                 tableName,
                 startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
                 today.format(DateTimeFormatter.ISO_LOCAL_DATE));

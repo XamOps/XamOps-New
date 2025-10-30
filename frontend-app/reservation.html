@@ -6,8 +6,8 @@
     <title>XamOps - Reservation Management</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-        <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
-<link rel="apple-touch-icon" href="/icons/XamOps.png">
+    <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
+    <link rel="apple-touch-icon" href="/icons/XamOps.png">
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
@@ -15,7 +15,7 @@
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-        
+
         :root {
             --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             --success-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
@@ -25,14 +25,14 @@
             --glass-border: rgba(255, 255, 255, 0.2);
         }
 
-        body { 
-            font-family: 'Inter', sans-serif; 
+        body {
+            font-family: 'Inter', sans-serif;
             background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
             min-height: 100vh;
         }
-        
+
         [x-cloak] { display: none !important; }
-        
+
         .glass-card {
             background: var(--glass-bg);
             backdrop-filter: blur(10px);
@@ -40,30 +40,30 @@
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
-        
+
         .glass-card:hover {
             transform: translateY(-2px);
             box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
         }
-        
+
         .skeleton {
             background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
             background-size: 200% 100%;
             animation: skeleton-shimmer 1.5s infinite;
             border-radius: 12px;
         }
-        
+
         @keyframes skeleton-shimmer {
             0% { background-position: -200% 0; }
             100% { background-position: 200% 0; }
         }
-        
+
         .header-gradient {
             background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%);
             backdrop-filter: blur(10px);
             border-bottom: 1px solid rgba(229, 231, 235, 0.8);
         }
-        
+
         .btn-primary {
             background: var(--primary-gradient);
             border: none;
@@ -72,7 +72,7 @@
             position: relative;
             overflow: hidden;
         }
-        
+
         .btn-primary::before {
             content: '';
             position: absolute;
@@ -83,30 +83,30 @@
             background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
             transition: left 0.5s ease;
         }
-        
+
         .btn-primary:hover::before {
             left: 100%;
         }
-        
+
         .btn-primary:hover {
             transform: translateY(-2px);
             box-shadow: 0 10px 15px -3px rgba(102, 126, 234, 0.4);
         }
-        
+
         .form-input, .form-select {
             background: var(--glass-bg);
             backdrop-filter: blur(10px);
             border: 1px solid var(--glass-border);
             transition: all 0.3s ease;
         }
-        
+
         .form-input:focus, .form-select:focus {
             background: rgba(255, 255, 255, 1);
             border-color: #667eea;
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
             transform: translateY(-1px);
         }
-        
+
         .table-enhanced {
             background: var(--glass-bg);
             backdrop-filter: blur(10px);
@@ -114,20 +114,20 @@
             overflow: hidden;
             border: 1px solid var(--glass-border);
         }
-        
+
         .table-enhanced thead {
             background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
         }
-        
+
         .table-enhanced tr {
             transition: all 0.2s ease;
         }
-        
+
         .table-enhanced tr:hover {
             background: rgba(102, 126, 234, 0.05);
             transform: translateX(2px);
         }
-        
+
         .loading-spinner {
             border: 3px solid #f3f4f6;
             border-top: 3px solid #667eea;
@@ -136,31 +136,30 @@
             height: 20px;
             animation: spin 1s linear infinite;
         }
-        
+
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
-        
+
         .fade-in {
             animation: fadeIn 0.5s ease-in-out;
         }
-        
+
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(20px); }
             to { opacity: 1; transform: translateY(0); }
         }
-        
+
     </style>
 </head>
 <body class="bg-gray-50">
 
 <div class="flex">
-    <aside class="fixed top-0 left-0 h-screen w-64 bg-white border-r border-gray-200">
-        <div data-include-sidebar></div>
-    </aside>
+  <include file="/_sidebar.html"></include>
 
-    <div class="ml-64 flex-1">
+
+    <div class="flex-1 pl-64">
         <main class="flex-1 flex flex-col min-h-screen" x-data="reservationManagement()">
             <header class="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-10">
                 <div class="flex items-center space-x-4">
@@ -168,14 +167,14 @@
                         <i class="fas fa-calendar-check text-white text-xl"></i>
                     </div>
                     <div>
-                        <h1 class="text-2xl font-bold text-gray-800">Reservation Recommendations</h1>
-                        <p class="text-sm text-gray-600">Optimize your Reserved Instances and Savings Plans</p>
+                        <h1 class="text-2xl font-bold text-gray-800">Reservation Management</h1>
+                        <p class="text-sm text-gray-600">Analyze inventory, utilization, and purchase recommendations</p>
                     </div>
                 </div>
                 <div class="flex items-center space-x-4">
-                    <button @click="fetchPurchaseRecommendations(true)" class="btn-primary flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md" :disabled="isRecsLoading">
-                        <i class="fas fa-sync-alt" :class="{ 'fa-spin': isRecsLoading }"></i>
-                        <span x-text="isRecsLoading ? 'Analyzing...' : 'Refresh Recommendations'"></span>
+                    <button @click="fetchReservationData(true)" class="btn-primary flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md" :disabled="isLoading">
+                        <i class="fas fa-sync-alt" :class="{ 'fa-spin': isLoading }"></i>
+                        <span x-text="isLoading ? 'Fetching All Data...' : 'Refresh All Data'"></span>
                     </button>
                 </div>
             </header>
@@ -183,10 +182,103 @@
             <div class="flex-1 p-8 space-y-8">
                 <div x-show="isLoading" x-cloak class="space-y-8">
                     <div class="skeleton h-96"></div>
+                    <div class="skeleton h-72"></div>
                 </div>
 
                 <div x-show="!isLoading" x-cloak class="fade-in space-y-8">
-                    <div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div class="glass-card rounded-2xl p-6 flex flex-col justify-between">
+                            <h3 class="text-lg font-semibold text-gray-800 mb-4">RI/SP Analysis</h3>
+                            <div class="space-y-4">
+                                <div class="flex justify-between items-center border-b pb-2">
+                                    <span class="text-gray-600">Utilization (Last 30 Days)</span>
+                                    <span class="font-bold text-xl" :class="{'text-green-600': data.analysis && data.analysis.utilizationPercentage >= 95, 'text-yellow-600': data.analysis && data.analysis.utilizationPercentage < 95}">
+                                        <span x-text="data.analysis ? data.analysis.utilizationPercentage.toFixed(1) : 'N/A'"></span>%
+                                    </span>
+                                </div>
+                                <div class="flex justify-between items-center border-b pb-2">
+                                    <span class="text-gray-600">Coverage (Last 30 Days)</span>
+                                    <span class="font-bold text-xl" :class="{'text-blue-600': data.analysis && data.analysis.coveragePercentage >= 80, 'text-red-600': data.analysis && data.analysis.coveragePercentage < 50}">
+                                        <span x-text="data.analysis ? data.analysis.coveragePercentage.toFixed(1) : 'N/A'"></span>%
+                                    </span>
+                                </div>
+                                <div class="flex justify-between items-center pt-2">
+                                    <span class="text-gray-600">Potential Savings</span>
+                                    <span class="font-bold text-xl text-indigo-600">
+                                        ~$<span x-text="data.purchaseRecommendations ? data.purchaseRecommendations.reduce((sum, rec) => sum + parseFloat(rec.monthlySavings || 0), 0).toFixed(0) : 'N/A'"></span>/mo
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="glass-card rounded-2xl p-6 col-span-2">
+                            <h3 class="text-lg font-semibold text-gray-800 mb-4">Historical Utilization & Coverage</h3>
+                            <div class="h-64">
+                                <canvas id="utilizationChart" x-ref="utilizationChart" x-init="initCharts()"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="space-y-4">
+                        <h2 class="text-xl font-bold text-gray-800 pt-4">Current RI Inventory</h2>
+                        <div class="table-enhanced">
+                            <table class="w-full text-sm text-left text-gray-500">
+                                <thead class="text-xs text-gray-700 uppercase">
+                                <tr>
+                                    <th scope="col" class="px-6 py-3">ID / Instance Type</th>
+                                    <th scope="col" class="px-6 py-3">Scope / AZ</th>
+                                    <th scope="col" class="px-6 py-3">Count / Offering</th>
+                                    <th scope="col" class="px-6 py-3">State</th>
+                                    <th scope="col" class="px-6 py-3">Utilization (30 Days)</th>
+                                    <th scope="col" class="px-6 py-3">Purchase Date</th>
+                                    <th scope="col" class="px-6 py-3">Expiration Date</th>
+                                </tr>
+                                </thead>
+                                <tbody>
+                                <template x-if="data.inventory && data.inventory.length > 0">
+                                    <template x-for="item in data.inventory" :key="item.reservationId">
+                                        <tr class="border-b border-gray-200 reservation-row">
+                                            <td class="px-6 py-4 font-medium text-gray-900">
+                                                <span x-text="item.instanceType"></span>
+                                                <div class="text-xs text-gray-500 truncate w-32" x-text="item.reservationId"></div>
+                                            </td>
+                                            <td class="px-6 py-4">
+                                                <span x-text="item.scope"></span>
+                                                <div class="text-xs text-gray-500" x-text="item.availabilityZone"></div>
+                                            </td>
+                                            <td class="px-6 py-4">
+                                                <span class="font-semibold" x-text="item.instanceCount"></span>
+                                                <div class="text-xs text-gray-500" x-text="item.offeringType"></div>
+                                            </td>
+                                            <td class="px-6 py-4">
+                                                <span class="font-semibold" :class="{'text-green-600': item.state === 'active', 'text-yellow-600': item.state === 'pending'}" x-text="item.state"></span>
+                                            </td>
+                                            <td class="px-6 py-4">
+                                                <span class="font-semibold" :class="{'text-red-600': item.utilizationPercentage < 80, 'text-green-600': item.utilizationPercentage >= 95}" x-text="item.utilizationPercentage ? item.utilizationPercentage.toFixed(1) + '%' : 'N/A'"></span>
+                                            </td>
+                                            <td class="px-6 py-4">
+                                                <span x-text="new Date(item.start).toLocaleDateString()"></span>
+                                            </td>
+                                            <td class="px-6 py-4">
+                                                <span class="font-semibold" :class="{'text-red-600': isExpiringSoon(item.end)}" x-text="new Date(item.end).toLocaleDateString()"></span>
+                                                <span x-show="isExpiringSoon(item.end)" class="ml-2 px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">
+                                                        Expiring Soon
+                                                    </span>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </template>
+                                <template x-if="!data.inventory || data.inventory.length === 0">
+                                    <tr><td colspan="7" class="text-center py-12 text-gray-500">No active Reserved Instances found.</td></tr>
+                                </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="space-y-4">
+                        <h2 class="text-xl font-bold text-gray-800 pt-4">Purchase Recommendations</h2>
                         <div class="glass-card rounded-2xl p-6">
                             <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
                                 <div>
@@ -222,47 +314,47 @@
                             </div>
                             <div class="table-enhanced mt-4">
                                 <table class="w-full text-sm text-left text-gray-500">
-                                     <thead class="text-xs text-gray-700 uppercase">
-                                        <tr>
-                                            <th scope="col" class="px-6 py-3">Instance Family</th>
-                                            <th scope="col" class="px-6 py-3">Region</th>
-                                            <th scope="col" class="px-6 py-3">Platform</th>
-                                            <th scope="col" class="px-6 py-3">Term</th>
-                                            <th scope="col" class="px-6 py-3">Payment</th>
-                                            <th scope="col" class="px-6 py-3">On-Demand Cost</th>
-                                            <th scope="col" class="px-6 py-3">Est. Monthly Cost</th>
-                                            <th scope="col" class="px-6 py-3">Monthly Savings</th>
-                                        </tr>
+                                    <thead class="text-xs text-gray-700 uppercase">
+                                    <tr>
+                                        <th scope="col" class="px-6 py-3">Instance Family</th>
+                                        <th scope="col" class="px-6 py-3">Region</th>
+                                        <th scope="col" class="px-6 py-3">Platform</th>
+                                        <th scope="col" class="px-6 py-3">Term</th>
+                                        <th scope="col" class="px-6 py-3">Payment</th>
+                                        <th scope="col" class="px-6 py-3">On-Demand Cost</th>
+                                        <th scope="col" class="px-6 py-3">Est. Monthly Cost</th>
+                                        <th scope="col" class="px-6 py-3">Monthly Savings</th>
+                                    </tr>
                                     </thead>
                                     <tbody>
-                                        <template x-if="isRecsLoading">
-                                            <tr><td colspan="8" class="text-center p-8"><div class="loading-spinner mx-auto"></div></td></tr>
-                                        </template>
-                                        <template x-if="!isRecsLoading && data.purchaseRecommendations.length > 0">
-                                            <template x-for="rec in data.purchaseRecommendations" :key="rec.instanceFamily + rec.region">
-                                                <tr class="border-b border-gray-200 reservation-row">
-                                                    <td class="px-6 py-4 font-medium text-gray-900" x-text="rec.instanceFamily"></td>
-                                                    <td class="px-6 py-4" x-text="rec.region"></td>
-                                                    <td class="px-6 py-4" x-text="rec.platform"></td>
-                                                    <td class="px-6 py-4" x-text="rec.term"></td>
-                                                    <td class="px-6 py-4" x-text="recFilters.paymentOption.replace('_', ' ')"></td>
-                                                    <td class="px-6 py-4" x-text="`$${parseFloat(rec.onDemandCost).toFixed(2)}`"></td>
-                                                    <td class="px-6 py-4" x-text="`$${parseFloat(rec.estimatedMonthlyCost).toFixed(2)}`"></td>
-                                                    <td class="px-6 py-4 text-green-600 font-bold" x-text="`$${parseFloat(rec.monthlySavings).toFixed(2)}`"></td>
-                                                </tr>
-                                            </template>
-                                        </template>
-                                        <template x-if="!isRecsLoading && data.purchaseRecommendations.length === 0">
-                                            <tr>
-                                                <td colspan="8" class="text-center py-12 text-gray-500">
-                                                    <div class="flex flex-col items-center">
-                                                        <i class="fas fa-lightbulb text-4xl text-gray-300 mb-4"></i>
-                                                        <h3 class="text-lg font-semibold">No Recommendations Available</h3>
-                                                        <p class="text-sm">Your instance usage appears to be optimized for your current settings.</p>
-                                                    </div>
-                                                </td>
+                                    <template x-if="isRecsLoading">
+                                        <tr><td colspan="8" class="text-center p-8"><div class="loading-spinner mx-auto"></div></td></tr>
+                                    </template>
+                                    <template x-if="!isRecsLoading && data.purchaseRecommendations && data.purchaseRecommendations.length > 0">
+                                        <template x-for="rec in data.purchaseRecommendations" :key="rec.instanceFamily + rec.region + rec.term">
+                                            <tr class="border-b border-gray-200 reservation-row">
+                                                <td class="px-6 py-4 font-medium text-gray-900" x-text="rec.instanceFamily"></td>
+                                                <td class="px-6 py-4" x-text="rec.region"></td>
+                                                <td class="px-6 py-4" x-text="rec.platform"></td>
+                                                <td class="px-6 py-4" x-text="rec.term"></td>
+                                                <td class="px-6 py-4" x-text="recFilters.paymentOption.replace('_', ' ')"></td>
+                                                <td class="px-6 py-4" x-text="`$${parseFloat(rec.onDemandCost).toFixed(2)}`"></td>
+                                                <td class="px-6 py-4" x-text="`$${parseFloat(rec.estimatedMonthlyCost).toFixed(2)}`"></td>
+                                                <td class="px-6 py-4 text-green-600 font-bold" x-text="`$${parseFloat(rec.monthlySavings).toFixed(2)}`"></td>
                                             </tr>
                                         </template>
+                                    </template>
+                                    <template x-if="!isRecsLoading && (!data.purchaseRecommendations || data.purchaseRecommendations.length === 0)">
+                                        <tr>
+                                            <td colspan="8" class="text-center py-12 text-gray-500">
+                                                <div class="flex flex-col items-center">
+                                                    <i class="fas fa-lightbulb text-4xl text-gray-300 mb-4"></i>
+                                                    <h3 class="text-lg font-semibold">No Recommendations Available</h3>
+                                                    <p class="text-sm">Your instance usage appears to be optimized for your current settings.</p>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </template>
                                     </tbody>
                                 </table>
                             </div>
@@ -275,62 +367,170 @@
 </div>
 
 <script>
-function reservationManagement() {
-    return {
-        isLoading: true,
-        isRecsLoading: false, 
-        selectedAccountId: null,
-        data: {
-            purchaseRecommendations: [],
-        },
-        recFilters: {
-            term: 'ONE_YEAR',
-            paymentOption: 'NO_UPFRONT',
-            lookback: 'THIRTY_DAYS',
-            offeringClass: 'STANDARD'
-        },
+    function reservationManagement() {
+        let chartInstance = null;
 
-        init() {
-            const urlParams = new URLSearchParams(window.location.search);
-            this.selectedAccountId = urlParams.get('accountIds');
-            
-            if (!this.selectedAccountId) {
-                const storedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-                if (storedIds.length > 0) {
-                    this.selectedAccountId = storedIds.join(',');
+        return {
+            isLoading: true,
+            isRecsLoading: false,
+            selectedAccountId: null,
+            data: {
+                analysis: {},
+                historicalData: {},
+                inventory: [],
+                purchaseRecommendations: [],
+                modificationRecommendations: []
+            },
+            recFilters: {
+                term: 'ONE_YEAR',
+                paymentOption: 'NO_UPFRONT',
+                lookback: 'THIRTY_DAYS',
+                offeringClass: 'STANDARD'
+            },
+
+            init() {
+                const urlParams = new URLSearchParams(window.location.search);
+                this.selectedAccountId = urlParams.get('accountIds');
+
+                if (!this.selectedAccountId) {
+                    const storedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                    if (storedIds.length > 0) {
+                        this.selectedAccountId = storedIds.join(',');
+                    }
                 }
-            }
-            
-            this.fetchPurchaseRecommendations(false);
-        },
 
-        fetchPurchaseRecommendations(forceRefresh = false) {
-            if (!this.selectedAccountId) {
-                this.isLoading = false;
-                return;
-            }
-            this.isLoading = true;
-            this.isRecsLoading = true;
-            
-            const { term, paymentOption, lookback, offeringClass } = this.recFilters;
-            const url = `/api/xamops/reservations/recommendations?accountId=${this.selectedAccountId}&term=${term}&paymentOption=${paymentOption}&lookback=${lookback}&offeringClass=${offeringClass}&forceRefresh=${forceRefresh}`;
+                this.fetchReservationData(false);
+            },
 
-            fetch(url)
-                .then(res => res.json())
-                .then(data => {
-                    this.data.purchaseRecommendations = data;
-                })
-                .catch(err => {
-                    console.error('Failed to load purchase recommendations:', err);
-                    this.data.purchaseRecommendations = [];
-                })
-                .finally(() => {
-                    this.isLoading = false;
-                    this.isRecsLoading = false;
+            isExpiringSoon(endDate) {
+                if (!endDate) return false;
+                // Get today's date
+                const today = new Date();
+                // Calculate a date 60 days from now
+                const threshold = new Date();
+                threshold.setDate(today.getDate() + 60);
+
+                const expiryDate = new Date(endDate);
+
+                // Check if the expiration date is within the next 60 days
+                return expiryDate < threshold;
+            },
+
+            initCharts() {
+                if (!this.data.historicalData || !this.data.historicalData.labels || this.data.historicalData.labels.length === 0) {
+                    return;
+                }
+
+                const ctx = this.$refs.utilizationChart.getContext('2d');
+
+                if (chartInstance) {
+                    chartInstance.destroy();
+                }
+
+                chartInstance = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: this.data.historicalData.labels,
+                        datasets: [
+                            {
+                                label: 'Utilization Percentage',
+                                data: this.data.historicalData.utilizationPercentages,
+                                borderColor: '#667eea',
+                                backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                                fill: false,
+                                tension: 0.3
+                            },
+                            {
+                                label: 'Coverage Percentage',
+                                data: this.data.historicalData.coveragePercentages,
+                                borderColor: '#10b981',
+                                backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                                fill: false,
+                                tension: 0.3
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                max: 100,
+                                title: {
+                                    display: true,
+                                    text: 'Percentage (%)'
+                                }
+                            }
+                        }
+                    }
                 });
-        },
+            },
+
+            fetchReservationData(forceRefresh = false) {
+                if (!this.selectedAccountId) {
+                    this.isLoading = false;
+                    return;
+                }
+                this.isLoading = true;
+
+                const url = `/api/xamops/reservations?accountId=${this.selectedAccountId}&forceRefresh=${forceRefresh}`;
+
+                fetch(url)
+                    .then(res => {
+                        if (!res.ok) {
+                            throw new Error(`HTTP error! status: ${res.status}`);
+                        }
+                        return res.json();
+                    })
+                    .then(data => {
+                        this.data = data;
+                        // Force the chart to re-initialize after new data is loaded
+                        this.$nextTick(() => this.initCharts());
+                    })
+                    .catch(err => {
+                        console.error('Failed to load reservation data:', err);
+                        // Reset data on failure
+                        this.data = {
+                            analysis: {},
+                            historicalData: {},
+                            inventory: [],
+                            purchaseRecommendations: [],
+                            modificationRecommendations: []
+                        };
+                    })
+                    .finally(() => {
+                        this.isLoading = false;
+                        this.isRecsLoading = false; // Ensure this is also false
+                    });
+            },
+
+            fetchPurchaseRecommendations(forceRefresh = false) {
+                if (!this.selectedAccountId) return;
+
+                this.isRecsLoading = true;
+
+                const { term, paymentOption, lookback, offeringClass } = this.recFilters;
+                // Note: This calls the specific endpoint, but since the main fetchReservationData
+                // already caches this, a quick refresh only hits this endpoint.
+                const url = `/api/xamops/reservations/recommendations?accountId=${this.selectedAccountId}&term=${term}&paymentOption=${paymentOption}&lookback=${lookback}&offeringClass=${offeringClass}&forceRefresh=${forceRefresh}`;
+
+                fetch(url)
+                    .then(res => res.json())
+                    .then(data => {
+                        // Only update the purchaseRecommendations portion of the data
+                        this.data.purchaseRecommendations = data;
+                    })
+                    .catch(err => {
+                        console.error('Failed to load purchase recommendations:', err);
+                        this.data.purchaseRecommendations = [];
+                    })
+                    .finally(() => {
+                        this.isRecsLoading = false;
+                    });
+            },
+        }
     }
-}
 </script>
 
 </body>

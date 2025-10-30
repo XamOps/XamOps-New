@@ -1,10 +1,15 @@
+// tailwind.config.js
+
 /** @type {import('tailwindcss').Config} */
 export default {
   content: [
-    "./*.html", // Scans all HTML files in the root
+    "./*.html",           // Root HTML files
+    "./billops/*.html",   // BillOps
+    "./**/*.html",        // All other HTML (but NOT node_modules)
+    "!./node_modules",    // Exclude node_modules
+    "./src/**/*.js",
+    "./src/**/*.css",
   ],
-  theme: {
-    extend: {},
-  },
+  theme: { extend: {} },
   plugins: [],
 }

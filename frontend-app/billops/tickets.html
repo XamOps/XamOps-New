@@ -14,9 +14,9 @@
 
 <body class="bg-gray-100">
 <div class="flex h-screen">
-    <div id="sidebar-container" class="flex-shrink-0"></div>
+  <include file="/_sidebar.html"></include>
 
-    <div class="flex-1 flex flex-col overflow-y-auto" x-data="supportCaseApp()" x-init="init()">
+    <div class="flex-1 flex flex-col overflow-y-auto pl-64" x-data="supportCaseApp()" x-init="init()">
 
         <div class="p-10">
             <div class="flex items-center justify-between mb-8">
@@ -210,7 +210,7 @@
     }
 </script>
 
-<script>
+<!-- <script>
     fetch('/_sidebar.html')
         .then(response => response.text())
         .then(html => {
@@ -221,6 +221,6 @@
             }
         })
         .catch(error => console.error('Error loading sidebar:', error));
-</script>
+</script> -->
 </body>
 </html>

@@ -37,13 +37,10 @@
     </style>
 </head>
 <body class="bg-gray-100">
-<div class="flex">
-    <aside
-            class="fixed top-0 left-0 h-screen w-64 bg-white border-r border-gray-200 shadow-lg z-40"
-    >
-        <div data-include-sidebar></div>
-    </aside>
-    <div class="ml-64 flex-1 p-8" x-data="eksDetails()" x-init="init()">
+<div class="flex pl-64">
+  <include file="/_sidebar.html"></include>
+
+    <div class="flex-1 p-8" x-data="eksDetails()" x-init="init()">
         <header class="flex items-center justify-between mb-8">
             <div>
                 <h1
