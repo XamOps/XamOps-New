@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.io.ByteArrayInputStream;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 @RestController
@@ -45,24 +46,39 @@ public class SecurityController {
     @GetMapping("/findings")
     public CompletableFuture<ResponseEntity<List<DashboardData.SecurityFinding>>> getSecurityFindings(
             @RequestParam String accountId,
-            @RequestParam(defaultValue = "false") boolean forceRefresh) { // <-- FIX: Added forceRefresh parameter
-        // MODIFIED: Handle list of accounts to prevent crash
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+        
+        logger.info("Fetching security findings for accountId: {}, forceRefresh: {}", accountId, forceRefresh);
+        
         List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
         if (accounts.isEmpty()) {
-            throw new RuntimeException("Account not found: " + accountId);
+            logger.warn("No account found for accountId: {}", accountId);
+            return CompletableFuture.completedFuture(
+                ResponseEntity.ok(Collections.emptyList())
+            );
         }
-        CloudAccount account = accounts.get(0); // Use the first account
-
-        // FIX: Pass the forceRefresh parameter down to the service calls
+        
+        CloudAccount account = accounts.get(0);
+        
         return cloudListService.getRegionStatusForAccount(account, forceRefresh)
-                .thenCompose((List<DashboardData.RegionStatus> activeRegions) -> securityService.getComprehensiveSecurityFindings(account, activeRegions, forceRefresh))
-                .thenApply(ResponseEntity::ok)
+                .thenCompose(activeRegions -> {
+                    logger.info("Found {} active regions for account {}", 
+                        activeRegions.size(), accountId);
+                    return securityService.getComprehensiveSecurityFindings(
+                        account, activeRegions, forceRefresh);
+                })
+                .thenApply(findings -> {
+                    logger.info("Returning {} security findings for account {}", 
+                        findings.size(), accountId);
+                    return ResponseEntity.ok(findings);
+                })
                 .exceptionally(ex -> {
-                    logger.error("Error fetching security findings for account {}", accountId, ex);
+                    logger.error("Error fetching security findings for account {}", 
+                        accountId, ex);
                     return ResponseEntity.status(500).body(Collections.emptyList());
                 });
     }
-
+     
     @GetMapping("/export")
     public CompletableFuture<ResponseEntity<byte[]>> exportFindingsToExcel(@RequestParam String accountId) {
         // MODIFIED: Handle list of accounts to prevent crash

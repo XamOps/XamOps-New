@@ -6,8 +6,8 @@
     <title>XamOps - Security Center</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-        <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
-<link rel="apple-touch-icon" href="/icons/XamOps.png">
+    <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
+    <link rel="apple-touch-icon" href="/icons/XamOps.png">
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
     <script type="module" src="/src/main.js"></script>
 
@@ -161,7 +161,6 @@
 
 <div class="flex">
   <include file="/_sidebar.html"></include>
-
 
     <div class="flex-1 pl-64">
         <main class="flex-1 flex flex-col min-h-screen" x-data="securityCenter()">
@@ -357,6 +356,7 @@
             selectedAccountId: null,
 
             init() {
+                console.log('=== SECURITY CENTER INIT ===');
                 const urlParams = new URLSearchParams(window.location.search);
                 this.selectedAccountId = urlParams.get('accountIds');
 
@@ -367,22 +367,35 @@
                     }
                 }
 
+                console.log('Selected Account ID:', this.selectedAccountId);
                 this.loadFindings(false);
             },
 
             loadFindings(forceRefresh = false) {
+                console.log('=== LOADING FINDINGS ===');
+                console.log('Account ID:', this.selectedAccountId);
+                console.log('Force refresh:', forceRefresh);
+                
                 if (!this.selectedAccountId) {
+                    console.warn('No account ID selected');
                     this.isLoading = false;
                     return;
                 }
 
                 const cacheKey = `securityFindings-${this.selectedAccountId}`;
                 const cachedData = sessionStorage.getItem(cacheKey);
-
+                
                 if (cachedData && !forceRefresh) {
-                    this.processFindings(JSON.parse(cachedData));
-                    this.isLoading = false;
-                    return;
+                    console.log('Loading from cache');
+                    try {
+                        const parsed = JSON.parse(cachedData);
+                        this.processFindings(parsed);
+                        this.isLoading = false;
+                        return;
+                    } catch (e) {
+                        console.error('Cache parse error:', e);
+                        sessionStorage.removeItem(cacheKey);
+                    }
                 }
 
                 if (!cachedData) {
@@ -394,32 +407,91 @@
                     sessionStorage.removeItem(cacheKey);
                 }
 
-                fetch(`/api/xamops/security/findings?accountId=${this.selectedAccountId}&forceRefresh=${forceRefresh}`)
-                    .then(res => res.json())
+                const url = `/api/xamops/security/findings?accountId=${this.selectedAccountId}&forceRefresh=${forceRefresh}`;
+                console.log('Fetching from URL:', url);
+
+                fetch(url)
+                    .then(res => {
+                        console.log('Response status:', res.status);
+                        console.log('Response OK:', res.ok);
+                        console.log('Response headers:', [...res.headers.entries()]);
+                        
+                        if (!res.ok) {
+                            throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+                        }
+                        return res.json();
+                    })
                     .then(data => {
+                        console.log('=== DATA RECEIVED ===');
+                        console.log('Raw data type:', typeof data);
+                        console.log('Is array:', Array.isArray(data));
+                        console.log('Data length:', data.length);
+                        console.log('First 3 items:', data.slice(0, 3));
+                        
                         sessionStorage.setItem(cacheKey, JSON.stringify(data));
                         this.processFindings(data);
                     })
                     .catch(err => {
-                        console.error('Failed to load security findings:', err);
+                        console.error('=== FETCH ERROR ===');
+                        console.error('Error:', err);
+                        console.error('Error message:', err.message);
+                        console.error('Error stack:', err.stack);
+                        
                         this.findings = [];
+                        alert(`Failed to load security findings: ${err.message}`);
                     })
                     .finally(() => {
                         this.isLoading = false;
                         this.isRefreshing = false;
+                        console.log('Loading complete');
                     });
             },
 
             processFindings(data) {
-                const validFindings = Array.isArray(data) ? data.filter(f => f && typeof f === 'object' && f.severity) : [];
-                this.findings = validFindings.sort((a, b) => {
-                    const severityOrder = { 'Critical': 0, 'High': 1, 'Medium': 2, 'Low': 3 };
-                    const severityA = a.severity.trim();
-                    const severityB = b.severity.trim();
-                    const capitalizedA = severityA.charAt(0).toUpperCase() + severityA.slice(1).toLowerCase();
-                    const capitalizedB = severityB.charAt(0).toUpperCase() + severityB.slice(1).toLowerCase();
-                    return (severityOrder[capitalizedA] || 4) - (severityOrder[capitalizedB] || 4);
+                console.log('=== PROCESSING FINDINGS ===');
+                console.log('Raw data received:', data);
+                console.log('Data type:', typeof data);
+                console.log('Is array:', Array.isArray(data));
+                
+                if (!data) {
+                    console.error('No data received');
+                    this.findings = [];
+                    return;
+                }
+                
+                // Handle both direct array and wrapped object
+                const findingsArray = Array.isArray(data) ? data : (data.findings || data);
+                
+                if (!Array.isArray(findingsArray)) {
+                    console.error('Data is not an array:', findingsArray);
+                    this.findings = [];
+                    return;
+                }
+                
+                console.log(`Total findings in array: ${findingsArray.length}`);
+                
+                // Validate and filter findings
+                const validFindings = findingsArray.filter(f => {
+                    const isValid = f && typeof f === 'object' && f.severity;
+                    if (!isValid) {
+                        console.warn('Invalid finding object:', f);
+                    }
+                    return isValid;
                 });
+                
+                console.log(`Valid findings after filtering: ${validFindings.length}`);
+                
+                // Sort by severity (handle both uppercase and capitalized)
+                this.findings = validFindings.sort((a, b) => {
+                    const severityOrder = { 'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3 };
+                    const severityA = (a.severity || '').trim().toUpperCase();
+                    const severityB = (b.severity || '').trim().toUpperCase();
+                    return (severityOrder[severityA] || 4) - (severityOrder[severityB] || 4);
+                });
+                
+                console.log('Findings processed and sorted:', this.findings.length);
+                console.log('Sample finding:', this.findings[0]);
+                console.log('Severity counts:', this.severityCounts);
             },
 
             exportData() {
@@ -455,25 +527,46 @@
             },
 
             get filteredFindings() {
-                if (this.selectedCompliance === 'All') {
+                console.log('Computing filtered findings. Total findings:', this.findings.length);
+                console.log('Selected compliance:', this.selectedCompliance);
+                
+                if (!Array.isArray(this.findings)) {
+                    console.error('this.findings is not an array:', this.findings);
+                    return [];
+                }
+                
+                if (this.selectedCompliance === 'All' || !this.selectedCompliance) {
                     return this.findings;
                 }
-                return this.findings.filter(f => `${f.complianceFramework} ${f.controlId}` === this.selectedCompliance);
+                
+                const filtered = this.findings.filter(f => {
+                    const framework = `${f.complianceFramework || ''} ${f.controlId || ''}`.trim();
+                    return framework === this.selectedCompliance;
+                });
+                
+                console.log('Filtered findings count:', filtered.length);
+                return filtered;
             },
 
             get severityCounts() {
-                return this.filteredFindings.reduce((acc, finding) => {
-                    if (finding.severity) {
-                        const severity = finding.severity.trim();
-                        const capitalizedSeverity = severity.charAt(0).toUpperCase() + severity.slice(1).toLowerCase();
-                        acc[capitalizedSeverity] = (acc[capitalizedSeverity] || 0) + 1;
+                const counts = this.filteredFindings.reduce((acc, finding) => {
+                    if (finding && finding.severity) {
+                        // Normalize severity to proper case (Critical, High, Medium, Low)
+                        const severity = finding.severity.trim().toUpperCase();
+                        const properCase = severity.charAt(0) + severity.slice(1).toLowerCase();
+                        acc[properCase] = (acc[properCase] || 0) + 1;
                     }
                     return acc;
                 }, {});
+                
+                console.log('Severity counts:', counts);
+                return counts;
             },
 
             getFindingsBySeverity(severity) {
-                return this.filteredFindings.filter(f => f.severity && f.severity.trim().toLowerCase() === severity.toLowerCase());
+                return this.filteredFindings.filter(f => 
+                    f.severity && f.severity.trim().toLowerCase() === severity.toLowerCase()
+                );
             },
 
             toggleSeverity(severity) {

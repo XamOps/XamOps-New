@@ -423,13 +423,13 @@ public class DashboardData {
   @NoArgsConstructor
   @AllArgsConstructor
   public static class SecurityFinding {
-    private String id;
-    private String type;
+    private String resourceId;
+    private String region;
+    private String category;
     private String severity;
     private String description;
-    private String region;
-    private String resource;
-    private String remediation;
+    private String complianceFramework;
+    private String controlId;
   }
 
   @Data
