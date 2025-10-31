@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XamOps - CICD Pipelines</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
+    <link rel="apple-touch-icon" href="/icons/XamOps.png">
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.0/dist/cdn.min.js"></script>
+    <script type="module" src="/src/main.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .status-success { color: #16a34a; }
+        .status-failure { color: #dc2626; }
+        .status-running { color: #2563eb; }
+        .status-cancelled { color: #6b7280; }
+        .status-unknown { color: #f59e0b; }
+        .border-success { border-left-color: #16a34a; }
+        .border-failure { border-left-color: #dc2626; }
+        .border-running { border-left-color: #2563eb; }
+        .border-cancelled { border-left-color: #6b7280; }
+        .border-unknown { border-left-color: #f59e0b; }
+        .tab-button { padding: 0.75rem 1.5rem; border-bottom: 3px solid transparent; transition: all 0.2s ease-in-out; font-weight: 600; color: #4b5563; }
+        .tab-button:hover { color: #1f2937; }
+        .tab-button.active { color: #4f46e5; border-bottom-color: #4f46e5; }
+        
+        .history-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .history-item:last-child {
+            border-bottom: none;
+        }
+        [x-cloak] { display: none !important; }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div class="flex h-screen overflow-hidden">
+        <include file="/_sidebar.html"></include>
+
+        <div class="flex-1 flex flex-col overflow-hidden pl-64">
+            <main class="flex-1 overflow-y-auto p-8" x-data="cicdPipelines()">
+                <header class="mb-8">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center space-x-4">
+                            <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-sky-600 rounded-xl flex items-center justify-center">
+                                <i class="fas fa-cogs text-white text-2xl"></i>
+                            </div>
+                            <div>
+                                <h1 class="text-2xl font-bold text-gray-800">CICD Pipelines</h1>
+                                <p class="text-sm text-gray-600">Status of GitHub Actions and Jenkins</p>
+                            </div>
+                        </div>
+                        <button @click="refreshData()" class="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-md">
+                            <i class="fas fa-sync-alt" :class="{ 'fa-spin': isLoadingGithub || isLoadingJenkins }"></i>
+                            <span>Refresh All</span>
+                        </button>
+                    </div>
+                </header>
+
+                <div class="mb-6 border-b border-gray-200">
+                    <nav class="-mb-px flex space-x-6" aria-label="Tabs">
+                        <button @click="activeTab = 'github'"
+                                :class="{ 'active': activeTab === 'github' }"
+                                class="tab-button">
+                            <i class="fab fa-github mr-2"></i> GitHub Actions
+                        </button>
+                        <button @click="activeTab = 'jenkins'"
+                                :class="{ 'active': activeTab === 'jenkins' }"
+                                class="tab-button">
+                            <i class="fab fa-jenkins mr-2"></i> Jenkins
+                        </button>
+                    </nav>
+                </div>
+
+                <div x-show="activeTab === 'github'">
+                    <h2 class="text-xl font-semibold text-gray-700 mb-4">GitHub Actions Status</h2>
+
+                    <div x-show="isLoadingGithub" class="text-center py-10">
+                        <i class="fas fa-spinner fa-spin text-3xl text-indigo-600"></i>
+                        <p class="mt-2 text-gray-500">Loading GitHub Actions data...</p>
+                    </div>
+
+                    <div x-show="!isLoadingGithub">
+                        <template x-if="githubRuns.length === 0">
+                            <div class="text-center py-10 bg-white rounded-lg shadow">
+                                <i class="fas fa-info-circle text-2xl text-gray-400 mb-2"></i>
+                                <p class="text-gray-500">No GitHub Actions runs found.</p>
+                                <p class="text-sm text-gray-400 mt-2">Have you connected a repository in the Account Manager?</p>
+                            </div>
+                        </template>
+
+                        <template x-if="githubRuns.length > 0">
+                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                <template x-for="run in githubRuns" :key="run.id">
+                                    <div class="bg-white p-4 rounded-lg shadow border-l-4 cursor-pointer transition-all hover:shadow-lg hover:scale-105" 
+                                         :class="getRunBorderColor(run.displayStatus)"
+                                         @click="viewWorkflowHistory(run)">
+                                        
+                                        <div class="flex justify-between items-center mb-2">
+                                            <span class="text-xs font-semibold bg-gray-100 text-gray-700 px-2 py-0.5 rounded" 
+                                                  x-text="run.repository ? run.repository.full_name : 'Unknown Repo'"></span>
+                                            <a :href="run.html_url" target="_blank" @click.stop 
+                                               class="text-xs text-indigo-500 hover:text-indigo-700 font-medium">
+                                                View Run <i class="fas fa-external-link-alt ml-1"></i>
+                                            </a>
+                                        </div>
+                                        <p class="font-semibold text-gray-900" x-text="run.name"></p>
+                                        <p class="text-sm mt-2">
+                                            Status: <span class="font-bold" :class="getRunStatusColor(run.displayStatus)" x-text="run.displayStatus"></span>
+                                        </p>
+                                        <p class="text-xs text-gray-500 mt-1" x-text="'Last updated: ' + formatTime(run.updated_at)"></p>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <div x-show="activeTab === 'jenkins'">
+                    <h2 class="text-xl font-semibold text-gray-700 mb-4">Jenkins Status</h2>
+                    <div class="text-center py-10 bg-white rounded-lg shadow">
+                        <i class="fab fa-jenkins text-4xl text-gray-400 mb-2"></i>
+                        <p class="text-gray-500">Jenkins integration coming soon...</p>
+                    </div>
+                </div>
+
+                <!-- Modal for Workflow Run History -->
+                <div x-show="selectedWorkflow"
+                     @keydown.escape.window="selectedWorkflow = null"
+                     class="fixed inset-0 z-50 overflow-y-auto bg-black bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4"
+                     x-cloak
+                     x-transition>
+                    <div class="relative bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden"
+                         @click.away="selectedWorkflow = null"
+                         x-transition>
+                        
+                        <!-- Modal Header -->
+                        <div class="sticky top-0 z-10 bg-gray-100 px-6 py-4 border-b">
+                            <div class="flex items-center justify-between">
+                                <div class="min-w-0">
+                                    <h2 class="text-lg font-bold text-gray-900" x-text="selectedWorkflow?.name"></h2>
+                                    <p class="text-sm text-gray-500" x-text="selectedWorkflow?.repository.full_name"></p>
+                                </div>
+                                <button @click="selectedWorkflow = null"
+                                        class="w-8 h-8 rounded-full text-gray-500 hover:bg-gray-200 transition-all flex items-center justify-center">
+                                    <i class="fas fa-times text-lg"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Modal Body -->
+                        <div class="overflow-y-auto max-h-[calc(90vh-120px)] p-6">
+                            <h3 class="text-md font-semibold text-gray-800 mb-4">Run History</h3>
+                            
+                            <div x-show="isLoadingHistory" class="text-center py-10">
+                                <i class="fas fa-spinner fa-spin text-2xl text-indigo-600"></i>
+                                <p class="mt-2 text-sm text-gray-500">Loading run history...</p>
+                            </div>
+
+                            <div x-show="!isLoadingHistory">
+                                <template x-if="workflowHistory.length === 0">
+                                    <p class="text-center text-gray-500 py-6">No run history found for this workflow.</p>
+                                </template>
+                                
+                                <div x-show="workflowHistory.length > 0" class="border rounded-lg overflow-hidden">
+                                    <template x-for="run in workflowHistory" :key="run.id">
+                                        <div class="history-item hover:bg-gray-50">
+                                            <div>
+                                                <p class="font-medium text-gray-800" x-text="run.name"></p>
+                                                <p class="text-xs text-gray-500" x-text="'Run #' + run.run_number + ' • ' + formatTime(run.updated_at)"></p>
+                                            </div>
+                                            <div class="text-right flex-shrink-0 ml-4">
+                                                <span class="font-semibold text-sm" :class="getRunStatusColor(run.displayStatus)" x-text="run.displayStatus"></span>
+                                                <a :href="run.html_url" target="_blank" class="block text-xs text-indigo-500 hover:text-indigo-700 font-medium">
+                                                    View Details <i class="fas fa-external-link-alt ml-1"></i>
+                                                </a>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </main>
+        </div>
+    </div>
+
+    <script>
+        function cicdPipelines() {
+            return {
+                activeTab: 'github',
+                isLoadingGithub: true,
+                isLoadingJenkins: true,
+                githubRuns: [], 
+                jenkinsJobs: [],
+
+                // Modal state
+                selectedWorkflow: null,
+                isLoadingHistory: false,
+                workflowHistory: [],
+
+                init() {
+                    this.fetchGithubData();
+                    this.fetchJenkinsData();
+                },
+
+                fetchGithubData() {
+                    this.isLoadingGithub = true;
+                    console.log("Fetching GitHub data from API...");
+                    fetch('http://localhost:8080/api/cicd/github/runs', {
+                        credentials: 'include'
+                    })
+                    .then(res => {
+                        if (res.status === 401 || res.status === 403) {
+                            throw new Error('Authentication failed. Please log in.');
+                        }
+                        if (!res.ok) {
+                            throw new Error('Network response was not ok.');
+                        }
+                        return res.json();
+                    })
+                    .then(data => {
+                        this.githubRuns = data; 
+                        console.log("GitHub data loaded:", data.length, "runs");
+                    })
+                    .catch(err => {
+                        console.error('Error fetching GitHub data:', err);
+                        this.githubRuns = [];
+                    })
+                    .finally(() => {
+                        this.isLoadingGithub = false;
+                    });
+                },
+
+                fetchJenkinsData() {
+                    this.isLoadingJenkins = true;
+                    setTimeout(() => {
+                        this.jenkinsJobs = [];
+                        this.isLoadingJenkins = false;
+                    }, 500);
+                },
+
+                refreshData() {
+                    this.fetchGithubData();
+                    this.fetchJenkinsData();
+                },
+                
+                // ✅ FIXED: Use snake_case property names from backend
+                viewWorkflowHistory(run) {
+                    // Backend sends: workflow_id, full_name (snake_case)
+                    if (!run || !run.workflow_id || !run.repository || !run.repository.full_name) {
+                        console.error('Invalid run object passed', run);
+                        console.error('Missing required fields. Check:', {
+                            hasRun: !!run,
+                            hasWorkflowId: !!run?.workflow_id,
+                            hasRepository: !!run?.repository,
+                            hasFullName: !!run?.repository?.full_name
+                        });
+                        return;
+                    }
+                    
+                    this.selectedWorkflow = run;
+                    this.isLoadingHistory = true;
+                    this.workflowHistory = [];
+
+                    // Split full_name (e.g., "XamOps/XamOps-New") into owner and repo
+                    const [owner, repo] = run.repository.full_name.split('/');
+                    const workflowId = run.workflow_id;
+
+                    console.log(`Fetching history for: owner=${owner}, repo=${repo}, workflowId=${workflowId}`);
+
+                    // API call with owner and repo as separate path variables
+                    fetch(`http://localhost:8080/api/cicd/github/runs/${owner}/${repo}/${workflowId}?count=15`, {
+                        credentials: 'include'
+                    })
+                    .then(res => {
+                        if (!res.ok) {
+                            throw new Error(`Failed to fetch workflow history: ${res.status} ${res.statusText}`);
+                        }
+                        return res.json();
+                    })
+                    .then(data => {
+                        console.log('Workflow history loaded:', data.length, 'runs');
+                        this.workflowHistory = data;
+                    })
+                    .catch(err => {
+                        console.error('Error fetching workflow history:', err);
+                        this.workflowHistory = [];
+                    })
+                    .finally(() => {
+                        this.isLoadingHistory = false;
+                    });
+                },
+
+                // Helper to format ISO date strings
+                formatTime(isoDate) {
+                    if (!isoDate) return 'N/A';
+                    try {
+                        return new Date(isoDate).toLocaleString(undefined, { 
+                            year: 'numeric', 
+                            month: 'short', 
+                            day: 'numeric', 
+                            hour: '2-digit', 
+                            minute: '2-digit' 
+                        });
+                    } catch (e) {
+                        return isoDate;
+                    }
+                },
+
+                // Helper functions for styling based on status
+                getRunStatusColor(status) {
+                    switch (status?.toLowerCase()) {
+                        case 'success':
+                        case 'completed': 
+                            return 'status-success';
+                        case 'failure':
+                        case 'failed':
+                            return 'status-failure';
+                        case 'in_progress':
+                        case 'running':
+                            return 'status-running';
+                        case 'cancelled':
+                        case 'aborted':
+                            return 'status-cancelled';
+                        default:
+                            return 'status-unknown';
+                    }
+                },
+                
+                getRunBorderColor(status) {
+                    switch (status?.toLowerCase()) {
+                        case 'success':
+                        case 'completed':
+                            return 'border-success';
+                        case 'failure':
+                        case 'failed':
+                            return 'border-failure';
+                        case 'in_progress':
+                        case 'running':
+                            return 'border-running';
+                        case 'cancelled':
+                        case 'aborted':
+                            return 'border-cancelled';
+                        default:
+                            return 'border-unknown';
+                    }
+                }
+            }
+        }
+    </script>
+</body>
+</html>
