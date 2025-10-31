@@ -282,6 +282,9 @@
         .azure-icon {
             background: linear-gradient(135deg, #0089D6 0%, #0072C6 100%);
         }
+        .github-icon {
+            background: #24292e; /* GitHub Dark Background */
+        }
 
         /* Enhanced styles for Help Modal */
         .code-block {
@@ -324,16 +327,16 @@
                     </div>
                     <div>
                         <h1 class="text-2xl font-bold text-gray-800">Account Manager</h1>
-                        <p class="text-sm text-gray-600">Manage your connected cloud accounts</p>
+                        <p class="text-sm text-gray-600">Manage your connected cloud accounts and CICD integrations</p>
                     </div>
                 </div>
                 <div class="flex items-center space-x-4">
                     <div class="flex items-center space-x-2">
                         <div class="w-2 h-2 bg-green-500 rounded-full pulse-dot"></div>
-                        <span class="text-sm text-gray-600">Account monitoring</span>
+                        <span class="text-sm text-gray-600">Active Monitoring</span>
                     </div>
                     <a href="/add-account.html" class="btn-primary px-6 py-3 text-sm font-semibold rounded-lg shadow-md hover:shadow-lg transition-all">
-                        <i class="fas fa-plus mr-2"></i>Add New Account
+                        <i class="fas fa-plus mr-2"></i>Add New Cloud Account
                     </a>
                 </div>
             </header>
@@ -343,12 +346,12 @@
                     <div class="account-card rounded-2xl p-6 fade-in">
                         <div class="flex justify-between items-start mb-4">
                             <div class="flex-1">
-                                <h3 class="text-gray-600 text-sm font-medium mb-2">Total Accounts</h3>
+                                <h3 class="text-gray-600 text-sm font-medium mb-2">Total Cloud Accounts</h3>
                                 <p class="text-4xl font-bold gradient-text mb-1" x-text="accounts.length"></p>
                                 <p class="text-xs text-gray-500">connected accounts</p>
                             </div>
                             <div class="w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center">
-                                <i class="fas fa-users text-white text-xl"></i>
+                                <i class="fas fa-cloud text-white text-xl"></i>
                             </div>
                         </div>
                     </div>
@@ -369,12 +372,12 @@
                     <div class="account-card rounded-2xl p-6 fade-in">
                         <div class="flex justify-between items-start mb-4">
                             <div class="flex-1">
-                                <h3 class="text-gray-600 text-sm font-medium mb-2">Pending Verification</h3>
-                                <p class="text-4xl font-bold text-yellow-500 mb-1" x-text="accounts.filter(a => a.status === 'PENDING').length"></p>
-                                <p class="text-xs text-gray-500">needs attention</p>
+                                <h3 class="text-gray-600 text-sm font-medium mb-2">GitHub Repositories</h3>
+                                <p class="text-4xl font-bold gradient-text mb-1" x-text="githubConfigs.length"></p>
+                                <p class="text-xs text-gray-500">connected for CICD</p>
                             </div>
-                            <div class="w-14 h-14 bg-gradient-to-br from-yellow-500 to-orange-600 rounded-xl flex items-center justify-center">
-                                <i class="fas fa-exclamation-triangle text-white text-xl"></i>
+                            <div class="w-14 h-14 bg-gradient-to-br from-gray-700 to-gray-900 rounded-xl flex items-center justify-center">
+                                <i class="fab fa-github text-white text-xl"></i>
                             </div>
                         </div>
                     </div>
@@ -384,19 +387,29 @@
                     <div class="flex items-center justify-between mb-8">
                         <div class="flex items-center space-x-4">
                             <div class="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center">
-                                <i class="fas fa-link text-white text-lg"></i>
+                                <i class="fas fa-cloud text-white text-lg"></i>
                             </div>
                             <div>
-                                <h2 class="text-xl font-bold text-gray-800">Connected Accounts</h2>
+                                <h2 class="text-xl font-bold text-gray-800">Connected Cloud Accounts</h2>
                                 <p class="text-sm text-gray-600">View and manage your cloud account connections</p>
                             </div>
                         </div>
                     </div>
 
                     <div x-show="isLoading" x-cloak class="table-enhanced">
+                        <div class="h-10 skeleton w-full"></div>
+                        <div class="h-12 skeleton w-full mt-1"></div>
+                        <div class="h-12 skeleton w-full mt-1"></div>
+                        <div class="h-12 skeleton w-full mt-1"></div>
                     </div>
 
                     <div x-show="!isLoading && accounts.length === 0" x-cloak class="empty-state text-center py-20 px-8 rounded-2xl">
+                        <i class="fas fa-cloud text-5xl text-gray-400 mb-4"></i>
+                        <h3 class="text-xl font-bold text-gray-800 mb-2">No Cloud Accounts Connected</h3>
+                        <p class="text-gray-600 mb-6">Start by adding your first AWS, GCP, or Azure account.</p>
+                        <a href="/add-account.html" class="btn-primary px-6 py-3 text-sm font-semibold rounded-lg shadow-md hover:shadow-lg transition-all">
+                            <i class="fas fa-plus mr-2"></i>Add New Account
+                        </a>
                     </div>
 
                     <div x-show="!isLoading && accounts.length > 0" x-cloak class="table-enhanced">
@@ -444,6 +457,72 @@
                                                 <i class="fas fa-trash mr-1"></i>Remove
                                             </button>
                                         </div>
+                                    </td>
+                                </tr>
+                            </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="glass-card rounded-2xl p-8 fade-in">
+                    <div class="flex items-center justify-between mb-8">
+                        <div class="flex items-center space-x-4">
+                            <div class="w-10 h-10 bg-gray-800 rounded-xl flex items-center justify-center">
+                                <i class="fab fa-github text-white text-lg"></i>
+                            </div>
+                            <div>
+                                <h2 class="text-xl font-bold text-gray-800">Connected GitHub Repositories</h2>
+                                <p class="text-sm text-gray-600">Manage repositories for CICD pipeline tracking</p>
+                            </div>
+                        </div>
+                         <a href="/add-github-config.html" class="px-4 py-2 bg-gray-800 text-white text-xs font-semibold rounded-lg shadow-md hover:bg-gray-900 transition-all">
+                            <i class="fas fa-plus mr-2"></i>Add Repository
+                        </a>
+                    </div>
+
+                    <div x-show="isGithubLoading" x-cloak class="table-enhanced">
+                         <div class="h-10 skeleton w-full"></div>
+                         <div class="h-12 skeleton w-full mt-1"></div>
+                         <div class="h-12 skeleton w-full mt-1"></div>
+                    </div>
+
+                    <div x-show="!isGithubLoading && githubConfigs.length === 0" x-cloak class="empty-state text-center py-20 px-8 rounded-2xl">
+                        <i class="fab fa-github text-5xl text-gray-400 mb-4"></i>
+                        <h3 class="text-xl font-bold text-gray-800 mb-2">No GitHub Repositories Connected</h3>
+                        <p class="text-gray-600 mb-6">Connect a repository to start monitoring its GitHub Actions.</p>
+                        <a href="/add-github-config.html" class="btn-primary px-6 py-3 text-sm font-semibold rounded-lg shadow-md hover:shadow-lg transition-all" style="background: #24292e;">
+                            <i class="fas fa-plus mr-2"></i>Connect Repository
+                        </a>
+                    </div>
+
+                    <div x-show="!isGithubLoading && githubConfigs.length > 0" x-cloak class="table-enhanced">
+                        <table class="w-full text-sm">
+                            <thead class="text-xs text-gray-700 uppercase bg-gradient-to-r from-gray-50 to-gray-100">
+                            <tr>
+                                <th class="px-6 py-4 text-left font-bold">Repository</th>
+                                <th class="px-6 py-4 text-left font-bold">Owner</th>
+                                <th class="px-6 py-4 text-center font-bold">Actions</th>
+                            </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-200">
+                            <template x-for="config in githubConfigs" :key="config.id">
+                                <tr class="hover:bg-gray-50 transition-all">
+                                    <td class="px-6 py-4">
+                                        <div class="flex items-center space-x-3">
+                                            <div class="w-8 h-8 rounded-lg flex items-center justify-center github-icon">
+                                                <i class="fab fa-github text-white text-sm"></i>
+                                            </div>
+                                            <span class="font-semibold text-gray-900" x-text="config.repo"></span>
+                                        </div>
+                                    </td>
+                                    <td class="px-6 py-4">
+                                        <span class="font-mono text-sm bg-gray-100 px-2 py-1 rounded" x-text="config.owner"></span>
+                                    </td>
+                                    <td class="px-6 py-4 text-center">
+                                        <button @click="removeGitHubConfig(config)" class="action-button px-3 py-2 text-xs font-semibold bg-red-600 text-white rounded-lg shadow-md hover:bg-red-700">
+                                            <i class="fas fa-trash mr-1"></i>Remove
+                                        </button>
                                     </td>
                                 </tr>
                             </template>
@@ -506,7 +585,6 @@
 
                         <p>Explore provider-specific guides below:</p>
 
-                        <!-- AWS Accordion -->
                         <div x-data="{ open: false }">
                             <div class="accordion-header flex items-center justify-between" @click="open = !open">
                                 <h4 class="font-semibold text-lg text-gray-800">AWS Pre-Onboarding Guide</h4>
@@ -637,7 +715,6 @@
                             </div>
                         </div>
 
-                        <!-- GCP Accordion -->
                         <div x-data="{ open: false }">
                             <div class="accordion-header flex items-center justify-between" @click="open = !open">
                                 <h4 class="font-semibold text-lg text-gray-800">GCP Pre-Onboarding Guide</h4>
@@ -726,7 +803,6 @@ enforcement: DENY
                             </div>
                         </div>
 
-                        <!-- Azure Accordion -->
                         <div x-data="{ open: false }">
                             <div class="accordion-header flex items-center justify-between" @click="open = !open">
                                 <h4 class="font-semibold text-lg text-gray-800">Azure Pre-Onboarding Guide</h4>
@@ -825,16 +901,16 @@ enforcement: DENY
                                 <ul class="list-disc pl-5">
                                     <li><strong>Q: Data isolation?</strong> A: Dedicated Management Groups.</li>
                                     <li><strong>Q: Identity?</strong> A: Federation or delegated.</li>
-                                    <li><strong>Q: Drift?</strong> A: Monitoring alerts.</li>
+                                    <li><strong>Q: Drift alerts?</strong> A: Monitoring alerts.</li>
                                     <li><strong>Q: Billing?</strong> A: Tagged costs.</li>
                                     <li><strong>Q: Customization?</strong> A: Delegated roles.</li>
                                     <li><strong>Q: Compliance?</strong> A: Tailored controls.</li>
                                     <li><strong>Q: Backdoors?</strong> A: Conditional access, audits.</li>
                                     <li><strong>Q: Testing?</strong> A: Simulators.</li>
-                                    <li><strong>Q: Exit?</strong> A: Smooth process.</li>
+                                    <li><strong>Q: Exit process?</strong> A: Smooth process.</li>
                                     <li><strong>Q: Monitoring?</strong> A: Dashboards.</li>
-                                    <li><strong>Q: Envs?</strong> A: Separate subscriptions.</li>
-                                    <li><strong>Q: Encryption?</strong> A: CMK enforcement.</li>
+                                    <li><strong>Q: Multiple envs?</strong> A: Separate subscriptions.</li>
+                                    <li><strong>Q: Encryption security?</strong> A: CMK enforcement.</li>
                                 </ul>
 
                                 <p>Final Assurances: Your secure Azure partner.</p>
@@ -870,19 +946,73 @@ enforcement: DENY
             providerSelection: null,
             addAccountModal: false,
             isHelpModalOpen: false,
+            // === NEW GITHUB PROPERTIES ===
+            isGithubLoading: true,
+            githubConfigs: [],
+
             init() {
                 this.fetchAccounts();
+                this.fetchGitHubConfigs(); // <-- ADD THIS LINE
             },
+
             fetchAccounts() {
                 this.isLoading = true;
-                fetch('/api/xamops/account-manager/accounts')
-                    .then(res => res.json())
+                // *** UPDATED fetch URL and added credentials ***
+                fetch('http://localhost:8080/api/xamops/account-manager/accounts', { credentials: 'include' })
+                    .then(res => {
+                        if (!res.ok) throw new Error('Failed to load accounts'); // Added error check
+                        return res.json();
+                    })
                     .then(data => {
                         this.accounts = data;
                     })
                     .catch(err => console.error('Failed to load accounts:', err))
                     .finally(() => this.isLoading = false);
             },
+
+            // === NEW FUNCTION TO FETCH GITHUB CONFIGS ===
+            fetchGitHubConfigs() {
+                this.isGithubLoading = true;
+                fetch('http://localhost:8080/api/cicd/config/github', { credentials: 'include' })
+                    .then(res => {
+                        if (!res.ok) {
+                            if (res.status === 401 || res.status === 403) console.error('Not authenticated to fetch GitHub configs');
+                            throw new Error('Failed to load GitHub configs');
+                        }
+                        return res.json();
+                    })
+                    .then(data => {
+                        this.githubConfigs = data;
+                    })
+                    .catch(err => console.error('Failed to load GitHub configs:', err))
+                    .finally(() => this.isGithubLoading = false);
+            },
+
+            // === NEW FUNCTION TO REMOVE GITHUB CONFIG ===
+            removeGitHubConfig(config) {
+                if (!confirm(`Are you sure you want to remove the repository "${config.owner}/${config.repo}"?`)) {
+                    return;
+                }
+                // Use absolute URL and credentials
+                fetch(`http://localhost:8080/api/cicd/config/github/${config.id}`, {
+                    method: 'DELETE',
+                    credentials: 'include'
+                })
+                .then(res => {
+                    if (!res.ok) {
+                        throw new Error('Failed to remove GitHub config.');
+                    }
+                    // Remove from local array on success
+                    this.githubConfigs = this.githubConfigs.filter(c => c.id !== config.id);
+                    alert('Repository connection removed.');
+                })
+                .catch(err => {
+                    alert(`Error: ${err.message}`);
+                    console.error('Failed to remove GitHub config:', err);
+                });
+            },
+
+            // ... (your existing openVerificationModal, addAzureAccount, resetNewAccount functions) ...
             openVerificationModal(account) {
                 this.verifyingAccount = account;
                 this.verificationDetails.externalId = account.externalId;
@@ -890,7 +1020,7 @@ enforcement: DENY
                 this.isModalOpen = true;
             },
             addAzureAccount() {
-                fetch('/api/accounts/azure', {
+                fetch('http://localhost:8080/api/accounts/azure', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -899,7 +1029,8 @@ enforcement: DENY
                         subscriptionId: this.newAccount.azure.subscriptionId,
                         clientId: this.newAccount.azure.clientId,
                         clientSecret: this.newAccount.azure.clientSecret,
-                    })
+                    }),
+                    credentials: 'include'
                 })
                 .then(res => {
                     if (!res.ok) {
@@ -925,12 +1056,15 @@ enforcement: DENY
                     azure: { name: '', tenantId: '', subscriptionId: '', clientId: '', clientSecret: '' }
                 };
             },
+
             verifyAccount() {
                 this.isVerifying = true;
                 this.verificationError = '';
-                fetch('/api/xamops/account-manager/verify-account', {
+                // *** UPDATED fetch URL and added credentials ***
+                fetch('http://localhost:8080/api/xamops/account-manager/verify-account', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include', // <-- ADD THIS
                     body: JSON.stringify(this.verificationDetails)
                 })
                 .then(res => {
@@ -950,12 +1084,15 @@ enforcement: DENY
                     this.isVerifying = false;
                 });
             },
+
             removeAccount(account) {
                 if (!confirm(`Are you sure you want to remove the account "${account.name}"? This action cannot be undone.`)) {
                     return;
                 }
-                fetch(`/api/xamops/account-manager/accounts/${account.dbId}`, {
-                    method: 'DELETE'
+                // *** UPDATED fetch URL and added credentials ***
+                fetch(`http://localhost:8080/api/xamops/account-manager/accounts/${account.dbId}`, {
+                    method: 'DELETE',
+                    credentials: 'include' // <-- ADD THIS
                 })
                 .then(res => {
                     if (!res.ok) {
@@ -976,6 +1113,7 @@ enforcement: DENY
                     console.error('Failed to remove account:', err);
                 });
             },
+
             getStatusColor(status, type) {
                 const colors = {
                     'CONNECTED': { badge: 'bg-green-100 text-green-800 border-green-200', icon: 'text-green-500' },

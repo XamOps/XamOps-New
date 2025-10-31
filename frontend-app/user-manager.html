@@ -192,85 +192,90 @@
     </style>
 </head>
 <body class="antialiased">
-<div class="flex h-screen">
-<div data-include-sidebar></div>
+    <!-- FULL-SCREEN FLEX LAYOUT -->
+    <div class="flex h-screen">
+        <!-- SIDEBAR PLACEHOLDER (injected by main.js) -->
+        <div data-include-sidebar></div>
 
-    <!-- Main Content Area for User Management -->
-    <main class="flex-1 flex flex-col p-8" x-data="userManagement">
-        <h1 class="text-3xl font-bold mb-6">User Management</h1>
+        <!-- MAIN CONTENT WRAPPER (pushes content right of sidebar) -->
+        <div class="flex-1 ml-64 overflow-auto bg-gradient-to-br from-slate-50 to-slate-100">
+            <main class="p-6 lg:p-8 min-h-full" x-data="userManagement">
+                <h1 class="text-3xl font-bold mb-6">User Management</h1>
 
-        <button @click="newUser()" class="btn-primary text-white px-6 py-3 rounded-lg mb-6">
-            Create New User
-        </button>
+                <button @click="newUser()" class="btn-primary text-white px-6 py-3 rounded-lg mb-6">
+                    Create New User
+                </button>
 
-        <!-- FORM: Only render when editing (x-if removes from DOM) -->
-        <template x-if="isEditing">
-            <div class="bg-white p-6 rounded-lg shadow-md mb-8">
-                <h2 class="text-xl font-semibold mb-4" x-text="selectedUser.id ? 'Edit User' : 'Create User'"></h2>
-                <form @submit.prevent="saveUser()">
-                    <div class="grid grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-sm font-medium mb-1">Client Name</label>
-                            <input type="text" x-model="selectedUser.clientName" :disabled="!!selectedUser.id" required class="form-input w-full px-4 py-2 border rounded-lg">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium mb-1">Username</label>
-                            <input type="text" x-model="selectedUser.username" required class="form-input w-full px-4 py-2 border rounded-lg">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium mb-1">Email</label>
-                            <input type="email" x-model="selectedUser.email" required class="form-input w-full px-4 py-2 border rounded-lg">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium mb-1">Role</label>
-                            <select x-model="selectedUser.role" required class="form-input w-full px-4 py-2 border rounded-lg">
-                                <option value="" disabled>Select Role</option>
-                                <option value="ROLE_XAMOPS">ROLE_XAMOPS</option>
-                                <option value="ROLE_BILLOPS">ROLE_BILLOPS</option>
-                                <option value="ROLE_BILLOPS_ADMIN">ROLE_BILLOPS_ADMIN</option>
-                            </select>
-                        </div>
-                        <div class="col-span-2">
-                            <label class="block text-sm font-medium mb-1">Password</label>
-                            <input type="password" x-model="selectedUser.password" :required="!selectedUser.id" :placeholder="selectedUser.id ? 'Leave blank to keep current' : ''" class="form-input w-full px-4 py-2 border rounded-lg">
-                        </div>
+                <!-- FORM: Only render when editing (x-if removes from DOM) -->
+                <template x-if="isEditing">
+                    <div class="bg-white p-6 rounded-lg shadow-md mb-8">
+                        <h2 class="text-xl font-semibold mb-4" x-text="selectedUser.id ? 'Edit User' : 'Create User'"></h2>
+                        <form @submit.prevent="saveUser()">
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Client Name</label>
+                                    <input type="text" x-model="selectedUser.clientName" :disabled="!!selectedUser.id" required class="form-input w-full px-4 py-2 border rounded-lg">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Username</label>
+                                    <input type="text" x-model="selectedUser.username" required class="form-input w-full px-4 py-2 border rounded-lg">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Email</label>
+                                    <input type="email" x-model="selectedUser.email" required class="form-input w-full px-4 py-2 border rounded-lg">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Role</label>
+                                    <select x-model="selectedUser.role" required class="form-input w-full px-4 py-2 border rounded-lg">
+                                        <option value="" disabled>Select Role</option>
+                                        <option value="ROLE_XAMOPS">ROLE_XAMOPS</option>
+                                        <option value="ROLE_BILLOPS">ROLE_BILLOPS</option>
+                                        <option value="ROLE_BILLOPS_ADMIN">ROLE_BILLOPS_ADMIN</option>
+                                    </select>
+                                </div>
+                                <div class="col-span-2">
+                                    <label class="block text-sm font-medium mb-1">Password</label>
+                                    <input type="password" x-model="selectedUser.password" :required="!selectedUser.id" :placeholder="selectedUser.id ? 'Leave blank to keep current' : ''" class="form-input w-full px-4 py-2 border rounded-lg">
+                                </div>
+                            </div>
+                            <div class="mt-6 flex justify-end space-x-4">
+                                <button type="button" @click="cancelEdit()" class="px-6 py-2 border rounded-lg">Cancel</button>
+                                <button type="submit" class="btn-primary text-white px-6 py-2 rounded-lg">Save</button>
+                            </div>
+                        </form>
                     </div>
-                    <div class="mt-6 flex justify-end space-x-4">
-                        <button type="button" @click="cancelEdit()" class="px-6 py-2 border rounded-lg">Cancel</button>
-                        <button type="submit" class="btn-primary text-white px-6 py-2 rounded-lg">Save</button>
-                    </div>
-                </form>
-            </div>
-        </template>
+                </template>
 
-        <!-- TABLE -->
-        <div class="bg-white rounded-lg shadow-md overflow-hidden">
-            <table class="w-full">
-                <thead class="bg-gray-50">
-                    <tr>
-                        <th class="px-6 py-3 text-left text-sm font-semibold">Client Name</th>
-                        <th class="px-6 py-3 text-left text-sm font-semibold">Username</th>
-                        <th class="px-6 py-3 text-left text-sm font-semibold">Email</th>
-                        <th class="px-6 py-3 text-left text-sm font-semibold">Role</th>
-                        <th class="px-6 py-3 text-left text-sm font-semibold">Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <template x-for="user in users" :key="user.id">
-                        <tr class="border-t">
-                            <td class="px-6 py-4" x-text="user.clientName"></td>
-                            <td class="px-6 py-4" x-text="user.username"></td>
-                            <td class="px-6 py-4" x-text="user.email"></td>
-                            <td class="px-6 py-4" x-text="user.role"></td>
-                            <td class="px-6 py-4">
-                                <button @click="editUser(user)" class="text-blue-600 mr-4">Edit</button>
-                                <button @click="deleteUser(user.id)" class="text-red-600">Delete</button>
-                            </td>
-                        </tr>
-                    </template>
-                </tbody>
-            </table>
+                <!-- TABLE -->
+                <div class="bg-white rounded-lg shadow-md overflow-hidden">
+                    <table class="w-full">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-sm font-semibold">Client Name</th>
+                                <th class="px-6 py-3 text-left text-sm font-semibold">Username</th>
+                                <th class="px-6 py-3 text-left text-sm font-semibold">Email</th>
+                                <th class="px-6 py-3 text-left text-sm font-semibold">Role</th>
+                                <th class="px-6 py-3 text-left text-sm font-semibold">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="user in users" :key="user.id">
+                                <tr class="border-t">
+                                    <td class="px-6 py-4" x-text="user.clientName"></td>
+                                    <td class="px-6 py-4" x-text="user.username"></td>
+                                    <td class="px-6 py-4" x-text="user.email"></td>
+                                    <td class="px-6 py-4" x-text="user.role"></td>
+                                    <td class="px-6 py-4">
+                                        <button @click="editUser(user)" class="text-blue-600 mr-4">Edit</button>
+                                        <button @click="deleteUser(user.id)" class="text-red-600">Delete</button>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </main>
         </div>
-    </main>
+    </div>
 </body>
 </html>

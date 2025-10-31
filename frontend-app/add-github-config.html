@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XamOps - Add GitHub Repository</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+        <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="/icons/XamOps.png">
+    <script type="module" src="/src/main.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f9fafb; /* bg-gray-50 */
+        }
+        .card {
+            background: white;
+            border-radius: 0.75rem; /* rounded-xl */
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1); /* shadow-lg */
+            overflow: hidden;
+        }
+        .input-field {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            border: 1px solid #D1D5DB; /* border-gray-300 */
+            border-radius: 0.5rem; /* rounded-lg */
+            transition: all 0.2s ease-in-out;
+        }
+        .input-field:focus {
+            outline: none;
+            border-color: #4F46E5; /* focus:border-indigo-500 */
+            box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.3); /* focus:ring-indigo-500 */
+        }
+        .btn-primary {
+            background-color: #1F2937; /* bg-gray-800 */
+            color: white;
+            font-weight: 600;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem; /* rounded-lg */
+            transition: background-color 0.2s ease;
+        }
+        .btn-primary:hover {
+            background-color: #111827; /* hover:bg-gray-900 */
+        }
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div class="flex h-screen overflow-hidden">
+        <include file="/_sidebar.html"></include>
+        
+        <div class="flex-1 flex flex-col overflow-hidden pl-64">
+            <main class="flex-1 overflow-y-auto p-6 md:p-10" x-data="addGitHubConfig()">
+                <div class="max-w-3xl mx-auto">
+                    
+                    <div class="mb-8">
+                        <a href="/account-manager.html" class="inline-flex items-center text-sm text-gray-500 hover:text-indigo-600 transition-colors">
+                            <i class="fas fa-chevron-left mr-2"></i>
+                            Back to Account Manager
+                        </a>
+                        <h1 class="text-3xl font-bold text-gray-900 mt-2">Connect GitHub Repository</h1>
+                        <p class="text-gray-600 mt-1">Add a repository to monitor its GitHub Actions status.</p>
+                    </div>
+
+                    <div class="card">
+                        <div class="p-6 md:p-8 space-y-6">
+                            <div class="flex items-center space-x-3">
+                                <i class="fab fa-github text-3xl text-gray-800"></i>
+                                <div>
+                                    <h2 class="text-xl font-semibold text-gray-800">Repository Details</h2>
+                                    <p class="text-sm text-gray-600">
+                                        Provide a Personal Access Token (PAT) with <code class="text-xs bg-gray-100 px-1 py-0.5 rounded">repo:status</code> or full <code class="text-xs bg-gray-100 px-1 py-0.5 rounded">repo</code> scope.
+                                    </p>
+                                </div>
+                            </div>
+                            
+                            <div class="space-y-4">
+                                <div>
+                                    <label for="githubOwner" class="block text-sm font-medium text-gray-700 mb-1">GitHub Owner (User or Organization)</label>
+                                    <input type="text" id="githubOwner" x-model="github.owner" placeholder="e.g., 'my-organization'" class="input-field">
+                                </div>
+
+                                <div>
+                                    <label for="githubRepo" class="block text-sm font-medium text-gray-700 mb-1">Repository Name</label>
+                                    <input type="text" id="githubRepo" x-model="github.repo" placeholder="e.g., 'my-awesome-project'" class="input-field">
+                                </div>
+
+                                <div>
+                                    <label for="githubPat" class="block text-sm font-medium text-gray-700 mb-1">Personal Access Token (PAT)</label>
+                                    <input type="password" id="githubPat" x-model="github.pat" placeholder="ghp_..." class="input-field">
+                                    <p class="text-xs text-gray-500 mt-1">Your token will be stored securely encrypted.</p>
+                                </div>
+                            </div>
+
+                            <div x-show="github.error" x-text="github.error" class="bg-red-50 text-red-700 p-3 rounded-lg text-sm" x-cloak></div>
+
+                            <div class="pt-4 border-t border-gray-200">
+                                <button @click="connectGitHub()" :disabled="isLoading" class="btn-primary w-full flex items-center justify-center" :class="{'opacity-50 cursor-not-allowed': isLoading}">
+                                    <i class="fas fa-spinner fa-spin mr-2" x-show="isLoading"></i>
+                                    <span x-text="isLoading ? 'Connecting...' : 'Connect GitHub Repository'"></span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+<script>
+    function addGitHubConfig() {
+        return {
+            isLoading: false,
+            github: {
+                owner: '',
+                repo: '',
+                pat: '',
+                error: ''
+            },
+
+            connectGitHub() {
+                this.isLoading = true;
+                this.github.error = '';
+
+                if (!this.github.owner || !this.github.repo || !this.github.pat) {
+                    this.github.error = 'Please fill in all fields.';
+                    this.isLoading = false;
+                    return;
+                }
+
+                fetch('http://localhost:8080/api/cicd/config/github', {
+                    method: 'POST',
+                    // === *** THE FIX *** ===
+                    // Send credentials (cookies, auth headers) with this cross-origin request
+                    credentials: 'include', 
+                    // === *************** ===
+                    headers: { 
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        owner: this.github.owner,
+                        repo: this.github.repo,
+                        pat: this.github.pat
+                    })
+                })
+                .then(res => {
+                    if (!res.ok) {
+                        return res.json().then(err => { 
+                            throw new Error(err.message || 'Connection failed. Please check details and PAT permissions.') 
+                        }).catch(() => {
+                            if (res.status === 401 || res.status === 403) {
+                                // This will now properly catch login errors
+                                throw new Error('Authentication failed. Please log in and try again.');
+                            }
+                            throw new Error(`Connection failed with status: ${res.status}`);
+                        });
+                    }
+                    return res.json();
+                })
+                .then(data => {
+                    alert('GitHub repository connected successfully! Redirecting...');
+                    window.location.href = '/account-manager.html';
+                })
+                .catch(err => {
+                    console.error('Error connecting GitHub account:', err);
+                    this.github.error = err.message || 'An unknown error occurred.';
+                })
+                .finally(() => {
+                    this.isLoading = false;
+                });
+            }
+        }
+    }
+</script>
+
+</body>
+</html>
