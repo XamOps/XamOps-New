@@ -227,7 +227,8 @@ public class SecurityConfig {
                                 // ---
                                 new AntPathRequestMatcher("/cloudk8s.html"),
                                 new AntPathRequestMatcher("/eks-details.html"),
-                                new AntPathRequestMatcher("/api/xamops/k8s/**")
+                                new AntPathRequestMatcher("/api/xamops/k8s/**"),
+                                new AntPathRequestMatcher("/api/devops-scripts/**")
                         ).permitAll()
                         .anyRequest().authenticated()
                 )

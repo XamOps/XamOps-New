@@ -554,7 +554,10 @@ public class GcpOptimizationService {
                 .collect(Collectors.toList());
     }
 
-    @Cacheable(value = "gcpSavingsSummary", key = "'gcp:savings-summary:' + #gcpProjectId")
+    //
+    // -------------------- ⬇️ FIX 1: CACHE ANNOTATION REMOVED ⬇️ --------------------
+    //
+    // @Cacheable(value = "gcpSavingsSummary", key = "'gcp:savings-summary:' + #gcpProjectId")
     public DashboardData.SavingsSummary getSavingsSummary(String gcpProjectId) {
         List<GcpWasteItem> waste = getWasteReport(gcpProjectId);
         List<GcpOptimizationRecommendation> rightsizing = getRightsizingRecommendations(gcpProjectId);
@@ -573,7 +576,10 @@ public class GcpOptimizationService {
         return new DashboardData.SavingsSummary(wasteSavings + rightsizingSavings, suggestions);
     }
 
-    @Cacheable(value = "gcpOptimizationSummary", key = "'gcp:optimization-summary:' + #gcpProjectId")
+    //
+    // -------------------- ⬇️ FIX 2: CACHE ANNOTATION REMOVED ⬇️ --------------------
+    //
+    // @Cacheable(value = "gcpOptimizationSummary", key = "'gcp:optimization-summary:' + #gcpProjectId")
     public DashboardData.OptimizationSummary getOptimizationSummary(String gcpProjectId) {
         List<GcpWasteItem> waste = getWasteReport(gcpProjectId);
         List<GcpOptimizationRecommendation> rightsizing = getRightsizingRecommendations(gcpProjectId);
@@ -1221,7 +1227,7 @@ public class GcpOptimizationService {
         return "Unknown";
     }
 
-     /**
+   /**
      * Extract resource name from recommendation using multiple strategies
      * Prioritize structured fields, fall back to Regex parsing description.
      */
