@@ -69,10 +69,12 @@
             border: 2px solid rgba(229, 231, 235, 0.8);
             transition: all 0.3s ease;
             cursor: pointer;
+            display: block; /* Make sure <a> tag behaves like a block */
         }
 
         .radio-option:hover {
             border-color: #667eea;
+            text-decoration: none; /* Remove underline from <a> */
         }
 
         .radio-option.selected {
@@ -175,11 +177,11 @@
                             <div class="flex items-center space-x-3 mb-6">
                                 <div class="step-number">1</div>
                                 <div>
-                                    <h2 class="text-xl font-bold text-gray-800">Choose Cloud Provider</h2>
-                                    <p class="text-sm text-gray-600">Select the cloud provider for the account you want to add.</p>
+                                    <h2 class="text-xl font-bold text-gray-800">Choose Provider or Service</h2>
+                                    <p class="text-sm text-gray-600">Select the cloud or service you want to add.</p>
                                 </div>
                             </div>
-                            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                                 <div class="radio-option p-6 rounded-xl text-center" :class="{'selected': provider === 'aws'}" @click="provider = 'aws'">
                                     <i class="fab fa-aws text-4xl mb-3" style="color: var(--aws-orange);"></i>
                                     <h3 class="font-semibold text-gray-800">Amazon Web Services</h3>
@@ -192,6 +194,10 @@
                                     <i class="fab fa-microsoft text-4xl mb-3" style="color: var(--azure-blue);"></i>
                                     <h3 class="font-semibold text-gray-800">Microsoft Azure</h3>
                                 </div>
+                                <a href="/add-github-config.html" class="radio-option p-6 rounded-xl text-center">
+                                    <i class="fab fa-github text-4xl mb-3" style="color: #1F2937;"></i>
+                                    <h3 class="font-semibold text-gray-800">GitHub Actions</h3>
+                                </a>
                             </div>
                         </div>
 
