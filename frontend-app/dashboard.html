@@ -368,9 +368,160 @@
             transform: scale(1.1);
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
         }
+
+        /* --- Styles for Animated CloudMap Button --- */
+        .map-btn-wrapper {
+            --btn-color: #4F46E5;
+            --text-color: #fff;
+            --land-color: #ffdd9f;
+            --veg-color: #36ad5aa9;
+            --water-color: #b3e3ff;
+            --transition-dur: 0.3s;
+            position: relative;
+            display: flex;
+            font-size: 14px;
+            font-family: "Inter", sans-serif;
+            user-select: none;
+            overflow: hidden;
+            border-radius: 50ch;
+            box-shadow:
+                0px -1px 2px rgba(3, 7, 18, 0.005),
+                0px -5px 6px rgba(3, 7, 18, 0.009),
+                0px -12px 12px rgba(3, 7, 18, 0.015),
+                0px -20px 22px rgba(3, 7, 18, 0.02),
+                0px -32px 32px rgba(3, 7, 18, 0.06);
+            transition: transform var(--transition-dur) ease;
+        }
+        .map-btn {
+            cursor: pointer;
+            padding: 0.85em 1.5em 0.85em 3.5em;
+            border-radius: 50ch;
+            background-color: var(--btn-color);
+            font-weight: 600;
+            color: var(--text-color);
+            width: 100%;
+            text-align: center;
+            transition:
+                color var(--transition-dur) ease-in-out,
+                background-color var(--transition-dur) ease-in-out;
+        }
+        .pinpoint {
+            pointer-events: none;
+            position: absolute;
+            height: 60%;
+            aspect-ratio: 1;
+            top: 20%;
+            left: 0.75em;
+            border-radius: 50% 50% 50% 50%;
+            background-color: var(--text-color);
+            transform: rotateZ(45deg);
+            mask-image: radial-gradient(circle at center, #0000 0%, #0000 32%, #fff 36%);
+            filter: blur(0.25px);
+            transition:
+                background-color var(--transition-dur) ease-in-out,
+                transform var(--transition-dur) ease-in-out,
+                border-radius calc(var(--transition-dur) + 0.1s) ease;
+            z-index: 1;
+        }
+        .map-container {
+            pointer-events: none;
+            position: absolute;
+            left: 0px;
+            top: 115px;
+            perspective: 120px;
+            transform: perspective(120px) rotateX(35deg) scaleX(0);
+            transform-origin: 3em 0.5em;
+            transition:
+                transform var(--transition-dur) ease-in-out,
+                opacity var(--transition-dur) ease-in-out;
+            opacity: 0;
+            z-index: 0;
+        }
+        .map {
+            position: absolute;
+            bottom: 100px;
+            width: 120px;
+            height: 200px;
+            background-color: var(--water-color);
+            background-image: linear-gradient(to bottom, #fff2, 30%, #0000);
+            transform-origin: left bottom;
+        }
+        .map::after {
+            content: "";
+            top: -40;
+            left: 12;
+            width: 100%;
+            height: 200%;
+            background-color: var(--land-color);
+            position: absolute;
+            filter: url(#land);
+            box-shadow: inset 0 0 48px 24px var(--veg-color);
+            z-index: 0;
+        }
+        .fold-1, .fold-2, .fold-3, .fold-4 {
+            mask-image: linear-gradient(to top, #fff, 97%, #0000);
+            overflow: hidden;
+        }
+        .fold-1 { left: -60px; transform: rotateY(10deg) translateZ(30px); }
+        .fold-2 { left: 60px; transform: rotateY(-10deg) translateZ(10px); }
+        .fold-3 { left: -169px; transform: rotateY(-15deg) translateZ(-1px); }
+        .fold-4 { left: 166px; transform: rotateY(15deg) translateZ(31px); }
+        .fold-1::before, .fold-2::before, .fold-3::before, .fold-4::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            box-shadow: inset 0 10px 16px 3px #0004;
+            z-index: 1;
+        }
+        .map-btn-wrapper:has(.map-btn:hover) { transform: scale(1.05); }
+        .map-btn:hover { background-color: var(--text-color); color: #00000025; }
+        .map-btn:hover + .pinpoint {
+            background-color: var(--btn-color);
+            border-radius: 50% 50% 0 50%;
+            transform: rotateZ(45deg) translate(-0.3em, -0.3em);
+        }
+        .map-btn:hover ~ .map-container {
+            transform: perspective(100px) rotateX(35deg) scaleX(0.85);
+            opacity: 1;
+        }
+        .map-btn-wrapper:has(.map-btn:active) { transform: scale(1.02) translateY(0.2em); }
+        .map-btn:active + .pinpoint {
+            transform: rotateZ(45deg) translate(0em, 0em);
+            transition-duration: calc(var(--transition-dur) * 0.5);
+        }
+        .map-btn:active ~ .map-container {
+            transform: perspective(95px) rotateX(35deg) scaleX(0.85);
+            transition-duration: calc(var(--transition-dur) * 0.5);
+        }
+        /* --- End of CloudMap Button Styles --- */
     </style>
 </head>
 <body x-data="dashboardApp()">
+
+    <!-- SVG Filter for CloudMap Button -->
+    <div style="height: 0; width: 0; position: absolute; visibility: hidden;">
+        <svg height="0" width="0">
+            <filter id="land">
+                <feTurbulence
+                    result="turb"
+                    numOctaves="7"
+                    baseFrequency="0.006"
+                    type="fractalNoise"
+                ></feTurbulence>
+                <feDisplacementMap
+                    yChannelSelector="G"
+                    xChannelSelector="R"
+                    scale="700"
+                    in="SourceGraphic"
+                    in2="turb"
+                ></feDisplacementMap>
+            </filter>
+        </svg>
+    </div>
+    <!-- End SVG Filter -->
 
 <!-- Multi-Account Mode Banner -->
 <div x-show="isMultiAccountMode && dashboardData.selectedAccount" 
@@ -466,6 +617,21 @@
                     </div>
                 </div>
                 <div class="flex items-center space-x-4">
+                    <!-- NEW Animated CloudMap Button -->
+                    <a :href="getLink('/cloudmap.html')" class="my-auto" :class="{'opacity-50 pointer-events-none': selectedAccountIds.length === 0}">
+                        <div class="map-btn-wrapper">
+                            <div class="map-btn">CloudMap</div>
+                            <div class="pinpoint"></div>
+                            <div class="map-container">
+                                <div class="map fold-1"></div>
+                                <div class="map fold-2"></div>
+                                <div class="map fold-3"></div>
+                                <div class="map fold-4"></div>
+                            </div>
+                        </div>
+                    </a>
+                    <!-- END NEW CloudMap Button -->
+
                     <button
                             @click="saveLayout()"
                             x-show="layoutChanged"
@@ -640,65 +806,173 @@
             showQuickActions: false,
             selectedAccountIds: [],
             dashboardData: {},
+            userRoles: [],
+            accounts: [],
 
- init() {
-    console.log('[Dashboard] Initializing dashboardApp...');
+            init() {
+                console.log('[Dashboard] Initializing dashboardApp...');
 
-    if (window.Highcharts) {
-        console.log('[Map Debug] Highcharts object found on window.', window.Highcharts);
-    } else {
-        console.error('[Map Debug] CRITICAL: Highcharts object NOT found on window.');
-    }
+                if (window.Highcharts) {
+                    console.log('[Map Debug] Highcharts object found on window.', window.Highcharts);
+                } else {
+                    console.error('[Map Debug] CRITICAL: Highcharts object NOT found on window.');
+                }
 
-    const urlParams = new URLSearchParams(window.location.search);
-    const accountIdsParam = urlParams.get('accountId') || urlParams.get('accountIds');
-    const multiAccountParam = urlParams.get('multiAccount') === 'true';
+                const urlParams = new URLSearchParams(window.location.search);
+                const accountIdsParam = urlParams.get('accountId') || urlParams.get('accountIds');
+                const multiAccountParam = urlParams.get('multiAccount') === 'true';
 
-    if (accountIdsParam) {
-        this.selectedAccountIds = accountIdsParam.split(',');
-        sessionStorage.setItem('selectedAccountIds', JSON.stringify(this.selectedAccountIds));
-        sessionStorage.setItem('multiAccountMode', multiAccountParam.toString());
-    } else {
-        this.selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-    }
+                if (accountIdsParam) {
+                    this.selectedAccountIds = accountIdsParam.split(',');
+                    sessionStorage.setItem('selectedAccountIds', JSON.stringify(this.selectedAccountIds));
+                    sessionStorage.setItem('multiAccountMode', multiAccountParam.toString());
+                } else {
+                    this.selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                }
 
-    this.isMultiAccountMode = this.selectedAccountIds.length > 1 || 
-                              sessionStorage.getItem('multiAccountMode') === 'true';
-    this.selectedAccountId = this.selectedAccountIds.length > 0 ? this.selectedAccountIds[0] : null;
+                this.isMultiAccountMode = this.selectedAccountIds.length > 1 || 
+                                          sessionStorage.getItem('multiAccountMode') === 'true';
+                this.selectedAccountId = this.selectedAccountIds.length > 0 ? this.selectedAccountIds[0] : null;
 
-    console.log('[Dashboard] Selected accounts:', this.selectedAccountIds);
-    console.log('[Dashboard] Multi-account mode:', this.isMultiAccountMode);
+                console.log('[Dashboard] Selected accounts:', this.selectedAccountIds);
+                console.log('[Dashboard] Multi-account mode:', this.isMultiAccountMode);
 
-    // Event listeners for sidebar account changes
-    window.addEventListener('multi-account-selection-changed', (event) => {
-        console.log('[Dashboard] Multi-account selection changed:', event.detail.accountIds);
-        this.selectedAccountIds = event.detail.accountIds;
-        this.isMultiAccountMode = this.selectedAccountIds.length > 1;
-        sessionStorage.setItem('selectedAccountIds', JSON.stringify(this.selectedAccountIds));
-        sessionStorage.setItem('multiAccountMode', 'true');
-        this.loadDashboardData(false);
-    });
+                this.fetchUserRoles();
+                this.fetchAccounts();
 
-    window.addEventListener('account-changed', (event) => {
-        console.log('[Dashboard] Single account changed:', event.detail.accountId);
-        this.selectedAccountIds = [event.detail.accountId];
-        this.isMultiAccountMode = false;
-        this.selectedAccountId = event.detail.accountId;
-        sessionStorage.setItem('selectedAccountIds', JSON.stringify(this.selectedAccountIds));
-        sessionStorage.setItem('multiAccountMode', 'false');
-        this.loadDashboardData(false);
-    });
+                // Event listeners for sidebar account changes
+                window.addEventListener('multi-account-selection-changed', (event) => {
+                    console.log('[Dashboard] Multi-account selection changed:', event.detail.accountIds);
+                    this.selectedAccountIds = event.detail.accountIds;
+                    this.isMultiAccountMode = this.selectedAccountIds.length > 1;
+                    sessionStorage.setItem('selectedAccountIds', JSON.stringify(this.selectedAccountIds));
+                    sessionStorage.setItem('multiAccountMode', 'true');
+                    this.loadDashboardData(false);
+                });
 
-    window.addEventListener('storage', (event) => {
-        if (event.key === 'selectedAccountIds') {
-            window.location.reload();
-        }
-    });
+                window.addEventListener('account-changed', (event) => {
+                    console.log('[Dashboard] Single account changed:', event.detail.accountId);
+                    this.selectedAccountIds = [event.detail.accountId];
+                    this.isMultiAccountMode = false;
+                    this.selectedAccountId = event.detail.accountId;
+                    sessionStorage.setItem('selectedAccountIds', JSON.stringify(this.selectedAccountIds));
+                    sessionStorage.setItem('multiAccountMode', 'false');
+                    this.loadDashboardData(false);
+                });
 
-    this.initializeDashboardLayout();
-    this.loadDashboardData(false);
-},
+                window.addEventListener('storage', (event) => {
+                    if (event.key === 'selectedAccountIds') {
+                        window.location.reload();
+                    }
+                });
 
+                this.initializeDashboardLayout();
+                this.loadDashboardData(false);
+            },
+
+            async apiFetch(url, options = {}) {
+                const csrfToken = document.cookie
+                    .split('; ')
+                    .find(row => row.startsWith('XSRF-TOKEN='))
+                    ?.split('=')[1];
+
+                const response = await fetch(url, {
+                    ...options,
+                    credentials: 'include',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-XSRF-TOKEN': csrfToken,
+                        ...options.headers
+                    }
+                });
+
+                if (!response.ok) {
+                    console.error('API Error:', response.status, await response.text());
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                return response;
+            },
+
+            fetchUserRoles() {
+                this.apiFetch('/api/xamops/user/profile')
+                    .then(res => res.json())
+                    .then(data => {
+                        this.userRoles = data.roles || [];
+                    })
+                    .catch(err => {
+                        console.error('Could not fetch user profile:', err);
+                    });
+            },
+
+            fetchAccounts() {
+                this.apiFetch('/api/xamops/account-manager/accounts')
+                    .then(res => res.json())
+                    .then(data => {
+                        this.accounts = data.filter(acc => acc.status === 'CONNECTED');
+                    })
+                    .catch(err => {
+                        console.error('Failed to fetch accounts:', err);
+                        this.accounts = [];
+                    });
+            },
+
+            hasAnyRole(requiredRoles) {
+                if (!Array.isArray(requiredRoles)) {
+                    requiredRoles = [requiredRoles];
+                }
+                return requiredRoles.some(role => this.userRoles.includes(role));
+            },
+
+            getLink(basePath) {
+                const selectedIds = this.selectedAccountIds;
+                if (selectedIds.length === 0) {
+                    if (basePath.includes('account-manager.html') || basePath.includes('dashboard.html') || basePath.includes('Xamops_user_management.html')) {
+                        return basePath;
+                    }
+                    return '#';
+                }
+
+                const firstAccountId = selectedIds[0];
+                const account = this.accounts.find(a => a.id === firstAccountId);
+                const provider = account ? account.provider : 'AWS';
+
+                let finalPath = basePath;
+                
+                if (basePath.includes('/billops/')) {
+                    if (basePath.includes('billing.html')) {
+                        switch (provider) {
+                            case 'GCP':
+                                finalPath = '/billops/gcp-billing.html';
+                                break;
+                            case 'AZURE':
+                                finalPath = '/billops/azure-billing.html';
+                                break;
+                            case 'AWS':
+                            default:
+                                finalPath = '/billops/billing.html';
+                                break;
+                        }
+                    }
+                } 
+                else {
+                    if (provider === 'GCP') {
+                        if (basePath === '/reservation.html') finalPath = '/gcp_reservations.html';
+                        else if (basePath === '/cloudmap.html') finalPath = '/gcp_cloudmap.html';
+                        else if (basePath === '/dashboard.html') finalPath = '/gcp_dashboard.html';
+                        else if (basePath.startsWith('/') && !basePath.startsWith('/gcp_') && !basePath.includes('account-manager.html') && !basePath.includes('Xamops_user_management.html')) {
+                            finalPath = basePath.replace('.html', '').replace('/', '/gcp_') + '.html';
+                        }
+                    } else if (provider === 'AZURE') {
+                        if (basePath.startsWith('/') && !basePath.includes('account-manager.html') && !basePath.includes('Xamops_user_management.html')) {
+                            finalPath = '/azure_dashboard.html';
+                        }
+                    }
+                }
+
+                const url = new URL(window.location.origin + finalPath);
+                url.searchParams.append('accountIds', selectedIds.join(','));
+                return url.toString();
+            },
 
             connectWebSocket() {
                 if (!this.selectedAccountId || this.stompClient) return;
@@ -713,73 +987,71 @@
                 });
             },
 
-loadDashboardData(forceRefresh = false) {
-    if (!this.selectedAccountIds || this.selectedAccountIds.length === 0) {
-        console.warn('[Dashboard] No accounts selected');
-        this.isLoading = false;
-        return;
-    }
+            loadDashboardData(forceRefresh = false) {
+                if (!this.selectedAccountIds || this.selectedAccountIds.length === 0) {
+                    console.warn('[Dashboard] No accounts selected');
+                    this.isLoading = false;
+                    return;
+                }
 
-    const isMultiAccount = this.selectedAccountIds.length > 1;
-    
-    console.log('[Dashboard] Loading data for:', this.selectedAccountIds);
-    console.log('[Dashboard] Multi-account mode:', isMultiAccount);
-
-    if (forceRefresh) {
-        this.isRefreshing = true;
-    } else {
-        this.isLoading = true;
-    }
-
-    let apiUrl;
-    if (isMultiAccount) {
-        const accountIdsParam = this.selectedAccountIds.join(',');
-        apiUrl = `/api/xamops/dashboard/data/multi-account?accountIds=${accountIdsParam}&forceRefresh=${forceRefresh}`;
-        console.log('[Dashboard] Using multi-account endpoint:', apiUrl);
-    } else {
-        apiUrl = `/api/xamops/dashboard/data?accountId=${this.selectedAccountIds[0]}&forceRefresh=${forceRefresh}`;
-        console.log('[Dashboard] Using single-account endpoint:', apiUrl);
-    }
-
-    fetch(apiUrl)
-        .then(res => {
-            if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-            return res.json();
-        })
-        .then(data => {
-            console.log('[Dashboard] Data received:', data);
-            
-            if (data && data.selectedAccount) {
-                this.dashboardData = data;
-                this.isMultiAccountMode = data.isMultiAccountView || false;
+                const isMultiAccount = this.selectedAccountIds.length > 1;
                 
-                setTimeout(() => {
-                    this.populatePage(data.selectedAccount);
-                    this.renderAllCharts(data.selectedAccount);
-                    
-                    if (!this.isMultiAccountMode) {
-                        this.connectWebSocket();
-                    }
-                }, 0);
-            } else {
-                console.error('[Dashboard] Invalid data structure:', data);
-                this.showNotification('error', 'Received invalid data from server.');
-            }
-        })
-        .catch(error => {
-            console.error('[Dashboard] Failed to load dashboard data:', error);
-            this.showNotification('error', 'Failed to load dashboard: ' + error.message);
-        })
-        .finally(() => {
-            this.isLoading = false;
-            this.isRefreshing = false;
-            if (forceRefresh) {
-                this.showNotification('success', 'Dashboard refreshed successfully!');
-            }
-        });
-},
+                console.log('[Dashboard] Loading data for:', this.selectedAccountIds);
+                console.log('[Dashboard] Multi-account mode:', isMultiAccount);
 
+                if (forceRefresh) {
+                    this.isRefreshing = true;
+                } else {
+                    this.isLoading = true;
+                }
 
+                let apiUrl;
+                if (isMultiAccount) {
+                    const accountIdsParam = this.selectedAccountIds.join(',');
+                    apiUrl = `/api/xamops/dashboard/data/multi-account?accountIds=${accountIdsParam}&forceRefresh=${forceRefresh}`;
+                    console.log('[Dashboard] Using multi-account endpoint:', apiUrl);
+                } else {
+                    apiUrl = `/api/xamops/dashboard/data?accountId=${this.selectedAccountIds[0]}&forceRefresh=${forceRefresh}`;
+                    console.log('[Dashboard] Using single-account endpoint:', apiUrl);
+                }
+
+                fetch(apiUrl)
+                    .then(res => {
+                        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                        return res.json();
+                    })
+                    .then(data => {
+                        console.log('[Dashboard] Data received:', data);
+                        
+                        if (data && data.selectedAccount) {
+                            this.dashboardData = data;
+                            this.isMultiAccountMode = data.isMultiAccountView || false;
+                            
+                            setTimeout(() => {
+                                this.populatePage(data.selectedAccount);
+                                this.renderAllCharts(data.selectedAccount);
+                                
+                                if (!this.isMultiAccountMode) {
+                                    this.connectWebSocket();
+                                }
+                            }, 0);
+                        } else {
+                            console.error('[Dashboard] Invalid data structure:', data);
+                            this.showNotification('error', 'Received invalid data from server.');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('[Dashboard] Failed to load dashboard data:', error);
+                        this.showNotification('error', 'Failed to load dashboard: ' + error.message);
+                    })
+                    .finally(() => {
+                        this.isLoading = false;
+                        this.isRefreshing = false;
+                        if (forceRefresh) {
+                            this.showNotification('success', 'Dashboard refreshed successfully!');
+                        }
+                    });
+            },
 
             showNotification(type, message) {
                 const notification = document.getElementById(type + 'Notification');
@@ -980,20 +1252,19 @@ loadDashboardData(forceRefresh = false) {
                 const container = document.getElementById('optimizationHub');
                 if(!summary || !container) return;
 
-                // Hide detailed recommendations in multi-account mode
-           if (this.isMultiAccountMode) {
-        container.innerHTML = `
-            <div class="bg-blue-50 border-2 border-dashed border-blue-200 rounded-lg p-8 text-center">
-                <i class="fas fa-eye-slash text-blue-400 text-4xl mb-3"></i>
-                <h3 class="text-lg font-semibold text-gray-700 mb-2">Account-Specific Insights Hidden</h3>
-                <p class="text-gray-600 text-sm max-w-md mx-auto">
-                    Detailed resource recommendations (EC2, EBS, Lambda optimizations and cost anomalies) are only available in single-account view. 
-                    Please select a single account from the sidebar to view these insights.
-                </p>
-            </div>
-        `;
-        return;
-    }
+                if (this.isMultiAccountMode) {
+                    container.innerHTML = `
+                        <div class="bg-blue-50 border-2 border-dashed border-blue-200 rounded-lg p-8 text-center">
+                            <i class="fas fa-eye-slash text-blue-400 text-4xl mb-3"></i>
+                            <h3 class="text-lg font-semibold text-gray-700 mb-2">Account-Specific Insights Hidden</h3>
+                            <p class="text-gray-600 text-sm max-w-md mx-auto">
+                                Detailed resource recommendations (EC2, EBS, Lambda optimizations and cost anomalies) are only available in single-account view. 
+                                Please select a single account from the sidebar to view these insights.
+                            </p>
+                        </div>
+                    `;
+                    return;
+                }
 
                 const recsHtml = (title, recs, icon, color, gradientClass) => {
                     if (!recs || recs.length === 0) return '';
@@ -1210,7 +1481,7 @@ loadDashboardData(forceRefresh = false) {
                             if (elements.length > 0) {
                                 const index = elements[0].index;
                                 if (costHistory.anomalies[index]) {
-                                    alert(`🚨 Cost Anomaly Detected!\n\nMonth: ${costHistory.labels[index]}\nCost: ${this.formatCurrency(costHistory.costs[index])}\n\nThis cost is significantly higher than expected. Consider investigating your resource usage for this period.`);
+                                    alert(`Cost Anomaly Detected!\n\nMonth: ${costHistory.labels[index]}\nCost: ${this.formatCurrency(costHistory.costs[index])}\n\nThis cost is significantly higher than expected. Consider investigating your resource usage for this period.`);
                                 }
                             }
                         }
@@ -1243,7 +1514,6 @@ loadDashboardData(forceRefresh = false) {
 
                 console.log('Rendering map with', regionPoints.length, 'regions');
 
-                // ✅ FIX: Dynamically load world map topology
                 fetch('https://code.highcharts.com/mapdata/custom/world.topo.json')
                     .then(response => {
                         if (!response.ok) {
@@ -1256,7 +1526,7 @@ loadDashboardData(forceRefresh = false) {
 
                         Highcharts.mapChart('highcharts-map-container', {
                             chart: {
-                                map: worldMap,  // ✅ Set base world map
+                                map: worldMap,
                                 backgroundColor: 'transparent',
                                 style: {
                                     fontFamily: 'Inter, sans-serif'
@@ -1271,7 +1541,7 @@ loadDashboardData(forceRefresh = false) {
                                     verticalAlign: 'bottom',
                                     theme: {
                                         'stroke-width': 1,
-                                        stroke: '#FF9900',  // AWS orange
+                                        stroke: '#FF9900',
                                         r: 4,
                                         fill: 'white'
                                     }
@@ -1307,13 +1577,12 @@ loadDashboardData(forceRefresh = false) {
                             },
                             series: [
                                 {
-                                    // ✅ World map base layer
                                     type: 'map',
                                     name: 'World',
-                                    mapData: worldMap,  // ✅ Explicit map data
-                                    color: '#f1f5f9',   // Light gray for countries
-                                    nullColor: '#e5e7eb',  // ✅ Gray for empty countries
-                                    enableMouseTracking: false,  // Don't show tooltips for countries
+                                    mapData: worldMap,
+                                    color: '#f1f5f9',
+                                    nullColor: '#e5e7eb',
+                                    enableMouseTracking: false,
                                     states: {
                                         hover: {
                                             color: '#e2e8f0',
@@ -1327,7 +1596,6 @@ loadDashboardData(forceRefresh = false) {
                                     }
                                 },
                                 {
-                                    // ✅ AWS region markers layer
                                     type: 'mappoint',
                                     name: 'AWS Regions',
                                     data: regionPoints,
@@ -1409,7 +1677,8 @@ loadDashboardData(forceRefresh = false) {
                             fill: true
                         }]
                     },
-                    options: {
+                    
+                      options: {
                         responsive: true,
                         maintainAspectRatio: false,
                         scales: {
