@@ -17,11 +17,14 @@ public class RemediationService {
             "<p><strong>2. Analyze the Finding:</strong> Understand why this is flagged. The description is: <em>\"%s\"</em>.</p>" +
             "<p><strong>3. Follow Best Practices:</strong> Consult the official AWS documentation for the service (<strong>%s</strong>) to apply the recommended fix.</p>" +
             "<p><strong>4. Verify the Fix:</strong> After applying changes, re-run the security scan or wait for the next scheduled scan to confirm the issue is resolved.</p>",
-            finding.getResource(), finding.getRegion(), finding.getDescription(), finding.getType()
+            finding.getResourceId(),  // Changed from getResource()
+            finding.getRegion(), 
+            finding.getDescription(), 
+            finding.getCategory()     // Changed from getType()
         );
 
-        // Use type as a key for specific steps, since complianceFramework/controlId are not present
-        String findingKey = finding.getType();
+        // Use category as a key for specific steps
+        String findingKey = finding.getCategory();  // Changed from getType()
         String specificSteps = getSpecificSteps(findingKey);
 
         if (!specificSteps.isEmpty()) {
@@ -38,9 +41,10 @@ public class RemediationService {
             case "S3":
                 return "<p><strong>Specific Action:</strong> Go to the S3 bucket settings. Enable \"Block all public access\" and review bucket policies and ACLs to remove public grants.</p>";
             case "SecurityGroup":
-                return "<p><strong>Specific Action:</strong> Edit the inbound rules for the security group. Restrict the source IP range from '0.0.0.0/0' to a specific, known IP address or range. Avoid opening ports like SSH (22) or RDP (3389) to the world.</p>";
-            case "VPC":
-                return "<p><strong>Specific Action:</strong> In the VPC console, select the VPC and choose to create a new Flow Log. Configure it to send logs to a CloudWatch Log Group or an S3 bucket for traffic analysis.</p>";
+            case "VPC":  // VPC category includes security groups
+                return "<p><strong>Specific Action:</strong> Edit the inbound rules for the security group. Restrict the source IP range from '0.0.0.0/0' to a specific, known IP address or range. Avoid opening ports like SSH (22) or RDP (3389) to the world. For VPCs, enable Flow Logs in the VPC console and configure them to send logs to CloudWatch or S3 for traffic analysis.</p>";
+            case "CloudTrail":
+                return "<p><strong>Specific Action:</strong> Navigate to the CloudTrail console and create a new trail. Ensure it is multi-region and has log file validation enabled. Configure it to log to an S3 bucket with appropriate encryption.</p>";
             default:
                 return "";
         }

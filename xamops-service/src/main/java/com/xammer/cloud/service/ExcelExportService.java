@@ -55,13 +55,15 @@ public class ExcelExportService {
             int rowIdx = 1;
             for (SecurityFinding finding : findings) {
                 Row row = sheet.createRow(rowIdx++);
-                row.createCell(0).setCellValue(finding.getId());
-                row.createCell(1).setCellValue(finding.getRegion());
-                row.createCell(2).setCellValue(finding.getType());
-                row.createCell(3).setCellValue(finding.getSeverity());
-                row.createCell(4).setCellValue(finding.getDescription());
-                row.createCell(5).setCellValue(""); // Compliance Framework not present
-                row.createCell(6).setCellValue(""); // Control ID not present
+                
+                // Updated to use the new field names
+                row.createCell(0).setCellValue(finding.getResourceId());           // was getId()
+                row.createCell(1).setCellValue(finding.getRegion());                // same
+                row.createCell(2).setCellValue(finding.getCategory());              // was getType()
+                row.createCell(3).setCellValue(finding.getSeverity());              // same
+                row.createCell(4).setCellValue(finding.getDescription());           // same
+                row.createCell(5).setCellValue(finding.getComplianceFramework());   // now available
+                row.createCell(6).setCellValue(finding.getControlId());             // now available
             }
             
             // Auto-size columns for better readability

@@ -542,16 +542,17 @@ private String normalizeMonthString(String monthStr) {
 
     private DashboardData getAwsDashboardData(CloudAccount account, boolean forceRefresh, ClientUserDetails userDetails) throws ExecutionException, InterruptedException {
         logger.info("--- LAUNCHING OPTIMIZED ASYNC DATA FETCH FROM AWS for account {} ---", account.getAwsAccountId());
-
+    
         CompletableFuture<List<DashboardData.RegionStatus>> activeRegionsFuture = cloudListService.getRegionStatusForAccount(account, forceRefresh);
-
-        return activeRegionsFuture.thenCompose(activeRegions -> {
+    
+        // FIX: Explicitly specify the return type for thenCompose
+        return activeRegionsFuture.thenCompose((List<DashboardData.RegionStatus> activeRegions) -> {
             if (activeRegions == null) {
                 return CompletableFuture.completedFuture(new DashboardData());
             }
-
+    
             CompletableFuture<List<DashboardData.ServiceGroupDto>> groupedResourcesFuture = cloudListService.getAllResourcesGrouped(account.getAwsAccountId(), forceRefresh);
-
+    
             CompletableFuture<DashboardData.ResourceInventory> inventoryFuture = getResourceInventory(groupedResourcesFuture);
             CompletableFuture<DashboardData.CloudWatchStatus> cwStatusFuture = getCloudWatchStatus(account, activeRegions, forceRefresh);
             CompletableFuture<List<DashboardData.OptimizationRecommendation>> ec2RecsFuture = optimizationService.getEc2InstanceRecommendations(account, activeRegions, forceRefresh);
@@ -567,11 +568,11 @@ private String normalizeMonthString(String monthStr) {
             CompletableFuture<DashboardData.ReservationAnalysis> reservationFuture = reservationService.getReservationAnalysis(account, forceRefresh);
             CompletableFuture<List<DashboardData.ReservationPurchaseRecommendation>> reservationPurchaseFuture = reservationService.getReservationPurchaseRecommendations(account, "ONE_YEAR", "NO_UPFRONT", "THIRTY_DAYS", "STANDARD", forceRefresh);
             CompletableFuture<List<DashboardData.ServiceQuotaInfo>> vpcQuotaInfoFuture = getServiceQuotaInfo(account, activeRegions, groupedResourcesFuture, "vpc", "L-F678F1CE");
-
+    
             CompletableFuture<DashboardData.SavingsSummary> savingsFuture = getSavingsSummary(
                     wastedResourcesFuture, ec2RecsFuture, ebsRecsFuture, lambdaRecsFuture
             );
-
+    
             return CompletableFuture.allOf(
                     inventoryFuture, cwStatusFuture, ec2RecsFuture, ebsRecsFuture, lambdaRecsFuture,
                     wastedResourcesFuture, securityFindingsFuture, costHistoryFuture, billingFuture,
@@ -579,7 +580,7 @@ private String normalizeMonthString(String monthStr) {
                     reservationInventoryFuture, vpcQuotaInfoFuture
             ).thenApply(v -> {
                 logger.info("--- ALL ASYNC DATA FETCHES COMPLETE for account {}, assembling DTO ---", account.getAwsAccountId());
-
+    
                 List<DashboardData.WastedResource> wastedResources = wastedResourcesFuture.join();
                 List<DashboardData.OptimizationRecommendation> ec2Recs = ec2RecsFuture.join();
                 List<DashboardData.OptimizationRecommendation> ebsRecs = ebsRecsFuture.join();
@@ -587,9 +588,9 @@ private String normalizeMonthString(String monthStr) {
                 List<DashboardData.CostAnomaly> anomalies = anomaliesFuture.join();
                 List<DashboardData.SecurityFinding> securityFindings = securityFindingsFuture.join();
                 List<DashboardData.ServiceQuotaInfo> vpcQuotas = vpcQuotaInfoFuture.join();
-
+    
                 List<DashboardData.SecurityInsight> securityInsights = securityFindings.stream()
-                        .collect(Collectors.groupingBy(DashboardData.SecurityFinding::getType, Collectors.groupingBy(DashboardData.SecurityFinding::getSeverity, Collectors.counting())))
+                        .collect(Collectors.groupingBy(DashboardData.SecurityFinding::getCategory, Collectors.groupingBy(DashboardData.SecurityFinding::getSeverity, Collectors.counting())))
                         .entrySet().stream()
                         .map(entry -> new DashboardData.SecurityInsight(
                                 String.format("%s has potential issues", entry.getKey()),
@@ -597,13 +598,13 @@ private String normalizeMonthString(String monthStr) {
                                 entry.getValue().keySet().stream().findFirst().orElse("INFO"),
                                 entry.getValue().values().stream().mapToInt(Long::intValue).sum()
                         )).collect(Collectors.toList());
-
+    
                 DashboardData.OptimizationSummary optimizationSummary = getOptimizationSummary(
                         wastedResources, ec2Recs, ebsRecs, lambdaRecs, anomalies
                 );
-
+    
                 int securityScore = calculateSecurityScore(securityFindings);
-
+    
                 DashboardData data = new DashboardData();
                 DashboardData.Account mainAccount = new DashboardData.Account(
                         account.getAwsAccountId(), account.getAccountName(),
@@ -614,19 +615,19 @@ private String normalizeMonthString(String monthStr) {
                         optimizationSummary, wastedResources, vpcQuotas,
                         securityScore, 0.0, 0.0, 0.0
                 );
-
+    
                 data.setSelectedAccount(mainAccount);
                 if (userDetails != null) {
                     boolean isAdmin = userDetails.getAuthorities().stream()
                             .anyMatch(role -> "ROLE_BILLOPS_ADMIN".equals(role.getAuthority()));
-
+    
                     List<CloudAccount> userAccounts;
                     if (isAdmin) {
                         userAccounts = cloudAccountRepository.findAll();
                     } else {
                         userAccounts = cloudAccountRepository.findByClientId(userDetails.getClientId());
                     }
-
+    
                     List<DashboardData.Account> availableAccounts = userAccounts.stream()
                             .map(acc -> new DashboardData.Account(
                                     "AWS".equals(acc.getProvider()) ? acc.getAwsAccountId() : acc.getGcpProjectId(),
@@ -640,11 +641,12 @@ private String normalizeMonthString(String monthStr) {
                             .collect(Collectors.toList());
                     data.setAvailableAccounts(availableAccounts);
                 }
-
+    
                 return data;
             });
         }).get();
     }
+    
 
 
     private CompletableFuture<DashboardData.ResourceInventory> getResourceInventory(CompletableFuture<List<DashboardData.ServiceGroupDto>> groupedResourcesFuture) {
