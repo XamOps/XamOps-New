@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XamOps - User Management</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
+    <link rel="apple-touch-icon" href="/icons/XamOps.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.0/dist/cdn.min.js" defer></script>
+    <script type="module" src="/src/main.js"></script>
+
+    <!-- ALPINE DATA REGISTERED EARLY -->
+    <script>
+        document.addEventListener('alpine:init', () => {
+            Alpine.data('userManagement', function() {
+                return {
+                    users: [],
+                    selectedUser: {
+                        id: '',
+                        clientName: '',
+                        username: '',
+                        email: '',
+                        password: '',
+                        role: ''
+                    },
+                    isEditing: false,
+                    // IMMUTABLE ROLES — CANNOT BE CHANGED
+                    get roles() {
+                        return ['ROLE_XAMOPS', 'ROLE_BILLOPS', 'ROLE_BILLOPS_ADMIN'];
+                    },
+
+                    getCsrfToken() {
+                        return document.cookie
+                            .split('; ')
+                            .find(row => row.startsWith('XSRF-TOKEN='))
+                            ?.split('=')[1] || '';
+                    },
+
+                    init() {
+                        this.fetchUsers();
+                    },
+
+                    fetchUsers() {
+                        fetch('/api/billops/users', {
+                            method: 'GET',
+                            credentials: 'include'
+                        })
+                        .then(res => {
+                            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                            return res.json();
+                        })
+                        .then(data => this.users = data)
+                        .catch(err => {
+                            console.error('Failed to fetch users:', err);
+                            alert('Failed to load users.');
+                        });
+                    },
+
+                    newUser() {
+                        this.selectedUser = {
+                            id: '',
+                            clientName: '',
+                            username: '',
+                            email: '',
+                            password: '',
+                            role: ''
+                        };
+                        this.isEditing = true;
+                    },
+
+                    editUser(user) {
+                        this.selectedUser = {
+                            id: user.id,
+                            clientName: user.clientName,
+                            username: user.username,
+                            email: user.email,
+                            password: '',
+                            role: user.role
+                        };
+                        this.isEditing = true;
+                    },
+
+                    cancelEdit() {
+                        this.isEditing = false;
+                        this.selectedUser = { id: '', clientName: '', username: '', email: '', password: '', role: '' };
+                    },
+
+                    saveUser() {
+                        if (!this.selectedUser.username?.trim()) return alert('Username is required!');
+                        if (!this.selectedUser.email?.trim()) return alert('Email is required!');
+                        if (!this.selectedUser.role?.trim()) return alert('Role is required!');
+
+                        // Only require clientName when CREATING (not editing)
+                        if (!this.selectedUser.id && !this.selectedUser.clientName?.trim()) {
+                            return alert('Client Name is required!');
+                        }
+
+                        if (!this.selectedUser.id && !this.selectedUser.password?.trim()) {
+                            return alert('Password is required for new users!');
+                        }
+
+                        const payload = { ...this.selectedUser };
+                        if (payload.id && !payload.password?.trim()) {
+                            delete payload.password;
+                        }
+
+                        const url = payload.id 
+                            ? `/api/billops/users/${payload.id}` 
+                            : '/api/billops/users';
+                        const method = payload.id ? 'PUT' : 'POST';
+
+                        fetch(url, {
+                            method,
+                            credentials: 'include',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-XSRF-TOKEN': this.getCsrfToken()
+                            },
+                            body: JSON.stringify(payload)
+                        })
+                        .then(res => {
+                            if (!res.ok) {
+                                console.warn('Backend returned error but data may be saved:', res.status);
+                                this.fetchUsers();
+                                this.cancelEdit();
+                                return;
+                            }
+                            return res.json();
+                        })
+                        .then(() => {
+                            this.fetchUsers();
+                            this.cancelEdit();
+                        })
+                        .catch(err => {
+                            console.error('Network error:', err);
+                            alert('Network error. Please check connection.');
+                        });
+                    },
+
+                    deleteUser(id) {
+                        if (!confirm('Are you sure you want to delete this user?')) return;
+
+                        fetch(`/api/billops/users/${id}`, {
+                            method: 'DELETE',
+                            credentials: 'include',
+                            headers: { 'X-XSRF-TOKEN': this.getCsrfToken() }
+                        })
+                        .then(res => {
+                            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                            this.fetchUsers();
+                        })
+                        .catch(err => {
+                            console.error('Delete failed:', err);
+                            alert('Delete failed: ' + err.message);
+                        });
+                    }
+                };
+            });
+        });
+    </script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); min-height: 100vh; margin: 0; }
+        .sidebar { width: 250px; height: 100vh; position: fixed; top: 0; left: 0; background-color: #2d3748; color: white; padding-top: 20px; }
+        .sidebar a { display: block; color: white; padding: 10px 15px; text-decoration: none; }
+        .sidebar a:hover { background-color: #4a5568; }
+        .main-content { margin-left: 250px; padding: 20px; min-height: calc(100vh - 40px); }
+        [x-cloak] { display: none !important; }
+        .sidebar-scroll::-webkit-scrollbar { width: 6px; }
+        .sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
+        .sidebar-scroll::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+        .sidebar-scroll::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+        .account-avatar { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+        .dropdown-animation { animation: slideDown 0.3s ease-out; }
+        @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+        .connection-indicator { position: absolute; bottom: 0; right: 0; width: 10px; height: 10px; background: #10b981; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.3); animation: pulse-dot 2s infinite; }
+        @keyframes pulse-dot { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.2); } }
+        .account-status { display: inline-block; width: 6px; height: 6px; background: #10b981; border-radius: 50%; margin-right: 6px; animation: pulse-dot 2s infinite; }
+        .multi-account-badge { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .toggle-switch { position: relative; width: 44px; height: 24px; background: #e5e7eb; border-radius: 12px; transition: background 0.3s; cursor: pointer; }
+        .toggle-switch.active { background: #4f46e5; }
+        .toggle-slider { position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; background: white; border-radius: 50%; transition: transform 0.3s; }
+        .toggle-switch.active .toggle-slider { transform: translateX(20px); }
+        .form-input:focus { border-color: #667eea; box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1); }
+        .btn-primary { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(102, 126, 234, 0.4); }
+    </style>
+</head>
+<body class="antialiased">
+    <!-- FULL-SCREEN FLEX LAYOUT -->
+    <div class="flex h-screen">
+        <!-- SIDEBAR PLACEHOLDER (injected by main.js) -->
+        <div data-include-sidebar></div>
+
+        <!-- MAIN CONTENT WRAPPER (pushes content right of sidebar) -->
+        <div class="flex-1 ml-64 overflow-auto bg-gradient-to-br from-slate-50 to-slate-100">
+            <main class="p-6 lg:p-8 min-h-full" x-data="userManagement">
+                <h1 class="text-3xl font-bold mb-6">User Management</h1>
+
+                <button @click="newUser()" class="btn-primary text-white px-6 py-3 rounded-lg mb-6">
+                    Create New User
+                </button>
+
+                <!-- FORM: Only render when editing (x-if removes from DOM) -->
+                <template x-if="isEditing">
+                    <div class="bg-white p-6 rounded-lg shadow-md mb-8">
+                        <h2 class="text-xl font-semibold mb-4" x-text="selectedUser.id ? 'Edit User' : 'Create User'"></h2>
+                        <form @submit.prevent="saveUser()">
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Client Name</label>
+                                    <input type="text" x-model="selectedUser.clientName" :disabled="!!selectedUser.id" required class="form-input w-full px-4 py-2 border rounded-lg">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Username</label>
+                                    <input type="text" x-model="selectedUser.username" required class="form-input w-full px-4 py-2 border rounded-lg">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Email</label>
+                                    <input type="email" x-model="selectedUser.email" required class="form-input w-full px-4 py-2 border rounded-lg">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Role</label>
+                                    <select x-model="selectedUser.role" required class="form-input w-full px-4 py-2 border rounded-lg">
+                                        <option value="" disabled>Select Role</option>
+                                        <option value="ROLE_XAMOPS">ROLE_XAMOPS</option>
+                                        <option value="ROLE_BILLOPS">ROLE_BILLOPS</option>
+                                        <option value="ROLE_BILLOPS_ADMIN">ROLE_BILLOPS_ADMIN</option>
+                                    </select>
+                                </div>
+                                <div class="col-span-2">
+                                    <label class="block text-sm font-medium mb-1">Password</label>
+                                    <input type="password" x-model="selectedUser.password" :required="!selectedUser.id" :placeholder="selectedUser.id ? 'Leave blank to keep current' : ''" class="form-input w-full px-4 py-2 border rounded-lg">
+                                </div>
+                            </div>
+                            <div class="mt-6 flex justify-end space-x-4">
+                                <button type="button" @click="cancelEdit()" class="px-6 py-2 border rounded-lg">Cancel</button>
+                                <button type="submit" class="btn-primary text-white px-6 py-2 rounded-lg">Save</button>
+                            </div>
+                        </form>
+                    </div>
+                </template>
+
+                <!-- TABLE -->
+                <div class="bg-white rounded-lg shadow-md overflow-hidden">
+                    <table class="w-full">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-sm font-semibold">Client Name</th>
+                                <th class="px-6 py-3 text-left text-sm font-semibold">Username</th>
+                                <th class="px-6 py-3 text-left text-sm font-semibold">Email</th>
+                                <th class="px-6 py-3 text-left text-sm font-semibold">Role</th>
+                                <th class="px-6 py-3 text-left text-sm font-semibold">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="user in users" :key="user.id">
+                                <tr class="border-t">
+                                    <td class="px-6 py-4" x-text="user.clientName"></td>
+                                    <td class="px-6 py-4" x-text="user.username"></td>
+                                    <td class="px-6 py-4" x-text="user.email"></td>
+                                    <td class="px-6 py-4" x-text="user.role"></td>
+                                    <td class="px-6 py-4">
+                                        <button @click="editUser(user)" class="text-blue-600 mr-4">Edit</button>
+                                        <button @click="deleteUser(user.id)" class="text-red-600">Delete</button>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </main>
+        </div>
+    </div>
+</body>
+</html>
