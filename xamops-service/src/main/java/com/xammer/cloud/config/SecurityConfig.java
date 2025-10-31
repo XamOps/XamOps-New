@@ -1,5 +1,12 @@
 package com.xammer.cloud.config;
 
+// ADD THESE IMPORTS
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import java.util.Arrays;
+// (end of new imports)
+
 import com.xammer.cloud.domain.Client;
 import com.xammer.cloud.domain.User;
 import com.xammer.cloud.repository.UserRepository;
@@ -42,7 +49,7 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-                .cors(withDefaults())
+                .cors(withDefaults()) // This will now use the corsConfigurationSource() bean
                 .csrf(csrf -> csrf.disable())
                 .exceptionHandling(exceptions -> exceptions
                         .defaultAuthenticationEntryPointFor(
@@ -65,13 +72,15 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("/azure_dashboard.html"),
                                 new AntPathRequestMatcher("/ws/**"),
                                 new AntPathRequestMatcher("/api/devops-scripts"),
-
-                                // --- FIX: ADDED THE FOLLOWING TWO LINES ---
+                                // --- UPDATED RULES ---
+                                // Allow status reads (or use .authenticated())
+                                new AntPathRequestMatcher("/api/cicd/github/runs"), 
+                                // All other /api/cicd/ endpoints will be caught by anyRequest().authenticated()
+                                // including /api/cicd/config/**
+                                // ---
                                 new AntPathRequestMatcher("/cloudk8s.html"),
-                             new AntPathRequestMatcher("/eks-details.html"),
-
+                                new AntPathRequestMatcher("/eks-details.html"),
                                 new AntPathRequestMatcher("/api/xamops/k8s/**")
-
                         ).permitAll()
                         .anyRequest().authenticated()
                 )
@@ -90,6 +99,25 @@ public class SecurityConfig {
 
         return http.build();
     }
+    
+    // === ADD THIS NEW BEAN FOR CORS ===
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration configuration = new CorsConfiguration();
+        // Set the allowed origin to your frontend's dev server
+        configuration.setAllowedOrigins(Arrays.asList("http://localhost:5173"));
+        // Set allowed methods
+        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        // Allow all headers
+        configuration.setAllowedHeaders(Arrays.asList("*"));
+        // **This is the critical line to fix the error**
+        configuration.setAllowCredentials(true); 
+        
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", configuration); // Apply this config to all paths
+        return source;
+    }
+    // === END OF NEW BEAN ===
 
     @Bean
     public CommonsRequestLoggingFilter requestLoggingFilter() {
