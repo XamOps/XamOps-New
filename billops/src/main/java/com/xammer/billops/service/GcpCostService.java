@@ -104,7 +104,7 @@ public class GcpCostService {
                 "FROM %s " +
                 "WHERE service.description = '%s' AND resource.name IS NOT NULL " +
                 "AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
-                "GROUP BY resource_name HAVING total_cost > 0.01 ORDER BY total_cost DESC LIMIT 50",
+                "GROUP BY 1 HAVING total_cost > 0.01 ORDER BY total_cost DESC LIMIT 50",
                 tableName,
                 serviceName,
                 startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
@@ -231,7 +231,7 @@ public class GcpCostService {
                 "SELECT service.description as service_name, SUM(cost) as total_cost " +
                 "FROM %s " +
                 "WHERE DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
-                "GROUP BY service_name HAVING total_cost > 0 ORDER BY total_cost DESC",
+                "GROUP BY 1 HAVING total_cost > 0 ORDER BY total_cost DESC",
                 tableName,
                 startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
                 today.format(DateTimeFormatter.ISO_LOCAL_DATE));

@@ -3,12 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>XamOps - GCP Performance Insights</title> <script src="https://cdn.tailwindcss.com"></script>
+    <title>XamOps - GCP Performance Insights</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
     <link rel="apple-touch-icon" href="/icons/XamOps.png">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script type="module" src="/src/main.js"></script> <style>
+    <script type="module" src="/src/main.js"></script>
+    <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
     body {
@@ -170,27 +172,26 @@
     .toast.error {
         background: #ef4444;
     }
-
 </style>
 </head>
 <body class="bg-gray-50">
 <div class="flex h-screen overflow-hidden">
-    <!-- Sidebar -->
-  <include file="/_sidebar.html"></include>
+    <include file="/_sidebar.html"></include>
 
-    <!-- Main Content -->
-    <div class="flex-1 flex flex-col h-screen overflow-hidden pl-64">
-        <main class="flex-1 flex items-center justify-center p-8">
-            <!-- Coming Soon Card -->
-            <div class="max-w-4xl w-full">
-                <div class="relative overflow-hidden bg-white rounded-2xl shadow-xl p-8">
-                    <!-- Background Pattern -->
-                    <div class="absolute inset-0 opacity-5">
-                        <div class="absolute inset-0" style="background-image: repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(102, 126, 234, 0.1) 10px, rgba(102, 126, 234, 0.1) 20px);"></div>
-                    </div>
+    <!-- ✅ FIXED: Added x-data directive here -->
+    <div class="flex-1 flex flex-col h-screen overflow-hidden pl-64" x-data="gcpPerformanceInsights()">
+        <main class="flex-1 overflow-y-auto p-8">
+            <div class="max-w-7xl mx-auto">
+                
+                <!-- Header -->
+                <div class="mb-8">
+                    <h1 class="text-3xl font-bold text-gray-900">GCP Performance Insights</h1>
+                    <p class="text-gray-600 mt-2">Monitor and optimize your Google Cloud Platform resources</p>
+                </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6" x-show="!isLoading">
-                    <div class="glass-card metric-card rounded-2xl p-6 lg:col-span-1">
+                <!-- Metrics Cards -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8" x-show="!isLoading">
+                    <div class="glass-card metric-card rounded-2xl p-6">
                         <div class="flex items-center justify-between">
                             <div>
                                 <h3 class="text-gray-600 text-sm font-medium">Performance Score</h3>
@@ -236,7 +237,8 @@
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6" x-show="isLoading" x-cloak>
+                <!-- Loading Skeletons -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8" x-show="isLoading" x-cloak>
                     <template x-for="i in 4" :key="i">
                         <div class="glass-card rounded-2xl p-6">
                             <div class="flex items-center justify-between">
@@ -250,6 +252,7 @@
                     </template>
                 </div>
 
+                <!-- Insights Table -->
                 <div class="glass-card rounded-2xl p-8">
                     <div class="mb-6 border-b border-gray-200">
                         <nav class="flex -mb-px" aria-label="Tabs">
@@ -308,7 +311,9 @@
                                         <input type="checkbox" @change="toggleAllInsights" :checked="isAllSelected" class="rounded">
                                     </th>
                                     <th class="px-6 py-4 text-left font-bold">Insight</th>
-                                    <th class="px-6 py-4 text-center font-bold">Qty</th> <th class="px-6 py-4 text-left font-bold">Resource</th> </tr>
+                                    <th class="px-6 py-4 text-center font-bold">Qty</th>
+                                    <th class="px-6 py-4 text-left font-bold">Resource</th>
+                                </tr>
                                 </thead>
                                 <tbody class="divide-y divide-gray-200">
                                 <template x-for="insight in filteredInsights" :key="insight.id">
@@ -333,7 +338,8 @@
                                         </td>
                                         <td class="px-6 py-4 text-center">
                                             <span class="inline-flex items-center justify-center w-6 h-6 text-xs font-bold text-white bg-blue-500 rounded-full"
-                                                  x-text="insight.quantity || 1"></span> </td>
+                                                  x-text="insight.quantity || 1"></span>
+                                        </td>
                                         <td class="px-6 py-4">
                                             <span class="font-medium text-gray-900" x-text="insight.resourceType"></span>
                                             <p class="text-xs text-gray-500 font-mono" x-text="insight.resourceId" x-show="insight.resourceId"></p>
@@ -395,8 +401,13 @@
     </div>
 </div>
 
+<!-- Toast Notification -->
+<div x-show="showToast" x-transition class="toast" :class="toastType === 'error' ? 'error' : ''" x-cloak>
+    <span x-text="toastMessage"></span>
+</div>
+
 <script>
-    function gcpPerformanceInsights() { // Changed function name
+    function gcpPerformanceInsights() {
         return {
             isLoading: true,
             isRefreshing: false,
@@ -406,7 +417,7 @@
             currentSeverity: 'ALL',
             summary: {},
             activeTab: 'insights',
-            selectedGcpProjectId: null, // Changed from selectedAccountId
+            selectedGcpProjectId: null,
             deduplicationCount: 0,
             showToast: false,
             toastMessage: '',
@@ -414,13 +425,10 @@
 
             init() {
                 const urlParams = new URLSearchParams(window.location.search);
-                // Use 'accountId' from URL for GCP Project ID
-                this.selectedGcpProjectId = urlParams.get('accountId');
+                this.selectedGcpProjectId = urlParams.get('accountIds');
 
                 if (!this.selectedGcpProjectId) {
-                    // Fallback to sessionStorage if needed (adjust key if necessary)
                     const storedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-                    // Assuming the first ID is the GCP Project ID if in single-select mode for GCP
                     if (storedIds.length > 0) {
                         this.selectedGcpProjectId = storedIds[0];
                     }
@@ -442,7 +450,6 @@
                     return;
                 }
 
-                // Changed cache key prefix
                 const cacheKey = `gcpPerformanceInsights-${this.selectedGcpProjectId}`;
                 const cachedData = sessionStorage.getItem(cacheKey);
 
@@ -452,16 +459,15 @@
                     return;
                 }
 
-                 if (!cachedData || forceRefresh) { // Simplified condition
-                    this.isLoading = true; // Always show loading when fetching
+                if (!cachedData || forceRefresh) {
+                    this.isLoading = true;
                 }
 
                 if (forceRefresh) {
                     this.isRefreshing = true;
-                    sessionStorage.removeItem(cacheKey); // Clear cache on force refresh
+                    sessionStorage.removeItem(cacheKey);
                 }
 
-                // Changed API endpoint and parameter name
                 fetch(`/api/xamops/gcp/performance-insights/insights?accountId=${this.selectedGcpProjectId}&forceRefresh=${forceRefresh}`)
                     .then(res => {
                         if (!res.ok) { throw new Error(`HTTP error! status: ${res.status}`); }
@@ -487,33 +493,32 @@
                     });
             },
 
-            // deduplicateInsights and createInsightKey remain largely the same, but ensure fields match GCP data
              deduplicateInsights(insights) {
                 const seen = new Set();
                 const uniqueInsights = [];
                 this.deduplicationCount = 0;
 
-                (insights || []).forEach(insight => { // Added null check
-                    const key = this.createInsightKey(insight);
-
-                    if (!seen.has(key)) {
-                        seen.add(key);
-                        uniqueInsights.push(insight);
-                    } else {
-                        this.deduplicationCount++;
-                    }
-                });
+                if (Array.isArray(insights)) {
+                    insights.forEach(insight => {
+                        const key = this.createInsightKey(insight);
+                        if (!seen.has(key)) {
+                            seen.add(key);
+                            uniqueInsights.push(insight);
+                        } else {
+                            this.deduplicationCount++;
+                        }
+                    });
+                } else if (insights) {
+                    console.warn('Performance insights API returned non-array data:', insights);
+                }
 
                 return uniqueInsights;
             },
 
-            // Make sure fields used here match the GcpPerformanceInsightDto (or the mapped PerformanceInsightDto)
             createInsightKey(insight) {
-                 // Use resourceId if available, otherwise fallback to potentially generated ID
                 const idPart = insight.resourceId || insight.id || '';
                 return `${idPart}-${insight.insight || ''}-${insight.account || this.selectedGcpProjectId}-${insight.region || ''}`;
             },
-
 
             showToastMessage(message, type = 'success') {
                 this.toastMessage = message;
@@ -528,7 +533,6 @@
             loadSummary(forceRefresh = false) {
                 if (!this.selectedGcpProjectId) return;
 
-                // Changed cache key prefix
                 const cacheKey = `gcpPerformanceSummary-${this.selectedGcpProjectId}`;
                 const cachedData = sessionStorage.getItem(cacheKey);
 
@@ -541,7 +545,6 @@
                     sessionStorage.removeItem(cacheKey);
                 }
 
-                 // Changed API endpoint and parameter name
                 fetch(`/api/xamops/gcp/performance-insights/summary?accountId=${this.selectedGcpProjectId}&forceRefresh=${forceRefresh}`)
                     .then(res => {
                          if (!res.ok) { throw new Error(`HTTP error! status: ${res.status}`); }
@@ -553,58 +556,47 @@
                     })
                     .catch(err => {
                         console.error('Failed to load GCP summary', err);
-                        this.summary = {}; // Reset summary on error
+                        this.summary = {};
                         this.showToastMessage('Failed to load summary data', 'error');
                     });
             },
 
-            // filteredInsights getter remains the same logic
             get filteredInsights() {
-                return (this.insights || []).filter(i => { // Added null check
+                return (this.insights || []).filter(i => {
                     if (i.category === 'BEST_PRACTICE') {
                         return false;
                     }
                     if (this.currentSeverity === 'ALL') {
                         return true;
                     }
-                    // Ensure case-insensitivity for comparison
                     return i.severity && i.severity.toUpperCase() === this.currentSeverity;
                 });
             },
 
-
-            // bestPracticeInsights getter remains the same logic
              get bestPracticeInsights() {
-                return (this.insights || []).filter(i => i.category === 'BEST_PRACTICE'); // Added null check
+                return (this.insights || []).filter(i => i.category === 'BEST_PRACTICE');
             },
 
-
-            // isAllSelected getter remains the same logic
             get isAllSelected() {
-                 const currentFiltered = this.filteredInsights; // Store result
+                 const currentFiltered = this.filteredInsights;
                  return currentFiltered.length > 0 &&
                     this.selectedInsights.length === currentFiltered.length;
             },
 
-
-            // toggleAllInsights remains the same logic
              toggleAllInsights() {
-                const currentFiltered = this.filteredInsights; // Store result
+                const currentFiltered = this.filteredInsights;
                 if (this.isAllSelected) {
                     this.selectedInsights = [];
                 } else {
-                    // Make sure 'id' field exists and is unique
                     this.selectedInsights = currentFiltered.map(i => i.id || this.createInsightKey(i));
                 }
             },
 
-            // bulkArchive remains the same logic, but uses GCP endpoint (currently placeholder)
              bulkArchive() {
                 if (this.selectedInsights.length === 0) return;
                 if (!confirm(`Are you sure you want to archive ${this.selectedInsights.length} insights?`)) return;
 
-                // ** TODO: Update API endpoint if/when GCP archive is implemented **
-                const archiveEndpoint = '/api/xamops/gcp/performance-insights/bulk-archive'; // Example
+                const archiveEndpoint = '/api/xamops/gcp/performance-insights/bulk-archive';
 
                 fetch(archiveEndpoint, {
                     method: 'POST',
@@ -613,7 +605,6 @@
                 })
                     .then(res => {
                         if (res.ok) {
-                             // Use createInsightKey for filtering if 'id' might be missing
                             const selectedKeys = new Set(this.selectedInsights.map(id => {
                                 const insight = this.insights.find(i => (i.id || this.createInsightKey(i)) === id);
                                 return insight ? this.createInsightKey(insight) : id;
@@ -621,7 +612,7 @@
                             this.insights = this.insights.filter(i => !selectedKeys.has(this.createInsightKey(i)));
                             const count = this.selectedInsights.length;
                             this.selectedInsights = [];
-                            this.loadSummary(true); // Refresh summary after archive
+                            this.loadSummary(true);
                             this.showToastMessage(`${count} insights archived successfully`);
                         } else {
                              res.text().then(text => this.showToastMessage(`Failed to archive: ${text || 'Server error'}`, 'error'));
@@ -633,8 +624,6 @@
                     });
             },
 
-
-            // exportData remains the same logic, exports currently filtered insights
              exportData() {
                 if (this.isLoading || this.isRefreshing) {
                      this.showToastMessage('Please wait for data to load before exporting.', 'error');
@@ -647,20 +636,19 @@
 
                 this.isExporting = true;
                 const headers = ["ID", "Insight", "Description", "Severity", "Category", "Account", "Quantity", "Resource Type", "Resource ID", "Recommendation", "Documentation URL", "Potential Savings", "Region", "Created Date"];
-                 // Use filteredInsights for export
                 const rows = this.filteredInsights.map(insight => [
-                    `"${insight.id || this.createInsightKey(insight)}"`, // Use key if ID missing
+                    `"${insight.id || this.createInsightKey(insight)}"`,
                     `"${(insight.insight || '').replace(/"/g, '""')}"`,
                     `"${(insight.description || '').replace(/"/g, '""')}"`,
                     `"${insight.severity || ''}"`,
                     `"${insight.category || ''}"`,
-                    `"${insight.account || this.selectedGcpProjectId}"`, // Use project ID if account missing
-                    `"${insight.quantity || 1}"`, // Default quantity
+                    `"${insight.account || this.selectedGcpProjectId}"`,
+                    `"${insight.quantity || 1}"`,
                     `"${insight.resourceType || ''}"`,
                     `"${insight.resourceId || ''}"`,
                     `"${(insight.recommendation || '').replace(/"/g, '""')}"`,
                     `"${insight.documentationUrl || ''}"`,
-                    `"${(insight.potentialSavings || 0).toFixed(2)}"`, // Format savings
+                    `"${(insight.potentialSavings || 0).toFixed(2)}"`,
                     `"${insight.region || ''}"`,
                     `"${insight.createdDate || ''}"`
                 ]);
@@ -672,7 +660,6 @@
                 var encodedUri = encodeURI(csvContent);
                 var link = document.createElement("a");
                 link.setAttribute("href", encodedUri);
-                // Changed filename
                 link.setAttribute("download", `gcp_performance_insights_${this.selectedGcpProjectId}.csv`);
                 document.body.appendChild(link);
                 link.click();

@@ -58,8 +58,8 @@ export default defineConfig({
       input: {
         index: resolve(__dirname, 'index.html'),
         'account-manager': resolve(__dirname, 'account-manager.html'),
-        'users-manager': resolve(__dirname, 'users-manager.html'),
-
+        'user-manager': resolve(__dirname, 'user-manager.html'),
+        'Xamops_User_management.html':  resolve(__dirname, 'Xamops_User_management.html'),
         'add-account': resolve(__dirname, 'add-account.html'),
         'add-gcp-account': resolve(__dirname, 'add-gcp-account.html'),
         alerts: resolve(__dirname, 'alerts.html'),
@@ -83,6 +83,7 @@ export default defineConfig({
         'grafana-dashboard.html': resolve(__dirname, 'grafana-dashboard.html'),
         'devops_in_the_box.html': resolve(__dirname, 'devops_in_the_box.html'),
          'gcp_devops_in_the_box.html': resolve(__dirname, 'gcp_devops_in_the_box.html'),
+         'cicd_pipelines.html': resolve(__dirname, 'gcp_devops_in_the_box.html'),
 
 
         
