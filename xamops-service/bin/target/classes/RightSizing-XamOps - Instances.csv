@@ -1,0 +1,363 @@
+Current Instance,Load Range (Max U%),Intel Recommendation,AMD Recommendation,Projected Max Util,Approx. Cost Savings (Intel/AMD),Reason (with AWS Best Practices)
+--- T Series (Burstable Performance) ---,,,,,,
+t3.2xlarge,0-10%,t3.medium ($0.0416/h),t3a.medium (~$0.0376/h),~40%,~87% / ~88%,2-step downsize (quarter size); aggressive for very low U.
+t3.2xlarge,10-20%,t3.large ($0.0832/h),t3a.large (~$0.0752/h),~40%,~75% / ~75%,1-step (half); standard for <40% U.
+t3.2xlarge,20-35%,t3.xlarge ($0.1664/h),t3a.xlarge (~$0.1504/h),~60-70%,~50% / ~55%,"Minimal (half); mid U, Balanced preset (20% headroom)."
+t3.2xlarge,35-50%,Stay t3.2xlarge ($0.3328/h),"t3a.2xlarge (~$0.3008/h, switch)",~50%,0% / ~10%,No downsize for critical; switch AMD for savings.
+t3.xlarge,0-10%,t3.medium ($0.0416/h),t3a.medium (~$0.0376/h),~40%,~75% / ~75%,1.5-step equiv; aggressive for low U.
+t3.xlarge,10-20%,t3.medium ($0.0416/h),t3a.medium (~$0.0376/h),~40-60%,~75% / ~75%,1-step + adjust; standard <40%.
+t3.xlarge,20-35%,t3.large ($0.0832/h),t3a.large (~$0.0752/h),~60-70%,~50% / ~50%,Half; Balanced headroom.
+t3.xlarge,35-50%,Stay t3.xlarge ($0.1664/h),"t3a.xlarge (~$0.1504/h, switch)",~50%,0% / ~10%,Stay/switch for critical.
+t3.large,0-10%,t3.medium ($0.0416/h),t3a.medium (~$0.0376/h),~40%,~50% / ~50%,1-step; aggressive low U.
+t3.large,10-20%,t3.medium ($0.0416/h),t3a.medium (~$0.0376/h),~40-60%,~50% / ~50%,1-step; standard.
+t3.large,20-35%,t3.medium ($0.0416/h),t3a.medium (~$0.0376/h),~60-70%,~50% / ~50%,Half; mid U conservative.
+t3.large,35-50%,Stay t3.large ($0.0832/h),"t3a.large (~$0.0752/h, switch)",~50%,0% / ~10%,No downsize; AMD switch.
+t3.medium,0-50%,Stay t3.medium ($0.0416/h),"t3a.medium (~$0.0376/h, switch)",<70%,0% / ~10%,Smallest size; stay or switch to AMD for savings.
+--- M Series (General Purpose) ---,,,,,,
+m5.24xlarge,0-10%,m5.4xlarge ($0.768/h),m5a.4xlarge (~$0.667/h),~40%,~83% / ~86%,2+ steps (1/6 size); aggressive for very low U.
+m5.24xlarge,10-20%,m5.8xlarge ($1.536/h),m5a.8xlarge (~$1.333/h),~40%,~67% / ~71%,1.5 steps; balanced for <40% U.
+m5.24xlarge,20-35%,m5.12xlarge ($2.304/h),m5a.12xlarge (~$2.000/h),~60-70%,~50% / ~57%,1 step; conservative for mid-range U.
+m5.24xlarge,35-50%,Stay m5.24xlarge ($4.608/h),"m5a.24xlarge (~$4.147/h, switch)",~50%,0% / ~10%,No downsize for critical; switch to AMD.
+m5.16xlarge,0-10%,m5.2xlarge ($0.384/h),m5a.2xlarge (~$0.333/h),~40%,~87% / ~89%,3-step aggressive downsize.
+m5.16xlarge,10-20%,m5.4xlarge ($0.768/h),m5a.4xlarge (~$0.667/h),~40-60%,~75% / ~78%,2-step standard downsize.
+m5.16xlarge,20-35%,m5.8xlarge ($1.536/h),m5a.8xlarge (~$1.333/h),~60-70%,~50% / ~57%,1-step conservative downsize.
+m5.16xlarge,35-50%,Stay m5.16xlarge ($3.072/h),"m5a.16xlarge (~$2.765/h, switch)",~50%,0% / ~10%,Stay or switch to AMD.
+m5.12xlarge,0-10%,m5.2xlarge ($0.384/h),m5a.2xlarge (~$0.333/h),~40%,~83% / ~86%,2.5-step aggressive downsize.
+m5.12xlarge,10-20%,m5.4xlarge ($0.768/h),m5a.4xlarge (~$0.667/h),~40-60%,~67% / ~71%,1.5-step standard downsize.
+m5.12xlarge,20-35%,m5.8xlarge ($1.536/h),m5a.8xlarge (~$1.333/h),~60%,~33% / ~42%,Downsize to nearest half size.
+m5.12xlarge,35-50%,Stay m5.12xlarge ($2.304/h),"m5a.12xlarge (~$2.074/h, switch)",~50%,0% / ~10%,No downsize.
+m5.8xlarge,0-10%,m5.xlarge ($0.192/h),m5a.xlarge (~$0.167/h),~40%,~87% / ~89%,3-step aggressive downsize.
+m5.8xlarge,10-20%,m5.2xlarge ($0.384/h),m5a.2xlarge (~$0.333/h),~40-60%,~75% / ~78%,2-step standard downsize.
+m5.8xlarge,20-35%,m5.4xlarge ($0.768/h),m5a.4xlarge (~$0.667/h),~60-70%,~50% / ~57%,1-step conservative downsize.
+m5.8xlarge,35-50%,Stay m5.8xlarge ($1.536/h),"m5a.8xlarge (~$1.333/h, switch)",~50%,0% / ~13%,Stay or switch to AMD.
+m5.4xlarge,0-10%,m5.large ($0.096/h),m5a.large (~$0.083/h),~40%,~87% / ~89%,3-step aggressive downsize.
+m5.4xlarge,10-20%,m5.xlarge ($0.192/h),m5a.xlarge (~$0.167/h),~40-60%,~75% / ~78%,2-step standard downsize.
+m5.4xlarge,20-35%,m5.2xlarge ($0.384/h),m5a.2xlarge (~$0.333/h),~60-70%,~50% / ~57%,1-step conservative downsize.
+m5.4xlarge,35-50%,Stay m5.4xlarge ($0.768/h),"m5a.4xlarge (~$0.667/h, switch)",~50%,0% / ~13%,No downsize.
+m5.2xlarge,0-10%,"t3.2xlarge (switch, $0.3328/h)","t3a.2xlarge (switch, ~$0.3008/h)",~40%,~13% / ~22%,Switch to burstable family for low U.
+m5.2xlarge,10-20%,m5.large ($0.096/h),m5a.large (~$0.083/h),~40-60%,~75% / ~78%,2-step standard downsize.
+m5.2xlarge,20-35%,m5.xlarge ($0.192/h),m5a.xlarge (~$0.167/h),~60-70%,~50% / ~57%,1-step conservative downsize.
+m5.2xlarge,35-50%,Stay m5.2xlarge ($0.384/h),"m5a.2xlarge (~$0.333/h, switch)",~50%,0% / ~13%,Stay or switch to AMD.
+m5.xlarge,0-10%,"t3.xlarge (switch, $0.1664/h)","t3a.xlarge (switch, ~$0.1504/h)",~40%,~13% / ~22%,Switch to burstable family.
+m5.xlarge,10-20%,m5.large ($0.096/h),m5a.large (~$0.083/h),~40-60%,~50% / ~57%,1-step standard downsize.
+m5.xlarge,20-35%,m5.large ($0.096/h),m5a.large (~$0.083/h),~60-70%,~50% / ~57%,Halve size for mid-range U.
+m5.xlarge,35-50%,Stay m5.xlarge ($0.192/h),"m5a.xlarge (~$0.167/h, switch)",~50%,0% / ~13%,No downsize.
+m5.large,0-10%,"t3.large (switch, $0.0832/h)","t3a.large (switch, ~$0.0752/h)",~40%,~13% / ~22%,Switch to burstable family.
+m5.large,10-50%,Stay m5.large ($0.096/h),"m5a.large (~$0.083/h, switch)",<70%,0% / ~13%,Smallest size; stay or switch to AMD.
+--- C Series (Compute Optimized) ---,,,,,,
+c5.24xlarge,0-10%,c5.4xlarge ($0.68/h),c5a.4xlarge (~$0.612/h),~40%,~83% / ~85%,2-step downsize with CPU focus.
+c5.24xlarge,10-20%,c5.9xlarge ($1.53/h),c5a.8xlarge (~$1.224/h),~45-60%,~62% / ~70%,1.3-step balanced downsize.
+c5.24xlarge,20-35%,c5.12xlarge ($2.04/h),c5a.12xlarge (~$1.836/h),~60-70%,~50% / ~55%,1-step downsize based on P95 threshold.
+c5.24xlarge,35-50%,Stay c5.24xlarge ($4.08/h),"c5a.24xlarge (~$3.672/h, switch)",~50%,0% / ~10%,No downsize; switch AMD for CPU perf/cost.
+c5.18xlarge,0-10%,c5.4xlarge ($0.68/h),c5a.4xlarge (~$0.612/h),~40%,~78% / ~80%,2-step aggressive downsize.
+c5.18xlarge,10-20%,c5.4xlarge ($0.68/h),c5a.4xlarge (~$0.612/h),~40-60%,~78% / ~80%,2-step standard downsize.
+c5.18xlarge,20-35%,c5.9xlarge ($1.53/h),c5a.8xlarge (~$1.224/h),~60-70%,~50% / ~60%,1-step conservative downsize.
+c5.18xlarge,35-50%,Stay c5.18xlarge ($3.06/h),"c5a.18xlarge (~$2.754/h, switch)",~50%,0% / ~10%,Stay or switch to AMD.
+c5.12xlarge,0-10%,c5.2xlarge ($0.34/h),c5a.2xlarge (~$0.306/h),~40%,~83% / ~85%,2.5-step aggressive downsize.
+c5.12xlarge,10-20%,c5.4xlarge ($0.68/h),c5a.4xlarge (~$0.612/h),~40-60%,~67% / ~70%,1-step + adjust for standard U.
+c5.12xlarge,20-35%,c5.9xlarge ($1.53/h),c5a.8xlarge (~$1.224/h),~60%,~25% / ~40%,Downsize to nearest available size.
+c5.12xlarge,35-50%,Stay c5.12xlarge ($2.04/h),"c5a.12xlarge (~$1.836/h, switch)",~50%,0% / ~10%,No downsize.
+c5.9xlarge,0-10%,c5.xlarge ($0.17/h),c5a.xlarge (~$0.153/h),~40%,~89% / ~90%,3-step aggressive downsize.
+c5.9xlarge,10-20%,c5.2xlarge ($0.34/h),c5a.2xlarge (~$0.306/h),~40-60%,~78% / ~80%,2-step standard downsize.
+c5.9xlarge,20-35%,c5.4xlarge ($0.68/h),c5a.4xlarge (~$0.612/h),~60-70%,~55% / ~60%,1-step conservative downsize.
+c5.9xlarge,35-50%,Stay c5.9xlarge ($1.53/h),"c5a.9xlarge (~$1.377/h, switch)",~50%,0% / ~10%,Stay or switch to AMD.
+c5.4xlarge,0-10%,c5.large ($0.085/h),c5a.large (~$0.076/h),~40%,~87% / ~89%,3-step aggressive downsize.
+c5.4xlarge,10-20%,c5.xlarge ($0.17/h),c5a.xlarge (~$0.153/h),~40-60%,~75% / ~78%,2-step standard downsize.
+c5.4xlarge,20-35%,c5.2xlarge ($0.34/h),c5a.2xlarge (~$0.306/h),~60-70%,~50% / ~55%,1-step conservative downsize.
+c5.4xlarge,35-50%,Stay c5.4xlarge ($0.68/h),"c5a.4xlarge (~$0.612/h, switch)",~50%,0% / ~10%,No downsize.
+c5.2xlarge,0-10%,"m5.2xlarge (switch, $0.384/h)","m5a.2xlarge (switch, ~$0.333/h)",~40%,~ -13% / ~2%,Switch to general purpose for low U balance.
+c5.2xlarge,10-20%,c5.large ($0.085/h),c5a.large (~$0.076/h),~40-60%,~75% / ~78%,2-step standard downsize.
+c5.2xlarge,20-35%,c5.xlarge ($0.17/h),c5a.xlarge (~$0.153/h),~60-70%,~50% / ~55%,1-step conservative downsize.
+c5.2xlarge,35-50%,Stay c5.2xlarge ($0.34/h),"c5a.2xlarge (~$0.306/h, switch)",~50%,0% / ~10%,Stay or switch to AMD.
+c5.xlarge,0-10%,"m5.xlarge (switch, $0.192/h)","m5a.xlarge (switch, ~$0.167/h)",~40%,~ -13% / ~2%,Switch to general purpose.
+c5.xlarge,10-20%,c5.large ($0.085/h),c5a.large (~$0.076/h),~40-60%,~50% / ~55%,1-step standard downsize.
+c5.xlarge,20-35%,c5.large ($0.085/h),c5a.large (~$0.076/h),~60-70%,~50% / ~55%,Halve size for mid-range U.
+c5.xlarge,35-50%,Stay c5.xlarge ($0.17/h),"c5a.xlarge (~$0.153/h, switch)",~50%,0% / ~10%,No downsize.
+c5.large,0-10%,"m5.large (switch, $0.096/h)","m5a.large (switch, ~$0.083/h)",~40%,~ -13% / ~2%,Switch to general purpose.
+c5.large,10-50%,Stay c5.large ($0.085/h),"c5a.large (~$0.076/h, switch)",<70%,0% / ~10%,Smallest size; stay or switch to AMD.
+--- R Series (Memory Optimized) ---,,,,,,
+r5.24xlarge,0-10%,r5.4xlarge ($1.008/h),r5a.4xlarge (~$0.907/h),~40%,~83% / ~85%,2-step downsize with memory focus.
+r5.24xlarge,10-20%,r5.8xlarge ($2.016/h),r5a.8xlarge (~$1.815/h),~40-60%,~67% / ~70%,1.5-step standard downsize.
+r5.24xlarge,20-35%,r5.12xlarge ($3.024/h),r5a.12xlarge (~$2.722/h),~60-70%,~50% / ~55%,1-step downsize; monitor memory peaks.
+r5.24xlarge,35-50%,Stay r5.24xlarge ($6.048/h),"r5a.24xlarge (~$5.443/h, switch)",~50%,0% / ~10%,No downsize; switch AMD for mem efficiency.
+r5.16xlarge,0-10%,r5.2xlarge ($0.504/h),r5a.2xlarge (~$0.454/h),~40%,~87% / ~89%,3-step aggressive downsize.
+r5.16xlarge,10-20%,r5.4xlarge ($1.008/h),r5a.4xlarge (~$0.907/h),~40-60%,~75% / ~78%,2-step standard downsize.
+r5.16xlarge,20-35%,r5.8xlarge ($2.016/h),r5a.8xlarge (~$1.815/h),~60-70%,~50% / ~55%,1-step conservative downsize.
+r5.16xlarge,35-50%,Stay r5.16xlarge ($4.032/h),"r5a.16xlarge (~$3.629/h, switch)",~50%,0% / ~10%,Stay or switch to AMD.
+r5.12xlarge,0-10%,r5.2xlarge ($0.504/h),r5a.2xlarge (~$0.454/h),~40%,~83% / ~85%,2.5-step aggressive downsize.
+r5.12xlarge,10-20%,r5.4xlarge ($1.008/h),r5a.4xlarge (~$0.907/h),~40-60%,~67% / ~70%,1.5-step standard downsize.
+r5.12xlarge,20-35%,r5.8xlarge ($2.016/h),r5a.8xlarge (~$1.815/h),~60%,~33% / ~40%,Downsize to nearest half size.
+r5.12xlarge,35-50%,Stay r5.12xlarge ($3.024/h),"r5a.12xlarge (~$2.722/h, switch)",~50%,0% / ~10%,No downsize.
+r5.8xlarge,0-10%,r5.xlarge ($0.252/h),r5a.xlarge (~$0.227/h),~40%,~87% / ~89%,3-step aggressive downsize.
+r5.8xlarge,10-20%,r5.2xlarge ($0.504/h),r5a.2xlarge (~$0.454/h),~40-60%,~75% / ~78%,2-step standard downsize.
+r5.8xlarge,20-35%,r5.4xlarge ($1.008/h),r5a.4xlarge (~$0.907/h),~60-70%,~50% / ~55%,1-step conservative downsize.
+r5.8xlarge,35-50%,Stay r5.8xlarge ($2.016/h),"r5a.8xlarge (~$1.815/h, switch)",~50%,0% / ~10%,Stay or switch to AMD.
+r5.4xlarge,0-10%,r5.large ($0.126/h),r5a.large (~$0.114/h),~40%,~87% / ~89%,3-step aggressive downsize.
+r5.4xlarge,10-20%,r5.xlarge ($0.252/h),r5a.xlarge (~$0.227/h),~40-60%,~75% / ~78%,2-step standard downsize.
+r5.4xlarge,20-35%,r5.2xlarge ($0.504/h),r5a.2xlarge (~$0.454/h),~60-70%,~50% / ~55%,1-step conservative downsize.
+r5.4xlarge,35-50%,Stay r5.4xlarge ($1.008/h),"r5a.4xlarge (~$0.907/h, switch)",~50%,0% / ~10%,No downsize.
+r5.2xlarge,0-10%,"m5.2xlarge (switch, $0.384/h)","m5a.2xlarge (switch, ~$0.333/h)",~40%,~24% / ~34%,Switch to general purpose for low U balance.
+r5.2xlarge,10-20%,r5.large ($0.126/h),r5a.large (~$0.114/h),~40-60%,~75% / ~78%,2-step standard downsize.
+r5.2xlarge,20-35%,r5.xlarge ($0.252/h),r5a.xlarge (~$0.227/h),~60-70%,~50% / ~55%,1-step conservative downsize.
+r5.2xlarge,35-50%,Stay r5.2xlarge ($0.504/h),"r5a.2xlarge (~$0.454/h, switch)",~50%,0% / ~10%,Stay or switch to AMD.
+r5.xlarge,0-10%,"m5.xlarge (switch, $0.192/h)","m5a.xlarge (switch, ~$0.167/h)",~40%,~24% / ~34%,Switch to general purpose.
+r5.xlarge,10-20%,r5.large ($0.126/h),r5a.large (~$0.114/h),~40-60%,~50% / ~55%,1-step standard downsize.
+r5.xlarge,20-35%,r5.large ($0.126/h),r5a.large (~$0.114/h),~60-70%,~50% / ~55%,Halve size for mid-range U.
+r5.xlarge,35-50%,Stay r5.xlarge ($0.252/h),"r5a.xlarge (~$0.227/h, switch)",~50%,0% / ~10%,No downsize.
+r5.large,0-10%,"m5.large (switch, $0.096/h)","m5a.large (switch, ~$0.083/h)",~40%,~24% / ~34%,Switch to general purpose.
+r5.large,10-50%,Stay r5.large ($0.126/h),"r5a.large (~$0.114/h, switch)",<70%,0% / ~10%,Smallest size; stay or switch to AMD.
+T Series (Burstable Performance) - T3/T3a Small Sizes,,,,,,
+t3.small,0-10%,t3.micro ($0.0104/h),t3a.micro (~$0.0094/h),~40%,~50% / ~55%,"1-step downsize; aggressive for low U, baseline credits ensure <70% with 20-30% headroom."
+t3.small,10-20%,t3.micro ($0.0104/h),t3a.micro (~$0.0094/h),~40-60%,~50% / ~55%,"1-step standard downsize for <40% U, Balanced preset."
+t3.small,20-35%,Stay t3.small ($0.0208/h),"t3a.small (~$0.0188/h, switch)",~60-70%,0% / ~10%,"Minimal for mid U; switch AMD for savings, P95 threshold."
+t3.small,35-50%,Stay t3.small ($0.0208/h),"t3a.small (~$0.0188/h, switch)",~50%,0% / ~10%,No downsize for critical range; AMD switch.
+t3.micro,0-10%,t3.nano ($0.0052/h),t3a.nano (~$0.0047/h),~40%,~50% / ~50%,1-step aggressive downsize for very low U.
+t3.micro,10-50%,Stay t3.micro ($0.0104/h),"t3a.micro (~$0.0094/h, switch)",<70%,0% / ~10%,Smallest viable size; stay or switch AMD for savings.
+t3.nano,0-50%,Stay t3.nano ($0.0052/h),"t3a.nano (~$0.0047/h, switch)",<70%,0% / ~10%,Minimal size; stay or switch AMD.
+"T2 Series (Older Burstable, Intel Only)",,,,,,
+t2.small,0-10%,t3.micro ($0.0104/h),t3a.micro (~$0.0094/h),~40%,~55% / ~60%,"Switch to T3/T3a for better perf, aggressive downsize for low U."
+t2.small,10-20%,t3.small ($0.0208/h),t3a.small (~$0.0188/h),~40-60%,~10% / ~19%,"Switch to T3/T3a for standard <40% U, Balanced preset."
+t2.small,20-35%,Stay t2.small ($0.023/h),"t3a.small (~$0.0188/h, switch)",~60-70%,0% / ~18%,Minimal downsize; switch to T3a for perf/savings.
+t2.small,35-50%,Stay t2.small ($0.023/h),"t3a.small (~$0.0188/h, switch)",~50%,0% / ~18%,No downsize for critical; T3a switch for savings.
+t2.medium,0-10%,t3.small ($0.0208/h),t3a.small (~$0.0188/h),~40%,~55% / ~60%,Downsize + switch to T3/T3a for low U savings.
+t2.medium,10-20%,t3.medium ($0.0416/h),t3a.medium (~$0.0376/h),~40-60%,~10% / ~19%,Switch to T3/T3a for standard perf.
+t2.medium,20-35%,Stay t2.medium ($0.0464/h),"t3a.medium (~$0.0376/h, switch)",~60-70%,0% / ~19%,Minimal; T3a for better perf/savings.
+t2.medium,35-50%,Stay t2.medium ($0.0464/h),"t3a.medium (~$0.0376/h, switch)",~50%,0% / ~19%,No downsize; T3a switch.
+t2.large,0-10%,t3.medium ($0.0416/h),t3a.medium (~$0.0376/h),~40%,~55% / ~60%,Downsize + switch to T3/T3a for low U.
+t2.large,10-20%,t3.large ($0.0832/h),t3a.large (~$0.0752/h),~40-60%,~10% / ~19%,Switch to T3/T3a for standard <40% U.
+t2.large,20-35%,Stay t2.large ($0.0928/h),"t3a.large (~$0.0752/h, switch)",~60-70%,0% / ~19%,Minimal; T3a switch for perf.
+t2.large,35-50%,Stay t2.large ($0.0928/h),"t3a.large (~$0.0752/h, switch)",~50%,0% / ~19%,No downsize; T3a switch.
+"T2a Series (Older Burstable, AMD)",,,,,,
+t2a.small,0-10%,t3a.micro (~$0.0094/h),t3a.micro (~$0.0094/h),~40%,~55% / ~55%,"Switch to T3a for better perf, aggressive downsize."
+t2a.small,10-20%,t3a.small (~$0.0188/h),t3a.small (~$0.0188/h),~40-60%,~10% / ~10%,Switch to T3a for standard perf.
+t2a.small,20-35%,Stay t2a.small ($0.0207/h),"t3a.small (~$0.0188/h, switch)",~60-70%,0% / ~9%,Minimal; T3a switch for perf.
+t2a.small,35-50%,Stay t2a.small ($0.0207/h),Stay t2a.small (~$0.0207/h),~50%,0% / 0%,Stay for critical range.
+t2a.medium,0-10%,t3a.small (~$0.0188/h),t3a.small (~$0.0188/h),~40%,~55% / ~55%,Downsize + stay T3a for low U.
+t2a.medium,10-20%,t3a.medium (~$0.0376/h),t3a.medium (~$0.0376/h),~40-60%,~10% / ~10%,Switch to T3a standard.
+t2a.medium,20-35%,Stay t2a.medium ($0.0418/h),"t3a.medium (~$0.0376/h, switch)",~60-70%,0% / ~10%,Minimal; T3a switch.
+t2a.medium,35-50%,Stay t2a.medium ($0.0418/h),Stay t2a.medium (~$0.0418/h),~50%,0% / 0%,Stay for critical.
+t2a.large,0-10%,t3a.medium (~$0.0376/h),t3a.medium (~$0.0376/h),~40%,~55% / ~55%,Downsize + stay T3a.
+t2a.large,10-20%,t3a.large (~$0.0752/h),t3a.large (~$0.0752/h),~40-60%,~10% / ~10%,Switch to T3a standard.
+t2a.large,20-35%,Stay t2a.large ($0.0835/h),"t3a.large (~$0.0752/h, switch)",~60-70%,0% / ~10%,Minimal; T3a switch.
+t2a.large,35-50%,Stay t2a.large ($0.0835/h),Stay t2a.large (~$0.0835/h),~50%,0% / 0%,Stay for critical.
+C Series (Compute Optimized) - C7i/C7a,,,,,,
+c7i.large,0-10%,c5.large ($0.085/h),c5a.large (~$0.076/h),~40%,0% / ~11%,"Switch to C5/C5a for low U savings, aggressive downsize."
+c7i.large,10-20%,Stay c7i.large ($0.085/h est.),"c7a.large (~$0.0765/h, switch)",~40-60%,0% / ~10%,Stay or switch AMD for standard <40% U.
+c7i.large,20-35%,Stay c7i.large ($0.085/h),"c7a.large (~$0.0765/h, switch)",~60-70%,0% / ~10%,"Minimal for mid U; AMD switch, Balanced preset."
+c7i.large,35-50%,Stay c7i.large ($0.085/h),"c7a.large (~$0.0765/h, switch)",~50%,0% / ~10%,No downsize for critical; AMD switch.
+c7i.xlarge,0-10%,c5.large ($0.085/h),c5a.large (~$0.076/h),~40%,~50% / ~55%,Downsize to C5/C5a for low U.
+c7i.xlarge,10-20%,c5.xlarge ($0.17/h),c5a.xlarge (~$0.153/h),~40-60%,~50% / ~55%,Standard downsize to C5/C5a.
+c7i.xlarge,20-35%,Stay c7i.xlarge ($0.17/h est.),"c7a.xlarge (~$0.153/h, switch)",~60-70%,0% / ~10%,Minimal; stay or AMD switch.
+c7i.xlarge,35-50%,Stay c7i.xlarge ($0.17/h),"c7a.xlarge (~$0.153/h, switch)",~50%,0% / ~10%,No downsize; AMD switch.
+c7i.2xlarge,0-10%,c5.xlarge ($0.17/h),c5a.xlarge (~$0.153/h),~40%,~50% / ~55%,Downsize to C5/C5a for low U.
+c7i.2xlarge,10-20%,c5.2xlarge ($0.34/h),c5a.2xlarge (~$0.306/h),~40-60%,~50% / ~55%,Standard downsize to C5/C5a.
+c7i.2xlarge,20-35%,c7i.xlarge ($0.17/h),c7a.xlarge (~$0.153/h),~60-70%,~50% / ~55%,"1-step downsize, Balanced preset."
+c7i.2xlarge,35-50%,Stay c7i.2xlarge ($0.34/h est.),"c7a.2xlarge (~$0.306/h, switch)",~50%,0% / ~10%,No downsize; AMD switch.
+c7i.4xlarge,0-10%,c5.2xlarge ($0.34/h),c5a.2xlarge (~$0.306/h),~40%,~50% / ~55%,Downsize to C5/C5a for low U.
+c7i.4xlarge,10-20%,c5.4xlarge ($0.68/h),c5a.4xlarge (~$0.612/h),~40-60%,~50% / ~55%,Standard downsize to C5/C5a.
+c7i.4xlarge,20-35%,c7i.2xlarge ($0.34/h),c7a.2xlarge (~$0.306/h),~60-70%,~50% / ~55%,1-step downsize.
+c7i.4xlarge,35-50%,Stay c7i.4xlarge ($0.68/h est.),"c7a.4xlarge (~$0.612/h, switch)",~50%,0% / ~10%,No downsize; AMD switch.
+c7i.8xlarge,0-10%,c5.4xlarge ($0.68/h),c5a.4xlarge (~$0.612/h),~40%,~50% / ~55%,Downsize to C5/C5a for low U.
+c7i.8xlarge,10-20%,c5.8xlarge ($1.53/h),c5a.8xlarge (~$1.224/h),~40-60%,~44% / ~55%,Standard downsize to C5/C5a.
+c7i.8xlarge,20-35%,c7i.4xlarge ($0.68/h),c7a.4xlarge (~$0.612/h),~60-70%,~50% / ~55%,1-step downsize.
+c7i.8xlarge,35-50%,Stay c7i.8xlarge ($1.36/h est.),"c7a.8xlarge (~$1.224/h, switch)",~50%,0% / ~10%,No downsize; AMD switch.
+c7i.12xlarge,0-10%,c5.4xlarge ($0.68/h),c5a.4xlarge (~$0.612/h),~40%,~67% / ~70%,Downsize to C5/C5a for low U.
+c7i.12xlarge,10-20%,c5.9xlarge ($1.53/h),c5a.8xlarge (~$1.224/h),~40-60%,~50% / ~60%,Standard downsize to C5/C5a.
+c7i.12xlarge,20-35%,c7i.9xlarge ($1.53/h est.),c7a.8xlarge (~$1.224/h),~60-70%,~25% / ~40%,"Nearest downsize, Balanced preset."
+c7i.12xlarge,35-50%,Stay c7i.12xlarge ($2.04/h est.),"c7a.12xlarge (~$1.836/h, switch)",~50%,0% / ~10%,No downsize; AMD switch.
+c7i.24xlarge,0-10%,c5.4xlarge ($0.68/h),c5a.4xlarge (~$0.612/h),~40%,~83% / ~85%,2-step downsize to C5/C5a for low U.
+c7i.24xlarge,10-20%,c5.9xlarge ($1.53/h),c5a.8xlarge (~$1.224/h),~40-60%,~62% / ~70%,1.3-step downsize to C5/C5a.
+c7i.24xlarge,20-35%,c7i.12xlarge ($2.04/h),c7a.12xlarge (~$1.836/h),~60-70%,~50% / ~55%,"1-step downsize, P95 threshold."
+c7i.24xlarge,35-50%,Stay c7i.24xlarge ($4.08/h est.),"c7a.24xlarge (~$3.672/h, switch)",~50%,0% / ~10%,No downsize; AMD switch for CPU perf/cost.
+"M Series (General Purpose) - M6i/M6a, M7i/M7a",,,,,,
+m6i.large,0-10%,m5.large ($0.096/h),m6a.large (~$0.0864/h),~40%,0% / ~10%,"Switch to M5/M6a for low U savings, aggressive downsize."
+m6i.large,10-20%,Stay m6i.large ($0.096/h est.),"m6a.large (~$0.0864/h, switch)",~40-60%,0% / ~10%,Stay or switch AMD for standard <40% U.
+m6i.large,20-35%,Stay m6i.large ($0.096/h),"m6a.large (~$0.0864/h, switch)",~60-70%,0% / ~10%,Minimal for mid U; AMD switch.
+m6i.large,35-50%,Stay m6i.large ($0.096/h),"m6a.large (~$0.0864/h, switch)",~50%,0% / ~10%,No downsize for critical; AMD switch.
+m6i.xlarge,0-10%,m5.large ($0.096/h),m6a.large (~$0.0864/h),~40%,~50% / ~55%,Downsize to M5/M6a for low U.
+m6i.xlarge,10-20%,m5.xlarge ($0.192/h),m6a.xlarge (~$0.1728/h),~40-60%,~50% / ~55%,Standard downsize to M5/M6a.
+m6i.xlarge,20-35%,Stay m6i.xlarge ($0.192/h est.),"m6a.xlarge (~$0.1728/h, switch)",~60-70%,0% / ~10%,Minimal; stay or AMD switch.
+m6i.xlarge,35-50%,Stay m6i.xlarge ($0.192/h),"m6a.xlarge (~$0.1728/h, switch)",~50%,0% / ~10%,No downsize; AMD switch.
+m6i.2xlarge,0-10%,m5.xlarge ($0.192/h),m6a.xlarge (~$0.1728/h),~40%,~50% / ~55%,Downsize to M5/M6a for low U.
+m6i.2xlarge,10-20%,m5.2xlarge ($0.384/h),m6a.2xlarge (~$0.3456/h),~40-60%,~50% / ~55%,Standard downsize to M5/M6a.
+m6i.2xlarge,20-35%,m6i.xlarge ($0.192/h),m6a.xlarge (~$0.1728/h),~60-70%,~50% / ~55%,"1-step downsize, Balanced preset."
+m6i.2xlarge,35-50%,Stay m6i.2xlarge ($0.384/h est.),"m6a.2xlarge (~$0.3456/h, switch)",~50%,0% / ~10%,No downsize; AMD switch.
+m6i.4xlarge,0-10%,m5.2xlarge ($0.384/h),m6a.2xlarge (~$0.3456/h),~40%,~50% / ~55%,Downsize to M5/M6a for low U.
+m6i.4xlarge,10-20%,m5.4xlarge ($0.768/h),m6a.4xlarge (~$0.6912/h),~40-60%,~50% / ~55%,Standard downsize to M5/M6a.
+m6i.4xlarge,20-35%,m6i.2xlarge ($0.384/h),m6a.2xlarge (~$0.3456/h),~60-70%,~50% / ~55%,1-step downsize.
+m6i.4xlarge,35-50%,Stay m6i.4xlarge ($0.768/h est.),"m6a.4xlarge (~$0.6912/h, switch)",~50%,0% / ~10%,No downsize; AMD switch.
+m6i.8xlarge,0-10%,m5.4xlarge ($0.768/h),m6a.4xlarge (~$0.6912/h),~40%,~50% / ~55%,Downsize to M5/M6a for low U.
+m6i.8xlarge,10-20%,m5.8xlarge ($1.536/h),m6a.8xlarge (~$1.3824/h),~40-60%,~50% / ~55%,Standard downsize to M5/M6a.
+m6i.8xlarge,20-35%,m6i.4xlarge ($0.768/h),m6a.4xlarge (~$0.6912/h),~60-70%,~50% / ~55%,1-step downsize.
+m6i.8xlarge,35-50%,Stay m6i.8xlarge ($1.536/h est.),"m6a.8xlarge (~$1.3824/h, switch)",~50%,0% / ~10%,No downsize; AMD switch.
+m6i.12xlarge,0-10%,m5.4xlarge ($0.768/h),m6a.4xlarge (~$0.6912/h),~40%,~67% / ~70%,Downsize to M5/M6a for low U.
+m6i.12xlarge,10-20%,m5.8xlarge ($1.536/h),m6a.8xlarge (~$1.3824/h),~40-60%,~50% / ~55%,Standard downsize to M5/M6a.
+m6i.12xlarge,20-35%,m6i.8xlarge ($1.536/h),m6a.8xlarge (~$1.3824/h),~60-70%,~33% / ~40%,Nearest half size downsize.
+m6i.12xlarge,35-50%,Stay m6i.12xlarge ($2.304/h est.),"m6a.12xlarge (~$2.0736/h, switch)",~50%,0% / ~10%,No downsize; AMD switch.
+m6i.24xlarge,0-10%,m5.8xlarge ($1.536/h),m6a.8xlarge (~$1.3824/h),~40%,~67% / ~70%,Downsize to M5/M6a for low U.
+m6i.24xlarge,10-20%,m5.12xlarge ($2.304/h),m6a.12xlarge (~$2.0736/h),~40-60%,~50% / ~55%,Standard downsize to M5/M6a.
+m6i.24xlarge,20-35%,m6i.12xlarge ($2.304/h),m6a.12xlarge (~$2.0736/h),~60-70%,~50% / ~55%,"1-step downsize, P95 threshold."
+m6i.24xlarge,35-50%,Stay m6i.24xlarge ($4.608/h est.),"m6a.24xlarge (~$4.1472/h, switch)",~50%,0% / ~10%,No downsize; AMD switch.
+m7i.large,0-10%,m6i.large ($0.096/h),m7a.large (~$0.0907/h),~40%,~5% / ~10%,Switch to M6i/M7a for low U savings.
+m7i.large,10-20%,Stay m7i.large ($0.1008/h est.),"m7a.large (~$0.0907/h, switch)",~40-60%,0% / ~10%,Stay or switch AMD for standard <40% U.
+m7i.large,20-35%,Stay m7i.large ($0.1008/h),"m7a.large (~$0.0907/h, switch)",~60-70%,0% / ~10%,Minimal for mid U; AMD switch.
+m7i.large,35-50%,Stay m7i.large ($0.1008/h),"m7a.large (~$0.0907/h, switch)",~50%,0% / ~10%,No downsize for critical; AMD switch.
+m7i.xlarge,0-10%,m6i.large ($0.096/h),m7a.large (~$0.0907/h),~40%,~52% / ~55%,Downsize to M6i/M7a for low U.
+m7i.xlarge,10-20%,m6i.xlarge ($0.192/h),m7a.xlarge (~$0.1814/h),~40-60%,~50% / ~55%,Standard downsize to M6i/M7a.
+m7i.xlarge,20-35%,Stay m7i.xlarge ($0.2016/h est.),"m7a.xlarge (~$0.1814/h, switch)",~60-70%,0% / ~10%,Minimal; stay or AMD switch.
+m7i.xlarge,35-50%,Stay m7i.xlarge ($0.2016/h),"m7a.xlarge (~$0.1814/h, switch)",~50%,0% / ~10%,No downsize; AMD switch.
+m7i.2xlarge,0-10%,m6i.xlarge ($0.192/h),m7a.xlarge (~$0.1814/h),~40%,~50% / ~55%,Downsize to M6i/M7a for low U.
+m7i.2xlarge,10-20%,m6i.2xlarge ($0.384/h),m7a.2xlarge (~$0.3628/h),~40-60%,~50% / ~55%,Standard downsize to M6i/M7a.
+m7i.2xlarge,20-35%,m7i.xlarge ($0.2016/h),m7a.xlarge (~$0.1814/h),~60-70%,~50% / ~55%,"1-step downsize, Balanced preset."
+m7i.2xlarge,35-50%,Stay m7i.2xlarge ($0.4032/h est.),"m7a.2xlarge (~$0.3629/h, switch)",~50%,0% / ~10%,No downsize; AMD switch.
+...,,,,,,(Pattern extends for m7i/m7a up to 24xlarge)
+"R Series (Memory Optimized) - R6i/R6a, R7i/R7a",,,,,,
+r6i.large,0-10%,r5.large ($0.126/h),r6a.large (~$0.1134/h),~40%,0% / ~10%,"Switch to R5/R6a for low U savings, aggressive downsize."
+r6i.large,10-20%,Stay r6i.large ($0.126/h est.),"r6a.large (~$0.1134/h, switch)",~40-60%,0% / ~10%,Stay or switch AMD for standard <40% U.
+r6i.large,20-35%,Stay r6i.large ($0.126/h),"r6a.large (~$0.1134/h, switch)",~60-70%,0% / ~10%,Minimal for mid U; AMD switch.
+r6i.large,35-50%,Stay r6i.large ($0.126/h),"r6a.large (~$0.1134/h, switch)",~50%,0% / ~10%,No downsize for critical; AMD switch.
+r6i.xlarge,0-10%,r5.large ($0.126/h),r6a.large (~$0.1134/h),~40%,~50% / ~55%,Downsize to R5/R6a for low U.
+r6i.xlarge,10-20%,r5.xlarge ($0.252/h),r6a.xlarge (~$0.2268/h),~40-60%,~50% / ~55%,Standard downsize to R5/R6a.
+r6i.xlarge,20-35%,Stay r6i.xlarge ($0.252/h est.),"r6a.xlarge (~$0.2268/h, switch)",~60-70%,0% / ~10%,Minimal; stay or AMD switch.
+r6i.xlarge,35-50%,Stay r6i.xlarge ($0.252/h),"r6a.xlarge (~$0.2268/h, switch)",~50%,0% / ~10%,No downsize; AMD switch.
+r6i.2xlarge,0-10%,r5.xlarge ($0.252/h),r6a.xlarge (~$0.2268/h),~40%,~50% / ~55%,Downsize to R5/R6a for low U.
+r6i.2xlarge,10-20%,r5.2xlarge ($0.504/h),r6a.2xlarge (~$0.4536/h),~40-60%,~50% / ~55%,Standard downsize to R5/R6a.
+r6i.2xlarge,20-35%,r6i.xlarge ($0.252/h),r6a.xlarge (~$0.2268/h),~60-70%,~50% / ~55%,"1-step downsize, Balanced preset."
+r6i.2xlarge,35-50%,Stay r6i.2xlarge ($0.504/h est.),"r6a.2xlarge (~$0.4536/h, switch)",~50%,0% / ~10%,No downsize; AMD switch.
+r6i.4xlarge,0-10%,r5.2xlarge ($0.504/h),r6a.2xlarge (~$0.4536/h),~40%,~50% / ~55%,Downsize to R5/R6a for low U.
+r6i.4xlarge,10-20%,r5.4xlarge ($1.008/h),r6a.4xlarge (~$0.9072/h),~40-60%,~50% / ~55%,Standard downsize to R5/R6a.
+r6i.4xlarge,20-35%,r6i.2xlarge ($0.504/h),r6a.2xlarge (~$0.4536/h),~60-70%,~50% / ~55%,1-step downsize.
+r6i.4xlarge,35-50%,Stay r6i.4xlarge ($1.008/h est.),"r6a.4xlarge (~$0.9072/h, switch)",~50%,0% / ~10%,No downsize; AMD switch.
+r6i.8xlarge,0-10%,r5.4xlarge ($1.008/h),r6a.4xlarge (~$0.9072/h),~40%,~50% / ~55%,Downsize to R5/R6a for low U.
+r6i.8xlarge,10-20%,r5.8xlarge ($2.016/h),r6a.8xlarge (~$1.8144/h),~40-60%,~50% / ~55%,Standard downsize to R5/R6a.
+r6i.8xlarge,20-35%,r6i.4xlarge ($1.008/h),r6a.4xlarge (~$0.9072/h),~60-70%,~50% / ~55%,1-step downsize.
+r6i.8xlarge,35-50%,Stay r6i.8xlarge ($2.016/h est.),"r6a.8xlarge (~$1.8144/h, switch)",~50%,0% / ~10%,No downsize; AMD switch.
+r6i.12xlarge,0-10%,r5.4xlarge ($1.008/h),r6a.4xlarge (~$0.9072/h),~40%,~67% / ~70%,Downsize to R5/R6a for low U.
+r6i.12xlarge,10-20%,r5.8xlarge ($2.016/h),r6a.8xlarge (~$1.8144/h),~40-60%,~50% / ~55%,Standard downsize to R5/R6a.
+r6i.12xlarge,20-35%,r6i.8xlarge ($2.016/h),r6a.8xlarge (~$1.8144/h),~60-70%,~33% / ~40%,Nearest half size downsize.
+r6i.12xlarge,35-50%,Stay r6i.12xlarge ($3.024/h est.),"r6a.12xlarge (~$2.7216/h, switch)",~50%,0% / ~10%,No downsize; AMD switch.
+r6i.24xlarge,0-10%,r5.8xlarge ($2.016/h),r6a.8xlarge (~$1.8144/h),~40%,~67% / ~70%,Downsize to R5/R6a for low U.
+r6i.24xlarge,10-20%,r5.12xlarge ($3.024/h),r6a.12xlarge (~$2.7216/h),~40-60%,~50% / ~55%,Standard downsize to R5/R6a.
+r6i.24xlarge,20-35%,r6i.12xlarge ($3.024/h),r6a.12xlarge (~$2.7216/h),~60-70%,~50% / ~55%,"1-step downsize, monitor memory peaks."
+r6i.24xlarge,35-50%,Stay r6i.24xlarge ($6.048/h est.),"r6a.24xlarge (~$5.4432/h, switch)",~50%,0% / ~10%,No downsize; AMD switch for memory efficiency.
+r7i.large,0-10%,r6i.large ($0.126/h),r7a.large (~$0.1134/h),~40%,0% / ~10%,Switch to R6i/R7a for low U savings.
+r7i.large,10-20%,Stay r7i.large ($0.126/h est.),"r7a.large (~$0.1134/h, switch)",~40-60%,0% / ~10%,Stay or switch AMD for standard <40% U.
+r7i.large,20-35%,Stay r7i.large ($0.126/h),"r7a.large (~$0.1134/h, switch)",~60-70%,0% / ~10%,Minimal for mid U; AMD switch.
+r7i.large,35-50%,Stay r7i.large ($0.126/h),"r7a.large (~$0.1134/h, switch)",~50%,0% / ~10%,No downsize for critical; AMD switch.
+r7i.xlarge,0-10%,r6i.large ($0.126/h),r7a.large (~$0.1134/h),~40%,~50% / ~55%,Downsize to R6i/R7a for low U.
+r7i.xlarge,10-20%,r6i.xlarge ($0.252/h),r7a.xlarge (~$0.2268/h),~40-60%,~50% / ~55%,Standard downsize to R6i/R7a.
+r7i.xlarge,20-35%,Stay r7i.xlarge ($0.252/h est.),"r7a.xlarge (~$0.2268/h, switch)",~60-70%,0% / ~10%,Minimal; stay or AMD switch.
+r7i.xlarge,35-50%,Stay r7i.xlarge ($0.252/h),"r7a.xlarge (~$0.2268/h, switch)",~50%,0% / ~10%,No downsize; AMD switch.
+r7i.2xlarge,0-10%,r6i.xlarge ($0.252/h),r7a.xlarge (~$0.2268/h),~40%,~50% / ~55%,Downsize to R6i/R7a for low U.
+r7i.2xlarge,10-20%,r6i.2xlarge ($0.504/h),r7a.2xlarge (~$0.4536/h),~40-60%,~50% / ~55%,Standard downsize to R6i/R7a.
+r7i.2xlarge,20-35%,r7i.xlarge ($0.252/h),r7a.xlarge (~$0.2268/h),~60-70%,~50% / ~55%,"1-step downsize, Balanced preset."
+r7i.2xlarge,35-50%,Stay r7i.2xlarge ($0.504/h est.),"r7a.2xlarge (~$0.4536/h, switch)",~50%,0% / ~10%,No downsize; AMD switch.
+...,,,,,,(Pattern extends for r7i/r7a up to 24xlarge)
+"--- G4dn Series (Graphics/ML Inference, NVIDIA T4 GPUs, Intel Xeon) ---",,,,,,
+g4dn.xlarge,0-10%,g4dn.xlarge ($0.526/h),"g4ad.xlarge (~$0.473/h, switch)",~40%,0% / ~10%,"Retain smallest size or switch to AMD G4ad for low utilization, ensuring <70% GPU/CPU utilization with headroom."
+g4dn.xlarge,10-20%,g4dn.xlarge ($0.526/h),"g4ad.xlarge (~$0.473/h, switch)",~40-60%,0% / ~10%,"Retain for <40% utilization, maintaining GPU performance for ML inference; switch to AMD for ~10% savings."
+g4dn.xlarge,20-35%,g4dn.xlarge ($0.526/h),"g4ad.xlarge (~$0.473/h, switch)",~60-70%,0% / ~10%,Retain for mid-range utilization to provide 20-30% headroom below 70% GPU/CPU.
+g4dn.xlarge,35-50%,g4dn.xlarge ($0.526/h),"g4ad.xlarge (~$0.473/h, switch)",~50%,0% / ~10%,No downsizing for critical range to accommodate GPU-intensive load spikes; AMD switch for cost efficiency.
+g4dn.2xlarge,0-10%,g4dn.xlarge ($0.526/h),g4ad.xlarge (~$0.473/h),~40%,~50% / ~55%,Aggressive one-step downsize to halve vCPUs/GPUs for very low utilization.
+g4dn.2xlarge,10-20%,g4dn.xlarge ($0.526/h),g4ad.xlarge (~$0.473/h),~40-60%,~50% / ~55%,"Standard one-step downsize for <40% utilization, ensuring GPU performance for graphics/ML."
+g4dn.2xlarge,20-35%,g4dn.2xlarge ($0.752/h),"g4ad.2xlarge (~$0.677/h, switch)",~60-70%,0% / ~10%,Retain for mid-range utilization to maintain <70% utilization with headroom.
+g4dn.2xlarge,35-50%,g4dn.2xlarge ($0.752/h),"g4ad.2xlarge (~$0.677/h, switch)",~50%,0% / ~10%,No downsizing for critical range to support potential ML training spikes; AMD switch for savings.
+g4dn.4xlarge,0-10%,g4dn.xlarge ($0.526/h),g4ad.xlarge (~$0.473/h),~40%,~75% / ~80%,"Aggressive two-step downsize for very low utilization, halving GPUs/vCPUs."
+g4dn.4xlarge,10-20%,g4dn.2xlarge ($0.752/h),g4ad.2xlarge (~$0.677/h),~40-60%,~50% / ~55%,"Standard one-step downsize for <40% utilization, maintaining GPU throughput."
+g4dn.4xlarge,20-35%,g4dn.2xlarge ($0.752/h),g4ad.2xlarge (~$0.677/h),~60-70%,~50% / ~55%,Conservative one-step downsize to maintain <70% utilization with 20-30% headroom.
+g4dn.4xlarge,35-50%,g4dn.4xlarge ($1.104/h),"g4ad.4xlarge (~$0.994/h, switch)",~50%,0% / ~10%,No downsizing for critical range to ensure GPU stability for graphics workloads.
+g4dn.8xlarge,0-10%,g4dn.2xlarge ($0.752/h),g4ad.2xlarge (~$0.677/h),~40%,~75% / ~80%,Aggressive two-step downsize for very low utilization.
+g4dn.8xlarge,10-20%,g4dn.4xlarge ($1.104/h),g4ad.4xlarge (~$0.994/h),~40-60%,~50% / ~55%,"Standard one-step downsize for <40% utilization, ensuring high GPU performance."
+g4dn.8xlarge,20-35%,g4dn.4xlarge ($1.104/h),g4ad.4xlarge (~$0.994/h),~60-70%,~50% / ~55%,Conservative one-step downsize to maintain <70% utilization with headroom.
+g4dn.8xlarge,35-50%,g4dn.8xlarge ($1.96/h),"g4ad.8xlarge (~$1.764/h, switch)",~50%,0% / ~10%,No downsizing for critical range to support ML inference spikes.
+g4dn.12xlarge,0-10%,g4dn.4xlarge ($1.104/h),g4ad.4xlarge (~$0.994/h),~40%,~67% / ~72%,Aggressive 1.5-step downsize for low utilization.
+g4dn.12xlarge,10-20%,g4dn.8xlarge ($1.96/h),g4ad.8xlarge (~$1.764/h),~40-60%,~33% / ~38%,"Standard downsize to nearest size for <40% utilization, maintaining GPU capacity."
+g4dn.12xlarge,20-35%,g4dn.8xlarge ($1.96/h),g4ad.8xlarge (~$1.764/h),~60-70%,~33% / ~38%,Conservative downsize to nearest size for mid-range utilization.
+g4dn.12xlarge,35-50%,g4dn.12xlarge ($2.736/h),"g4ad.12xlarge (~$2.462/h, switch)",~50%,0% / ~10%,No downsizing for critical range to ensure GPU throughput for graphics.
+g4dn.16xlarge,0-10%,g4dn.4xlarge ($1.104/h),g4ad.4xlarge (~$0.994/h),~40%,~75% / ~80%,Aggressive two-step downsize for very low utilization.
+g4dn.16xlarge,10-20%,g4dn.8xlarge ($1.96/h),g4ad.8xlarge (~$1.764/h),~40-60%,~50% / ~55%,"Standard one-step downsize for <40% utilization, ensuring high GPU performance."
+g4dn.16xlarge,20-35%,g4dn.12xlarge ($2.736/h),g4ad.12xlarge (~$2.462/h),~60-70%,~25% / ~30%,Conservative downsize to nearest size to maintain <70% utilization with headroom.
+g4dn.16xlarge,35-50%,g4dn.16xlarge ($3.512/h),"g4ad.16xlarge (~$3.16/h, switch)",~50%,0% / ~10%,No downsizing for critical range to support large-scale ML training.
+"--- G5 Series (Graphics/ML Training, NVIDIA A10G GPUs, Intel Xeon) ---",,,,,,
+g5.xlarge,0-10%,g5.xlarge ($0.656/h),"g4ad.xlarge (~$0.473/h, switch)",~40%,0% / ~28%,Retain smallest size or switch to AMD G4ad for low utilization.
+g5.xlarge,10-20%,g5.xlarge ($0.656/h),"g4ad.xlarge (~$0.473/h, switch)",~40-60%,0% / ~28%,"Retain for <40% utilization, maintaining GPU performance for ML training; switch to AMD for savings."
+g5.xlarge,20-35%,g5.xlarge ($0.656/h),"g4ad.xlarge (~$0.473/h, switch)",~60-70%,0% / ~28%,Retain for mid-range utilization to provide 20-30% headroom.
+g5.xlarge,35-50%,g5.xlarge ($0.656/h),"g4ad.xlarge (~$0.473/h, switch)",~50%,0% / ~28%,No downsizing for critical range to accommodate GPU-intensive spikes; AMD switch for cost efficiency.
+g5.2xlarge,0-10%,g5.xlarge ($0.656/h),g4ad.2xlarge (~$0.677/h),~40%,~50% / ~ -3%,Aggressive one-step downsize to halve vCPUs/GPUs for very low utilization.
+g5.2xlarge,10-20%,g5.xlarge ($0.656/h),g4ad.2xlarge (~$0.677/h),~40-60%,~50% / ~ -3%,"Standard one-step downsize for <40% utilization, ensuring GPU performance."
+g5.2xlarge,20-35%,g5.2xlarge ($0.912/h),"g4ad.2xlarge (~$0.677/h, switch)",~60-70%,0% / ~26%,Retain for mid-range utilization to maintain <70% utilization with headroom.
+g5.2xlarge,35-50%,g5.2xlarge ($0.912/h),"g4ad.2xlarge (~$0.677/h, switch)",~50%,0% / ~26%,No downsizing for critical range to support ML training spikes; AMD switch for savings.
+g5.4xlarge,0-10%,g5.xlarge ($0.656/h),g4ad.xlarge (~$0.473/h),~40%,~75% / ~80%,"Aggressive two-step downsize for very low utilization, halving GPUs/vCPUs."
+g5.4xlarge,10-20%,g5.2xlarge ($0.912/h),g4ad.2xlarge (~$0.677/h),~40-60%,~50% / ~55%,"Standard one-step downsize for <40% utilization, maintaining GPU throughput."
+g5.4xlarge,20-35%,g5.2xlarge ($0.912/h),g4ad.2xlarge (~$0.677/h),~60-70%,~50% / ~55%,Conservative one-step downsize to maintain <70% utilization with headroom.
+g5.4xlarge,35-50%,g5.4xlarge ($1.376/h),"g4ad.4xlarge (~$0.994/h, switch)",~50%,0% / ~28%,No downsizing for critical range to ensure GPU stability for graphics.
+g5.8xlarge,0-10%,g5.2xlarge ($0.912/h),g4ad.2xlarge (~$0.677/h),~40%,~75% / ~80%,Aggressive two-step downsize for very low utilization.
+g5.8xlarge,10-20%,g5.4xlarge ($1.376/h),g4ad.4xlarge (~$0.994/h),~40-60%,~50% / ~55%,"Standard one-step downsize for <40% utilization, ensuring high GPU performance."
+g5.8xlarge,20-35%,g5.4xlarge ($1.376/h),g4ad.4xlarge (~$0.994/h),~60-70%,~50% / ~55%,Conservative one-step downsize to maintain <70% utilization with headroom.
+g5.8xlarge,35-50%,g5.8xlarge ($2.208/h),"g4ad.8xlarge (~$1.588/h, switch)",~50%,0% / ~28%,No downsizing for critical range to support large-scale ML training.
+g5.12xlarge,0-10%,g5.4xlarge ($1.376/h),g4ad.4xlarge (~$0.994/h),~40%,~67% / ~72%,Aggressive 1.5-step downsize for low utilization.
+g5.12xlarge,10-20%,g5.8xlarge ($2.208/h),g4ad.8xlarge (~$1.588/h),~40-60%,~33% / ~38%,"Standard downsize to nearest size for <40% utilization, maintaining GPU capacity."
+g5.12xlarge,20-35%,g5.8xlarge ($2.208/h),g4ad.8xlarge (~$1.588/h),~60-70%,~33% / ~38%,Conservative downsize to nearest size for mid-range utilization.
+g5.12xlarge,35-50%,g5.12xlarge ($3.072/h),"g4ad.12xlarge (~$2.212/h, switch)",~50%,0% / ~28%,No downsizing for critical range to ensure GPU throughput for graphics.
+g5.16xlarge,0-10%,g5.4xlarge ($1.376/h),g4ad.4xlarge (~$0.994/h),~40%,~75% / ~80%,Aggressive two-step downsize for very low utilization.
+g5.16xlarge,10-20%,g5.8xlarge ($2.208/h),g4ad.8xlarge (~$1.588/h),~40-60%,~50% / ~55%,"Standard one-step downsize for <40% utilization, ensuring high GPU performance."
+g5.16xlarge,20-35%,g5.12xlarge ($3.072/h),g4ad.12xlarge (~$2.212/h),~60-70%,~25% / ~30%,Conservative downsize to nearest size to maintain <70% utilization with headroom.
+g5.16xlarge,35-50%,g5.16xlarge ($4.096/h),"g4ad.16xlarge (~$2.949/h, switch)",~50%,0% / ~28%,No downsizing for critical range to support large-scale ML training.
+g5.24xlarge,0-10%,g5.8xlarge ($2.208/h),g4ad.8xlarge (~$1.588/h),~40%,~67% / ~72%,Aggressive 1.5-step downsize for low utilization.
+g5.24xlarge,10-20%,g5.12xlarge ($3.072/h),g4ad.12xlarge (~$2.212/h),~40-60%,~33% / ~38%,"Standard downsize to nearest size for <40% utilization, maintaining GPU capacity."
+g5.24xlarge,20-35%,g5.16xlarge ($4.096/h),g4ad.16xlarge (~$2.949/h),~60-70%,~25% / ~30%,Conservative downsize to nearest size for mid-range utilization.
+g5.24xlarge,35-50%,g5.24xlarge ($6.144/h),"g4ad.24xlarge (~$4.424/h, switch)",~50%,0% / ~28%,No downsizing for critical range to ensure GPU throughput for graphics.
+g5.48xlarge,0-10%,g5.16xlarge ($4.096/h),g4ad.16xlarge (~$2.949/h),~40%,~67% / ~72%,Aggressive 1.5-step downsize for low utilization.
+g5.48xlarge,10-20%,g5.24xlarge ($6.144/h),g4ad.24xlarge (~$4.424/h),~40-60%,~33% / ~38%,"Standard downsize to nearest size for <40% utilization, ensuring high GPU performance."
+g5.48xlarge,20-35%,g5.24xlarge ($6.144/h),g4ad.24xlarge (~$4.424/h),~60-70%,~33% / ~38%,Conservative downsize to nearest size to maintain <70% utilization with headroom.
+g5.48xlarge,35-50%,g5.48xlarge ($12.288/h),"g4ad.48xlarge (~$8.848/h, switch)",~50%,0% / ~28%,No downsizing for critical range to support large-scale ML training.
+"--- G5xn Series (ML Training, NVIDIA A10G GPUs, Intel Xeon) ---",,,,,,
+g5xn.xlarge,0-10%,g5xn.xlarge ($0.656/h),"g4ad.xlarge (~$0.473/h, switch)",~40%,0% / ~28%,Retain smallest size or switch to AMD G4ad for low utilization.
+g5xn.xlarge,10-20%,g5xn.xlarge ($0.656/h),"g4ad.xlarge (~$0.473/h, switch)",~40-60%,0% / ~28%,"Retain for <40% utilization, maintaining GPU performance for ML training; switch to AMD for savings."
+g5xn.xlarge,20-35%,g5xn.xlarge ($0.656/h),"g4ad.xlarge (~$0.473/h, switch)",~60-70%,0% / ~28%,Retain for mid-range utilization to provide 20-30% headroom.
+g5xn.xlarge,35-50%,g5xn.xlarge ($0.656/h),"g4ad.xlarge (~$0.473/h, switch)",~50%,0% / ~28%,No downsizing for critical range to accommodate GPU-intensive spikes; AMD switch for cost efficiency.
+g5xn.2xlarge,0-10%,g5xn.xlarge ($0.656/h),g4ad.2xlarge (~$0.677/h),~40%,~50% / ~ -3%,Aggressive one-step downsize to halve vCPUs/GPUs for very low utilization.
+g5xn.2xlarge,10-20%,g5xn.xlarge ($0.656/h),g4ad.2xlarge (~$0.677/h),~40-60%,~50% / ~ -3%,"Standard one-step downsize for <40% utilization, ensuring GPU performance."
+g5xn.2xlarge,20-35%,g5xn.2xlarge ($0.912/h),"g4ad.2xlarge (~$0.677/h, switch)",~60-70%,0% / ~26%,Retain for mid-range utilization to maintain <70% utilization with headroom.
+g5xn.2xlarge,35-50%,g5xn.2xlarge ($0.912/h),"g4ad.2xlarge (~$0.677/h, switch)",~50%,0% / ~26%,No downsizing for critical range to support ML training spikes; AMD switch for savings.
+g5xn.4xlarge,0-10%,g5xn.xlarge ($0.656/h),g4ad.xlarge (~$0.473/h),~40%,~75% / ~80%,"Aggressive two-step downsize for very low utilization, halving GPUs/vCPUs."
+g5xn.4xlarge,10-20%,g5xn.2xlarge ($0.912/h),g4ad.2xlarge (~$0.677/h),~40-60%,~50% / ~55%,"Standard one-step downsize for <40% utilization, maintaining GPU throughput."
+,,,,,,
+,,,,,,
+,,,,,,
+c6g.xlarge,0-10%,c5.medium ($0.0425/h),c5a.medium ($0.0385/h),~40%,~75% / ~72%,"Aggressive two-step downsize for very low utilization, halving vCPUs to ensure <70% utilization, per AWS cost optimization best practices."
+c6g.xlarge,10-35%,c5.large ($0.085/h),c5a.large ($0.077/h),~40-70%,~50% / ~43%,"Standard one-step downsize for moderate utilization, maintaining compute performance with headroom, per AWS Balanced preset."
+c6g.xlarge,35-50%,c5.xlarge ($0.17/h),c5a.xlarge ($0.154/h),~50%,~ -25% / ~ -13%,"No downsizing; match to equivalent x86 instance for critical compute-intensive workloads, per AWS Max Performance preset. x86 costs higher than Graviton ($0.136/h)."
+,,,,,,
+c6in.2xlarge,0-10%,c5.large ($0.085/h),c5a.large ($0.077/h),~40%,~75% / ~77%,"Aggressive two-step downsize for very low utilization, halving vCPUs to ensure <70% utilization, per AWS cost optimization best practices."
+c6in.2xlarge,10-20%,c5.xlarge ($0.17/h),c5a.xlarge ($0.154/h),~40-60%,~50% / ~54%,"Standard one-step downsize for <40% utilization, maintaining compute performance, per AWS Balanced preset."
+c6in.2xlarge,20-35%,c5.xlarge ($0.17/h),c5a.xlarge ($0.154/h),~60-70%,~50% / ~54%,"Conservative one-step downsize for mid-range utilization, ensuring <70% utilization with headroom, per AWS P95 thresholds."
+c6in.2xlarge,35-50%,c5.2xlarge ($0.34/h),c5a.2xlarge ($0.308/h),~50%,0% / ~9%,"No downsizing; match to equivalent size for critical compute-intensive workloads, per AWS Max Performance preset. AMD slightly cheaper than Intel ($0.34/h)."
+,,,,,,
+t2.xlarge,0-10%,t3.micro ($0.0104/h),t3a.micro ($0.0094/h),~40%,~92% / ~92%,"Aggressive two-step downsize for very low utilization, halving vCPUs/memory to ensure <70% utilization with CPU credits, per AWS cost optimization best practices."
+t2.xlarge,10-20%,t3.small ($0.0208/h),t3a.small ($0.0188/h),~40-60%,~83% / ~84%,"Standard one-step downsize for <40% utilization, maintaining burstable performance, per AWS Balanced preset."
+t2.xlarge,20-35%,t3.medium ($0.0416/h),t3a.medium ($0.0376/h),~60-70%,~66% / ~69%,"Conservative downsize to nearest size for mid-range utilization, ensuring <70% utilization with headroom, per AWS P95 thresholds."
+t2.xlarge,35-50%,t3.xlarge ($0.1664/h),t3a.xlarge ($0.1504/h),~50%,~ -33% / ~ -20%,"No downsizing; match to equivalent size for critical range to support potential spikes, per AWS Max Performance preset. T2.xlarge ($0.1256/h) cheaper than T3/T3a."
+,,,,,,
+r6g.medium,0-10%,m5.medium ($0.048/h),m5a.medium ($0.043/h),~40%,~5% / ~14%,"Switch to general-purpose M5/M5a for very low utilization to balance memory/compute, ensuring <70% utilization, per AWS cost optimization guidelines."
+r6g.medium,10-50%,r5.medium ($0.063/h),r5a.medium ($0.0566/h),<70%,~ -25% / ~ -12%,"No downsizing; match to equivalent x86 instance for standard memory-optimized workloads, per AWS Balanced preset. x86 costs higher than Graviton ($0.0504/h)."
+,,,,,,
+r7g.medium,0-10%,m5.medium ($0.048/h),m5a.medium ($0.043/h),~40%,~10% / ~20%,"Switch to general-purpose M5/M5a for very low utilization to balance memory/compute, ensuring <70% utilization, per AWS cost optimization guidelines."
+r7g.medium,10-50%,r5.medium ($0.063/h),r5a.medium ($0.0566/h),<70%,~ -18% / ~ -6%,"No downsizing; match to equivalent x86 instance for standard memory-optimized workloads, per AWS Balanced preset. x86 costs higher than Graviton ($0.0535/h)."
+,,,,,,
+m7g.medium,0-10%,t3.medium ($0.0416/h),t3a.medium ($0.0376/h),~40%,~ -2% / ~8%,"Switch to burstable T3/T3a for very low utilization to optimize costs, ensuring <70% utilization with CPU credits, per AWS cost optimization guidelines."
+m7g.medium,10-50%,m5.medium ($0.048/h),m5a.medium ($0.043/h),<70%,~ -18% / ~ -5%,"No downsizing; match to equivalent x86 instance for standard general-purpose workloads, per AWS Balanced preset. x86 costs higher than Graviton ($0.0408/h)."
+,,,,,,
+x8g.medium,0-10%,t3.medium ($0.0416/h),t3a.medium ($0.0376/h),~40%,~13% / ~22%,"Switch to burstable T3/T3a for very low utilization to optimize costs, ensuring <70% utilization with CPU credits, per AWS cost optimization guidelines."
+x8g.medium,10-50%,m5.medium ($0.048/h),m5a.medium ($0.043/h),<70%,0% / ~10%,"No downsizing; match to equivalent x86 instance for standard general-purpose workloads, per AWS Balanced preset. M5a slightly cheaper than x8g.medium ($0.0478/h)."
+,,,,,,
+x8g.large,0-20%,m5.medium ($0.048/h),m5a.medium ($0.043/h),~40-60%,~50% / ~55%,"Standard one-step downsize for low to moderate utilization, halving vCPUs/memory to ensure <70% utilization, per AWS Balanced preset."
+x8g.large,20-50%,m5.large ($0.096/h),m5a.large ($0.086/h),<70%,0% / ~10%,"No downsizing; match to equivalent x86 instance for mid-range to critical utilization, per AWS P95 guidelines. M5a slightly cheaper than x8g.large ($0.0956/h)."
+,,,,,,
+t4g.small,0-10%,t3.nano ($0.0052/h),t3a.nano ($0.0047/h),~40%,~69% / ~72%,"Aggressive two-step downsize for very low utilization, halving vCPUs/memory to ensure <70% utilization with CPU credits, per AWS cost optimization best practices."
+t4g.small,10-20%,t3.micro ($0.0104/h),t3a.micro ($0.0094/h),~40-60%,~38% / ~44%,"Standard one-step downsize for <40% utilization, ensuring burstable performance, per AWS Balanced preset."
+t4g.small,20-50%,t3.small ($0.0208/h),t3a.small ($0.0188/h),<70%,~ -24% / ~ -12%,"No downsizing; match to equivalent x86 instance for mid-range to critical utilization, per AWS P95 guidelines. x86 costs higher than Graviton ($0.0168/h)."
+,,,,,,
+t4g.large,0-10%,t3.small ($0.0208/h),t3a.small ($0.0188/h),~40%,~69% / ~72%,"Aggressive two-step downsize for very low utilization, halving vCPUs/memory to ensure <70% utilization with CPU credits, per AWS cost optimization best practices."
+t4g.large,10-35%,t3.medium ($0.0416/h),t3a.medium ($0.0376/h),~40-70%,~38% / ~44%,"Standard one-step downsize for moderate utilization, maintaining burstable performance with headroom, per AWS Balanced preset."
+t4g.large,35-50%,t3.large ($0.0832/h),t3a.large ($0.0752/h),~50%,~ -24% / ~ -12%,"No downsizing; match to equivalent x86 instance for critical range to support potential spikes, per AWS Max Performance preset. x86 costs higher than Graviton ($0.0672/h)."
