@@ -83,7 +83,7 @@ export default defineConfig({
         'grafana-dashboard.html': resolve(__dirname, 'grafana-dashboard.html'),
         'devops_in_the_box.html': resolve(__dirname, 'devops_in_the_box.html'),
          'gcp_devops_in_the_box.html': resolve(__dirname, 'gcp_devops_in_the_box.html'),
-         'cicd_pipelines.html': resolve(__dirname, 'gcp_devops_in_the_box.html'),
+         'cicd_pipelines.html': resolve(__dirname, 'cicd_pipelines.html'),
 
 
         
