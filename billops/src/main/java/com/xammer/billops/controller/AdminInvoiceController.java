@@ -41,11 +41,14 @@ public class AdminInvoiceController {
         return ResponseEntity.ok(invoices.stream().map(InvoiceDto::fromEntity).collect(Collectors.toList()));
     }
 
+    // --- START: MODIFICATION FOR ADMIN CACHING FIX ---
     @GetMapping("/{id}")
     public ResponseEntity<InvoiceDto> getInvoiceById(@PathVariable Long id) {
-        Invoice invoice = invoiceManagementService.getInvoiceForAdmin(id);
-        return ResponseEntity.ok(InvoiceDto.fromEntity(invoice));
+        // CHANGED: The service now returns the DTO directly, which is cache-safe.
+        InvoiceDto invoiceDto = invoiceManagementService.getInvoiceForAdmin(id);
+        return ResponseEntity.ok(invoiceDto);
     }
+    // --- END: MODIFICATION FOR ADMIN CACHING FIX ---
 
     // --- START: NEW ENDPOINT TO SAVE CHANGES ---
     @PutMapping("/{id}")

@@ -495,26 +495,27 @@ public class InvoiceManagementService {
     }
     // --- END SOLUTION 1 IMPLEMENTATION ---
 
+    // --- START: MODIFICATION FOR ADMIN CACHING FIX ---
     @Transactional(readOnly = true)
-    @Cacheable(value = "invoices", key = "#invoiceId") // Keep caching entity for admin view? Or switch this too? Let's keep for now.
-    public Invoice getInvoiceForAdmin(Long invoiceId) {
+    @Cacheable(value = "invoiceDtos", key = "#invoiceId") // CHANGED: Cache DTO in "invoiceDtos" cache
+    public InvoiceDto getInvoiceForAdmin(Long invoiceId) { // CHANGED: Return InvoiceDto
          // Use findById for direct ID lookup
         Invoice invoice = invoiceRepository.findById(invoiceId)
                 .orElseThrow(() -> new RuntimeException("Invoice not found with ID: " + invoiceId));
 
-         // Optional Eager loading for Admin view if needed immediately after fetching from cache/DB
-        // Hibernate.initialize(invoice.getLineItems());
-        // Hibernate.initialize(invoice.getDiscounts());
-        // Hibernate.initialize(invoice.getClient());
-        // Hibernate.initialize(invoice.getCloudAccount());
-
-        return invoice;
+        // Convert to DTO *inside* the transactional method
+        // This forces lazy-loading to occur before caching.
+        return InvoiceDto.fromEntity(invoice);
     }
+    // --- END: MODIFICATION FOR ADMIN CACHING FIX ---
 
 
     public ByteArrayInputStream generatePdfForInvoice(Long invoiceId) {
-        Invoice invoice = getInvoiceForAdmin(invoiceId); // Fetches the potentially cached entity
-        return createPdfStream(invoice);
+        // This method will now fail because getInvoiceForAdmin returns a DTO.
+        // We must create a new *internal* method to get the raw entity for PDF generation.
+        // Or, we can adapt the PDF generator to use the DTO. Let's adapt.
+        InvoiceDto invoiceDto = getInvoiceForAdmin(invoiceId); // Fetches the cached DTO
+        return generatePdfFromDto(invoiceDto); // Use the existing DTO-based PDF generator
     }
 
     public ByteArrayInputStream generatePdfFromDto(InvoiceDto dto) {
