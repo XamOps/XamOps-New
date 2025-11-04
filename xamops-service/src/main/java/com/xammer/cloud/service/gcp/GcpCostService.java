@@ -2,6 +2,7 @@ package com.xammer.cloud.service.gcp;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.cloud.bigquery.*;
+import com.xammer.cloud.dto.DetailedCostDto; // <-- NEW IMPORT
 import com.xammer.cloud.dto.gcp.GcpCostDto;
 import com.xammer.cloud.service.RedisCacheService;
 import lombok.extern.slf4j.Slf4j;
@@ -36,11 +37,73 @@ public class GcpCostService {
     private static final String COST_BY_REGION_CACHE_PREFIX = "gcp:cost-by-region:";
     private static final String DAILY_COSTS_FORECAST_CACHE_PREFIX = "gcp:daily-costs-forecast:";
     private static final String COST_BREAKDOWN_CACHE_PREFIX = "gcp:cost-breakdown:";
+    // --- NEW CACHE KEY ---
+    private static final String COST_BY_SERVICE_REGION_CACHE_PREFIX = "gcp:cost-by-service-region:";
+
 
     public GcpCostService(GcpClientProvider gcpClientProvider, RedisCacheService redisCacheService) {
         this.gcpClientProvider = gcpClientProvider;
         this.redisCacheService = redisCacheService;
     }
+
+    // --- NEW METHOD FOR DETAILED REPORTING ---
+    public List<DetailedCostDto> getCostBreakdownByServiceAndRegionSync(String gcpProjectId, LocalDate startDate, LocalDate endDate) {
+        String cacheKey = COST_BY_SERVICE_REGION_CACHE_PREFIX + gcpProjectId + ":" + startDate + ":" + endDate;
+
+        Optional<List<DetailedCostDto>> cached = redisCacheService.get(
+                cacheKey,
+                new TypeReference<List<DetailedCostDto>>() {}
+        );
+
+        if (cached.isPresent()) {
+            log.info("✅ Returning cached cost by service/region for project {}", gcpProjectId);
+            return cached.get();
+        }
+
+        log.info("🔍 Fetching cost by service/region for project {} from {} to {}", gcpProjectId, startDate, endDate);
+
+        Optional<BigQuery> bqOpt = gcpClientProvider.getBigQueryClient(gcpProjectId);
+        if (bqOpt.isEmpty()) return Collections.emptyList();
+
+        BigQuery bigquery = bqOpt.get();
+        Optional<String> tableNameOpt = getBillingTableName(bigquery, gcpProjectId);
+        if (tableNameOpt.isEmpty()) return Collections.emptyList();
+
+        String query = String.format(
+                "SELECT " +
+                        "    service.description as service, " +
+                        "    location.region as region, " +
+                        "    SUM(cost) as total_cost " +
+                        "FROM `%s` " +
+                        "WHERE DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
+                        "GROUP BY 1, 2 " +
+                        "HAVING total_cost > 0.01 " +
+                        "ORDER BY total_cost DESC",
+                tableNameOpt.get(),
+                startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
+                endDate.format(DateTimeFormatter.ISO_LOCAL_DATE)
+        );
+
+        try {
+            log.info("Executing BigQuery query for project {}: {}", gcpProjectId, query);
+            TableResult results = bigquery.query(QueryJobConfiguration.newBuilder(query).build());
+            List<DetailedCostDto> resultList = StreamSupport.stream(results.iterateAll().spliterator(), false)
+                    .map(row -> new DetailedCostDto(
+                            row.get("service").isNull() ? "Uncategorized" : row.get("service").getStringValue(),
+                            row.get("region").isNull() ? "Global" : row.get("region").getStringValue(),
+                            row.get("total_cost").getDoubleValue()))
+                    .collect(Collectors.toList());
+            
+            redisCacheService.put(cacheKey, resultList, 60 * 6); // Cache for 6 hours
+            return resultList;
+        } catch (Exception e) {
+            log.error("BigQuery query failed for cost by service/region on project {}: {}", gcpProjectId, e.getMessage(), e);
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            return Collections.emptyList();
+        }
+    }
+    // --- END OF NEW METHOD ---
+
 
     // ===== COST BY TAG =====
 
