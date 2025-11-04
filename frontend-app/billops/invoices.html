@@ -106,7 +106,8 @@
                 <div class="bg-white p-4 rounded-lg shadow-md mb-6 flex items-center space-x-4">
                     <div>
                         <label for="year" class="block text-sm font-medium text-gray-700">Year</label>
-                        <select id="year" x-model="selectedYear" @change="fetchInvoiceData()" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
+                        <select id="year" x-model="selectedYear" @change="filterAndDisplayInvoices()" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
+                            <option value="all">All Years</option>
                             <template x-for="year in years" :key="year">
                                 <option :value="year" x-text="year"></option>
                             </template>
@@ -114,52 +115,89 @@
                     </div>
                     <div>
                         <label for="month" class="block text-sm font-medium text-gray-700">Month</label>
-                        <select id="month" x-model="selectedMonth" @change="fetchInvoiceData()" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
+                        <select id="month" x-model="selectedMonth" @change="filterAndDisplayInvoices()" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
+                            <option value="all">All Months</option>
                             <template x-for="month in months" :key="month.value">
                                 <option :value="month.value" x-text="month.name"></option>
                             </template>
                         </select>
                     </div>
-                    <div class="pt-6">
-                        <button @click="downloadInvoice()" :disabled="!invoiceData || loading" class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400">
+                    <div class="pt-6" x-show="viewState === 'detail'">
+                        <button @click="downloadInvoice()" :disabled="!selectedInvoice || detailLoading" class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400">
                             <i class="fas fa-download mr-2"></i>Download PDF
                         </button>
                     </div>
+                    <div class="pt-6" x-show="viewState === 'detail'">
+                        <button @click="goBackToList()" class="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600">
+                            <i class="fas fa-arrow-left mr-2"></i>Back to List
+                        </button>
+                    </div>
                 </div>
-
-                <div x-show="loading" class="text-center p-10 bg-white rounded-lg shadow-md">
+                <div x-show="listLoading || detailLoading" class="text-center p-10 bg-white rounded-lg shadow-md">
                     <i class="fas fa-spinner fa-spin text-3xl text-indigo-500"></i>
-                    <p class="mt-2">Fetching finalized invoice...</p>
+                    <p class="mt-2" x-text="listLoading ? 'Fetching invoice list...' : 'Loading invoice details...'"></p>
                 </div>
-                <div x-show="!loading && error" class="text-center p-10 bg-blue-50 rounded-lg shadow-md">
+                <div x-show="!listLoading && !detailLoading && error" class="text-center p-10 bg-blue-50 rounded-lg shadow-md">
                      <p class="text-blue-700" x-text="error"></p>
                 </div>
-
-                <div x-show="!loading && invoiceData" class="space-y-6">
+                <div x-show="!listLoading && viewState === 'list' && filteredInvoices.length > 0" class="bg-white rounded-lg shadow-md overflow-hidden" x-cloak>
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Invoice #</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Account</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Period</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                                <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            <template x-for="invoice in filteredInvoices" :key="invoice.id">
+                                <tr>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <button @click="viewInvoice(invoice)" class="text-indigo-600 hover:underline" x-text="invoice.invoiceNumber"></button>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap" x-text="invoice.awsAccountId"></td>
+                                    <td class="px-6 py-4 whitespace-nowrap" x-text="invoice.billingPeriod"></td>
+                                    <td class="px-6 py-4 whitespace-nowrap" x-text="formatCurrency(invoice.amount)"></td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-center">
+                                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800" x-text="invoice.status">
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                        <button @click="viewInvoice(invoice)" class="text-indigo-600 hover:text-indigo-900">View</button>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+                 <div x-show="!detailLoading && viewState === 'detail' && selectedInvoice" class="space-y-6" x-cloak>
                     <div class="bg-white rounded-lg shadow-md p-8">
                         <div class="flex justify-between items-start mb-8">
                             <div>
-                                <h2 class="text-2xl font-bold text-gray-800" x-text="`Invoice #${invoiceData.invoiceNumber}`"></h2>
-                                <p class="text-gray-500" x-text="`Account ID: ${invoiceData.awsAccountId}`"></p>
+                                <h2 class="text-2xl font-bold text-gray-800" x-text="`Invoice #${selectedInvoice.invoiceNumber}`"></h2>
+                                <p class="text-gray-500" x-text="`Account ID: ${selectedInvoice.awsAccountId}`"></p>
                             </div>
                             <div class="text-right">
-                                <p class="font-semibold text-gray-700" x-text="`Billing Period: ${invoiceData.billingPeriod}`"></p>
-                                <p class="text-gray-500" x-text="`Generated Date: ${invoiceData.invoiceDate}`"></p>
+                                <p class="font-semibold text-gray-700" x-text="`Billing Period: ${selectedInvoice.billingPeriod}`"></p>
+                                <p class="text-gray-500" x-text="`Generated Date: ${selectedInvoice.invoiceDate}`"></p>
                             </div>
                         </div>
 
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                             <div class="bg-gray-50 p-4 rounded-lg text-center">
                                 <h3 class="text-sm font-medium text-gray-500">Original Total</h3>
-                                <p class="mt-1 text-2xl font-semibold text-gray-600" x-text="formatCurrency(invoiceData.preDiscountTotal)"></p>
+                                <p class="mt-1 text-2xl font-semibold text-gray-600" x-text="formatCurrency(selectedInvoice.preDiscountTotal)"></p>
                             </div>
                             <div class="bg-red-50 p-4 rounded-lg text-center">
                                 <h3 class="text-sm font-medium text-red-500">Discounts Applied</h3>
-                                <p class="mt-1 text-2xl font-semibold text-red-700" x-text="formatCurrency(invoiceData.discountAmount * -1)"></p>
+                                <p class="mt-1 text-2xl font-semibold text-red-700" x-text="formatCurrency(selectedInvoice.discountAmount * -1)"></p>
                             </div>
                              <div class="bg-green-50 p-4 rounded-lg text-center">
                                 <h3 class="text-sm font-medium text-green-600">Final Invoice Total</h3>
-                                <p class="mt-1 text-3xl font-bold text-green-800" x-text="formatCurrency(invoiceData.amount)"></p>
+                                <p class="mt-1 text-3xl font-bold text-green-800" x-text="formatCurrency(selectedInvoice.amount)"></p>
                             </div>
                         </div>
 
@@ -232,7 +270,7 @@
                         </div>
                         </div>
                 </div>
-            </div>
+                </div>
         </main>
     </div>
 </div>
@@ -242,72 +280,128 @@
             selectedAccountId: null,
             selectedAccountName: '',
             years: [new Date().getFullYear(), new Date().getFullYear() - 1],
-            selectedYear: new Date().getFullYear(),
+            selectedYear: 'all', // Default to 'all'
             months: [
                 { name: 'January', value: 1 }, { name: 'February', value: 2 }, { name: 'March', value: 3 },
                 { name: 'April', value: 4 }, { name: 'May', value: 5 }, { name: 'June', value: 6 },
                 { name: 'July', value: 7 }, { name: 'August', value: 8 }, { name: 'September', value: 9 },
                 { name: 'October', value: 10 }, { name: 'November', value: 11 }, { name: 'December', value: 12 }
             ],
-            selectedMonth: new Date().getMonth() + 1,
-            invoiceData: null,
-            loading: true,
+            selectedMonth: 'all', // Default to 'all'
+            
+            // --- START: MODIFIED/NEW STATE PROPERTIES ---
+            viewState: 'list', // 'list' or 'detail'
+            allInvoices: [], // Holds all invoices from API
+            filteredInvoices: [], // Holds invoices after filtering
+            selectedInvoice: null, // Holds the invoice for the detail view
+            listLoading: true,
+            detailLoading: false,
+            // --- END: MODIFIED/NEW STATE PROPERTIES ---
+
             error: null,
             
-            // --- START: NEW PROPERTIES FOR DRILL-DOWN ---
             detailedBreakdown: [],
             expandedServices: {},
             expandedRegions: {},
-            // --- END: NEW PROPERTIES ---
 
             init() {
-                // this.loadSidebar();
                 const urlParams = new URLSearchParams(window.location.search);
                 const accountIds = urlParams.get('accountId') || urlParams.get('accountIds');
                 
                 if (accountIds) {
                     this.selectedAccountId = accountIds.split(',')[0]; 
-                    this.fetchInvoiceData();
+                    // Fetch account name (assuming it's in session storage or another source)
+                    // For demo, we'll set it when we filter
+                    this.fetchAllInvoices();
                 } else {
                     this.error = "No account selected. Please choose an account from the sidebar.";
-                    this.loading = false;
+                    this.listLoading = false;
                 }
             },
 
-            fetchInvoiceData() {
-                if (!this.selectedAccountId) return;
-                this.loading = true;
-                this.invoiceData = null;
+            // --- START: NEW FUNCTION ---
+            // Fetches ALL invoices from the admin endpoint
+            fetchAllInvoices() {
+                this.listLoading = true;
                 this.error = null;
-
-                const url = `/api/billops/invoices/view?accountId=${this.selectedAccountId}&year=${this.selectedYear}&month=${this.selectedMonth}`;
-                fetch(url)
+                fetch('/api/admin/invoices') // Uses the admin endpoint to get the list
                     .then(res => {
-                        if (res.status === 404) {
-                            this.error = `No finalized invoice is available for ${this.selectedYear}-${String(this.selectedMonth).padStart(2, '0')}. Please check back later or contact your administrator.`;
-                            return null;
-                        }
-                        if (!res.ok) throw new Error('Failed to load invoice data.');
+                        if (!res.ok) throw new Error('Failed to load invoice list.');
                         return res.json();
                     })
                     .then(data => {
-                        if (data) {
-                            this.invoiceData = data;
-                            this.selectedAccountName = data.accountName;
-                            // --- MODIFIED: Use new transformation function ---
-                            this.detailedBreakdown = this.transformToDrilldown(data.lineItems);
-                        }
+                        this.allInvoices = data;
+                        this.filterAndDisplayInvoices(); // Filter and display the list
                     })
                     .catch(error => {
-                        console.error('Error fetching invoice:', error);
-                        this.error = 'An error occurred while fetching the invoice.';
+                        console.error('Error fetching invoice list:', error);
+                        this.error = 'An error occurred while fetching the invoice list.';
                     })
                     .finally(() => {
-                        this.loading = false;
+                        this.listLoading = false;
                     });
             },
+            
+            // --- START: NEW FUNCTION ---
+            // Filters the master list and updates the view
+            filterAndDisplayInvoices() {
+                this.viewState = 'list';
+                this.selectedInvoice = null;
+                this.error = null;
 
-            // --- START: NEW DATA TRANSFORMATION FUNCTION ---
+                let invoices = this.allInvoices.filter(inv => 
+                    inv.awsAccountId === this.selectedAccountId && inv.status === 'FINALIZED'
+                );
+
+                if (this.selectedYear !== 'all') {
+                    invoices = invoices.filter(inv => inv.billingPeriod.startsWith(this.selectedYear));
+                }
+                
+                if (this.selectedMonth !== 'all') {
+                    const monthStr = `-${String(this.selectedMonth).padStart(2, '0')}`;
+                    invoices = invoices.filter(inv => inv.billingPeriod.endsWith(monthStr));
+                }
+
+                // Set account name from the first found invoice
+                if (invoices.length > 0 && !this.selectedAccountName) {
+                    this.selectedAccountName = invoices[0].accountName;
+                }
+                
+                // Sort by ID descending to show latest on top
+                this.filteredInvoices = invoices.sort((a, b) => b.id - a.id); 
+
+                if (this.filteredInvoices.length === 0) {
+                    this.error = "No finalized invoices found for the selected account and period.";
+                }
+            },
+
+            // --- START: NEW FUNCTION ---
+            // Sets the state to view a single invoice's details
+            viewInvoice(invoice) {
+                this.viewState = 'detail';
+                this.detailLoading = true; // Use detail loading
+                this.error = null;
+                
+                // The 'invoice' object from the list is the full DTO
+                this.selectedInvoice = invoice;
+                this.detailedBreakdown = this.transformToDrilldown(invoice.lineItems);
+                
+                this.detailLoading = false;
+            },
+
+            // --- START: NEW FUNCTION ---
+            // Resets the state to show the list
+            goBackToList() {
+                this.viewState = 'list';
+                this.selectedInvoice = null;
+                this.error = null;
+                // Re-run filter in case user navigated here directly
+                this.filterAndDisplayInvoices(); 
+            },
+
+            // --- END: NEW FUNCTIONS ---
+
+            // --- This function is still used by the detail view ---
             transformToDrilldown(lineItems) {
                 if (!lineItems || lineItems.length === 0) return [];
 
@@ -354,11 +448,12 @@
             // --- END: NEW DATA TRANSFORMATION FUNCTION ---
 
             downloadInvoice() {
-                if (!this.invoiceData) return;
+                // Modified to use selectedInvoice
+                if (!this.selectedInvoice) return;
                 fetch('/api/billops/invoices/download-preview', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(this.invoiceData)
+                    body: JSON.stringify(this.selectedInvoice) // Use selectedInvoice
                 })
                 .then(res => {
                     if (!res.ok) throw new Error('PDF generation failed.');
@@ -369,7 +464,8 @@
                     const a = document.createElement('a');
                     a.style.display = 'none';
                     a.href = url;
-                    a.download = `invoice-${this.invoiceData.awsAccountId}-${this.invoiceData.billingPeriod}.pdf`;
+                    // Use selectedInvoice for file name
+                    a.download = `invoice-${this.selectedInvoice.awsAccountId}-${this.selectedInvoice.billingPeriod}.pdf`;
                     document.body.appendChild(a);
                     a.click();
                     window.URL.revokeObjectURL(url);
@@ -405,12 +501,7 @@
             // --- END: NEW TOGGLE METHODS ---
             
             // loadSidebar() {
-            //     fetch('/_sidebar.html')
-            //         .then(response => response.text())
-            //         .then(html => {
-            //             document.getElementById('sidebar-container').innerHTML = html;
-            //             if(window.Alpine) Alpine.start();
-            //         });
+            //     ...
             // }
         }
     }
