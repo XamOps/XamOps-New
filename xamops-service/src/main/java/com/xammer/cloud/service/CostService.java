@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.CostDto;
 import com.xammer.cloud.dto.CostForecastDto;
+import com.xammer.cloud.dto.DetailedCostDto; // <-- NEW IMPORT
 import com.xammer.cloud.dto.ForecastDto;
 import com.xammer.cloud.dto.HistoricalCostDto;
 import com.xammer.cloud.repository.CloudAccountRepository;
@@ -47,6 +48,67 @@ public class CostService {
         return cloudAccountRepository.findByAwsAccountId(accountId).stream().findFirst()
                 .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
     }
+    
+    // --- NEW METHOD FOR DETAILED REPORTING ---
+    @Async("awsTaskExecutor")
+    public CompletableFuture<List<DetailedCostDto>> getCostBreakdownByServiceAndRegion(
+            String accountId, LocalDate startDate, LocalDate endDate, boolean forceRefresh) {
+
+        String cacheKey = "costBreakdownServiceRegion-" + accountId + "-" + startDate + "-" + endDate;
+
+        if (!forceRefresh) {
+            Optional<List<DetailedCostDto>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {});
+            if (cachedData.isPresent()) {
+                logger.info("✅ Cache hit for detailed cost breakdown: {}", cacheKey);
+                return CompletableFuture.completedFuture(cachedData.get());
+            }
+        }
+
+        CloudAccount account = getAccount(accountId);
+        CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
+
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                DateInterval dateInterval = DateInterval.builder()
+                        .start(startDate.toString())
+                        .end(endDate.plusDays(1).toString()) // Cost Explorer is exclusive of end date
+                        .build();
+
+                List<GroupDefinition> groupBy = List.of(
+                        GroupDefinition.builder().type(GroupDefinitionType.DIMENSION).key("SERVICE").build(),
+                        GroupDefinition.builder().type(GroupDefinitionType.DIMENSION).key("REGION").build()
+                );
+
+                GetCostAndUsageRequest request = GetCostAndUsageRequest.builder()
+                        .timePeriod(dateInterval)
+                        .granularity(Granularity.MONTHLY) // Aggregate over the period
+                        .metrics("UnblendedCost")
+                        .groupBy(groupBy)
+                        .build();
+                
+                List<DetailedCostDto> costs = ce.getCostAndUsage(request).resultsByTime().stream()
+                        .flatMap(r -> r.groups().stream())
+                        .map(group -> new DetailedCostDto(
+                                group.keys().get(0), // Service
+                                group.keys().get(1), // Region
+                                Double.parseDouble(group.metrics().get("UnblendedCost").amount())
+                        ))
+                        .filter(cost -> cost.getCost() > 0.01) // Filter out zero/negligible costs
+                        .sorted((a, b) -> Double.compare(b.getCost(), a.getCost()))
+                        .collect(Collectors.toList());
+
+                redisCache.put(cacheKey, costs, 60 * 6); // Cache for 6 hours
+                logger.info("✅ Detailed cost breakdown fetched: {} items for account {}", costs.size(), accountId);
+                return costs;
+
+            } catch (Exception e) {
+                logger.error("❌ Error fetching detailed cost breakdown for account {}: {}", accountId, e.getMessage(), e);
+                return Collections.emptyList();
+            }
+        });
+    }
+    // --- END OF NEW METHOD ---
+
 
     /**
      * Get cost breakdown by dimension (SERVICE, REGION, INSTANCE_TYPE, etc.)
