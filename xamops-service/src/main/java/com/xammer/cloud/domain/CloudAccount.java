@@ -70,6 +70,12 @@ private Long id;
     @Column(name = "azure_client_secret")
     private String azureClientSecret;
 
+    @Column(name = "azure_billing_rg")
+    private String azureBillingRg;
+
+    @Column(name = "azure_billing_storage_account")
+    private String azureBillingStorageAccount;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "client_id", nullable = false)
     @JsonIgnore

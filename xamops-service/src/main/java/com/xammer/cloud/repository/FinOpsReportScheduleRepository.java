@@ -2,6 +2,8 @@ package com.xammer.cloud.repository;
 
 import com.xammer.cloud.domain.FinOpsReportSchedule;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query; 
+import org.springframework.data.repository.query.Param; 
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -16,11 +18,16 @@ public interface FinOpsReportScheduleRepository extends JpaRepository<FinOpsRepo
 
     /**
      * Finds all active schedules by a specific frequency.
+     * --- MODIFIED: Renamed method to force @Query to be used ---
+     * This eagerly loads the CloudAccount and User entities to prevent
+     * LazyInitializationException in the scheduled service.
      */
-    List<FinOpsReportSchedule> findByFrequencyAndIsActiveTrue(String frequency);
+    @Query("SELECT s FROM FinOpsReportSchedule s JOIN FETCH s.cloudAccount JOIN FETCH s.user WHERE s.frequency = :frequency AND s.isActive = true")
+    List<FinOpsReportSchedule> findAllActiveByFrequencyWithDetails(@Param("frequency") String frequency);
     
     /**
      * Finds schedules for a specific user and account.
      */
     List<FinOpsReportSchedule> findByUserIdAndCloudAccountId(Long userId, Long cloudAccountId);
 }
+

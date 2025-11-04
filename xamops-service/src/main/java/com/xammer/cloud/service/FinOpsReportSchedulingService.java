@@ -9,12 +9,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional; // <-- IMPORT ADDED
+import org.springframework.transaction.annotation.Transactional; 
 
 import java.time.LocalDate; 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter; 
 import java.util.List;
+import java.util.Map; // <-- NEW IMPORT
+import java.util.stream.Collectors; // <-- NEW IMPORT
 
 @Service
 public class FinOpsReportSchedulingService {
@@ -39,12 +41,11 @@ public class FinOpsReportSchedulingService {
         this.emailBuilder = emailBuilder;
     }
 
-    // --- MODIFIED: Cron changed back to "0 30 12 * * ?" (12:30 UTC = 6:00 PM IST) ---
-    @Transactional(readOnly = true) // <-- FIX for LazyInitializationException
-    @Scheduled(cron = "0 30 12 * * ?") 
+    @Transactional(readOnly = true) 
+    @Scheduled(cron = "0 30 12 * * ?") // 6:00 PM IST daily
     public void runDailyReports() {
         logger.info("Running DAILY FinOps report schedules...");
-        List<FinOpsReportSchedule> schedules = scheduleRepository.findByFrequencyAndIsActiveTrue("DAILY");
+        List<FinOpsReportSchedule> schedules = scheduleRepository.findAllActiveByFrequencyWithDetails("DAILY");
         
         LocalDate reportDate = LocalDate.now().minusDays(1); // Report for yesterday
         String dateRange = reportDate.format(DateTimeFormatter.ISO_LOCAL_DATE);
@@ -52,12 +53,11 @@ public class FinOpsReportSchedulingService {
         processSchedules(schedules, "Daily", reportDate, reportDate, dateRange);
     }
 
-    // --- MODIFIED: Cron changed back to "0 30 12 ? * FRI" (12:30 UTC = 6:00 PM IST) ---
-    @Transactional(readOnly = true) // <-- FIX for LazyInitializationException
-    @Scheduled(cron = "0 30 12 ? * FRI") 
+    @Transactional(readOnly = true) 
+    @Scheduled(cron = "0 30 12 ? * FRI") // 6:00 PM IST every Friday
     public void runWeeklyReports() {
         logger.info("Running WEEKLY FinOps report schedules...");
-        List<FinOpsReportSchedule> schedules = scheduleRepository.findByFrequencyAndIsActiveTrue("WEEKLY");
+        List<FinOpsReportSchedule> schedules = scheduleRepository.findAllActiveByFrequencyWithDetails("WEEKLY");
 
         LocalDate endDate = LocalDate.now().minusDays(1); // Up to yesterday
         LocalDate startDate = endDate.minusDays(6); // Past 7 days
@@ -66,12 +66,11 @@ public class FinOpsReportSchedulingService {
         processSchedules(schedules, "Weekly", startDate, endDate, dateRange);
     }
 
-    // ---  Cron  "0 30 12 30 * ?" (12:30 UTC = 6:00 PM IST) ---
     @Transactional(readOnly = true) 
-    @Scheduled(cron = "0 30 12 30 * ?")
+    @Scheduled(cron = "0 30 12 30 * ?") // 6:00 PM IST on the 30th
     public void runMonthlyReports() {
         logger.info("Running MONTHLY FinOps report schedules...");
-        List<FinOpsReportSchedule> schedules = scheduleRepository.findByFrequencyAndIsActiveTrue("MONTHLY");
+        List<FinOpsReportSchedule> schedules = scheduleRepository.findAllActiveByFrequencyWithDetails("MONTHLY");
 
         LocalDate endDate = LocalDate.now().minusDays(1); // Up to yesterday
         LocalDate startDate = endDate.minusDays(29); // Past 30 days
@@ -80,56 +79,64 @@ public class FinOpsReportSchedulingService {
         processSchedules(schedules, "Monthly", startDate, endDate, dateRange);
     }
 
+    // --- MODIFIED: This method is now much more efficient ---
     private void processSchedules(List<FinOpsReportSchedule> schedules, String frequency, LocalDate startDate, LocalDate endDate, String dateRange) {
         if (schedules.isEmpty()) {
             logger.info("No active {} schedules found.", frequency);
             return;
         }
 
-        logger.info("Found {} {} schedules to process for date range {}", schedules.size(), frequency, dateRange);
+        // Group schedules by CloudAccount to avoid redundant data fetching
+        Map<CloudAccount, List<FinOpsReportSchedule>> schedulesByAccount = schedules.stream()
+                .collect(Collectors.groupingBy(FinOpsReportSchedule::getCloudAccount));
 
-        for (FinOpsReportSchedule schedule : schedules) {
+        logger.info("Found {} {} schedules to process across {} unique accounts for date range {}", 
+                schedules.size(), frequency, schedulesByAccount.size(), dateRange);
+
+        // Process schedules for each account
+        for (Map.Entry<CloudAccount, List<FinOpsReportSchedule>> entry : schedulesByAccount.entrySet()) {
+            CloudAccount account = entry.getKey();
+            List<FinOpsReportSchedule> accountSchedules = entry.getValue();
+            
+            String accountId = account.getProviderAccountId();
+            String accountName = account.getAccountName();
+            
             try {
-                CloudAccount account = schedule.getCloudAccount(); 
-                String accountId = account.getProviderAccountId();
-                String accountName = account.getAccountName();
-                String subject = String.format("Your %s FinOps Report - %s (%s)", frequency, accountName, dateRange);
-                String htmlBody;
-                
+                // --- STEP 1: Fetch data ONCE for the account ---
                 List<DetailedCostDto> reportData;
-
                 if ("AWS".equals(account.getProvider())) {
-                    reportData = costService.getCostBreakdownByServiceAndRegion(accountId, startDate, endDate, true).join();
+                    reportData = costService.getCostBreakdownByServiceAndRegion(accountId, startDate, endDate, false).join();
                 } else if ("GCP".equals(account.getProvider())) {
                     reportData = gcpCostService.getCostBreakdownByServiceAndRegionSync(accountId, startDate, endDate);
                 } else {
-                    logger.warn("Skipping schedule {}: Unsupported provider {}", schedule.getId(), account.getProvider());
+                    logger.warn("Skipping account {}: Unsupported provider {}", accountId, account.getProvider());
                     continue;
                 }
-                
-                htmlBody = emailBuilder.buildSimpleReportEmail(reportData, accountName, frequency, dateRange);
 
-                emailService.sendHtmlEmail(schedule.getEmail(), subject, htmlBody);
-                
-                // --- MODIFICATION: Must run save in a separate, non-read-only transaction ---
-                // We can't save from inside the read-only scheduled method, so we call another service method.
-                // For simplicity in this step, I will just save it directly.
-                // A better pattern would be another service, but this will work.
-                // We MUST ensure the schedule object is not lazy-loaded
-                
-                updateScheduleLastSent(schedule.getId());
-                
-                logger.info("Successfully processed and sent report for schedule ID {}", schedule.getId());
+                // --- STEP 2: Build email body ONCE ---
+                String subject = String.format("Your %s FinOps Report - %s (%s)", frequency, accountName, dateRange);
+                String htmlBody = emailBuilder.buildSimpleReportEmail(reportData, accountName, frequency, dateRange);
+
+                // --- STEP 3: Send email to all recipients for this account ---
+                for (FinOpsReportSchedule schedule : accountSchedules) {
+                    try {
+                        emailService.sendHtmlEmail(schedule.getEmail(), subject, htmlBody);
+                        updateScheduleLastSent(schedule.getId());
+                        logger.info("Successfully processed and sent report for schedule ID {} to {}", schedule.getId(), schedule.getEmail());
+                    } catch (Exception emailEx) {
+                        logger.error("Failed to send email for schedule ID {}: {}", schedule.getId(), emailEx.getMessage());
+                    }
+                }
 
             } catch (Exception e) {
-                logger.error("Failed to process schedule ID {}: {}", schedule.getId(), e.getMessage(), e);
+                logger.error("Failed to process schedules for account {}: {}", accountId, e.getMessage(), e);
             }
         }
     }
     
-    // --- NEW METHOD: To handle saving in a new transaction ---
     @Transactional
     public void updateScheduleLastSent(Long scheduleId) {
+        // This method runs in its own transaction to update the "lastSent" timestamp
         scheduleRepository.findById(scheduleId).ifPresent(schedule -> {
             schedule.setLastSent(LocalDateTime.now());
             scheduleRepository.save(schedule);

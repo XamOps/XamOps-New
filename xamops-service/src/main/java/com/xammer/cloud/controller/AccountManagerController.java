@@ -21,6 +21,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import com.xammer.cloud.dto.azure.AzureAccountRequestDto;
 import org.springframework.http.HttpStatus;
+import com.xammer.cloud.service.azure.AzureCostManagementService;
 
 @RestController
 @RequestMapping("/api/xamops/account-manager")
@@ -39,6 +40,9 @@ public class AccountManagerController {
 
     @Autowired
     private ClientRepository clientRepository;
+
+    @Autowired
+    private AzureCostManagementService azureCostService;
 
     @PostMapping("/generate-stack-url")
     public ResponseEntity<Map<String, String>> generateStackUrl(@RequestBody AccountCreationRequestDto request, @AuthenticationPrincipal ClientUserDetails userDetails) {
@@ -159,6 +163,7 @@ public class AccountManagerController {
             newAccount.setClient(client);
 
             CloudAccount savedAccount = cloudAccountRepository.save(newAccount);
+            azureCostService.setupCostExports(savedAccount, request);
             return ResponseEntity.ok(savedAccount);
 
         } catch (Exception e) {
