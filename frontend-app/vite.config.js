@@ -86,7 +86,7 @@ export default defineConfig({
          'cicd_pipelines.html': resolve(__dirname, 'cicd_pipelines.html'),
 
 
-        
+         
 
 
         security:resolve(__dirname,'security.html'),

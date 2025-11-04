@@ -222,6 +222,35 @@
             border-color: #6366f1;
             box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
         }
+        
+        /* --- NEW REFRESH BUTTON STYLE --- */
+        .refresh-button {
+            background: #ffffff;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 14px;
+            font-weight: 500;
+            color: #374151;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            line-height: 1.5; /* Match select height */
+        }
+        .refresh-button:hover:not(:disabled) {
+            border-color: #6366f1;
+            color: #6366f1;
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+        }
+        .refresh-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            background: #f9fafb;
+        }
+        .refresh-button .fa-spin {
+            animation: spin 0.8s linear infinite;
+        }
+        /* --- END NEW STYLE --- */
 
         /* Small spinner for background updates */
         .updating-spinner {
@@ -231,7 +260,7 @@
              border: 2px solid #d1d5db; /* Lighter border */
              border-radius: 50%;
              border-top-color: #4f46e5; /* Accent color */
-             animation: spin 0.8s linear infinite; /* Faster spin */
+             animation: spin 0.8s linear infinite;
              margin-left: 8px; /* Spacing */
          }
 
@@ -277,6 +306,7 @@
                                  <div class="flex items-center space-x-3">
                                      <div class="skeleton-placeholder-dark h-9 w-20 rounded-lg"></div>
                                      <div class="skeleton-placeholder-dark h-9 w-20 rounded-lg"></div>
+                                     <div class="skeleton-placeholder-dark h-9 w-24 rounded-lg"></div>
                                  </div>
                              </div>
                          </div>
@@ -287,7 +317,7 @@
                         <div class="flex justify-between items-center">
                             <h1 class="dashboard-title flex items-center">
                                 Billing Dashboard
-                                <span x-show="isUpdating" class="updating-spinner" title="Updating data..."></span>
+                                <span x-show="isUpdating && !loading" class="updating-spinner" title="Updating data..."></span>
                             </h1>
                             <div class="flex items-center space-x-3">
                                 <select x-model="selectedYear" @change="handleFilterChange()" class="filter-select" :disabled="loading || isUpdating">
@@ -300,7 +330,12 @@
                                         <option :value="month.value" x-text="month.name"></option>
                                     </template>
                                 </select>
-                            </div>
+                                
+                                <button @click="fetchFreshData()" class="refresh-button" :disabled="loading || isUpdating">
+                                    <i class="fas" :class="{ 'fa-sync-alt fa-spin': isUpdating, 'fa-sync-alt': !isUpdating }"></i>
+                                    <span class="ml-2" x-text="isUpdating ? 'Refreshing...' : 'Refresh'"></span>
+                                </button>
+                                </div>
                         </div>
                     </div>
                 </div>
@@ -607,9 +642,10 @@
 
             fetchFreshData() {
                 // If not already updating (e.g., called directly because cache was empty), set updating state
-                if (!this.isUpdating && !this.loading) { // Only set isUpdating if not initial load
-                    this.isUpdating = true;
-                }
+                // === MODIFICATION ===
+                // Set isUpdating = true regardless of 'loading' state, so the refresh button spinner works
+                // on first load *and* subsequent refreshes.
+                this.isUpdating = true;
                 this.updateError = null; // Clear previous update errors
 
                 console.log(`--- Fetching FRESH data for ${this.selectedYear}-${this.selectedMonth} ---`);
