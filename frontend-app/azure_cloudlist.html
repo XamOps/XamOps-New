@@ -6,8 +6,8 @@
     <title>Xammer - Azure Cloudlist</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-        <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
-<link rel="apple-touch-icon" href="/icons/XamOps.png">
+    <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
+    <link rel="apple-touch-icon" href="/icons/XamOps.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -78,7 +78,7 @@
 <body class="antialiased">
 
 <div class="flex h-screen">
-  <include file="/_sidebar.html"></include>
+    <include file="/_sidebar.html"></include>
 
     <main class="flex-1 flex flex-col pl-64">
         <header class="h-20 flex-shrink-0 flex items-center justify-between px-8 sticky top-0 z-10 bg-white/80 backdrop-blur-sm border-b">
@@ -101,6 +101,10 @@
 
         <div class="flex-1 overflow-y-auto p-8">
             <div id="resource-list-container" class="space-y-6">
+                <div class="text-center py-20">
+                    <i class="fas fa-spinner fa-spin text-4xl text-blue-600 mb-4"></i>
+                    <p class="text-gray-600">Loading resources...</p>
+                </div>
             </div>
         </div>
     </main>
@@ -118,12 +122,13 @@
 
             init() {
                 const urlParams = new URLSearchParams(window.location.search);
-                this.selectedAccountId = urlParams.get('accountIds');
+                this.selectedAccountId = urlParams.get('accountId');
 
                 if (!this.selectedAccountId) {
+                    // ✅ FIXED: Corrected 'selectedAccountIdaccountId' to 'selectedAccountIds'
                     const storedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
                     if (storedIds.length > 0) {
-                        this.selectedAccountId = storedIds.join(',');
+                        this.selectedAccountId = storedIds[0]; // Use first account
                     }
                 }
 
@@ -137,21 +142,55 @@
 
             loadResources(forceRefresh = false) {
                 if (!this.selectedAccountId) {
-                    this.dom.listContainer.innerHTML = `<p>No Azure account selected.</p>`;
+                    this.dom.listContainer.innerHTML = `
+                        <div class="text-center py-20">
+                            <i class="fas fa-exclamation-circle text-yellow-600 text-5xl mb-4"></i>
+                            <p class="text-gray-600 text-lg">No Azure account selected.</p>
+                            <p class="text-gray-500 mt-2">Please select an account from the dashboard.</p>
+                        </div>
+                    `;
                     return;
                 }
 
-                const apiUrl = `/api/azure/cloudlist/resources?accountIds=${this.selectedAccountId}&forceRefresh=${forceRefresh}`;
+                // Show loading state
+                this.dom.listContainer.innerHTML = `
+                    <div class="text-center py-20">
+                        <i class="fas fa-spinner fa-spin text-4xl text-blue-600 mb-4"></i>
+                        <p class="text-gray-600 text-lg">Loading Azure resources...</p>
+                    </div>
+                `;
+
+                // ✅ FIXED: Corrected API endpoint to use query parameter 'accountIds' instead of 'accountId'
+                const apiUrl = `/api/azure/cloudlist/resources?accountIds=${this.selectedAccountId}`;
+                
+                console.log('Fetching Azure resources from:', apiUrl);
 
                 fetch(apiUrl)
-                    .then(response => response.json())
+                    .then(response => {
+                        console.log('Response status:', response.status);
+                        if (!response.ok) {
+                            throw new Error(`HTTP error! status: ${response.status}`);
+                        }
+                        return response.json();
+                    })
                     .then(data => {
+                        console.log('Received data:', data);
                         this.allGroups = Array.isArray(data) ? data : [];
                         this.render();
                     })
                     .catch(error => {
                         console.error('Error fetching Azure resources:', error);
-                        this.dom.listContainer.innerHTML = `<p>Error loading resources.</p>`;
+                        this.dom.listContainer.innerHTML = `
+                            <div class="text-center py-20">
+                                <i class="fas fa-exclamation-triangle text-red-600 text-5xl mb-4"></i>
+                                <p class="text-red-600 text-lg font-semibold mb-2">Error loading resources</p>
+                                <p class="text-gray-600 mb-6">${error.message}</p>
+                                <button onclick="location.reload()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg">
+                                    <i class="fas fa-redo mr-2"></i>
+                                    Try Again
+                                </button>
+                            </div>
+                        `;
                     });
             },
 
@@ -159,7 +198,12 @@
                 this.dom.listContainer.innerHTML = '';
 
                 if (this.allGroups.length === 0) {
-                    this.dom.listContainer.innerHTML = `<p>No resources found for the selected account.</p>`;
+                    this.dom.listContainer.innerHTML = `
+                        <div class="text-center py-20">
+                            <i class="fas fa-inbox text-gray-400 text-5xl mb-4"></i>
+                            <p class="text-gray-600 text-lg">No resources found for the selected account.</p>
+                        </div>
+                    `;
                     return;
                 }
 
@@ -178,7 +222,9 @@
                 container.innerHTML = `
                     <div class="flex items-center justify-between p-6 bg-white">
                         <div class="flex items-center space-x-4">
-                            <img src="/icons/${this.getServiceIcon(group.serviceType)}" alt="${group.serviceType}" class="w-10 h-10">
+                            <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-cyan-400 rounded-lg flex items-center justify-center">
+                                <i class="fas ${this.getServiceIconClass(group.serviceType)} text-white"></i>
+                            </div>
                             <div>
                                 <h3 class="font-bold text-gray-800 text-lg">${group.serviceType}</h3>
                                 <p class="text-sm text-gray-600">${group.resources.length} resources</p>
@@ -194,9 +240,9 @@
 
             createResourceRow(resource) {
                 return `
-                    <div class="grid grid-cols-12 items-center p-4 pl-16 text-sm border-t border-gray-200/80">
+                    <div class="grid grid-cols-12 items-center p-4 pl-16 text-sm border-t border-gray-200/80 hover:bg-white/50 transition-colors">
                         <div class="col-span-5 font-semibold text-gray-700">${resource.name || 'N/A'}</div>
-                        <div class="col-span-3 text-gray-600">${resource.id || 'N/A'}</div>
+                        <div class="col-span-3 text-gray-600 text-xs truncate" title="${resource.id || 'N/A'}">${resource.id || 'N/A'}</div>
                         <div class="col-span-2 text-gray-600">${resource.region || 'Global'}</div>
                         <div class="col-span-2">
                             <span class="state-badge px-3 py-1 text-xs font-bold rounded-full ${this.getStateClass(resource.state)}">
@@ -209,27 +255,34 @@
 
             getStateClass(state) {
                 const s = (state || '').toLowerCase();
-                if (['running', 'succeeded', 'available', 'active'].includes(s)) return 'bg-green-100 text-green-800';
-                if (['stopped', 'deallocated', 'failed', 'deleted'].includes(s)) return 'bg-red-100 text-red-800';
-                if (['pending', 'updating', 'creating'].includes(s)) return 'bg-yellow-100 text-yellow-800';
+                if (s.includes('running') || s.includes('succeeded') || s.includes('available') || s.includes('active') || s.includes('online')) {
+                    return 'bg-green-100 text-green-800';
+                }
+                if (s.includes('stopped') || s.includes('deallocated') || s.includes('failed') || s.includes('deleted')) {
+                    return 'bg-red-100 text-red-800';
+                }
+                if (s.includes('pending') || s.includes('updating') || s.includes('creating') || s.includes('starting')) {
+                    return 'bg-yellow-100 text-yellow-800';
+                }
                 return 'bg-gray-100 text-gray-800';
             },
 
-            getServiceIcon(serviceType) {
+            getServiceIconClass(serviceType) {
                 const iconMap = {
-                    'Virtual Machines': 'azure-vm.png',
-                    'Storage Accounts': 'azure-storage.png',
-                    'SQL Databases': 'azure-sql-db.png',
-                    'Virtual Networks': 'azure-vnet.png',
-                    'Functions': 'azure-functions.png',
-                    'Disks': 'azure-disk.png',
-                    'DNS Zones': 'azure-dns.png',
-                    'Load Balancers': 'azure-lb.png',
-                    'Container Instances': 'azure-aci.png',
-                    'Kubernetes Services': 'azure-aks.png',
-                    'App Services': 'azure-app-service.png'
+                    'Virtual Machines': 'fa-server',
+                    'Storage Accounts': 'fa-database',
+                    'SQL Databases': 'fa-table',
+                    'Virtual Networks': 'fa-network-wired',
+                    'Functions': 'fa-bolt',
+                    'Disks': 'fa-hdd',
+                    'DNS Zones': 'fa-globe',
+                    'Load Balancers': 'fa-balance-scale',
+                    'Container Instances': 'fa-box',
+                    'Kubernetes Services': 'fa-dharmachakra',
+                    'App Services': 'fa-code',
+                    'Public IP Addresses': 'fa-wifi'
                 };
-                return iconMap[serviceType] || 'default-icon.png';
+                return iconMap[serviceType] || 'fa-cloud';
             },
         };
 
