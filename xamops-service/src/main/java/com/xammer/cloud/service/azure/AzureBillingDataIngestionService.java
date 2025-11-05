@@ -3,7 +3,7 @@ package com.xammer.cloud.service.azure;
 import com.azure.storage.blob.BlobServiceClient;
 import com.azure.storage.blob.BlobServiceClientBuilder;
 import com.azure.storage.blob.models.BlobItem;
-import com.fasterxml.jackson.core.type.TypeReference; // <-- ADDED THIS IMPORT
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.azure.AzureDashboardData;
 import com.xammer.cloud.repository.CloudAccountRepository;
@@ -78,11 +78,10 @@ public class AzureBillingDataIngestionService {
         String storageAccountName = account.getAzureBillingStorageAccount();
         String rgName = account.getAzureBillingRg(); // Get RG name
         String containerName = "costexports"; // From our setup
-        String directoryName = "daily-actualcost"; // From our setup
+        String directoryName = "daily-actualcost-0rf35m1"; // From our setup
         
         log.info("Ingesting billing data for account: {}", subscriptionId);
 
-        // <-- FIX: Check for null RG or Storage Account name
         if (storageAccountName == null || rgName == null) {
             log.warn("Account {} is missing billing storage account or RG name. Skipping.", subscriptionId);
             return;
@@ -95,12 +94,14 @@ public class AzureBillingDataIngestionService {
                     .credential(clientProvider.getCredential(subscriptionId))
                     .buildClient();
 
-            // Find the latest CSV in the directory
+            // Recursively find the latest CSV
+            log.info("Searching for latest CSV in {}/{} recursively...", containerName, directoryName);
             Optional<BlobItem> latestCsv = blobServiceClient.getBlobContainerClient(containerName)
-                    .listBlobsByHierarchy(directoryName + "/")
+                    .listBlobs() // This lists ALL blobs (recursively)
                     .stream()
-                    .filter(blob -> blob.getName().endsWith(".csv"))
-                    .max(Comparator.comparing(blob -> blob.getProperties().getLastModified()));
+                    .filter(blob -> blob.getName().startsWith(directoryName + "/")) // Filter for our directory
+                    .filter(blob -> blob.getName().endsWith(".csv")) // Find CSV files
+                    .max(Comparator.comparing(blob -> blob.getProperties().getLastModified())); // Get the newest one
 
             if (latestCsv.isEmpty()) {
                 log.warn("No cost export CSVs found in {}/{}", containerName, directoryName);
@@ -114,7 +115,7 @@ public class AzureBillingDataIngestionService {
             BufferedReader reader = new BufferedReader(new InputStreamReader(
                 blobServiceClient.getBlobContainerClient(containerName)
                     .getBlobClient(blobItem.getName())
-                    .openInputStream(), StandardCharsets.UTF_8)); // <-- FIX: Use openInputStream()
+                    .openInputStream(), StandardCharsets.UTF_8));
             
             CSVParser csvParser = new CSVParser(reader, CSVFormat.DEFAULT
                     .withFirstRecordAsHeader()
@@ -123,17 +124,19 @@ public class AzureBillingDataIngestionService {
 
             Map<String, Double> costByService = new HashMap<>();
             Map<String, Double> costByDate = new HashMap<>();
+            
+            // <-- THIS IS THE FIX: Changed date format back to MM/dd/yyyy
             DateTimeFormatter azureDateFormatter = DateTimeFormatter.ofPattern("MM/dd/yyyy");
 
             for (CSVRecord record : csvParser) {
                 try {
-                    String service = record.get("ResourceType");
-                    double cost = Double.parseDouble(record.get("Cost"));
-                    String dateStr = record.get("UsageDate");
+                    String service = record.get("ProductName");
+                    double cost = Double.parseDouble(record.get("costInUsd"));
+                    String dateStr = record.get("date");
                     
                     LocalDate date = LocalDate.parse(dateStr, azureDateFormatter);
                     String monthYear = date.format(DateTimeFormatter.ofPattern("MMM yyyy"));
-
+            
                     costByService.put(service, costByService.getOrDefault(service, 0.0) + cost);
                     costByDate.put(monthYear, costByDate.getOrDefault(monthYear, 0.0) + cost);
                 } catch (Exception e) {
