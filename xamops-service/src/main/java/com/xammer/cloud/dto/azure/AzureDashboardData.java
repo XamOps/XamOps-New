@@ -1,8 +1,7 @@
 package com.xammer.cloud.dto.azure;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-// <-- FIX 1: ADDED THIS MISSING IMPORT
-import com.xammer.cloud.dto.DashboardData;
+import com.xammer.cloud.dto.DashboardData; // <-- Added this import
 import java.util.List;
 
 /**
@@ -15,8 +14,7 @@ public class AzureDashboardData {
     private ResourceInventory resourceInventory;
     private List<BillingSummary> billingSummary;
     private CostHistory costHistory;
-    // <-- FIX 2: Kept this change from the previous file
-    private DashboardData.OptimizationSummary optimizationSummary;
+    private DashboardData.OptimizationSummary optimizationSummary; // <-- Changed this type
     private List<RegionStatus> regionStatus;
     private List<CostAnomaly> costAnomalies;
 
@@ -155,7 +153,7 @@ public class AzureDashboardData {
         @JsonProperty("monthToDateCost")
         private double cost;
 
-        // <-- FIX 3: This constructor fixes the cache deserialization error
+        // <-- THIS IS THE FIX: Added a no-argument constructor for Jackson deserialization
         public BillingSummary() {
         }
         
@@ -197,7 +195,7 @@ public class AzureDashboardData {
         private double longitude;
         private String status; // e.g., "ACTIVE", "SUSTAINABLE", "INACTIVE"
         
-        // Add a no-arg constructor for deserialization if needed
+        // Added a no-arg constructor for deserialization
         public RegionStatus() {}
 
         public RegionStatus(String name, double latitude, double longitude, String status) {
