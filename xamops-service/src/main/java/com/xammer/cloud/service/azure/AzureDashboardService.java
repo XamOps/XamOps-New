@@ -1,11 +1,14 @@
 package com.xammer.cloud.service.azure;
 
 import com.azure.resourcemanager.AzureResourceManager;
-import com.fasterxml.jackson.core.type.TypeReference; // <-- ADD THIS
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.xammer.cloud.domain.CloudAccount;
+// <-- 1. ADD THIS IMPORT
+import com.xammer.cloud.dto.DashboardData; 
 import com.xammer.cloud.dto.azure.AzureDashboardData;
 import com.xammer.cloud.repository.CloudAccountRepository;
-import com.xammer.cloud.service.RedisCacheService; // <-- ADD THIS
+import com.xammer.cloud.service.RedisCacheService;
+import com.xammer.cloud.service.azure.AzureBillingDataIngestionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -13,7 +16,7 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Optional; // <-- ADD THIS
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 @Service
@@ -22,14 +25,17 @@ public class AzureDashboardService {
     private static final Logger log = LoggerFactory.getLogger(AzureDashboardService.class);
     private final AzureClientProvider clientProvider;
     private final CloudAccountRepository cloudAccountRepository;
-    private final RedisCacheService redisCache; // <-- ADD THIS
+    private final RedisCacheService redisCache;
+    private final AzureBillingDataIngestionService billingIngestionService; 
 
     public AzureDashboardService(AzureClientProvider clientProvider, 
                                  CloudAccountRepository cloudAccountRepository,
-                                 RedisCacheService redisCache) { // <-- ADD THIS
+                                 RedisCacheService redisCache,
+                                 AzureBillingDataIngestionService billingIngestionService) { 
         this.clientProvider = clientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
-        this.redisCache = redisCache; // <-- ADD THIS
+        this.redisCache = redisCache;
+        this.billingIngestionService = billingIngestionService; 
     }
 
     public AzureDashboardData getDashboardData(String accountId, boolean force) {
@@ -38,14 +44,13 @@ public class AzureDashboardService {
             // Use the Azure Subscription ID to find the account
             CloudAccount account = cloudAccountRepository.findByAzureSubscriptionId(accountId)
                 .orElseThrow(() -> new IllegalArgumentException("Azure account not found for Subscription ID: " + accountId));
+            
             AzureResourceManager azure = clientProvider.getAzureClient(accountId);
             AzureDashboardData dashboardData = new AzureDashboardData();
 
             // Run data fetching in parallel
             CompletableFuture<Void> inventoryFuture = CompletableFuture.runAsync(() -> getAndSetResourceInventory(azure, dashboardData));
-            // --- THIS METHOD IS NOW MODIFIED ---
-            CompletableFuture<Void> costFuture = CompletableFuture.runAsync(() -> getAndSetCostHistoryAndBilling(dashboardData, accountId, force));
-            // ---
+            CompletableFuture<Void> costFuture = CompletableFuture.runAsync(() -> getAndSetCostHistoryAndBilling(dashboardData, account, force));
             CompletableFuture<Void> regionFuture = CompletableFuture.runAsync(() -> getAndSetRegionStatus(azure, dashboardData));
             CompletableFuture<Void> optimizationFuture = CompletableFuture.runAsync(() -> getAndSetOptimizationSummary(azure, dashboardData, accountId));
 
@@ -112,16 +117,28 @@ public class AzureDashboardService {
         }
     }
 
-    // --- THIS IS THE UPDATED METHOD ---
-    private void getAndSetCostHistoryAndBilling(AzureDashboardData dashboardData, String accountId, boolean force) {
+    private void getAndSetCostHistoryAndBilling(AzureDashboardData dashboardData, CloudAccount account, boolean force) {
         
+        String accountId = account.getAzureSubscriptionId();
+
         String billingCacheKey = AzureBillingDataIngestionService.AZURE_BILLING_SUMMARY_CACHE_PREFIX + accountId;
         String historyCacheKey = AzureBillingDataIngestionService.AZURE_COST_HISTORY_CACHE_PREFIX + accountId;
 
-        // Note: A "force" request can't be fulfilled here, as the data comes from a scheduled job.
-        // We just log a warning and return cached data if it exists.
         if (force) {
-            log.warn("Force refresh for Azure billing data is not supported via dashboard load. Data is refreshed on a 6-hour schedule. Returning cached data if available.");
+            log.info("Force refresh requested for Azure billing data for account {}. Evicting cache and triggering ingestion.", accountId);
+            try {
+                // 1. Evict cache
+                redisCache.evict(billingCacheKey);
+                redisCache.evict(historyCacheKey);
+                log.info("Cache evicted for {}.", accountId);
+
+                // 2. Trigger ingestion
+                billingIngestionService.ingestDataForAccount(account);
+                log.info("Force ingestion complete for {}.", accountId);
+                
+            } catch (Exception e) {
+                log.error("Failed to perform force refresh for account {}. Will proceed with (possibly stale) cached data.", accountId, e);
+            }
         }
 
         // 1. Get Billing Summary from Cache
@@ -146,7 +163,6 @@ public class AzureDashboardService {
             dashboardData.setCostHistory(new AzureDashboardData.CostHistory()); // Ensure it's not null
         }
     }
-    // --- END OF UPDATED METHOD ---
 
     private void getAndSetRegionStatus(AzureResourceManager azure, AzureDashboardData dashboardData) {
         try {
@@ -161,15 +177,18 @@ public class AzureDashboardService {
         }
     }
 
+    // <-- 2. FIX: THIS METHOD IS UPDATED
     private void getAndSetOptimizationSummary(AzureResourceManager azure, AzureDashboardData dashboardData, String accountId) {
         try {
-            AzureDashboardData.OptimizationSummary summary = new AzureDashboardData.OptimizationSummary();
+            // Use the common DashboardData.OptimizationSummary
+            DashboardData.OptimizationSummary summary = new DashboardData.OptimizationSummary();
             summary.setTotalPotentialSavings(0.0);
-            summary.setCriticalAlertsCount(0);
+            summary.setCriticalAlertsCount(0); // Use the correct setter
             dashboardData.setOptimizationSummary(summary);
         } catch (Exception e) {
             log.error("Error fetching optimization summary for account {}: {}", accountId, e.getMessage());
-            dashboardData.setOptimizationSummary(new AzureDashboardData.OptimizationSummary());
+            // Use the common DashboardData.OptimizationSummary
+            dashboardData.setOptimizationSummary(new DashboardData.OptimizationSummary());
         }
     }
 }
