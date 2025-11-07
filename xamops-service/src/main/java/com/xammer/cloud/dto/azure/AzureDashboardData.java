@@ -1,7 +1,7 @@
 package com.xammer.cloud.dto.azure;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.xammer.cloud.dto.DashboardData; // <-- Added this import
+import com.xammer.cloud.dto.DashboardData;
 import java.util.List;
 
 /**
@@ -14,16 +14,20 @@ public class AzureDashboardData {
     private ResourceInventory resourceInventory;
     private List<BillingSummary> billingSummary;
     private CostHistory costHistory;
-    private DashboardData.OptimizationSummary optimizationSummary; // <-- Changed this type
+    private DashboardData.OptimizationSummary optimizationSummary;
     private List<RegionStatus> regionStatus;
     private List<CostAnomaly> costAnomalies;
 
-    // Recommendations (can be expanded)
+    // *** ADDED: KPI fields for dashboard display ***
+    private double monthToDateSpend;
+    private double forecastedSpend;
+
+    // Recommendations
     private List<RightsizingRecommendation> vmRecommendations;
     private List<RightsizingRecommendation> diskRecommendations;
     private List<RightsizingRecommendation> functionRecommendations;
-    
-    // --- Getters and Setters for main fields ---
+
+    // --- Getters and Setters ---
 
     public ResourceInventory getResourceInventory() {
         return resourceInventory;
@@ -73,6 +77,23 @@ public class AzureDashboardData {
         this.costAnomalies = costAnomalies;
     }
 
+    // *** ADDED: KPI getters and setters ***
+    public double getMonthToDateSpend() {
+        return monthToDateSpend;
+    }
+
+    public void setMonthToDateSpend(double monthToDateSpend) {
+        this.monthToDateSpend = monthToDateSpend;
+    }
+
+    public double getForecastedSpend() {
+        return forecastedSpend;
+    }
+
+    public void setForecastedSpend(double forecastedSpend) {
+        this.forecastedSpend = forecastedSpend;
+    }
+
     public List<RightsizingRecommendation> getVmRecommendations() {
         return vmRecommendations;
     }
@@ -97,7 +118,6 @@ public class AzureDashboardData {
         this.functionRecommendations = functionRecommendations;
     }
 
-    
     // --- Inner Classes for Data Structure ---
 
     /**
@@ -116,8 +136,7 @@ public class AzureDashboardData {
         private long kubernetesServices;
         private long appServices;
         private long staticWebApps;
-        
-        // Getters and Setters
+
         public long getVirtualMachines() { return virtualMachines; }
         public void setVirtualMachines(long virtualMachines) { this.virtualMachines = virtualMachines; }
         public long getStorageAccounts() { return storageAccounts; }
@@ -153,16 +172,14 @@ public class AzureDashboardData {
         @JsonProperty("monthToDateCost")
         private double cost;
 
-        // <-- THIS IS THE FIX: Added a no-argument constructor for Jackson deserialization
         public BillingSummary() {
         }
-        
+
         public BillingSummary(String service, double cost) {
             this.service = service;
             this.cost = cost;
         }
-        
-        // Getters and Setters
+
         public String getService() { return service; }
         public void setService(String service) { this.service = service; }
         public double getCost() { return cost; }
@@ -176,8 +193,7 @@ public class AzureDashboardData {
         private List<String> labels;
         private List<Double> costs;
         private List<Boolean> anomalies;
-        
-        // Getters and Setters
+
         public List<String> getLabels() { return labels; }
         public void setLabels(List<String> labels) { this.labels = labels; }
         public List<Double> getCosts() { return costs; }
@@ -193,9 +209,8 @@ public class AzureDashboardData {
         private String name;
         private double latitude;
         private double longitude;
-        private String status; // e.g., "ACTIVE", "SUSTAINABLE", "INACTIVE"
-        
-        // Added a no-arg constructor for deserialization
+        private String status;
+
         public RegionStatus() {}
 
         public RegionStatus(String name, double latitude, double longitude, String status) {
@@ -204,8 +219,7 @@ public class AzureDashboardData {
             this.longitude = longitude;
             this.status = status;
         }
-        
-        // Getters and Setters
+
         public String getName() { return name; }
         public void setName(String name) { this.name = name; }
         public double getLatitude() { return latitude; }
@@ -220,13 +234,11 @@ public class AzureDashboardData {
      * Represents a single cost anomaly.
      */
     public static class CostAnomaly {
-        // Define fields as needed
     }
 
     /**
      * Represents a single rightsizing recommendation.
      */
     public static class RightsizingRecommendation {
-        // Define fields as needed
     }
 }

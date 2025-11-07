@@ -135,12 +135,10 @@
                     return;
                 }
 
-                fetch('http://localhost:8080/api/cicd/config/github', {
+                // FIX APPLIED: Changed to relative path and ensured credentials are included.
+                fetch('/api/cicd/config/github', {
                     method: 'POST',
-                    // === *** THE FIX *** ===
-                    // Send credentials (cookies, auth headers) with this cross-origin request
                     credentials: 'include', 
-                    // === *************** ===
                     headers: { 
                         'Content-Type': 'application/json'
                     },

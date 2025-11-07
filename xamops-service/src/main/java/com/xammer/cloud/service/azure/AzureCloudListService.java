@@ -188,7 +188,8 @@ public class AzureCloudListService {
                 try {
                     server.databases().list().forEach(db -> {
                         try {
-                            if (!"master".equalsIgnoreCase(db.name())) {
+                            // --- FIX: Removed the filter that was hiding the 'master' database ---
+                            // if (!"master".equalsIgnoreCase(db.name())) {
                                 ResourceDto dto = new ResourceDto();
                                 dto.setId(db.id());
                                 dto.setName(server.name() + "/" + db.name());
@@ -197,7 +198,7 @@ public class AzureCloudListService {
                                 dto.setState(db.innerModel().status() != null ? 
                                             db.innerModel().status().toString() : "Unknown");
                                 allResources.add(dto);
-                            }
+                            // }
                         } catch (Exception e) {
                             log.warn("Failed to fetch SQL Database {}: {}", db.name(), e.getMessage());
                         }

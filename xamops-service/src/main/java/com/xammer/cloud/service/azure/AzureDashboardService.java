@@ -3,8 +3,7 @@ package com.xammer.cloud.service.azure;
 import com.azure.resourcemanager.AzureResourceManager;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.xammer.cloud.domain.CloudAccount;
-// <-- 1. ADD THIS IMPORT
-import com.xammer.cloud.dto.DashboardData; 
+import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.azure.AzureDashboardData;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.service.RedisCacheService;
@@ -18,6 +17,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.IntStream;
 
 @Service
 public class AzureDashboardService {
@@ -26,22 +26,21 @@ public class AzureDashboardService {
     private final AzureClientProvider clientProvider;
     private final CloudAccountRepository cloudAccountRepository;
     private final RedisCacheService redisCache;
-    private final AzureBillingDataIngestionService billingIngestionService; 
+    private final AzureBillingDataIngestionService billingIngestionService;
 
-    public AzureDashboardService(AzureClientProvider clientProvider, 
+    public AzureDashboardService(AzureClientProvider clientProvider,
                                  CloudAccountRepository cloudAccountRepository,
                                  RedisCacheService redisCache,
-                                 AzureBillingDataIngestionService billingIngestionService) { 
+                                 AzureBillingDataIngestionService billingIngestionService) {
         this.clientProvider = clientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
         this.redisCache = redisCache;
-        this.billingIngestionService = billingIngestionService; 
+        this.billingIngestionService = billingIngestionService;
     }
 
     public AzureDashboardData getDashboardData(String accountId, boolean force) {
         log.info("Fetching dashboard data for Azure account ID: {}", accountId);
         try {
-            // Use the Azure Subscription ID to find the account
             CloudAccount account = cloudAccountRepository.findByAzureSubscriptionId(accountId)
                 .orElseThrow(() -> new IllegalArgumentException("Azure account not found for Subscription ID: " + accountId));
             
@@ -56,7 +55,7 @@ public class AzureDashboardService {
 
             CompletableFuture.allOf(inventoryFuture, costFuture, regionFuture, optimizationFuture).join();
 
-            // Ensure recommendations and lists are initialized to avoid frontend errors
+            // Ensure all lists are initialized
             if (dashboardData.getVmRecommendations() == null) {
                 dashboardData.setVmRecommendations(Collections.emptyList());
             }
@@ -109,7 +108,7 @@ public class AzureDashboardService {
             inventory.setContainerInstances(azure.containerGroups().list().stream().count());
             inventory.setKubernetesServices(azure.kubernetesClusters().list().stream().count());
             inventory.setAppServices(azure.webApps().list().stream().count());
-            inventory.setStaticWebApps(0); // Static Web Apps client is different, mock for now
+            inventory.setStaticWebApps(0);
             dashboardData.setResourceInventory(inventory);
         } catch (Exception e) {
             log.error("Error fetching resource inventory: {}", e.getMessage());
@@ -118,7 +117,6 @@ public class AzureDashboardService {
     }
 
     private void getAndSetCostHistoryAndBilling(AzureDashboardData dashboardData, CloudAccount account, boolean force) {
-        
         String accountId = account.getAzureSubscriptionId();
 
         String billingCacheKey = AzureBillingDataIngestionService.AZURE_BILLING_SUMMARY_CACHE_PREFIX + accountId;
@@ -127,40 +125,67 @@ public class AzureDashboardService {
         if (force) {
             log.info("Force refresh requested for Azure billing data for account {}. Evicting cache and triggering ingestion.", accountId);
             try {
-                // 1. Evict cache
                 redisCache.evict(billingCacheKey);
                 redisCache.evict(historyCacheKey);
                 log.info("Cache evicted for {}.", accountId);
 
-                // 2. Trigger ingestion
                 billingIngestionService.ingestDataForAccount(account);
                 log.info("Force ingestion complete for {}.", accountId);
-                
             } catch (Exception e) {
                 log.error("Failed to perform force refresh for account {}. Will proceed with (possibly stale) cached data.", accountId, e);
             }
         }
 
-        // 1. Get Billing Summary from Cache
-        Optional<List<AzureDashboardData.BillingSummary>> billingSummary = 
+        // 1. Get Billing Summary from Cache (Cost by Service)
+        Optional<List<AzureDashboardData.BillingSummary>> billingSummary =
             redisCache.get(billingCacheKey, new TypeReference<>() {});
-        
+
         if (billingSummary.isPresent()) {
             dashboardData.setBillingSummary(billingSummary.get());
         } else {
             log.warn("No cached billing summary found for {}. Data will be missing until next ingestion.", accountId);
-            dashboardData.setBillingSummary(Collections.emptyList()); // Ensure it's not null
+            dashboardData.setBillingSummary(Collections.emptyList());
         }
 
         // 2. Get Cost History from Cache
-        Optional<AzureDashboardData.CostHistory> costHistory = 
+        Optional<AzureDashboardData.CostHistory> costHistory =
             redisCache.get(historyCacheKey, AzureDashboardData.CostHistory.class);
 
         if (costHistory.isPresent()) {
             dashboardData.setCostHistory(costHistory.get());
+            
+            // *** CRITICAL FIX: Separate MTD from Forecasted Spend ***
+            AzureDashboardData.CostHistory history = costHistory.get();
+            List<String> labels = history.getLabels();
+            List<Double> costs = history.getCosts();
+            List<Boolean> anomalies = history.getAnomalies();
+
+            if (labels != null && costs != null && anomalies != null && labels.size() == costs.size()) {
+                // MTD = sum of ACTUAL costs only (anomalies = false)
+                double mtdSpend = IntStream.range(0, labels.size())
+                    .filter(i -> !Boolean.TRUE.equals(anomalies.get(i)))
+                    .mapToDouble(costs::get)
+                    .sum();
+
+                // Forecasted = sum of FORECAST costs only (anomalies = true)
+                double forecastedSpend = IntStream.range(0, labels.size())
+                    .filter(i -> Boolean.TRUE.equals(anomalies.get(i)))
+                    .mapToDouble(costs::get)
+                    .sum();
+
+                dashboardData.setMonthToDateSpend(mtdSpend);
+                dashboardData.setForecastedSpend(forecastedSpend);
+
+                log.info("Dashboard KPIs - MTD: ${}, Forecasted: ${}", mtdSpend, forecastedSpend);
+            } else {
+                dashboardData.setMonthToDateSpend(0.0);
+                dashboardData.setForecastedSpend(0.0);
+            }
         } else {
             log.warn("No cached cost history found for {}. Data will be missing until next ingestion.", accountId);
-            dashboardData.setCostHistory(new AzureDashboardData.CostHistory()); // Ensure it's not null
+            dashboardData.setCostHistory(new AzureDashboardData.CostHistory());
+            dashboardData.setMonthToDateSpend(0.0);
+            dashboardData.setForecastedSpend(0.0);
         }
     }
 
@@ -177,17 +202,14 @@ public class AzureDashboardService {
         }
     }
 
-    // <-- 2. FIX: THIS METHOD IS UPDATED
     private void getAndSetOptimizationSummary(AzureResourceManager azure, AzureDashboardData dashboardData, String accountId) {
         try {
-            // Use the common DashboardData.OptimizationSummary
             DashboardData.OptimizationSummary summary = new DashboardData.OptimizationSummary();
             summary.setTotalPotentialSavings(0.0);
-            summary.setCriticalAlertsCount(0); // Use the correct setter
+            summary.setCriticalAlertsCount(0);
             dashboardData.setOptimizationSummary(summary);
         } catch (Exception e) {
             log.error("Error fetching optimization summary for account {}: {}", accountId, e.getMessage());
-            // Use the common DashboardData.OptimizationSummary
             dashboardData.setOptimizationSummary(new DashboardData.OptimizationSummary());
         }
     }

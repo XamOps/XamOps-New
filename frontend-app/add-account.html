@@ -772,15 +772,117 @@
             </div>
 
             <div x-show="isPolicyModalOpen" x-cloak class="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
-                <div @click.away="isPolicyModalOpen = false" class="modal-content rounded-2xl p-8 w-full max-w-2xl mx-auto max-h-[90vh] overflow-y-auto">
-                    <h2 class="text-xl font-bold text-gray-800 mb-4">IAM Policy</h2>
-                    <pre class="bg-gray-100 p-4 rounded-lg text-xs overflow-x-auto"><code></code></pre>
+                <div @click.away="isPolicyModalOpen = false" class="modal-content rounded-2xl p-8 w-full max-w-3xl mx-auto max-h-[90vh] overflow-y-auto">
+                    <h2 class="text-xl font-bold text-gray-800 mb-4">IAM Policies</h2>
+                    <p class="text-sm text-gray-600 mb-6">The CloudFormation stack will create an IAM role (e.g., `XamOpsRole`) with these two policies attached.</p>
+
+                    <h3 class="text-lg font-semibold text-gray-700 mb-2">1. AWSReadOnlyAccess</h3>
+                    <div class="bg-gray-100 p-4 rounded-lg text-xs overflow-x-auto mb-6">
+                        <p class="font-mono">
+                            <strong>Policy Name:</strong> `AWSReadOnlyAccess` (AWS Managed Policy)<br/>
+                            <strong>ARN:</strong> `arn:aws:iam::aws:policy/ReadOnlyAccess`
+                        </p>
+                        <p class="mt-2 text-gray-700">This policy provides broad read-only access to all AWS services and resources, allowing XamOps to list and describe your infrastructure.</p>
+                    </div>
+
+                    <h3 class="text-lg font-semibold text-gray-700 mb-2">2. XamOpsApplicationPermissions (Custom Policy)</h3>
+                    <pre class="bg-gray-100 p-4 rounded-lg text-xs overflow-x-auto"><code>{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Action": [
+                "acm:ListCertificates",
+                "access-analyzer:ListAnalyzers",
+                "access-analyzer:ListFindings",
+                "autoscaling:DescribeAutoScalingGroups",
+                "budgets:ViewBudget",
+                "budgets:ModifyBudget",
+                "ce:GetAnomalies",
+                "ce:GetCostAndUsage",
+                "ce:GetDimensionValues",
+                "ce:GetReservationCoverage",
+                "ce:GetReservationPurchaseRecommendation",
+                "ce:GetReservationUtilization",
+                "cloudtrail:DescribeTrails",
+                "cloudtrail:GetTrailStatus",
+                "cloudtrail:LookupEvents",
+                "cloudwatch:DescribeAlarms",
+                "cloudwatch:GetMetricData",
+                "cloudwatch:GetMetricStatistics",
+                "compute-optimizer:GetEBSVolumeRecommendations",
+                "compute-optimizer:GetEc2InstanceRecommendations",
+                "compute-optimizer:GetLambdaFunctionRecommendations",
+                "dynamodb:DescribeTable",
+                "dynamodb:ListTables",
+                "ec2:Describe*",
+                "ecr:DescribeRepositories",
+                "ecs:DescribeClusters",
+                "ecs:ListClusters",
+                "eks:DescribeCluster",
+                "eks:ListClusters",
+                "elasticache:DescribeCacheClusters",
+                "elasticloadbalancing:DescribeLoadBalancers",
+                "elasticloadbalancing:DescribeTargetGroups",
+                "elasticloadbalancing:DescribeTargetHealth",
+                "iam:GetAccountPasswordPolicy",
+                "iam:GetLoginProfile",
+                "iam:GetPolicyVersion",
+                "iam:GetRole",
+                "iam:ListAccessKeys",
+                "iam:ListAccountAliases",
+                "iam:ListGroups",
+                "iam:ListMFADevices",
+                "iam:ListPolicies",
+                "iam:ListRoles",
+                "iam:ListUsers",
+                "kms:DescribeKey",
+                "kms:GetKeyRotationStatus",
+                "kms:ListKeys",
+                "lambda:ListFunctions",
+                "lambda:ListProvisionedConcurrencyConfigs",
+                "lambda:ListVersionsByFunction",
+                "logs:DescribeLogGroups",
+                "logs:DescribeLogStreams",
+                "logs:GetQueryResults",
+                "logs:StartQuery",
+                "organizations:DescribeAccount",
+                "organizations:ListAccounts",
+                "pricing:DescribeServices",
+                "pricing:GetProducts",
+                "pricing:ListPriceLists",
+                "rds:DescribeDBInstances",
+                "rds:DescribeDBSnapshots",
+                "rds:ListTagsForResource",
+                "route53:ListHostedZones",
+                "s3:GetBucketAcl",
+                "s3:GetBucketLocation",
+                "s3:GetBucketPublicAccessBlock",
+                "s3:GetLifecycleConfiguration",
+                "s3:ListAccessGrantsInstances",
+                "s3:ListAccessGrantsLocations",
+                "s3:ListAllMyBuckets",
+                "s3:ListBucket",
+                "s3:ListBucketVersions",
+                "s3:ListMultiRegionAccessPoints",
+                "servicequotas:ListServiceQuotas",
+                "sns:ListTopics",
+                "sqs:GetQueueAttributes",
+                "sqs:ListQueues",
+                "sts:GetCallerIdentity"
+            ],
+            "Resource": "*",
+            "Effect": "Allow",
+            "Sid": "XamOpsApplicationPermissions"
+        }
+    ]
+}</code></pre>
+                    
                     <div class="flex justify-end mt-6">
                         <button @click="isPolicyModalOpen = false" class="btn-primary px-6 py-3 text-sm font-semibold rounded-lg shadow-md">Close</button>
                     </div>
                 </div>
             </div>
-        </main>
+            </main>
     </div>
 </div>
 

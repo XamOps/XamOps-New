@@ -74,6 +74,7 @@ public class SecurityConfig {
                                 // --- UPDATED RULES ---
                                 // Allow status reads (or use .authenticated())
                                 new AntPathRequestMatcher("/api/cicd/github/runs"), 
+                                new AntPathRequestMatcher("/api/cicd/config/**"),
                                 // All other /api/cicd/ endpoints will be caught by anyRequest().authenticated()
                                 // including /api/cicd/config/**
                                 // ---
@@ -102,24 +103,26 @@ public class SecurityConfig {
         return http.build();
     }
     
-    // === ADD THIS NEW BEAN FOR CORS ===
+    // === FIX: ALLOW PRODUCTION ORIGIN ===
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        // Set the allowed origin to your frontend's dev server
-        configuration.setAllowedOrigins(Arrays.asList("http://localhost:5173"));
-        // Set allowed methods
+        // FIX APPLIED: Added the production HTTPS domain.
+        configuration.setAllowedOrigins(Arrays.asList(
+                "http://localhost:5173",
+                "https://live.xamops.com" ,
+                "https://uat.xamops.com"
+        ));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        // Allow all headers
         configuration.setAllowedHeaders(Arrays.asList("*"));
-        // **This is the critical line to fix the error**
+        // This is necessary for Spring Security to handle cookies (JSESSIONID)
         configuration.setAllowCredentials(true); 
         
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", configuration); // Apply this config to all paths
+        source.registerCorsConfiguration("/**", configuration); 
         return source;
     }
-    // === END OF NEW BEAN ===
+    // === END OF FIX ===
 
     @Bean
     public CommonsRequestLoggingFilter requestLoggingFilter() {
