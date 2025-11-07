@@ -743,14 +743,87 @@
                         </div>
 
                         <div x-show="provider === 'azure'" x-cloak class="form-card rounded-2xl p-8 fade-in">
-                            <div class="flex items-center space-x-3 mb-6">
-                                <div class="step-number">2</div>
-                                <div>
-                                    <h2 class="text-xl font-bold text-gray-800">Azure Connection Details</h2>
-                                    <p class="text-sm text-gray-600">Run the setup script in Azure Cloud Shell and paste the JSON output below.</p>
+                            
+                            <div class="space-y-4"
+                                 x-data="{
+                                     copy(elementId) {
+                                         const text = document.getElementById(elementId).innerText;
+                                         navigator.clipboard.writeText(text);
+                                         
+                                         // Reset all buttons to 'Copy'
+                                         this.$refs.copyBtn1.innerText = 'Copy';
+                                         this.$refs.copyBtn2.innerText = 'Copy';
+                                         this.$refs.copyBtn3.innerText = 'Copy';
+                                         this.$refs.copyBtn4.innerText = 'Copy';
+                                         this.$refs.copyBtn5.innerText = 'Copy';
+
+                                         // Set the clicked button to 'Copied!'
+                                         const clickedButton = this.$el.querySelector(`[data-button-id='${elementId}']`);
+                                         if (clickedButton) {
+                                             clickedButton.innerText = 'Copied!';
+                                         }
+                                     }
+                                 }">
+                                <div class="flex items-center space-x-3 mb-6">
+                                    <div class="step-number">2</div>
+                                    <div>
+                                        <h2 class="text-xl font-bold text-gray-800">Run Azure Setup Script</h2>
+                                        <p class="text-sm text-gray-600">Run these commands one by one in Azure Cloud Shell to get your credentials.</p>
+                                    </div>
+                                </div>
+                                <p class="text-sm text-gray-600">
+                                    Open the <a href="https://shell.azure.com/" target="_blank" class="text-blue-600 hover:underline font-medium">Azure Cloud Shell</a>, select <strong>PowerShell</strong>,
+                                    and run the following commands one at a time.
+                                </p>
+
+                                <div class="relative bg-gray-900 text-white p-4 rounded-xl font-mono text-sm">
+                                    <button type="button" @click="copy('azure-script-1')" x-ref="copyBtn1" data-button-id="azure-script-1"
+                                            class="absolute top-3 right-3 bg-gray-700 hover:bg-gray-600 text-white text-xs font-semibold py-1 px-3 rounded-md transition z-10">
+                                        Copy
+                                    </button>
+                                    <pre id="azure-script-1" class="overflow-x-auto"><code class="language-powershell">Connect-AzAccount -UseDeviceAuthentication</code></pre>
+                                </div>
+                                
+                                <div class="relative bg-gray-900 text-white p-4 rounded-xl font-mono text-sm">
+                                    <button type="button" @click="copy('azure-script-2')" x-ref="copyBtn2" data-button-id="azure-script-2"
+                                            class="absolute top-3 right-3 bg-gray-700 hover:bg-gray-600 text-white text-xs font-semibold py-1 px-3 rounded-md transition z-10">
+                                        Copy
+                                    </button>
+                                    <pre id="azure-script-2" class="overflow-x-auto"><code class="language-powershell">Set-AzContext -Subscription <span class="text-yellow-400">"YOUR_SUBSCRIPTION_ID"</span></code></pre>
+                                </div>
+
+                                <div class="relative bg-gray-900 text-white p-4 rounded-xl font-mono text-sm">
+                                    <button type="button" @click="copy('azure-script-3')" x-ref="copyBtn3" data-button-id="azure-script-3"
+                                            class="absolute top-3 right-3 bg-gray-700 hover:bg-gray-600 text-white text-xs font-semibold py-1 px-3 rounded-md transition z-10">
+                                        Copy
+                                    </button>
+                                    <pre id="azure-script-3" class="overflow-x-auto"><code class="language-powershell">Invoke-WebRequest -Uri "https://xamops-azure-connector1.s3.ap-south-1.amazonaws.com/setup-xamops-connection.ps" -OutFile "setup-xamops-connection.ps1"</code></pre>
+                                </div>
+
+                                <div class="relative bg-gray-900 text-white p-4 rounded-xl font-mono text-sm">
+                                    <button type="button" @click="copy('azure-script-4')" x-ref="copyBtn4" data-button-id="azure-script-4"
+                                            class="absolute top-3 right-3 bg-gray-700 hover:bg-gray-600 text-white text-xs font-semibold py-1 px-3 rounded-md transition z-10">
+                                        Copy
+                                    </button>
+                                    <pre id="azure-script-4" class="overflow-x-auto"><code class="language-powershell">. .\setup-xamops-connection.ps1</code></pre>
+                                </div>
+
+                                <div class="relative bg-gray-900 text-white p-4 rounded-xl font-mono text-sm">
+                                    <button type="button" @click="copy('azure-script-5')" x-ref="copyBtn5" data-button-id="azure-script-5"
+                                            class="absolute top-3 right-3 bg-gray-700 hover:bg-gray-600 text-white text-xs font-semibold py-1 px-3 rounded-md transition z-10">
+                                        Copy
+                                    </button>
+                                    <pre id="azure-script-5" class="overflow-x-auto"><code class="language-powershell">Setup-XamOpsConnection -SubscriptionId <span class="text-yellow-400">"YOUR_SUBSCRIPTION_ID"</span> -ApplicationName "XamOps" -CreateSpCredential $true</code></pre>
                                 </div>
                             </div>
-                            <form @submit.prevent="addAzureAccount" class="space-y-6">
+                            <form @submit.prevent="addAzureAccount" class="space-y-6 pt-8 border-t border-gray-200 mt-8">
+                                <div class="flex items-center space-x-3 mb-6">
+                                    <div class="step-number">3</div>
+                                    <div>
+                                        <h2 class="text-xl font-bold text-gray-800">Enter Details & Connect</h2>
+                                        <p class="text-sm text-gray-600">Paste the JSON output from the script below.</p>
+                                    </div>
+                                </div>
                                 <div>
                                     <label for="azureAccountName" class="block text-sm font-semibold text-gray-700 mb-2">Account Name</label>
                                     <input type="text" id="azureAccountName" x-model="azureDetails.accountName" placeholder="e.g., Azure Production Subscription" class="form-input w-full px-4 py-3 rounded-xl" required>
@@ -766,8 +839,8 @@
                                     </button>
                                 </div>
                             </form>
+                            </div>
                         </div>
-                    </div>
                 </div>
             </div>
 

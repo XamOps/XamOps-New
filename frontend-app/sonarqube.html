@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XamOps - Code Quality</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
+    <link rel="apple-touch-icon" href="/icons/XamOps.png">
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <script type="module" src="/src/main.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .sidebar-scroll::-webkit-scrollbar { width: 4px; }
+        .sidebar-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 20px; }
+        [x-cloak] { display: none !important; }
+
+        .metric-card {
+            transition: all 0.2s ease-in-out;
+        }
+        .metric-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        .quality-gate-ok { background-color: #DEF7EC; color: #067647; }
+        .quality-gate-error { background-color: #FDE2E1; color: #B42318; }
+        .quality-gate-none { background-color: #F3F4F6; color: #4B5563; }
+    </style>
+</head>
+
+<body class="bg-gray-50 flex">
+
+    <!-- ✅ SIDEBAR INCLUDED -->
+    <div th:replace="~{_sidebar :: _sidebar}"></div>
+
+    <div class="flex-1 flex flex-col h-screen overflow-y-auto">
+
+        <!-- ✅ HEADER INCLUDED -->
+        <div th:replace="~{_header :: _header}"></div>
+
+        <main class="flex-1 p-6 lg:p-10" x-data="sonarqubePage()">
+            
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+                <div>
+                    <h1 class="text-3xl font-bold text-gray-900">Code Quality (SonarQube)</h1>
+                    <p class="text-lg text-gray-500 mt-1">Monitor all your SonarQube projects in one place.</p>
+                </div>
+                <button @click="isModalOpen = true" class="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 transition duration-200">
+                    <i class="fas fa-plus fa-fw"></i>
+                    <span>Add Project</span>
+                </button>
+            </div>
+
+            <div x-show="isLoading" class="flex justify-center items-center h-64">
+                <div class="w-12 h-12 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+            </div>
+
+            <div x-show="error" x-cloak class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-6" role="alert">
+                <strong class="font-bold">Error: </strong>
+                <span class="block sm:inline" x-text="error"></span>
+            </div>
+
+            <div x-show="!isLoading && projects.length === 0" x-cloak class="text-center bg-white p-12 rounded-lg shadow-sm border">
+                <i class="fas fa-search-dollar fa-3x text-gray-300 mb-4"></i>
+                <h3 class="text-xl font-semibold text-gray-800">No Projects Configured</h3>
+                <p class="text-gray-500 mt-2">Click "Add Project" to start monitoring your code quality.</p>
+            </div>
+
+            <div x-show="!isLoading" x-cloak class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                <template x-for="project in projects" :key="project.id">
+                    <div class="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+                        <div class="p-5 border-b border-gray-200">
+                            <div class="flex justify-between items-center">
+                                <div>
+                                    <h2 class="text-xl font-semibold text-gray-900" x-text="project.projectName"></h2>
+                                    <p class="text-sm text-gray-500" x-text="project.projectKey"></p>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <button @click="fetchMetrics(project.id)" class="px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 rounded-md hover:bg-indigo-100" title="Refresh Metrics">
+                                        <i class="fas fa-sync" :class="{ 'fa-spin': loadingMetrics[project.id] }"></i>
+                                        <span x-show="!loadingMetrics[project.id]">Refresh</span>
+                                    </button>
+                                    <button @click="deleteProject(project.id)" class="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-md hover:bg-red-100" title="Delete Project">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <a :href="project.serverUrl" target="_blank" class="text-xs text-indigo-600 hover:underline break-all" x-text="project.serverUrl"></a>
+                        </div>
+                        
+                        <div class="p-5">
+                            <div x-show="loadingMetrics[project.id]" class="text-center py-8">
+                                <i class="fas fa-spinner fa-spin fa-2x text-gray-400"></i>
+                                <p class="text-sm text-gray-500 mt-2">Fetching metrics...</p>
+                            </div>
+
+                            <div x-show="errorMetrics[project.id]" x-cloak class="text-center py-8">
+                                <i class="fas fa-exclamation-triangle fa-2x text-red-400"></i>
+                                <p class="text-sm text-red-600 font-medium mt-2" x-text="errorMetrics[project.id]">Error loading metrics.</p>
+                            </div>
+
+                            <div x-show="!loadingMetrics[project.id] && !errorMetrics[project.id] && metrics[project.id]" x-cloak>
+                                <dl class="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                                    <div class="sm:col-span-1 col-span-2">
+                                        <div class="metric-card p-4 rounded-lg" :class="getQualityGateClass(metrics[project.id].qualityGateStatus)">
+                                            <dt class="text-sm font-medium truncate">Quality Gate</dt>
+                                            <dd class="mt-1 text-3xl font-semibold tracking-tight" x-text="metrics[project.id].qualityGateStatus || 'N/A'"></dd>
+                                        </div>
+                                    </div>
+                                    <div class="metric-card p-4 rounded-lg bg-gray-50">
+                                        <dt class="text-sm font-medium text-gray-500 truncate">Coverage</dt>
+                                        <dd class="mt-1 text-3xl font-semibold tracking-tight text-gray-900" x-text="(metrics[project.id].coverage || 0) + '%'"></dd>
+                                    </div>
+                                    <div class="metric-card p-4 rounded-lg bg-gray-50">
+                                        <dt class="text-sm font-medium text-gray-500 truncate">Vulnerabilities</dt>
+                                        <dd class="mt-1 text-3xl font-semibold tracking-tight text-gray-900" x-text="metrics[project.id].vulnerabilities || 0"></dd>
+                                    </div>
+                                    <div class="metric-card p-4 rounded-lg bg-gray-50">
+                                        <dt class="text-sm font-medium text-gray-500 truncate">Bugs</dt>
+                                        <dd class="mt-1 text-3xl font-semibold tracking-tight text-gray-900" x-text="metrics[project.id].bugs || 0"></dd>
+                                    </div>
+                                    <div class="metric-card p-4 rounded-lg bg-gray-50">
+                                        <dt class="text-sm font-medium text-gray-500 truncate">Code Smells</dt>
+                                        <dd class="mt-1 text-3xl font-semibold tracking-tight text-gray-900" x-text="metrics[project.id].codeSmells || 0"></dd>
+                                    </div>
+                                    <div class="metric-card p-4 rounded-lg bg-gray-50">
+                                        <dt class="text-sm font-medium text-gray-500 truncate">Lines of Code</dt>
+                                        <dd class="mt-1 text-3xl font-semibold tracking-tight text-gray-900" x-text="(metrics[project.id].linesOfCode || 0).toLocaleString()"></dd>
+                                    </div>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+            
+            <!-- Modal for Adding Project -->
+            <div x-show="isModalOpen" x-cloak
+                 class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50"
+                 @keydown.escape.window="isModalOpen = false">
+                <div @click.outside="isModalOpen = false"
+                     class="bg-white rounded-lg shadow-xl w-full max-w-lg overflow-hidden transition-all duration-300 ease-out"
+                     x-show="isModalOpen"
+                     x-transition:enter="ease-out duration-300"
+                     x-transition:enter-start="opacity-0 scale-95"
+                     x-transition:enter-end="opacity-100 scale-100"
+                     x-transition:leave="ease-in duration-200"
+                     x-transition:leave-start="opacity-100 scale-100"
+                     x-transition:leave-end="opacity-0 scale-95">
+
+                    <form @submit.prevent="addProject">
+                        <div class="px-6 py-5 bg-gray-50 border-b">
+                            <h3 class="text-lg font-medium text-gray-900">Add SonarQube Project</h3>
+                        </div>
+                        <div class="p-6 space-y-4">
+                            <div>
+                                <label for="projectName" class="block text-sm font-medium text-gray-700">Project Name</label>
+                                <input type="text" x-model="newProject.projectName" id="projectName" placeholder="e.g., My Awesome App" required
+                                       class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                            </div>
+                            <div>
+                                <label for="serverUrl" class="block text-sm font-medium text-gray-700">Server URL</label>
+                                <input type="url" x-model="newProject.serverUrl" id="serverUrl" placeholder="https://sonarcloud.io" required
+                                       class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                            </div>
+                            <div>
+                                <label for="projectKey" class="block text-sm font-medium text-gray-700">Project Key</label>
+                                <input type="text" x-model="newProject.projectKey" id="projectKey" placeholder="my-org_my-project-key" required
+                                       class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                            </div>
+                            <div>
+                                <label for="token" class="block text-sm font-medium text-gray-700">API Token</label>
+                                <input type="password" x-model="newProject.token" id="token" placeholder="sqp_..." required
+                                       class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                            </div>
+                            
+                            <div x-show="modalError" x-cloak class="text-sm text-red-600" x-text="modalError"></div>
+                        </div>
+                        <div class="px-6 py-4 bg-gray-50 border-t flex justify-end gap-3">
+                            <button type="button" @click="isModalOpen = false" class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50">
+                                Cancel
+                            </button>
+                            <button type="submit" :disabled="isSaving" class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 border border-transparent rounded-md shadow-sm hover:bg-indigo-700 disabled:opacity-50">
+                                <span x-show="!isSaving">Save Project</span>
+                                <span x-show="isSaving"><i class="fas fa-spinner fa-spin mr-1"></i>Saving...</span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+        </main>
+        
+        <script>
+            function sonarqubePage() {
+                return {
+                    projects: [],
+                    metrics: {},
+                    loadingMetrics: {},
+                    errorMetrics: {},
+                    isLoading: true,
+                    isModalOpen: false,
+                    isSaving: false,
+                    error: '',
+                    modalError: '',
+                    newProject: {
+                        projectName: '',
+                        serverUrl: '',
+                        projectKey: '',
+                        token: ''
+                    },
+
+                    // Re-usable API fetcher
+                    async apiFetch(url, options = {}) {
+                        const csrfToken = document.cookie
+                            .split('; ')
+                            .find(row => row.startsWith('XSRF-TOKEN='))
+                            ?.split('=')[1];
+                        
+                        if (!csrfToken) {
+                            console.warn('XSRF-TOKEN not found. API calls may fail.');
+                        }
+
+                        const response = await fetch(url, {
+                            ...options,
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Accept': 'application/json',
+                                'X-XSRF-TOKEN': csrfToken,
+                                ...options.headers
+                            }
+                        });
+
+                        if (!response.ok) {
+                            const errorText = await response.text();
+                            console.error('API Error:', response.status, errorText);
+                            try {
+                                const errorJson = JSON.parse(errorText);
+                                throw new Error(errorJson.message || errorJson.error || `HTTP ${response.status}`);
+                            } catch (e) {
+                                throw new Error(errorText || `HTTP ${response.status}`);
+                            }
+                        }
+                        return response.json();
+                    },
+
+                    init() {
+                        this.fetchProjects();
+                    },
+
+                    fetchProjects() {
+                        this.isLoading = true;
+                        this.error = '';
+                        this.apiFetch('/api/xamops/sonarqube/projects')
+                            .then(data => {
+                                this.projects = data;
+                            })
+                            .catch(err => {
+                                this.error = 'Failed to load projects: ' + err.message;
+                            })
+                            .finally(() => {
+                                this.isLoading = false;
+                            });
+                    },
+
+                    fetchMetrics(projectId) {
+                        this.loadingMetrics[projectId] = true;
+                        this.errorMetrics[projectId] = null;
+                        this.metrics[projectId] = null; // Clear old data
+
+                        this.apiFetch(`/api/xamops/sonarqube/projects/${projectId}/metrics`)
+                            .then(data => {
+                                this.metrics[projectId] = data;
+                            })
+                            .catch(err => {
+                                this.errorMetrics[projectId] = 'Error: ' + err.message;
+                            })
+                            .finally(() => {
+                                this.loadingMetrics[projectId] = false;
+                            });
+                    },
+
+                    addProject() {
+                        this.isSaving = true;
+                        this.modalError = '';
+                        this.apiFetch('/api/xamops/sonarqube/projects', {
+                            method: 'POST',
+                            body: JSON.stringify(this.newProject)
+                        })
+                        .then(data => {
+                            this.isModalOpen = false;
+                            this.resetNewProjectForm();
+                            this.fetchProjects(); // Refresh the list
+                        })
+                        .catch(err => {
+                            this.modalError = 'Failed to save project: ' + err.message;
+                        })
+                        .finally(() => {
+                            this.isSaving = false;
+                        });
+                    },
+
+                    deleteProject(projectId) {
+                        if (!confirm('Are you sure you want to delete this project configuration?')) {
+                            return;
+                        }
+                        this.error = '';
+                        this.apiFetch(`/api/xamops/sonarqube/projects/${projectId}`, {
+                            method: 'DELETE'
+                        })
+                        .then(() => {
+                            this.fetchProjects(); // Refresh the list
+                            delete this.metrics[projectId]; // Remove metrics from state
+                        })
+                        .catch(err => {
+                            this.error = 'Failed to delete project: ' + err.message;
+                        });
+                    },
+                    
+                    resetNewProjectForm() {
+                        this.newProject = { projectName: '', serverUrl: '', projectKey: '', token: '' };
+                    },
+
+                    getQualityGateClass(status) {
+                        if (status === 'OK' || status === 'Passed') return 'quality-gate-ok';
+                        if (status === 'ERROR' || status === 'Failed') return 'quality-gate-error';
+                        return 'quality-gate-none';
+                    }
+                }
+            }
+        </script>
+    </div>
+</body>
+</html>
