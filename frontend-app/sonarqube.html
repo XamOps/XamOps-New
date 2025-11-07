@@ -3,81 +3,514 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>XamOps - Code Quality</title>
+    <title>XamOps - Code Quality Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
-    <link rel="apple-touch-icon" href="/icons/XamOps.png">
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
     
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-        body { font-family: 'Inter', sans-serif; }
-        .sidebar-scroll::-webkit-scrollbar { width: 4px; }
-        .sidebar-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 20px; }
-        [x-cloak] { display: none !important; }
-
-        .quality-gate-ok { background-color: #DEF7EC; color: #067647; }
-        .quality-gate-error { background-color: #FDE2E1; color: #B42318; }
-        .quality-gate-warn { background-color: #FEF0C7; color: #B54708; }
-        .quality-gate-none { background-color: #F3F4F6; color: #4B5563; }
         
-        .metric-value {
-            font-size: 1.5rem; /* 24px */
-            line-height: 2rem; /* 32px */
-            font-weight: 700;
+        * {
+            font-family: 'Inter', sans-serif;
         }
-        .metric-label {
-            font-size: 0.875rem; /* 14px */
-            line-height: 1.25rem; /* 20px */
-            font-weight: 500;
-            color: #6B7280;
+
+        /* White Background */
+        body {
+            background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+            min-height: 100vh;
+            color: #1e293b;
+            position: relative;
+            overflow-x: hidden;
         }
+
+        /* Subtle Animated Background Accent */
+        body::before {
+            content: '';
+            position: fixed;
+            top: -50%;
+            right: -50%;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle, rgba(102, 126, 234, 0.05) 0%, transparent 70%);
+            animation: float 20s ease-in-out infinite;
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        body::after {
+            content: '';
+            position: fixed;
+            bottom: -50%;
+            left: -50%;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle, rgba(118, 75, 162, 0.05) 0%, transparent 70%);
+            animation: float 25s ease-in-out infinite reverse;
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            50% { transform: translate(20px, -20px) scale(1.05); }
+        }
+
+        /* Smooth Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, #667eea, #764ba2);
+            border-radius: 4px;
+            border: 2px solid #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(180deg, #764ba2, #667eea);
+        }
+
+        [x-cloak] {
+            display: none !important;
+        }
+
+        /* Main Container */
+        .main-container {
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+
+        /* Glassmorphism Cards - White Theme */
+        .glass-card {
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.9) 100%);
+            border: 1px solid rgba(30, 41, 59, 0.08);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-radius: 16px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+        }
+
+        .glass-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(102, 126, 234, 0.2), transparent);
+        }
+
+        .glass-card:hover {
+            border-color: rgba(102, 126, 234, 0.2);
+            background: linear-gradient(135deg, #ffffff 0%, rgba(248, 250, 252, 0.95) 100%);
+            box-shadow: 0 12px 32px rgba(102, 126, 234, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+            transform: translateY(-8px);
+        }
+
+        /* Metric Card - Enhanced */
+        .metric-card {
+            animation: slideInUp 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+        }
+
+        .metric-card:nth-child(1) { animation-delay: 0.1s; }
+        .metric-card:nth-child(2) { animation-delay: 0.2s; }
+        .metric-card:nth-child(3) { animation-delay: 0.3s; }
+        .metric-card:nth-child(4) { animation-delay: 0.4s; }
+        .metric-card:nth-child(5) { animation-delay: 0.5s; }
+        .metric-card:nth-child(6) { animation-delay: 0.6s; }
+        .metric-card:nth-child(7) { animation-delay: 0.7s; }
+
+        @keyframes slideInUp {
+            from {
+                opacity: 0;
+                transform: translateY(40px);
+                filter: blur(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+                filter: blur(0);
+            }
+        }
+
+        /* Quality Gate Badges */
+        .quality-gate-ok {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(5, 150, 105, 0.04) 100%);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            border-left: 3px solid #10b981;
+            color: #047857;
+        }
+
+        .quality-gate-error {
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.08) 0%, rgba(220, 38, 38, 0.04) 100%);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            border-left: 3px solid #ef4444;
+            color: #991b1b;
+        }
+
+        .quality-gate-warn {
+            background: linear-gradient(135deg, rgba(234, 179, 8, 0.08) 0%, rgba(202, 138, 4, 0.04) 100%);
+            border: 1px solid rgba(234, 179, 8, 0.2);
+            border-left: 3px solid #eab308;
+            color: #b45309;
+        }
+
+        .quality-gate-none {
+            background: linear-gradient(135deg, rgba(100, 116, 139, 0.08) 0%, rgba(71, 85, 105, 0.04) 100%);
+            border: 1px solid rgba(148, 163, 184, 0.15);
+            border-left: 3px solid #94a3b8;
+            color: #475569;
+        }
+
+        /* Rating Badges - Fixed Spacing */
         .rating-badge {
-            font-size: 1.875rem; /* 30px */
-            line-height: 2.25rem; /* 36px */
-            font-weight: 800;
-            width: 48px;
-            height: 48px;
-            display: flex;
+            display: inline-flex;
             align-items: center;
             justify-content: center;
-            border-radius: 8px;
+            width: 52px;
+            height: 52px;
+            border-radius: 14px;
+            font-size: 1.75rem;
+            font-weight: 900;
+            letter-spacing: 0px;
+            font-family: 'Courier New', monospace;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            transition: all 0.3s ease;
         }
-        .rating-a { background-color: #067647; color: white; } /* Green */
-        .rating-b { background-color: #B54708; color: white; } /* Orange */
-        .rating-c { background-color: #F79009; color: white; } /* Yellow */
-        .rating-d { background-color: #B42318; color: white; } /* Red */
-        .rating-e { background-color: #B42318; color: white; } /* Red */
+
+        .rating-badge:hover {
+            transform: scale(1.1);
+            box-shadow: 0 8px 24px rgba(102, 126, 234, 0.3);
+        }
+
+        .rating-a {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+        }
+
+        .rating-b {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            color: white;
+        }
+
+        .rating-c {
+            background: linear-gradient(135deg, #eab308 0%, #ca8a04 100%);
+            color: #1f2937;
+        }
+
+        .rating-d {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: white;
+        }
+
+        .rating-e {
+            background: linear-gradient(135deg, #b91c1c 0%, #991b1b 100%);
+            color: white;
+        }
+
+        /* Animated Progress Bar */
+        .progress-bar {
+            height: 6px;
+            background: #e2e8f0;
+            border-radius: 3px;
+            overflow: hidden;
+            position: relative;
+            border: 1px solid #cbd5e1;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 50%, #667eea 100%);
+            background-size: 200% 100%;
+            border-radius: 3px;
+            transition: width 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+            animation: shimmer 3s ease-in-out infinite;
+            box-shadow: 0 0 10px rgba(102, 126, 234, 0.4);
+        }
+
+        @keyframes shimmer {
+            0%, 100% { background-position: 200% 0; }
+            50% { background-position: 0 0; }
+        }
+
+        /* Spinner - Enhanced */
+        .spinner {
+            width: 48px;
+            height: 48px;
+            position: relative;
+        }
+
+        .spinner::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: 3px solid #e2e8f0;
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            box-shadow: 0 0 20px rgba(102, 126, 234, 0.3);
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Icon Animations */
+        .icon-pulse {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+                filter: drop-shadow(0 0 0 rgba(102, 126, 234, 0));
+            }
+            50% {
+                opacity: 0.8;
+                filter: drop-shadow(0 0 8px rgba(102, 126, 234, 0.5));
+            }
+        }
+
+        /* Fade In Animation */
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+
+        /* Glow Effect */
+        .glow-text {
+            color: #1e293b;
+            text-shadow: 0 0 10px rgba(102, 126, 234, 0.3);
+            animation: glowPulse 2s ease-in-out infinite;
+        }
+
+        @keyframes glowPulse {
+            0%, 100% {
+                text-shadow: 0 0 10px rgba(102, 126, 234, 0.2);
+            }
+            50% {
+                text-shadow: 0 0 20px rgba(102, 126, 234, 0.4);
+            }
+        }
+
+        /* Button Animations */
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background-size: 200% 100%;
+            color: white;
+            transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+            position: relative;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            font-weight: 600;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-primary::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+            transition: left 0.5s;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 32px rgba(102, 126, 234, 0.4);
+            background-position: 200% center;
+        }
+
+        .btn-primary:hover:not(:disabled)::before {
+            left: 100%;
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: rgba(248, 250, 252, 0.8);
+            border: 1px solid #e2e8f0;
+            color: #1e293b;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+
+        .btn-secondary:hover {
+            background: #f8fafc;
+            border-color: #cbd5e1;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Modal Animation */
+        .modal-backdrop {
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        .modal-content {
+            animation: slideUp 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(60px) scale(0.9);
+                filter: blur(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+                filter: blur(0);
+            }
+        }
+
+        /* Input Animation */
+        input, select {
+            transition: all 0.3s ease;
+        }
+
+        input:focus, select:focus {
+            transform: translateY(-2px);
+            box-shadow: 0 0 20px rgba(102, 126, 234, 0.2), inset 0 0 10px rgba(102, 126, 234, 0.08);
+        }
+
+        /* Fade In with Stagger */
+        .stagger-enter {
+            animation: fadeIn 0.5s ease-out backwards;
+        }
+
+        .stagger-enter:nth-child(1) { animation-delay: 0s; }
+        .stagger-enter:nth-child(2) { animation-delay: 0.1s; }
+        .stagger-enter:nth-child(3) { animation-delay: 0.2s; }
+        .stagger-enter:nth-child(4) { animation-delay: 0.3s; }
+        .stagger-enter:nth-child(5) { animation-delay: 0.4s; }
+        .stagger-enter:nth-child(6) { animation-delay: 0.5s; }
+
+        /* Alert Animations */
+        .alert-slide {
+            animation: slideInDown 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        @keyframes slideInDown {
+            from {
+                opacity: 0;
+                transform: translateY(-40px);
+                filter: blur(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+                filter: blur(0);
+            }
+        }
+
+        /* Neon Text */
+        .neon-text {
+            color: #667eea;
+            text-shadow: 0 0 10px rgba(102, 126, 234, 0.2);
+        }
+
+        /* Smooth Number Changes */
+        .number-change {
+            transition: all 0.4s ease;
+        }
+
+        /* Hover Lift Effect */
+        .hover-lift {
+            transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        .hover-lift:hover {
+            transform: translateY(-8px);
+        }
+
+        /* Top Glow Line */
+        .top-glow {
+            position: relative;
+        }
+
+        .top-glow::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, #667eea, transparent);
+            box-shadow: 0 0 10px rgba(102, 126, 234, 0.3);
+        }
+
+        /* Delay utilities for animations */
+        .delay-100 { animation-delay: 0.1s !important; }
+        .delay-200 { animation-delay: 0.2s !important; }
+        .delay-300 { animation-delay: 0.3s !important; }
+        .delay-400 { animation-delay: 0.4s !important; }
+        .delay-500 { animation-delay: 0.5s !important; }
     </style>
 </head>
 
-<body class="bg-gray-50 flex">
+<body>
     <div id="sidebar-container" class="flex-shrink-0"></div>
 
-    <div class="flex-1 flex flex-col h-screen overflow-y-auto">
-
+    <div class="flex-1 flex flex-col h-screen overflow-y-auto main-container">
         <div th:replace="~{_header :: _header}"></div>
 
-        <main class="flex-1 p-6 lg:p-10" x-data="sonarqubeDashboard()">
-            
-            <div class.="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
-                <div>
-                    <h1 class="text-3xl font-bold text-gray-900">Code Quality</h1>
-                    <p class="text-lg text-gray-500 mt-1">SonarQube Project Dashboard</p>
+        <main class="flex-1 p-6 lg:p-10 space-y-8" x-data="sonarqubeDashboard()" x-cloak>
+
+            <!-- Page Header -->
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-8 stagger-enter">
+                <div class="stagger-enter">
+                    <div class="flex items-center gap-4 mb-3">
+                        <div class="relative w-14 h-14 bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 rounded-2xl flex items-center justify-center shadow-lg hover-lift"
+                             style="box-shadow: 0 0 30px rgba(102, 126, 234, 0.4);">
+                            <i class="fas fa-chart-line text-white text-2xl icon-pulse"></i>
+                        </div>
+                        <div>
+                            <h1 class="text-5xl font-bold text-gray-900 neon-text">Code Quality</h1>
+                            <p class="text-sm text-gray-600 mt-1 tracking-wider uppercase">SonarQube Analytics</p>
+                        </div>
+                    </div>
                 </div>
-                <div class="flex gap-3">
-                    <button @click="isManageModalOpen = true" class="flex items-center gap-2 px-4 py-2 bg-white text-gray-700 border border-gray-300 font-semibold rounded-lg shadow-sm hover:bg-gray-50 transition duration-200">
-                        <i class="fas fa-cog fa-fw"></i>
-                        <span>Manage Projects</span>
+                
+                <div class="flex gap-3 flex-wrap stagger-enter delay-100">
+                    <button @click="refreshMetrics()" :disabled="isRefreshing"
+                            class="flex items-center gap-2 px-5 py-3 btn-secondary rounded-lg disabled:opacity-50 transition-all">
+                        <i class="fas fa-sync-alt" :class="{'animate-spin': isRefreshing}"></i>
+                        <span class="font-semibold text-gray-700">Refresh</span>
+                    </button>
+                    <button @click="isManageModalOpen = true"
+                            class="flex items-center gap-2 px-6 py-3 btn-primary rounded-lg hover-lift transition-all">
+                        <i class="fas fa-cog"></i>
+                        <span class="font-semibold">Manage Projects</span>
                     </button>
                 </div>
             </div>
 
-            <div class="mb-6 max-w-md">
-                <label for="projectSelect" class="block text-sm font-medium text-gray-700">Select Project to View</label>
+            <!-- Project Selector -->
+            <div class="glass-card p-6 stagger-enter delay-200">
+                <label for="projectSelect" class="block text-sm font-bold text-gray-900 mb-3 tracking-wide">
+                    <i class="fas fa-folder-open text-indigo-600 mr-2"></i>SELECT PROJECT
+                </label>
                 <select id="projectSelect" x-model="selectedProjectId" @change="loadProjectMetrics()"
-                        class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md shadow-sm">
+                        class="w-full px-4 py-3 bg-white border border-gray-300 rounded-xl text-gray-900 font-medium focus:outline-none focus:border-indigo-500 transition-all cursor-pointer">
                     <option value="">-- Select a Project --</option>
                     <template x-for="project in projects" :key="project.id">
                         <option :value="project.id" x-text="project.projectName"></option>
@@ -85,207 +518,369 @@
                 </select>
             </div>
 
-            <div x-show="isLoading" x-cloak class="flex justify-center items-center h-64">
-                <div class="w-12 h-12 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
-                <p class="ml-4 text-gray-600">Loading Dashboard...</p>
-            </div>
-
-            <div x-show="error" x-cloak class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-6" role="alert">
-                <strong class="font-bold">Error: </strong>
-                <span class="block sm:inline" x-text="error"></span>
-            </div>
-
-            <div x-show="!isLoading && projects.length === 0" x-cloak class="text-center bg-white p-12 rounded-lg shadow-sm border">
-                <i class="fas fa-search-dollar fa-3x text-gray-300 mb-4"></i>
-                <h3 class="text-xl font-semibold text-gray-800">No Projects Configured</h3>
-                <p class="text-gray-500 mt-2">Click "Manage Projects" to add your first SonarQube project.</p>
-            </div>
-
-            <div x-show="!isLoading && projects.length > 0 && !selectedProjectId" x-cloak class="text-center bg-white p-12 rounded-lg shadow-sm border">
-                <i class="fas fa-mouse-pointer fa-3x text-gray-300 mb-4"></i>
-                <h3 class="text-xl font-semibold text-gray-800">Select a Project</h3>
-                <p class="text-gray-500 mt-2">Choose a project from the dropdown above to view its quality metrics.</p>
-            </div>
-
-            <div x-show="!isLoading && selectedProjectId && metrics" x-cloak class="space-y-6">
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div class="md:col-span-1 bg-white border border-gray-200 rounded-xl shadow-sm p-6"
-                         :class="getQualityGateClass(metrics.qualityGateStatus)">
-                        <div class="flex justify-between items-center">
-                            <span class="text-lg font-semibold">Quality Gate</span>
-                            <a :href="selectedProjectUrl" target="_blank" class="text-sm font-medium hover:underline" :class="getQualityGateTextColor(metrics.qualityGateStatus)">
-                                View in SonarQube <i class="fas fa-external-link-alt fa-xs"></i>
-                            </a>
-                        </div>
-                        <p class="mt-4 text-5xl font-bold" x-text="metrics.qualityGateStatus === 'OK' ? 'Passed' : (metrics.qualityGateStatus === 'ERROR' ? 'Failed' : 'N/A')"></p>
-                    </div>
-                    <div class="md:col-span-2 bg-white border border-gray-200 rounded-xl shadow-sm p-6">
-                        <span class="text-lg font-semibold text-gray-900">Lines of Code</span>
-                        <p class="mt-4 text-5xl font-bold text-gray-900" x-text="(metrics.linesOfCode || 0).toLocaleString()"></p>
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                    
-                    <div class="bg-white border border-gray-200 rounded-xl shadow-sm p-5">
-                        <h3 class="font-semibold text-gray-800 mb-4">Reliability</h3>
-                        <div class="flex justify-between items-start">
-                            <div>
-                                <p class="metric-label">Bugs</p>
-                                <p class="metric-value text-orange-600" x-text="metrics.bugs || 0"></p>
-                            </div>
-                            <div class="text-right">
-                                <p class="metric-label">Rating</p>
-                                <div class="rating-badge" :class="getRatingClass(metrics.reliabilityRating)" x-text="metrics.reliabilityRating || '?'"></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="bg-white border border-gray-200 rounded-xl shadow-sm p-5">
-                        <h3 class="font-semibold text-gray-800 mb-4">Security</h3>
-                        <div class="flex justify-between items-start">
-                            <div>
-                                <p class="metric-label">Vulnerabilities</p>
-                                <p class="metric-value text-red-600" x-text="metrics.vulnerabilities || 0"></p>
-                            </div>
-                            <div class="text-right">
-                                <p class="metric-label">Rating</p>
-                                <div class="rating-badge" :class="getRatingClass(metrics.securityRating)" x-text="metrics.securityRating || '?'"></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="bg-white border border-gray-200 rounded-xl shadow-sm p-5">
-                        <h3 class="font-semibold text-gray-800 mb-4">Security Hotspots</h3>
-                        <div class="flex justify-between items-start">
-                            <div>
-                                <p class="metric-label">Hotspots to Review</p>
-                                <p class="metric-value text-yellow-600" x-text="metrics.securityHotspots || 0"></p>
-                            </div>
-                            <div class="text-right">
-                                <p class="metric-label">Rating</p>
-                                <div class="rating-badge" :class="getRatingClass(metrics.securityReviewRating)" x-text="metrics.securityReviewRating || '?'"></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="bg-white border border-gray-200 rounded-xl shadow-sm p-5">
-                        <h3 class="font-semibold text-gray-800 mb-4">Maintainability</h3>
-                        <div class="flex justify-between items-start">
-                            <div>
-                                <p class="metric-label">Code Smells</p>
-                                <p class="metric-value text-indigo-600" x-text="metrics.codeSmells || 0"></p>
-                                <p class="metric-label mt-2">Tech Debt</p>
-                                <p class="text-lg font-semibold text-gray-800" x-text="formatTechDebt(metrics.techDebt)"></p>
-                            </div>
-                            <div class="text-right">
-                                <p class="metric-label">Rating</p>
-                                <div class="rating-badge" :class="getRatingClass(metrics.maintainabilityRating)" x-text="metrics.maintainabilityRating || '?'"></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="bg-white border border-gray-200 rounded-xl shadow-sm p-5">
-                        <h3 class="font-semibold text-gray-800 mb-4">Coverage</h3>
-                        <div class="flex justify-between items-start">
-                            <div>
-                                <p class="metric-label">Coverage</p>
-                                <p class="metric-value text-blue-600" x-text="(metrics.coverage || 0) + '%'"></p>
-                                <p class="metric-label mt-2">Lines to Cover</p>
-                                <p class="text-lg font-semibold text-gray-800" x-text="(metrics.linesToCover || 0).toLocaleString()"></p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="bg-white border border-gray-200 rounded-xl shadow-sm p-5">
-                        <h3 class="font-semibold text-gray-800 mb-4">Duplications</h3>
-                        <div class="flex justify-between items-start">
-                            <div>
-                                <p class="metric-label">Duplication Density</p>
-                                <p class="metric-value text-gray-700" x-text="(metrics.duplicationDensity || 0) + '%'"></p>
-                                <p class="metric-label mt-2">Duplicated Lines</p>
-                                <p class="text-lg font-semibold text-gray-800" x-text="(metrics.duplicatedLines || 0).toLocaleString()"></p>
-                            </div>
-                        </div>
-                    </div>
-
+            <!-- Loading State -->
+            <div x-show="isLoading" class="flex flex-col justify-center items-center h-64 gap-6 glass-card p-8 stagger-enter">
+                <div class="spinner"></div>
+                <p class="text-lg font-medium text-gray-800 tracking-wide">Loading metrics...</p>
+                <div class="w-48 progress-bar">
+                    <div class="progress-fill" style="width: 65%"></div>
                 </div>
             </div>
-            
-            <div x-show="isManageModalOpen" x-cloak
-                 class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50"
-                 @keydown.escape.window="isManageModalOpen = false">
-                <div @click.outside="isManageModalOpen = false"
-                     class="bg-white rounded-lg shadow-xl w-full max-w-2xl overflow-hidden transition-all duration-300 ease-out"
-                     x-show="isManageModalOpen"
-                     x-transition:enter="ease-out duration-300"
-                     x-transition:enter-start="opacity-0 scale-95"
-                     x-transition:enter-end="opacity-100 scale-100"
-                     x-transition:leave="ease-in duration-200"
-                     x-transition:leave-start="opacity-100 scale-100"
-                     x-transition:leave-end="opacity-0 scale-95">
 
-                    <div class="px-6 py-5 bg-gray-50 border-b flex justify-between items-center">
-                        <h3 class="text-lg font-medium text-gray-900">Manage SonarQube Projects</h3>
-                        <button @click="isManageModalOpen = false" class="text-gray-400 hover:text-gray-600">
-                            <i class="fas fa-times fa-lg"></i>
+            <!-- Error Alert -->
+            <div x-show="error" class="glass-card border-red-500/50 bg-gradient-to-r from-red-50/80 to-red-100/50 p-5 flex items-start gap-3 alert-slide">
+                <i class="fas fa-exclamation-circle text-red-600 flex-shrink-0 mt-1 text-xl"></i>
+                <div>
+                    <h4 class="font-bold text-red-900">Error</h4>
+                    <p x-text="error" class="text-sm text-red-800 mt-1"></p>
+                </div>
+            </div>
+
+            <!-- Empty States -->
+            <template x-if="!isLoading && projects.length === 0">
+                <div class="glass-card p-16 empty-state">
+                    <div class="w-20 h-20 bg-gradient-to-br from-indigo-100 to-purple-100 rounded-full flex items-center justify-center mb-6 mx-auto">
+                        <i class="fas fa-inbox text-indigo-600 text-4xl"></i>
+                    </div>
+                    <h3 class="text-3xl font-bold text-gray-900 text-center mt-4">No Projects Found</h3>
+                    <p class="text-gray-600 mt-3 text-center max-w-sm mx-auto">Add your first SonarQube project to start analyzing code quality</p>
+                    <div class="flex justify-center mt-8">
+                        <button @click="isManageModalOpen = true" class="px-8 py-3 btn-primary rounded-lg font-semibold flex items-center gap-2">
+                            <i class="fas fa-plus"></i>Add Project
                         </button>
                     </div>
-                    
-                    <div class="p-6 border-b">
-                        <h4 class="text-md font-semibold text-gray-800 mb-3">Configured Projects</h4>
-                        <div class="max-h-48 overflow-y-auto pr-2 sidebar-scroll space-y-2">
+                </div>
+            </template>
+
+            <template x-if="!isLoading && projects.length > 0 && !selectedProjectId">
+                <div class="glass-card p-16 empty-state">
+                    <div class="w-20 h-20 bg-gradient-to-br from-blue-100 to-cyan-100 rounded-full flex items-center justify-center mb-6 mx-auto">
+                        <i class="fas fa-hand-pointer text-blue-600 text-4xl"></i>
+                    </div>
+                    <h3 class="text-3xl font-bold text-gray-900 text-center mt-4">Select a Project</h3>
+                    <p class="text-gray-600 mt-3 text-center">Choose a project above to view detailed quality metrics</p>
+                </div>
+            </template>
+
+            <!-- Dashboard Content -->
+            <template x-if="!isLoading && selectedProjectId && metrics">
+                <div class="space-y-8 stagger-enter">
+
+                    <!-- Top Metrics Row -->
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <!-- Quality Gate -->
+                        <div class="glass-card metric-card p-6 top-glow"
+                             :class="getQualityGateClass(metrics.qualityGateStatus)">
+                            <div class="flex justify-between items-start mb-6">
+                                <div class="flex items-center gap-3">
+                                    <i class="fas fa-shield-alt text-2xl text-indigo-600"></i>
+                                    <h3 class="text-lg font-bold text-gray-900">Quality Gate</h3>
+                                </div>
+                                <a :href="selectedProjectUrl" target="_blank" rel="noopener noreferrer"
+                                   class="text-xs font-semibold hover:underline inline-flex items-center gap-1 transition-colors text-indigo-600">
+                                    View <i class="fas fa-external-link-alt"></i>
+                                </a>
+                            </div>
+                            <div class="flex items-baseline gap-4">
+                                <span class="text-6xl font-black" x-text="getQualityGateIcon(metrics.qualityGateStatus)"></span>
+                                <div>
+                                    <p class="text-3xl font-bold number-change text-gray-900">
+                                        <span x-text="getQualityGateText(metrics.qualityGateStatus)"></span>
+                                    </p>
+                                    <p class="text-xs font-semibold text-gray-600 mt-1 uppercase tracking-wide">Status</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Lines of Code -->
+                        <div class="lg:col-span-2 glass-card metric-card p-6 top-glow">
+                            <div class="flex items-center gap-3 mb-6">
+                                <i class="fas fa-code text-2xl text-indigo-600 icon-pulse"></i>
+                                <h3 class="text-lg font-bold text-gray-900">Lines of Code</h3>
+                            </div>
+                            <div class="flex items-baseline gap-4">
+                                <p class="text-6xl font-black neon-text number-change"
+                                   x-text="formatNumber(metrics.linesOfCode)"></p>
+                                <span class="text-gray-600 font-semibold tracking-wide">total LOC</span>
+                            </div>
+                            <div class="mt-6 pt-6 border-t border-gray-200">
+                                <p class="text-xs text-gray-600 flex items-center gap-2">
+                                    <i class="fas fa-info-circle"></i>
+                                    <span>Comprehensive codebase analysis</span>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Metrics Grid -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+
+                        <!-- Reliability -->
+                        <div class="glass-card metric-card p-6 top-glow hover-lift">
+                            <div class="flex items-center justify-between mb-6">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-12 h-12 bg-gradient-to-br from-orange-100 to-red-100 rounded-xl flex items-center justify-center">
+                                        <i class="fas fa-bug text-orange-600 text-lg"></i>
+                                    </div>
+                                    <h4 class="font-bold text-gray-900">Reliability</h4>
+                                </div>
+                                <div class="rating-badge" :class="getRatingClass(metrics.reliabilityRating)"
+                                     x-text="metrics.reliabilityRating || '?'"></div>
+                            </div>
+                            <div class="space-y-4">
+                                <div>
+                                    <div class="flex justify-between items-center mb-2">
+                                        <span class="text-xs font-bold text-gray-600 uppercase tracking-wide">Bugs</span>
+                                        <span class="text-2xl font-black text-orange-600 number-change" x-text="metrics.bugs || 0"></span>
+                                    </div>
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" :style="`width: ${Math.min(metrics.bugs * 3, 100)}%`"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Security -->
+                        <div class="glass-card metric-card p-6 top-glow hover-lift">
+                            <div class="flex items-center justify-between mb-6">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-12 h-12 bg-gradient-to-br from-red-100 to-rose-100 rounded-xl flex items-center justify-center">
+                                        <i class="fas fa-lock text-red-600 text-lg"></i>
+                                    </div>
+                                    <h4 class="font-bold text-gray-900">Security</h4>
+                                </div>
+                                <div class="rating-badge" :class="getRatingClass(metrics.securityRating)"
+                                     x-text="metrics.securityRating || '?'"></div>
+                            </div>
+                            <div class="space-y-4">
+                                <div>
+                                    <div class="flex justify-between items-center mb-2">
+                                        <span class="text-xs font-bold text-gray-600 uppercase tracking-wide">Vulnerabilities</span>
+                                        <span class="text-2xl font-black text-red-600 number-change" x-text="metrics.vulnerabilities || 0"></span>
+                                    </div>
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" :style="`width: ${Math.min(metrics.vulnerabilities * 4, 100)}%`"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Security Hotspots -->
+                        <div class="glass-card metric-card p-6 top-glow hover-lift">
+                            <div class="flex items-center justify-between mb-6">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-12 h-12 bg-gradient-to-br from-yellow-100 to-amber-100 rounded-xl flex items-center justify-center">
+                                        <i class="fas fa-exclamation-triangle text-yellow-600 text-lg"></i>
+                                    </div>
+                                    <h4 class="font-bold text-gray-900">Hotspots</h4>
+                                </div>
+                                <div class="rating-badge" :class="getRatingClass(metrics.securityReviewRating)"
+                                     x-text="metrics.securityReviewRating || '?'"></div>
+                            </div>
+                            <div class="space-y-4">
+                                <div>
+                                    <div class="flex justify-between items-center mb-2">
+                                        <span class="text-xs font-bold text-gray-600 uppercase tracking-wide">To Review</span>
+                                        <span class="text-2xl font-black text-yellow-600 number-change" x-text="metrics.securityHotspots || 0"></span>
+                                    </div>
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" :style="`width: ${Math.min(metrics.securityHotspots * 2, 100)}%`"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Maintainability -->
+                        <div class="glass-card metric-card p-6 top-glow hover-lift">
+                            <div class="flex items-center justify-between mb-6">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-12 h-12 bg-gradient-to-br from-indigo-100 to-purple-100 rounded-xl flex items-center justify-center">
+                                        <i class="fas fa-wrench text-indigo-600 text-lg"></i>
+                                    </div>
+                                    <h4 class="font-bold text-gray-900">Maintainability</h4>
+                                </div>
+                                <div class="rating-badge" :class="getRatingClass(metrics.maintainabilityRating)"
+                                     x-text="metrics.maintainabilityRating || '?'"></div>
+                            </div>
+                            <div class="space-y-4">
+                                <div>
+                                    <div class="flex justify-between items-center mb-2">
+                                        <span class="text-xs font-bold text-gray-600 uppercase tracking-wide">Code Smells</span>
+                                        <span class="text-2xl font-black text-indigo-600 number-change" x-text="metrics.codeSmells || 0"></span>
+                                    </div>
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" :style="`width: ${Math.min(metrics.codeSmells * 2, 100)}%`"></div>
+                                    </div>
+                                </div>
+                                <div class="pt-4 border-t border-gray-200">
+                                    <p class="text-xs font-bold text-gray-600 uppercase tracking-wide mb-2">Technical Debt</p>
+                                    <p class="text-2xl font-black text-gray-900 number-change" x-text="formatTechDebt(metrics.techDebt)"></p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Test Coverage -->
+                        <div class="glass-card metric-card p-6 top-glow hover-lift">
+                            <div class="flex items-center gap-3 mb-6">
+                                <div class="w-12 h-12 bg-gradient-to-br from-blue-100 to-cyan-100 rounded-xl flex items-center justify-center">
+                                    <i class="fas fa-crosshairs text-blue-600 text-lg"></i>
+                                </div>
+                                <h4 class="font-bold text-gray-900">Test Coverage</h4>
+                            </div>
+                            <div class="space-y-4">
+                                <div>
+                                    <div class="flex justify-between items-center mb-2">
+                                        <span class="text-xs font-bold text-gray-600 uppercase tracking-wide">Coverage</span>
+                                        <span class="text-2xl font-black text-blue-600 number-change" x-text="`${metrics.coverage || 0}%`"></span>
+                                    </div>
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" :style="`width: ${metrics.coverage || 0}%`"></div>
+                                    </div>
+                                </div>
+                                <div class="pt-4 border-t border-gray-200">
+                                    <p class="text-xs font-bold text-gray-600 uppercase tracking-wide mb-2">Lines to Cover</p>
+                                    <p class="text-xl font-black text-gray-900 number-change" x-text="formatNumber(metrics.linesToCover)"></p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Duplications -->
+                        <div class="glass-card metric-card p-6 top-glow hover-lift">
+                            <div class="flex items-center gap-3 mb-6">
+                                <div class="w-12 h-12 bg-gradient-to-br from-pink-100 to-rose-100 rounded-xl flex items-center justify-center">
+                                    <i class="fas fa-copy text-pink-600 text-lg"></i>
+                                </div>
+                                <h4 class="font-bold text-gray-900">Duplications</h4>
+                            </div>
+                            <div class="space-y-4">
+                                <div>
+                                    <div class="flex justify-between items-center mb-2">
+                                        <span class="text-xs font-bold text-gray-600 uppercase tracking-wide">Density</span>
+                                        <span class="text-2xl font-black text-pink-600 number-change" x-text="`${metrics.duplicationDensity || 0}%`"></span>
+                                    </div>
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" :style="`width: ${metrics.duplicationDensity || 0}%`"></div>
+                                    </div>
+                                </div>
+                                <div class="pt-4 border-t border-gray-200">
+                                    <p class="text-xs font-bold text-gray-600 uppercase tracking-wide mb-2">Duplicated Lines</p>
+                                    <p class="text-xl font-black text-gray-900 number-change" x-text="formatNumber(metrics.duplicatedLines)"></p>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </template>
+
+            <!-- Manage Projects Modal -->
+            <div x-show="isManageModalOpen" class="fixed inset-0 z-50 bg-black/30 backdrop-blur-sm flex items-center justify-center p-4 modal-backdrop"
+                 @keydown.escape.window="isManageModalOpen = false"
+                 style="display: none;">
+                <div @click.outside="isManageModalOpen = false"
+                     class="glass-card w-full max-w-2xl max-h-[90vh] overflow-auto modal-content">
+
+                    <!-- Modal Header -->
+                    <div class="sticky top-0 px-8 py-6 bg-gradient-to-r from-indigo-50 to-purple-50 border-b border-gray-200 flex justify-between items-center">
+                        <div class="flex items-center gap-3">
+                            <i class="fas fa-cog text-indigo-600 text-2xl icon-pulse"></i>
+                            <h2 class="text-2xl font-bold text-gray-900">Manage Projects</h2>
+                        </div>
+                        <button @click="isManageModalOpen = false" class="text-gray-600 hover:text-gray-900 text-3xl transition-colors">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+
+                    <!-- Configured Projects Section -->
+                    <div class="p-8 border-b border-gray-200">
+                        <h3 class="text-xl font-bold text-gray-900 mb-5 flex items-center gap-2">
+                            <i class="fas fa-list text-indigo-600"></i>
+                            Configured Projects
+                        </h3>
+                        <div class="max-h-64 overflow-y-auto space-y-2">
                             <template x-if="projects.length === 0">
-                                <p class="text-sm text-gray-500">No projects added yet.</p>
+                                <div class="text-center py-12">
+                                    <i class="fas fa-inbox text-gray-400 text-5xl mb-3"></i>
+                                    <p class="text-gray-600 font-medium">No projects yet</p>
+                                </div>
                             </template>
                             <template x-for="project in projects" :key="project.id">
-                                <div class="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-                                    <div>
-                                        <p class="font-medium text-gray-900" x-text="project.projectName"></p>
-                                        <p class="text-sm text-gray-600" x-text="project.projectKey"></p>
+                                <div class="flex justify-between items-center p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-all hover-lift">
+                                    <div class="flex-1 min-w-0">
+                                        <p class="font-bold text-gray-900 truncate" x-text="project.projectName"></p>
+                                        <p class="text-xs text-gray-600 font-mono mt-1" x-text="project.projectKey"></p>
                                     </div>
-                                    <button @click="deleteProject(project.id)" class="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-md hover:bg-red-100" title="Delete Project">
+                                    <button @click="deleteProject(project.id)"
+                                            class="ml-4 px-4 py-2 text-xs font-bold text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-all flex items-center gap-2 border border-red-200">
                                         <i class="fas fa-trash"></i>
+                                        Delete
                                     </button>
                                 </div>
                             </template>
                         </div>
                     </div>
 
-                    <form @submit.prevent="addProject">
-                        <div class="p-6 space-y-4">
-                            <h4 class="text-md font-semibold text-gray-800">Add New Project</h4>
+                    <!-- Add Project Form -->
+                    <form @submit.prevent="addProject" class="p-8 space-y-6">
+                        <h3 class="text-xl font-bold text-gray-900 flex items-center gap-2">
+                            <i class="fas fa-plus-circle text-green-600"></i>
+                            Add New Project
+                        </h3>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
                             <div>
-                                <label for="projectName" class="block text-sm font-medium text-gray-700">Project Name</label>
-                                <input type="text" x-model="newProject.projectName" id="projectName" placeholder="e.g., My Awesome App" required
-                                       class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                                <label for="projectName" class="block text-sm font-bold text-gray-900 mb-2 uppercase tracking-wide">
+                                    Project Name <span class="text-red-600">*</span>
+                                </label>
+                                <input type="text" x-model="newProject.projectName" id="projectName"
+                                       placeholder="e.g., XamOps Backend" required
+                                       class="w-full px-4 py-3 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all">
                             </div>
                             <div>
-                                <label for="serverUrl" class="block text-sm font-medium text-gray-700">Server URL</label>
-                                <input type="url" x-model="newProject.serverUrl" id="serverUrl" placeholder="http://15.206.208.134:9000" required
-                                       class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                                <label for="serverUrl" class="block text-sm font-bold text-gray-900 mb-2 uppercase tracking-wide">
+                                    Server URL <span class="text-red-600">*</span>
+                                </label>
+                                <input type="url" x-model="newProject.serverUrl" id="serverUrl"
+                                       placeholder="http://sonarqube.example.com" required
+                                       class="w-full px-4 py-3 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all">
                             </div>
-                            <div>
-                                <label for="projectKey" class="block text-sm font-medium text-gray-700">Project Key</label>
-                                <input type="text" x-model="newProject.projectKey" id="projectKey" placeholder="Sonarqube-xamops" required
-                                       class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
-                            </div>
-                            <div>
-                                <label for="token" class="block text-sm font-medium text-gray-700">API Token</label>
-                                <input type="password" x-model="newProject.token" id="token" placeholder="sqp_..." required
-                                       class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
-                            </div>
-                            
-                            <div x-show="modalError" x-cloak class="text-sm text-red-600" x-text="modalError"></div>
                         </div>
-                        
-                        <div class="px-6 py-4 bg-gray-50 border-t flex justify-end gap-3">
-                            <button type="button" @click="isManageModalOpen = false" class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50">
-                                Close
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                            <div>
+                                <label for="projectKey" class="block text-sm font-bold text-gray-900 mb-2 uppercase tracking-wide">
+                                    Project Key <span class="text-red-600">*</span>
+                                </label>
+                                <input type="text" x-model="newProject.projectKey" id="projectKey"
+                                       placeholder="sonarqube-xamops" required
+                                       class="w-full px-4 py-3 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 font-mono text-sm focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all">
+                            </div>
+                            <div>
+                                <label for="token" class="block text-sm font-bold text-gray-900 mb-2 uppercase tracking-wide">
+                                    API Token <span class="text-red-600">*</span>
+                                </label>
+                                <input type="password" x-model="newProject.token" id="token"
+                                       placeholder="sqp_..." required
+                                       class="w-full px-4 py-3 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 font-mono text-sm focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all">
+                            </div>
+                        </div>
+
+                        <!-- Error Message -->
+                        <div x-show="modalError" class="p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3 alert-slide">
+                            <i class="fas fa-exclamation-circle text-red-600 flex-shrink-0 mt-0.5"></i>
+                            <p x-text="modalError" class="text-sm text-red-700"></p>
+                        </div>
+
+                        <!-- Form Actions -->
+                        <div class="flex justify-end gap-3 pt-6 border-t border-gray-200">
+                            <button type="button" @click="isManageModalOpen = false"
+                                    class="px-6 py-3 text-sm font-bold text-gray-700 btn-secondary rounded-lg transition-all">
+                                Cancel
                             </button>
-                            <button type="submit" :disabled="isSaving" class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 border border-transparent rounded-md shadow-sm hover:bg-indigo-700 disabled:opacity-50">
-                                <span x-show="!isSaving">Add Project</span>
-                                <span x-show="isSaving"><i class="fas fa-spinner fa-spin mr-1"></i>Saving...</span>
+                            <button type="submit" :disabled="isSaving"
+                                    class="px-6 py-3 text-sm font-bold text-white btn-primary rounded-lg disabled:opacity-50 transition-all flex items-center gap-2">
+                                <span x-show="!isSaving"><i class="fas fa-plus"></i> Add Project</span>
+                                <span x-show="isSaving"><i class="fas fa-spinner fa-spin"></i> Saving...</span>
                             </button>
                         </div>
                     </form>
@@ -293,7 +888,8 @@
             </div>
 
         </main>
-        
+
+        <!-- Alpine.js Component Script -->
         <script>
             function sonarqubeDashboard() {
                 return {
@@ -301,27 +897,31 @@
                     selectedProjectId: '',
                     metrics: null,
                     isLoading: true,
+                    isRefreshing: false,
                     isManageModalOpen: false,
                     isSaving: false,
                     error: '',
                     modalError: '',
                     newProject: {
                         projectName: '',
-                        serverUrl: 'http://15.206.208.134:9000', // Pre-fill server URL
-                        projectKey: 'Sonarqube-xamops', // Pre-fill project key
+                        serverUrl: '',
+                        projectKey: '',
                         token: ''
                     },
 
-                    // Re-usable API fetcher
-                    async apiFetch(url, options = {}) {
-                        const csrfToken = document.cookie
+                    getCsrfToken() {
+                        return document.cookie
                             .split('; ')
                             .find(row => row.startsWith('XSRF-TOKEN='))
-                            ?.split('=')[1];
+                            ?.split('=')[1] || '';
+                    },
+
+                    async apiFetch(url, options = {}) {
+                        const csrfToken = this.getCsrfToken();
                         
                         const response = await fetch(url, {
                             ...options,
-                            credentials: 'include', // Include cookies for auth
+                            credentials: 'include',
                             headers: {
                                 'Content-Type': 'application/json',
                                 'Accept': 'application/json',
@@ -332,7 +932,8 @@
 
                         if (!response.ok) {
                             const errorText = await response.text();
-                            console.error('API Error:', response.status, errorText);
+                            console.error(`API Error [${response.status}]:`, errorText);
+                            
                             try {
                                 const errorJson = JSON.parse(errorText);
                                 throw new Error(errorJson.message || errorJson.error || `HTTP ${response.status}`);
@@ -340,33 +941,38 @@
                                 throw new Error(errorText || `HTTP ${response.status}`);
                             }
                         }
-                        // Handle 204 No Content for delete
+
                         if (response.status === 204) return null;
                         return response.json();
                     },
 
                     init() {
-                        this.fetchProjects(true); // Load projects and then auto-select
+                        this.fetchProjects(true);
                     },
 
                     fetchProjects(autoSelect = false) {
                         this.isLoading = true;
                         this.error = '';
+                        
                         this.apiFetch('/api/xamops/sonarqube/projects')
                             .then(data => {
-                                this.projects = data;
-                                if (autoSelect) {
+                                this.projects = data || [];
+                                
+                                if (autoSelect && this.projects.length > 0) {
                                     const savedProjectId = sessionStorage.getItem('sonarSelectedProjectId');
+                                    
                                     if (savedProjectId && this.projects.some(p => p.id == savedProjectId)) {
                                         this.selectedProjectId = savedProjectId;
-                                    } else if (this.projects.length > 0) {
+                                    } else {
                                         this.selectedProjectId = this.projects[0].id;
                                     }
-                                    this.loadProjectMetrics(); 
+                                    
+                                    this.loadProjectMetrics();
                                 }
                             })
                             .catch(err => {
-                                this.error = 'Failed to load projects: ' + err.message;
+                                this.error = `Failed to load projects: ${err.message}`;
+                                console.error('fetchProjects error:', err);
                             })
                             .finally(() => {
                                 this.isLoading = false;
@@ -376,10 +982,11 @@
                     loadProjectMetrics() {
                         if (!this.selectedProjectId) {
                             this.metrics = null;
-                            this.isLoading = false;
+                            this.error = '';
                             sessionStorage.removeItem('sonarSelectedProjectId');
                             return;
                         }
+                        
                         sessionStorage.setItem('sonarSelectedProjectId', this.selectedProjectId);
                         this.fetchMetrics();
                     },
@@ -389,67 +996,87 @@
                         
                         this.isLoading = true;
                         this.error = '';
-                        this.metrics = null; // Clear old data
+                        this.metrics = null;
 
                         this.apiFetch(`/api/xamops/sonarqube/projects/${this.selectedProjectId}/metrics`)
                             .then(data => {
                                 this.metrics = data;
                             })
                             .catch(err => {
-                                this.error = 'Could not load metrics for this project: ' + err.message;
+                                this.error = `Failed to load metrics: ${err.message}`;
+                                console.error('fetchMetrics error:', err);
                             })
                             .finally(() => {
                                 this.isLoading = false;
                             });
                     },
 
+                    refreshMetrics() {
+                        if (!this.selectedProjectId) return;
+                        this.isRefreshing = true;
+                        this.fetchMetrics();
+                        
+                        setTimeout(() => {
+                            this.isRefreshing = false;
+                        }, 1000);
+                    },
+
                     addProject() {
                         this.isSaving = true;
                         this.modalError = '';
+
                         this.apiFetch('/api/xamops/sonarqube/projects', {
                             method: 'POST',
                             body: JSON.stringify(this.newProject)
                         })
-                        .then(data => {
-                            this.resetNewProjectForm();
-                            this.fetchProjects(false); 
-                        })
-                        .catch(err => {
-                            this.modalError = 'Failed to save project: ' + err.message;
-                        })
-                        .finally(() => {
-                            this.isSaving = false;
-                        });
+                            .then(data => {
+                                this.resetNewProjectForm();
+                                this.isManageModalOpen = false;
+                                this.fetchProjects(false);
+                            })
+                            .catch(err => {
+                                this.modalError = `Failed to add project: ${err.message}`;
+                                console.error('addProject error:', err);
+                            })
+                            .finally(() => {
+                                this.isSaving = false;
+                            });
                     },
 
                     deleteProject(projectId) {
-                        if (!confirm('Are you sure you want to delete this project configuration?')) {
+                        if (!confirm('Are you sure? This will remove the project configuration.')) {
                             return;
                         }
-                        this.error = '';
+
                         this.modalError = '';
+
                         this.apiFetch(`/api/xamops/sonarqube/projects/${projectId}`, {
                             method: 'DELETE'
                         })
-                        .then(() => {
-                            this.fetchProjects(false); 
-                            if (this.selectedProjectId == projectId) {
-                                this.selectedProjectId = '';
-                                this.metrics = null;
-                                sessionStorage.removeItem('sonarSelectedProjectId');
-                            }
-                        })
-                        .catch(err => {
-                            this.modalError = 'Failed to delete project: ' + err.message;
-                        });
+                            .then(() => {
+                                this.fetchProjects(false);
+                                
+                                if (this.selectedProjectId == projectId) {
+                                    this.selectedProjectId = '';
+                                    this.metrics = null;
+                                    sessionStorage.removeItem('sonarSelectedProjectId');
+                                }
+                            })
+                            .catch(err => {
+                                this.modalError = `Failed to delete project: ${err.message}`;
+                                console.error('deleteProject error:', err);
+                            });
                     },
-                    
+
                     resetNewProjectForm() {
-                        this.newProject.projectName = '';
-                        this.newProject.projectKey = '';
-                        this.newProject.token = '';
+                        this.newProject = {
+                            projectName: '',
+                            serverUrl: '',
+                            projectKey: '',
+                            token: ''
+                        };
                     },
-                    
+
                     get selectedProjectUrl() {
                         if (!this.selectedProjectId) return '#';
                         const project = this.projects.find(p => p.id == this.selectedProjectId);
@@ -460,24 +1087,50 @@
                     getQualityGateClass(status) {
                         if (!status) return 'quality-gate-none';
                         status = status.toUpperCase();
+                        
                         if (status === 'OK' || status === 'PASSED') return 'quality-gate-ok';
                         if (status === 'ERROR' || status === 'FAILED') return 'quality-gate-error';
                         if (status === 'WARN') return 'quality-gate-warn';
+                        
                         return 'quality-gate-none';
                     },
 
                     getQualityGateTextColor(status) {
                         if (!status) return 'text-gray-600';
                         status = status.toUpperCase();
+                        
                         if (status === 'OK' || status === 'PASSED') return 'text-green-700';
                         if (status === 'ERROR' || status === 'FAILED') return 'text-red-700';
                         if (status === 'WARN') return 'text-yellow-700';
+                        
                         return 'text-gray-600';
+                    },
+
+                    getQualityGateIcon(status) {
+                        if (!status) return '?';
+                        status = status.toUpperCase();
+                        
+                        if (status === 'OK' || status === 'PASSED') return '✓';
+                        if (status === 'ERROR' || status === 'FAILED') return '✕';
+                        
+                        return '?';
+                    },
+
+                    getQualityGateText(status) {
+                        if (!status) return 'Unknown';
+                        status = status.toUpperCase();
+                        
+                        if (status === 'OK' || status === 'PASSED') return 'Passed';
+                        if (status === 'ERROR' || status === 'FAILED') return 'Failed';
+                        if (status === 'WARN') return 'Warning';
+                        
+                        return status;
                     },
 
                     getRatingClass(rating) {
                         if (!rating) return 'rating-e';
-                        switch(rating.toUpperCase()) {
+                        
+                        switch (rating.toUpperCase()) {
                             case 'A': return 'rating-a';
                             case 'B': return 'rating-b';
                             case 'C': return 'rating-c';
@@ -486,20 +1139,27 @@
                             default: return 'rating-e';
                         }
                     },
-                    
+
                     formatTechDebt(minutes) {
-                        if (!minutes || minutes === 0) return '0d';
-                        const days = Math.floor(minutes / 480); // 8-hour days
+                        if (!minutes || minutes === 0) return '0m';
+                        
+                        const days = Math.floor(minutes / 480);
                         const remainingMinutes = minutes % 480;
                         const hours = Math.floor(remainingMinutes / 60);
+                        const mins = remainingMinutes % 60;
                         
                         let result = '';
                         if (days > 0) result += `${days}d `;
-                        if (hours > 0) result += `${hours}h`;
+                        if (hours > 0) result += `${hours}h `;
+                        if (mins > 0) result += `${mins}m`;
                         
-                        return result.trim() || '0m'; // Show 0m if less than 1 hour
+                        return result.trim();
+                    },
+
+                    formatNumber(num) {
+                        return (num || 0).toLocaleString();
                     }
-                }
+                };
             }
         </script>
     </div>
