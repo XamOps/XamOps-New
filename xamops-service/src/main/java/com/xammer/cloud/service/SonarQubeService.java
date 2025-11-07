@@ -91,15 +91,20 @@ public class SonarQubeService {
             return null;
         }
 
-        // This API endpoint gets all the key metrics in one call
+        // --- START OF MODIFICATION ---
+        // We are adding all the new metric keys from your screenshot
+        String metricKeys = "alert_status,bugs,vulnerabilities,code_smells,coverage,ncloc," +
+                            "reliability_rating,security_rating,security_hotspots,security_review_rating," +
+                            "sqale_rating,sqale_index,lines_to_cover,duplicated_lines,duplicated_lines_density";
+
         String url = UriComponentsBuilder.fromHttpUrl(project.getServerUrl())
                 .path("/api/measures/component")
                 .queryParam("component", project.getProjectKey())
-                .queryParam("metricKeys", "alert_status,bugs,vulnerabilities,code_smells,coverage,ncloc")
+                .queryParam("metricKeys", metricKeys) // Use the new, expanded list
                 .toUriString();
+        // --- END OF MODIFICATION ---
 
         HttpHeaders headers = new HttpHeaders();
-        // SonarQube API tokens are used as the username in Basic Auth, with an empty password
         headers.setBasicAuth(token, "");
         HttpEntity<String> entity = new HttpEntity<>(headers);
 
@@ -128,6 +133,10 @@ public class SonarQubeService {
             for (JsonNode measure : measures) {
                 String metric = measure.path("metric").asText();
                 String value = measure.path("value").asText();
+                // Some ratings are in a "period" object, check there too.
+                if (value.isEmpty()) {
+                    value = measure.path("period").path("value").asText();
+                }
                 
                 switch (metric) {
                     case "alert_status":
@@ -148,6 +157,36 @@ public class SonarQubeService {
                     case "ncloc":
                         metricsDto.setLinesOfCode(Integer.parseInt(value));
                         break;
+                    
+                    // --- START OF NEW METRICS ---
+                    case "reliability_rating":
+                        metricsDto.setReliabilityRating(value);
+                        break;
+                    case "security_rating":
+                        metricsDto.setSecurityRating(value);
+                        break;
+                    case "security_hotspots":
+                        metricsDto.setSecurityHotspots(Integer.parseInt(value));
+                        break;
+                    case "security_review_rating":
+                        metricsDto.setSecurityReviewRating(value);
+                        break;
+                    case "sqale_rating": // Maintainability Rating
+                        metricsDto.setMaintainabilityRating(value);
+                        break;
+                    case "sqale_index": // Technical Debt (in minutes)
+                        metricsDto.setTechDebt(Integer.parseInt(value));
+                        break;
+                    case "lines_to_cover":
+                        metricsDto.setLinesToCover(Integer.parseInt(value));
+                        break;
+                    case "duplicated_lines":
+                        metricsDto.setDuplicatedLines(Integer.parseInt(value));
+                        break;
+                    case "duplicated_lines_density":
+                        metricsDto.setDuplicationDensity(Double.parseDouble(value));
+                        break;
+                    // --- END OF NEW METRICS ---
                 }
             }
             return metricsDto;

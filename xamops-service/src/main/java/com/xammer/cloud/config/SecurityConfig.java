@@ -71,13 +71,10 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("/gcp_*.html"),
                                 new AntPathRequestMatcher("/azure_dashboard.html"),
                                 new AntPathRequestMatcher("/ws/**"),
-                                // --- UPDATED RULES ---
-                                // Allow status reads (or use .authenticated())
+                                
                                 new AntPathRequestMatcher("/api/cicd/github/runs"), 
                                 new AntPathRequestMatcher("/api/cicd/config/**"),
-                                // All other /api/cicd/ endpoints will be caught by anyRequest().authenticated()
-                                // including /api/cicd/config/**
-                                // ---
+                                
                                 new AntPathRequestMatcher("/cloudk8s.html"),
                                 new AntPathRequestMatcher("/eks-details.html"),
                                 new AntPathRequestMatcher("/api/xamops/k8s/**"),
