@@ -1,0 +1,1112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XamOps - Azure FinOps Report</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1.5.1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+    <script type="module" src="/src/main.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+        
+        :root {
+            /* Azure-themed primary gradient */
+            --primary-gradient: linear-gradient(135deg, #0078D4 0%, #005A9E 100%);
+            --success-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            --warning-gradient: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            --error-gradient: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            --glass-bg: rgba(255, 255, 255, 0.95);
+            --glass-border: rgba(255, 255, 255, 0.2);
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+            min-height: 100vh;
+        }
+
+        [x-cloak] { display: none !important; }
+
+        .glass-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .glass-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        }
+
+        .kpi-card {
+            position: relative;
+            overflow: hidden;
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .kpi-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: var(--primary-gradient);
+            transform: scaleX(0);
+            transition: transform 0.3s ease;
+        }
+
+        .kpi-card:hover::before {
+            transform: scaleX(1);
+        }
+
+        .kpi-card:hover {
+            transform: translateY(-4px) scale(1.02);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        }
+
+        .progress-bar {
+            background: linear-gradient(90deg, #e5e7eb 0%, #f3f4f6 100%);
+            border-radius: 9999px;
+            overflow: hidden;
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+            border-radius: 9999px;
+            background: var(--success-gradient);
+            box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
+        }
+
+        .progress-bar-warning {
+            background: var(--warning-gradient);
+            box-shadow: 0 2px 4px rgba(245, 158, 11, 0.3);
+        }
+
+        .progress-bar-danger {
+            background: var(--error-gradient);
+            box-shadow: 0 2px 4px rgba(239, 68, 68, 0.3);
+        }
+
+        .skeleton {
+            background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+        }
+
+        @keyframes shimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+
+        .btn-primary {
+            background: var(--primary-gradient);
+            border: none;
+            color: white;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-primary::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: left 0.5s ease;
+        }
+
+        .btn-primary:hover::before {
+            left: 100%;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 120, 212, 0.4);
+        }
+
+        .btn-secondary {
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            transition: all 0.3s ease;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 1);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .modal-overlay {
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+        }
+
+        .modal-content {
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        }
+
+        .chart-container {
+            position: relative;
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid var(--glass-border);
+        }
+
+        .table-enhanced {
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .table-enhanced thead {
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+        }
+
+        .table-enhanced tr:hover {
+            background: rgba(0, 120, 212, 0.05);
+        }
+
+        .tag-input {
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            transition: all 0.3s ease;
+        }
+
+        .tag-input:focus {
+            border-color: #0078D4;
+            box-shadow: 0 0 0 3px rgba(0, 120, 212, 0.1);
+        }
+
+        .empty-state {
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: 2px dashed rgba(156, 163, 175, 0.3);
+            transition: all 0.3s ease;
+        }
+
+        .empty-state:hover {
+            border-color: rgba(0, 120, 212, 0.3);
+            background: rgba(255, 255, 255, 0.98);
+        }
+
+        .trend-indicator {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            backdrop-filter: blur(10px);
+        }
+
+        .trend-up {
+            background: rgba(239, 68, 68, 0.1);
+            color: #dc2626;
+            border: 1px solid rgba(239, 68, 68, 0.2);
+        }
+
+        .trend-down {
+            background: rgba(16, 185, 129, 0.1);
+            color: #059669;
+            border: 1px solid rgba(16, 185, 129, 0.2);
+        }
+
+        .icon-gradient {
+            background: var(--primary-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .header-gradient {
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(229, 231, 235, 0.8);
+        }
+
+        .fade-in {
+            animation: fadeIn 0.5s ease-in-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .pulse-dot {
+            animation: pulse-dot 2s infinite;
+        }
+
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .loading-spinner {
+            border: 3px solid #f3f4f6;
+            border-top: 3px solid #0078D4;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .toast-notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: var(--success-gradient);
+            color: white;
+            padding: 16px 24px;
+            border-radius: 8px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            transition: all 0.3s ease-in-out;
+            transform: translateX(100%);
+            opacity: 0;
+        }
+        
+        .toast-notification.show {
+            transform: translateX(0);
+            opacity: 1;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+
+<div class="flex">
+    <div id="sidebar-container"></div>
+
+    <div class="flex-1">
+        <main class="flex-1 flex flex-col min-h-screen pl-64" x-data="finopsReport()">
+            <header class="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-10">
+                <div class="flex items-center space-x-4">
+                    <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-sky-600 rounded-xl flex items-center justify-center">
+                        <i class="fas fa-chart-pie text-white text-xl"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-2xl font-bold text-gray-800">Azure FinOps Report</h1>
+                        <p class="text-sm text-gray-600">Azure cloud financial operations dashboard</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <div class="flex items-center space-x-2">
+                        <div class="w-2 h-2 bg-green-500 rounded-full pulse-dot"></div>
+                        <span class="text-sm text-gray-600">Live data</span>
+                    </div>
+                    <button @click="loadReport(true)" class="btn-primary flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md" :disabled="isRefreshing">
+                        <i class="fas fa-sync-alt" :class="{ 'fa-spin': isRefreshing }"></i>
+                        <span x-text="isRefreshing ? 'Refreshing...' : 'Refresh Data'"></span>
+                    </button>
+                </div>
+            </header>
+
+            <div class="flex-1 p-8 space-y-8">
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <template x-for="kpi in kpis" :key="kpi.label">
+                        <div class="kpi-card rounded-2xl p-6 fade-in">
+                            <div x-show="isLoading" class="skeleton h-28 w-full rounded-lg"></div>
+                            <div x-show="!isLoading" x-cloak>
+                                <div class="flex justify-between items-start mb-4">
+                                    <h3 class="text-gray-600 text-sm font-medium" x-text="kpi.label"></h3>
+                                    <div class="p-3 rounded-xl" :class="kpi.color.bg">
+                                        <i class="fas text-xl" :class="[kpi.icon, kpi.color.text]"></i>
+                                    </div>
+                                </div>
+                                <p class="text-3xl font-bold text-gray-900 mb-2" x-text="kpi.value"></p>
+                                <div class="trend-indicator" :class="kpi.trendColor.includes('red') ? 'trend-up' : 'trend-down'" x-show="kpi.trendText">
+                                    <i class="fas mr-1" :class="kpi.trendIcon"></i>
+                                    <span x-text="kpi.trendText"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <div class="glass-card rounded-2xl p-8 fade-in">
+                    <div class="flex justify-between items-center mb-6">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center">
+                                <i class="fas fa-wallet text-white"></i>
+                            </div>
+                            <div>
+                                <h3 class="text-xl font-bold text-gray-800">Budgets & Alerts</h3>
+                                <p class="text-sm text-gray-600">Monitor and control your Azure spending</p>
+                            </div>
+                        </div>
+                        <div class="flex space-x-3">
+                            <button @click="isScheduleModalOpen = true" class="btn-secondary px-6 py-3 text-sm font-semibold rounded-lg shadow-md text-gray-700">
+                                <i class="fas fa-envelope mr-2"></i>Schedule Report
+                            </button>
+                            <button @click="isBudgetModalOpen = true" class="btn-primary px-6 py-3 text-sm font-semibold rounded-lg shadow-md">
+                                <i class="fas fa-plus mr-2"></i>Create Budget
+                            </button>
+                        </div>
+                    </div>
+
+                    <div x-show="isLoading" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="skeleton h-32 w-full rounded-xl"></div>
+                        <div class="skeleton h-32 w-full rounded-xl"></div>
+                    </div>
+
+                    <div x-show="!isLoading && (!reportData.budgets || reportData.budgets.length === 0)" x-cloak class="empty-state text-center py-12 rounded-2xl">
+                        <div class="w-16 h-16 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <i class="fas fa-wallet text-white text-2xl"></i>
+                        </div>
+                        <h4 class="text-lg font-bold text-gray-800 mb-2">No Budgets Found</h4>
+                        <p class="text-gray-600 mb-4">Set up budgets to track and control your Azure spending</p>
+                        <button @click="isBudgetModalOpen = true" class="btn-primary px-6 py-3 text-sm font-semibold rounded-lg">
+                            <i class="fas fa-plus mr-2"></i>Create Your First Budget
+                        </button>
+                    </div>
+
+                    <div x-show="!isLoading && reportData.budgets && reportData.budgets.length > 0" x-cloak class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        <template x-for="budget in reportData.budgets" :key="budget.budgetName">
+                            <div class="bg-white/70 backdrop-blur-sm border border-gray-200/50 rounded-xl p-6 hover:shadow-lg transition-all">
+                                <div class="flex items-center justify-between mb-4">
+                                    <h4 class="font-bold text-gray-800" x-text="budget.budgetName"></h4>
+                                    <div>
+                                        <button @click="deleteBudget(budget.budgetName)" class="text-red-500 hover:text-red-700">
+                                            <i class="fas fa-trash-alt"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="space-y-3">
+                                    <div class="progress-bar h-6">
+                                        <div class="progress-bar-fill"
+                                             :class="(budget.actualSpend / budget.budgetLimit) > 0.8 ? 'progress-bar-danger' : (budget.actualSpend / budget.budgetLimit) > 0.6 ? 'progress-bar-warning' : ''"
+                                             :style="`width: ${Math.min((budget.actualSpend / budget.budgetLimit) * 100, 100)}%`"></div>
+                                    </div>
+                                    <div class="flex justify-between text-sm font-semibold">
+                                        <span class="text-gray-700" x-text="`Spent: ${formatCurrency(budget.actualSpend)}`"></span>
+                                        <span class="text-gray-600" x-text="`${Math.round((budget.actualSpend / budget.budgetLimit) * 100)}%`"></span>
+                                    </div>
+                                    <div class="flex justify-between text-xs text-gray-500">
+                                        <span x-text="`Limit: ${formatCurrency(budget.budgetLimit)}`"></span>
+                                        <span x-text="`Forecast: ${formatCurrency(budget.forecastedSpend)}`"></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <div x-show="!isLoading && reportSchedules.length > 0" x-cloak class="glass-card rounded-2xl p-8 fade-in">
+                    <div class="flex items-center space-x-3 mb-6">
+                        <div class="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl flex items-center justify-center">
+                            <i class="fas fa-calendar-alt text-white"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-xl font-bold text-gray-800">Scheduled Reports</h3>
+                            <p class="text-sm text-gray-600">Your automated email reports</p>
+                        </div>
+                    </div>
+
+                    <div class="table-enhanced overflow-x-auto">
+                        <table class="w-full text-sm text-left text-gray-600">
+                            <thead class="text-xs text-gray-700 uppercase sticky top-0">
+                                <tr>
+                                    <th class="px-6 py-4">Subscription</th>
+                                    <th class="px-6 py-4">Email</th>
+                                    <th class="px-6 py-4">Frequency</th>
+                                    <th class="px-6 py-4">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-200">
+                                <template x-for="schedule in reportSchedules" :key="schedule.id">
+                                    <tr class="hover:bg-gray-50">
+                                        <td class="px-6 py-4 font-semibold" x-text="schedule.subscriptionName || 'Azure Subscription'"></td>
+                                        <td class="px-6 py-4" x-text="schedule.email"></td>
+                                        <td class="px-6 py-4" x-text="schedule.frequency"></td>
+                                        <td class="px-6 py-4">
+                                            <button @click="deleteSchedule(schedule.id)" class="text-red-500 hover:text-red-700">
+                                                <i class="fas fa-trash-alt mr-1"></i>Delete
+                                            </button>
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <div class="glass-card rounded-2xl p-8 fade-in">
+                        <div class="flex items-center space-x-3 mb-6">
+                            <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-cyan-600 rounded-xl flex items-center justify-center">
+                                <i class="fas fa-chart-pie text-white"></i>
+                            </div>
+                            <div>
+                                <h3 class="text-lg font-bold text-gray-800">Cost by Service</h3>
+                                <p class="text-sm text-gray-600">Top 10 Azure services</p>
+                            </div>
+                        </div>
+                        <div x-show="isLoading" class="skeleton h-80 w-full rounded-lg"></div>
+                        <div x-show="!isLoading" x-cloak class="chart-container h-80">
+                            <canvas id="costByServiceChart"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="glass-card rounded-2xl p-8 fade-in">
+                        <div class="flex items-center space-x-3 mb-6">
+                            <div class="w-10 h-10 bg-gradient-to-br from-orange-500 to-red-600 rounded-xl flex items-center justify-center">
+                                <i class="fas fa-globe text-white"></i>
+                            </div>
+                            <div>
+                                <h3 class="text-lg font-bold text-gray-800">Cost by Region</h3>
+                                <p class="text-sm text-gray-600">Geographic distribution</p>
+                            </div>
+                        </div>
+                        <div x-show="isLoading" class="skeleton h-80 w-full rounded-lg"></div>
+                        <div x-show="!isLoading" x-cloak class="chart-container h-80">
+                            <canvas id="costByRegionChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass-card rounded-2xl p-8 fade-in" x-show="!isLoading && (reportData.rightsizingRecommendations.length > 0 || reportData.wastedResources.length > 0 || reportData.costAnomalies.length > 0)">
+                    <div class="flex items-center space-x-3 mb-6">
+                        <div class="w-10 h-10 bg-gradient-to-br from-yellow-500 to-orange-600 rounded-xl flex items-center justify-center">
+                            <i class="fas fa-lightbulb text-white"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-xl font-bold text-gray-800">Insights & Opportunities</h3>
+                            <p class="text-sm text-gray-600">Optimize your Azure spending</p>
+                        </div>
+                    </div>
+
+                    <div x-show="reportData.costAnomalies.length > 0" x-cloak class="mb-8">
+                        <h4 class="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+                            <i class="fas fa-exclamation-triangle text-red-500 mr-2"></i>
+                            Cost Anomaly Detection
+                        </h4>
+                        <div class="table-enhanced overflow-x-auto">
+                            <table class="w-full text-sm text-left text-gray-600">
+                                <thead class="text-xs text-gray-700 uppercase sticky top-0">
+                                    <tr>
+                                        <th class="px-6 py-4">Service</th>
+                                        <th class="px-6 py-4">Date Range</th>
+                                        <th class="px-6 py-4">Unexpected Spend</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200">
+                                    <template x-for="anomaly in reportData.costAnomalies" :key="anomaly.anomalyId">
+                                        <tr class="hover:bg-gray-50">
+                                            <td class="px-6 py-4 font-semibold" x-text="anomaly.service"></td>
+                                            <td class="px-6 py-4" x-text="`${anomaly.startDate} to ${anomaly.endDate}`"></td>
+                                            <td class="px-6 py-4 text-red-600 font-bold" x-text="formatCurrency(anomaly.unexpectedSpend)"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div x-show="reportData.rightsizingRecommendations.length > 0" x-cloak class="mb-8">
+                        <h4 class="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+                            <i class="fas fa-cogs text-green-500 mr-2"></i>
+                            Rightsizing Recommendations
+                        </h4>
+                        <div class="table-enhanced overflow-x-auto">
+                            <table class="w-full text-sm text-left text-gray-600">
+                                <thead class="text-xs text-gray-700 uppercase sticky top-0">
+                                    <tr>
+                                        <th class="px-6 py-4">Resource ID</th>
+                                        <th class="px-6 py-4">Service</th>
+                                        <th class="px-6 py-4">Current</th>
+                                        <th class="px-6 py-4">Recommended</th>
+                                        <th class="px-6 py-4">Savings</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200">
+                                    <template x-for="rec in reportData.rightsizingRecommendations" :key="rec.resourceId">
+                                        <tr class="hover:bg-gray-50">
+                                            <td class="px-6 py-4 font-mono text-xs" x-text="rec.resourceId"></td>
+                                            <td class="px-6 py-4" x-text="rec.service"></td>
+                                            <td class="px-6 py-4" x-text="rec.currentType"></td>
+                                            <td class="px-6 py-4 text-green-700 font-semibold" x-text="rec.recommendedType"></td>
+                                            <td class="px-6 py-4 text-green-700 font-bold" x-text="formatCurrency(rec.estimatedMonthlySavings)"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div x-show="reportData.wastedResources.length > 0" x-cloak>
+                        <h4 class="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+                            <i class="fas fa-trash-alt text-red-500 mr-2"></i>
+                            Wasted Resources
+                        </h4>
+                        <div class="table-enhanced overflow-x-auto">
+                            <table class="w-full text-sm text-left text-gray-600">
+                                <thead class="text-xs text-gray-700 uppercase sticky top-0">
+                                    <tr>
+                                        <th class="px-6 py-4">Resource ID</th>
+                                        <th class="px-6 py-4">Type</th>
+                                        <th class="px-6 py-4">Region</th>
+                                        <th class="px-6 py-4">Reason</th>
+                                        <th class="px-6 py-4">Savings</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200">
+                                    <template x-for="res in reportData.wastedResources" :key="res.resourceId">
+                                        <tr class="hover:bg-gray-50">
+                                            <td class="px-6 py-4 font-mono text-xs" x-text="res.resourceId"></td>
+                                            <td class="px-6 py-4" x-text="res.resourceType"></td>
+                                            <td class="px-6 py-4" x-text="res.region"></td>
+                                            <td class="px-6 py-4" x-text="res.reason"></td>
+                                            <td class="px-6 py-4 text-red-600 font-bold" x-text="formatCurrency(res.monthlySavings)"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div x-show="isBudgetModalOpen" x-cloak class="modal-overlay fixed inset-0 flex items-center justify-center z-50" @click.away="isBudgetModalOpen = false">
+                <div class="modal-content rounded-2xl p-8 w-full max-w-md mx-4" @click.stop>
+                    <div class="flex items-center space-x-3 mb-6">
+                        <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center">
+                            <i class="fas fa-wallet text-white"></i>
+                        </div>
+                        <h3 class="text-xl font-bold text-gray-800">Create New Budget</h3>
+                    </div>
+
+                    <form @submit.prevent="createBudget()">
+                        <div class="space-y-6">
+                            <div>
+                                <label for="budgetName" class="block text-sm font-semibold text-gray-700 mb-2">Budget Name</label>
+                                <input type="text" id="budgetName" x-model="newBudget.budgetName" class="tag-input w-full px-4 py-3 rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200" required>
+                            </div>
+                            <div>
+                                <label for="budgetLimit" class="block text-sm font-semibold text-gray-700 mb-2">Budget Limit (USD)</label>
+                                <input type="number" id="budgetLimit" x-model="newBudget.budgetLimit" class="tag-input w-full px-4 py-3 rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200" required min="1">
+                            </div>
+                        </div>
+
+                        <div class="flex justify-end space-x-3 mt-8">
+                            <button type="button" @click="isBudgetModalOpen = false" class="btn-secondary px-6 py-3 text-sm font-semibold rounded-lg">Cancel</button>
+                            <button type="submit" class="btn-primary px-6 py-3 text-sm font-semibold rounded-lg shadow-md" :disabled="isBudgetCreating">
+                                <span x-show="!isBudgetCreating">Create Budget</span>
+                                <span x-show="isBudgetCreating" class="flex items-center">
+                                    <div class="loading-spinner mr-2"></div>
+                                    Creating...
+                                </span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <div x-show="isScheduleModalOpen" x-cloak class="modal-overlay fixed inset-0 flex items-center justify-center z-50" @click.away="isScheduleModalOpen = false">
+                <div class="modal-content rounded-2xl p-8 w-full max-w-md mx-4" @click.stop>
+                    <div class="flex items-center space-x-3 mb-6">
+                        <div class="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl flex items-center justify-center">
+                            <i class="fas fa-envelope text-white"></i>
+                        </div>
+                        <h3 class="text-xl font-bold text-gray-800">Schedule Azure FinOps Report</h3>
+                    </div>
+
+                    <form @submit.prevent="createSchedule()">
+                        <div class="space-y-6">
+                            <div>
+                                <label for="scheduleEmail" class="block text-sm font-semibold text-gray-700 mb-2">Email Address</label>
+                                <input type="email" id="scheduleEmail" x-model="newSchedule.email" class="tag-input w-full px-4 py-3 rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200" placeholder="report-recipient@example.com" required>
+                            </div>
+                            <div>
+                                <label for="scheduleFrequency" class="block text-sm font-semibold text-gray-700 mb-2">Frequency</label>
+                                <select id="scheduleFrequency" x-model="newSchedule.frequency" class="tag-input w-full px-4 py-3 rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200" required>
+                                    <option value="" disabled>Select a timeline</option>
+                                    <option value="DAILY">Daily (at 6 PM)</option>
+                                    <option value="WEEKLY">Weekly (Friday at 6 PM)</option>
+                                    <option value="MONTHLY">Monthly (30th at 6 PM)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="flex justify-end space-x-3 mt-8">
+                            <button type="button" @click="isScheduleModalOpen = false" class="btn-secondary px-6 py-3 text-sm font-semibold rounded-lg">Cancel</button>
+                            <button type="submit" class="btn-primary px-6 py-3 text-sm font-semibold rounded-lg shadow-md" :disabled="isScheduleCreating">
+                                <span x-show="!isScheduleCreating">Create Schedule</span>
+                                <span x-show="isScheduleCreating" class="flex items-center">
+                                    <div class="loading-spinner mr-2"></div>
+                                    Saving...
+                                </span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <div x-show="showScheduleSuccessToast"
+                 @click.away="showScheduleSuccessToast = false"
+                 class="toast-notification"
+                 :class="{ 'show': showScheduleSuccessToast }"
+                 x-transition:enter="transition ease-out duration-300"
+                 x-transition:enter-start="opacity-0 transform translate-x-full"
+                 x-transition:enter-end="opacity-100 transform translate-x-0"
+                 x-transition:leave="transition ease-in duration-300"
+                 x-transition:leave-start="opacity-100 transform translate-x-0"
+                 x-transition:leave-end="opacity-0 transform translate-x-full">
+                <i class="fas fa-check-circle mr-3 text-2xl"></i>
+                <div>
+                    <span class="font-bold">Schedule Created!</span>
+                    <span class="block text-sm" x-text="`Your ${lastScheduleFrequency.toLowerCase()} report is set up.`"></span>
+                </div>
+                <button @click="showScheduleSuccessToast = false" class="ml-4 text-lg">&times;</button>
+            </div>
+
+        </main>
+    </div>
+</div>
+
+<script>
+    function finopsReport() {
+        return {
+            isLoading: true,
+            isRefreshing: false,
+            stompClient: null,
+            subscriptionId: null,
+            reportData: {
+                kpis: {},
+                costBreakdown: [], // <-- This is aligned with the DTO for service
+                costByRegion: [],  // <-- Added for clarity (though initialized empty by default)
+                rightsizingRecommendations: [],
+                wastedResources: [],
+                costAnomalies: [],
+                taggingCompliance: { compliancePercentage: 0, untaggedResources: [] },
+                budgets: []
+            },
+            reportSchedules: [],
+            isScheduleModalOpen: false,
+            isScheduleCreating: false,
+            newSchedule: {
+                email: '',
+                frequency: '',
+                cloudAccountId: null
+            },
+            showScheduleSuccessToast: false,
+            lastScheduleFrequency: '',
+            charts: {
+                byService: null,
+                byRegion: null
+            },
+            isBudgetModalOpen: false,
+            isBudgetCreating: false,
+            newBudget: {
+                budgetName: '',
+                budgetLimit: null,
+                budgetUnit: 'USD'
+            },
+
+            init() {
+                // --- *** FIX 2: Added JavaScript to fetch and load the sidebar *** ---
+                fetch('/_sidebar.html')
+                    .then(response => response.text())
+                    .then(html => {
+                        document.getElementById('sidebar-container').innerHTML = html;
+                    })
+                    .catch(err => console.error('Failed to load sidebar:', err));
+                // --- *** END OF FIX *** ---
+
+                // Get subscription ID from URL parameters
+                const urlParams = new URLSearchParams(window.location.search);
+                this.subscriptionId = urlParams.get('subscriptionId');
+
+                if (!this.subscriptionId) {
+                    // Fallback: try getting from session storage
+                    const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                    if (selectedAccountIds.length > 0) {
+                        this.subscriptionId = selectedAccountIds[0];
+                        this.newSchedule.cloudAccountId = selectedAccountIds[0];
+                    }
+                } else {
+                    this.newSchedule.cloudAccountId = this.subscriptionId;
+                }
+
+                if (!this.subscriptionId) {
+                    console.error('Subscription ID is missing.');
+                    alert('Error: Subscription ID is missing. Please navigate from the dashboard.');
+                    this.isLoading = false;
+                    return;
+                }
+
+                this.loadReport(false);
+                this.loadSchedules();
+            },
+
+            loadReport(forceRefresh = false) {
+                if (!this.subscriptionId) {
+                    console.log('No subscription selected, skipping report load.');
+                    this.isLoading = false;
+                    return;
+                }
+
+                if (forceRefresh) {
+                    this.isRefreshing = true;
+                } else {
+                    this.isLoading = true;
+                }
+
+                const url = `/api/azure/finops-report?subscriptionId=${this.subscriptionId}&forceRefresh=${forceRefresh}`;
+                
+                fetch(url)
+                    .then(res => {
+                        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                        return res.json();
+                    })
+                    .then(data => {
+                        if (data) {
+                            this.reportData = data;
+                            this.renderCharts();
+                        }
+                    })
+                    .catch(err => {
+                        console.error("Failed to load Azure FinOps report:", err);
+                        alert("Failed to load report data. Please try again.");
+                    })
+                    .finally(() => {
+                        this.isLoading = false;
+                        this.isRefreshing = false;
+                    });
+            },
+
+            loadSchedules() {
+                if (!this.subscriptionId) return;
+
+                fetch(`/api/azure/finops-schedules?subscriptionId=${this.subscriptionId}`)
+                    .then(res => {
+                        if (!res.ok) throw new Error('Failed to load report schedules.');
+                        return res.json();
+                    })
+                    .then(data => {
+                        this.reportSchedules = data.map(s => ({...s, subscriptionName: s.accountName || this.subscriptionId }));
+                    })
+                    .catch(err => console.error('Failed to load schedules:', err));
+            },
+
+            formatCurrency(value) {
+                return (value || 0).toLocaleString('en-US', {
+                    style: 'currency',
+                    currency: 'USD'
+                });
+            },
+
+            get kpis() {
+                const k = this.reportData.kpis || {};
+
+                // --- Values from the DTO ---
+                const mtdSpend = k.totalSpend || 0;
+                const forecast = k.forecastedSpend || 0;
+                
+                // --- Values NOT in the DTO, will show 0 ---
+                const lastMonthSpend = 0; // k.lastMonthSpend || 0; 
+                const potentialSavings = 0; // k.potentialSavings || 0;
+
+                const mtdTrend = lastMonthSpend > 0 ? ((mtdSpend - lastMonthSpend) / lastMonthSpend) * 100 : 0;
+                const forecastTrend = lastMonthSpend > 0 ? ((forecast - lastMonthSpend) / lastMonthSpend) * 100 : 0;
+
+                return [{
+                    label: 'Month-to-Date Spend',
+                    value: this.formatCurrency(mtdSpend),
+                    icon: 'fa-dollar-sign',
+                    color: { bg: 'bg-blue-100', text: 'text-blue-500' },
+                    trendIcon: mtdTrend >= 0 ? 'fa-arrow-up' : 'fa-arrow-down',
+                    trendColor: mtdTrend >= 0 ? 'text-red-500' : 'text-green-500',
+                    trendText: mtdTrend === 0 ? '' : `${Math.abs(mtdTrend).toFixed(1)}% vs last month`
+                }, {
+                    label: 'Forecasted Spend',
+                    value: this.formatCurrency(forecast),
+                    icon: 'fa-chart-line',
+                    color: { bg: 'bg-yellow-100', text: 'text-yellow-500' },
+                    trendIcon: forecastTrend >= 0 ? 'fa-arrow-up' : 'fa-arrow-down',
+                    trendColor: forecastTrend >= 0 ? 'text-red-500' : 'text-green-500',
+                    trendText: forecastTrend === 0 ? '' : `${Math.abs(forecastTrend).toFixed(1)}% vs last month`
+                }, {
+                    label: 'Last Month Spend',
+                    value: this.formatCurrency(lastMonthSpend),
+                    icon: 'fa-calendar-alt',
+                    color: { bg: 'bg-gray-100', text: 'text-gray-500' },
+                    trendIcon: '', trendColor: '', trendText: ''
+                }, {
+                    label: 'Potential Savings',
+                    value: this.formatCurrency(potentialSavings),
+                    icon: 'fa-piggy-bank',
+                    color: { bg: 'bg-green-100', text: 'text-green-500' },
+                    trendIcon: '', trendColor: '', trendText: ''
+                }];
+            },
+
+            renderCharts() {
+                setTimeout(() => {
+                    this.renderServiceChart();
+                    this.renderRegionChart();
+                }, 0);
+            },
+
+            handleChartClick(event, chart, type) {
+                const points = chart.getElementsAtEventForMode(event, 'nearest', {
+                    intersect: true
+                }, true);
+                if (points.length) {
+                    const firstPoint = points[0];
+                    const label = chart.data.labels[firstPoint.index];
+                    alert(`Chart clicked! You selected ${type}: ${label}. You would now be redirected to a filtered view.`);
+                }
+            },
+
+            renderServiceChart() {
+                const ctx = document.getElementById('costByServiceChart');
+                if (!ctx) return;
+                if (this.charts.byService) this.charts.byService.destroy();
+
+                // --- Data from DTO: reportData.costBreakdown ---
+                const data = this.reportData.costBreakdown || [];
+                
+                const azureColors = [
+                    '#0078D4', '#005A9E', '#50E6FF', '#00BCF2', '#8661C5',
+                    '#5C2D91', '#E81123', '#FFB900', '#00A4EF', '#7FBA00',
+                    '#00B294', '#F25022'
+                ];
+                
+                this.charts.byService = new Chart(ctx.getContext('2d'), {
+                    type: 'doughnut',
+                    data: {
+                        labels: data.map(d => d.service),
+                        datasets: [{
+                            data: data.map(d => d.cost),
+                            backgroundColor: azureColors,
+                            borderWidth: 0
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'right',
+                                labels: {
+                                    usePointStyle: true,
+                                    font: { family: "'Inter', sans-serif" }
+                                }
+                            }
+                        },
+                        onClick: (e) => this.handleChartClick(e, this.charts.byService, 'SERVICE')
+                    }
+                });
+            },
+
+            renderRegionChart() {
+                const ctx = document.getElementById('costByRegionChart');
+                if (!ctx) return;
+                if (this.charts.byRegion) this.charts.byRegion.destroy();
+                
+                // ✅ FIX: Use costByRegion from the FinOps DTO (now correctly populated by backend)
+                const data = this.reportData.costByRegion || [];
+                
+                // If no data, don't render empty chart
+                if (data.length === 0) {
+                    console.warn('No region cost data available');
+                    return;
+                }
+
+                this.charts.byRegion = new Chart(ctx.getContext('2d'), {
+                    type: 'bar',
+                    data: {
+                        // ✅ Use region and cost from the DTO object
+                        labels: data.map(d => d.region),
+                        datasets: [{
+                            label: 'Cost by Region ($)',
+                            data: data.map(d => d.cost),
+                            backgroundColor: [
+                                '#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8',
+                                '#F7DC6F', '#BB8FCE', '#85C1E2', '#F8B88B', '#ABEBC6'
+                            ],
+                            borderColor: '#fff',
+                            borderWidth: 2,
+                            borderRadius: 8,
+                            borderSkipped: false
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        indexAxis: 'y', // Horizontal bars
+                        plugins: {
+                            legend: {
+                                display: true,
+                                position: 'top'
+                            }
+                        },
+                        scales: {
+                            x: {
+                                grid: {
+                                    color: 'rgba(0, 0, 0, 0.05)'
+                                },
+                                ticks: {
+                                    color: '#6b7280',
+                                    callback: function(value) {
+                                        return '$' + value.toFixed(0);
+                                    }
+                                }
+                            },
+                            y: {
+                                grid: {
+                                    display: false
+                                },
+                                ticks: {
+                                    color: '#6b7280'
+                                }
+                            }
+                        },
+                        onClick: (e) => this.handleChartClick(e, this.charts.byRegion, 'REGION')
+                    }
+                });
+            },
+
+            createBudget() {
+                if (!this.newBudget.budgetName || !this.newBudget.budgetLimit) {
+                    alert('Please fill out all fields.');
+                    return;
+                }
+                this.isBudgetCreating = true;
+
+                if (!this.subscriptionId) {
+                    alert('Error: No subscription selected.');
+                    this.isBudgetCreating = false;
+                    return;
+                }
+
+                fetch(`/api/azure/finops/budgets?subscriptionId=${this.subscriptionId}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(this.newBudget)
+                    })
+                    .then(res => {
+                        if (res.status === 201 || res.ok) return res.json();
+                        throw new Error('Failed to create budget.');
+                    })
+                    .then(createdBudget => {
+                        this.isBudgetModalOpen = false;
+                        if (!this.reportData.budgets) {
+                            this.reportData.budgets = [];
+                        }
+                        this.reportData.budgets.push(createdBudget);
+                        this.newBudget = {
+                            budgetName: '',
+                            budgetLimit: null,
+                            budgetUnit: 'USD'
+                        };
+                    })
+                    .catch(err => alert(err.message))
+                    .finally(() => this.isBudgetCreating = false);
+            },
+
+            deleteBudget(budgetName) {
+                if (!confirm(`Are you sure you want to delete the budget "${budgetName}"?`)) {
+                    return;
+                }
+
+                fetch(`/api/azure/finops/budgets?subscriptionId=${this.subscriptionId}&budgetName=${encodeURIComponent(budgetName)}`, {
+                    method: 'DELETE'
+                })
+                .then(res => {
+                    if (!res.ok) throw new Error('Failed to delete budget.');
+                    this.reportData.budgets = this.reportData.budgets.filter(b => b.budgetName !== budgetName);
+                })
+                .catch(err => alert(err.message));
+            },
+
+            createSchedule() {
+                if (!this.newSchedule.email || !this.newSchedule.frequency || !this.newSchedule.cloudAccountId) {
+                    alert('Please fill out all fields and ensure a subscription is selected.');
+                    return;
+                }
+                this.isScheduleCreating = true;
+
+                // This API endpoint is defined in your global FinOpsReportScheduleController
+                fetch('/api/xamops/finops-schedules', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(this.newSchedule)
+                })
+                .then(res => {
+                    if (!res.ok) {
+                        return res.text().then(text => { throw new Error(text || 'Failed to create schedule.') });
+                    }
+                    return res.json();
+                })
+                .then(createdSchedule => {
+                    this.reportSchedules.push({...createdSchedule, subscriptionName: createdSchedule.accountName });
+                    this.isScheduleModalOpen = false;
+
+                    this.lastScheduleFrequency = this.newSchedule.frequency;
+                    this.showScheduleSuccessToast = true;
+                    setTimeout(() => this.showScheduleSuccessToast = false, 4000);
+
+                    this.newSchedule.email = '';
+                    this.newSchedule.frequency = '';
+                })
+                .catch(err => {
+                    console.error('Create schedule error:', err);
+                    alert(err.message);
+                })
+                .finally(() => this.isScheduleCreating = false);
+            },
+
+            deleteSchedule(scheduleId) {
+                if (!confirm('Are you sure you want to delete this report schedule?')) {
+                    return;
+                }
+
+                // This API endpoint is defined in your global FinOpsReportScheduleController
+                fetch(`/api/xamops/finops-schedules/${scheduleId}`, {
+                    method: 'DELETE'
+                })
+                .then(res => {
+                    if (!res.ok) throw new Error('Failed to delete schedule.');
+                    this.reportSchedules = this.reportSchedules.filter(s => s.id !== scheduleId);
+                })
+                .catch(err => alert(err.message));
+            }
+        }
+    }
+</script>
+</body>
+</html>

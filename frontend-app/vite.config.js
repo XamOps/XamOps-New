@@ -57,6 +57,15 @@ export default defineConfig({
         changeOrigin: true,
       },
 
+      // --- START OF ADDED FIX ---
+      // ✅ CICD API endpoints (for GitHub, etc.)
+      '/api/cicd': {
+        target: 'http://localhost:8080', // xamops-service
+        changeOrigin: true,
+        secure: false,
+      },
+      // --- END OF ADDED FIX ---
+
       // Authentication requests to xamops
       '/login': {
         target: 'http://localhost:8080',
@@ -135,6 +144,7 @@ export default defineConfig({
         // Azure files
         'azure_cloudlist': resolve(__dirname, 'azure_cloudlist.html'),
         'azure_dashboard': resolve(__dirname, 'azure_dashboard.html'),
+        'azure-finops-report': resolve(__dirname, 'azure-finops-report.html')
       },
     },
   },
