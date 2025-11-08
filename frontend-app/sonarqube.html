@@ -468,9 +468,9 @@
 </head>
 
 <body>
-    <div id="sidebar-container" class="flex-shrink-0"></div>
+    <include file="/_sidebar.html"></include>
 
-    <div class="flex-1 flex flex-col h-screen overflow-y-auto main-container">
+    <div class="flex-1 flex flex-col h-screen overflow-y-auto main-container pl-64">
         <div th:replace="~{_header :: _header}"></div>
 
         <main class="flex-1 p-6 lg:p-10 space-y-8" x-data="sonarqubeDashboard()" x-cloak>
