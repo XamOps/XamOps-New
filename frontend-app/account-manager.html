@@ -958,8 +958,8 @@ enforcement: DENY
             fetchAccounts() {
                 this.isLoading = true;
                 // *** UPDATED fetch URL and added credentials ***
-                fetch('http://localhost:8080/api/xamops/account-manager/accounts', { credentials: 'include' })
-                    .then(res => {
+                fetch('/api/xamops/account-manager/accounts', { credentials: 'include' })
+                        .then(res => {
                         if (!res.ok) throw new Error('Failed to load accounts'); // Added error check
                         return res.json();
                     })
@@ -973,8 +973,8 @@ enforcement: DENY
             // === NEW FUNCTION TO FETCH GITHUB CONFIGS ===
             fetchGitHubConfigs() {
                 this.isGithubLoading = true;
-                fetch('http://localhost:8080/api/cicd/config/github', { credentials: 'include' })
-                    .then(res => {
+                fetch('/api/cicd/config/github', { credentials: 'include' })
+                .then(res => {
                         if (!res.ok) {
                             if (res.status === 401 || res.status === 403) console.error('Not authenticated to fetch GitHub configs');
                             throw new Error('Failed to load GitHub configs');
@@ -994,8 +994,8 @@ enforcement: DENY
                     return;
                 }
                 // Use absolute URL and credentials
-                fetch(`http://localhost:8080/api/cicd/config/github/${config.id}`, {
-                    method: 'DELETE',
+                fetch(`/api/cicd/config/github/${config.id}`, {
+                method: 'DELETE',
                     credentials: 'include'
                 })
                 .then(res => {
@@ -1020,8 +1020,8 @@ enforcement: DENY
                 this.isModalOpen = true;
             },
             addAzureAccount() {
-                fetch('http://localhost:8080/api/accounts/azure', {
-                    method: 'POST',
+                fetch('/api/accounts/azure', {
+                method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         accountName: this.newAccount.azure.name,
@@ -1061,8 +1061,8 @@ enforcement: DENY
                 this.isVerifying = true;
                 this.verificationError = '';
                 // *** UPDATED fetch URL and added credentials ***
-                fetch('http://localhost:8080/api/xamops/account-manager/verify-account', {
-                    method: 'POST',
+                fetch('/api/xamops/account-manager/verify-account', {
+                method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     credentials: 'include', // <-- ADD THIS
                     body: JSON.stringify(this.verificationDetails)
@@ -1090,8 +1090,8 @@ enforcement: DENY
                     return;
                 }
                 // *** UPDATED fetch URL and added credentials ***
-                fetch(`http://localhost:8080/api/xamops/account-manager/accounts/${account.dbId}`, {
-                    method: 'DELETE',
+                fetch(`/api/xamops/account-manager/accounts/${account.dbId}`, {
+                method: 'DELETE',
                     credentials: 'include' // <-- ADD THIS
                 })
                 .then(res => {
