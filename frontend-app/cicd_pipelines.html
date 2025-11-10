@@ -132,7 +132,6 @@
                     </div>
                 </div>
 
-                <!-- Modal for Workflow Run History -->
                 <div x-show="selectedWorkflow"
                      @keydown.escape.window="selectedWorkflow = null"
                      class="fixed inset-0 z-50 overflow-y-auto bg-black bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4"
@@ -142,7 +141,6 @@
                          @click.away="selectedWorkflow = null"
                          x-transition>
                         
-                        <!-- Modal Header -->
                         <div class="sticky top-0 z-10 bg-gray-100 px-6 py-4 border-b">
                             <div class="flex items-center justify-between">
                                 <div class="min-w-0">
@@ -156,7 +154,6 @@
                             </div>
                         </div>
 
-                        <!-- Modal Body -->
                         <div class="overflow-y-auto max-h-[calc(90vh-120px)] p-6">
                             <h3 class="text-md font-semibold text-gray-800 mb-4">Run History</h3>
                             
@@ -217,7 +214,8 @@
                 fetchGithubData() {
                     this.isLoadingGithub = true;
                     console.log("Fetching GitHub data from API...");
-                    fetch('http://localhost:8080/api/cicd/github/runs', {
+                    // === FIX 1: Removed hardcoded localhost URL ===
+                    fetch('/api/cicd/github/runs', {
                         credentials: 'include'
                     })
                     .then(res => {
@@ -279,8 +277,8 @@
 
                     console.log(`Fetching history for: owner=${owner}, repo=${repo}, workflowId=${workflowId}`);
 
-                    // API call with owner and repo as separate path variables
-                    fetch(`http://localhost:8080/api/cicd/github/runs/${owner}/${repo}/${workflowId}?count=15`, {
+                    // === FIX 2: Removed hardcoded localhost URL ===
+                    fetch(`/api/cicd/github/runs/${owner}/${repo}/${workflowId}?count=15`, {
                         credentials: 'include'
                     })
                     .then(res => {

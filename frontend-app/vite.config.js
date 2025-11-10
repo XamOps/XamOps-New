@@ -114,6 +114,8 @@ export default defineConfig({
         'gcp_devops_in_the_box.html': resolve(__dirname, 'gcp_devops_in_the_box.html'),
         'cicd_pipelines.html': resolve(__dirname, 'cicd_pipelines.html'),
         security: resolve(__dirname, 'security.html'),
+        'add-github-config.html': resolve(__dirname,'add-github-config.html'),
+        'sonarqube.html': resolve(__dirname,'sonarqube.html'),
 
         // Admin subdir files
         'admin_credits': resolve(__dirname, 'billops/admin_credits.html'),

@@ -71,6 +71,8 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("/gcp_*.html"),
                                 new AntPathRequestMatcher("/azure_dashboard.html"),
                                 new AntPathRequestMatcher("/ws/**"),
+                                new AntPathRequestMatcher("/azure_*.html"),
+                                new AntPathRequestMatcher("/cloudlist.html"),
                                 
                                 new AntPathRequestMatcher("/api/cicd/github/runs"), 
                                 new AntPathRequestMatcher("/api/cicd/config/**"),

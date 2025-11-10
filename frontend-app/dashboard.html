@@ -1232,8 +1232,7 @@
                 ];
 
                 container.innerHTML = resources.map(res => `
-                    <a href="/cloudlist?service=${encodeURIComponent(res.type)}" class="resource-card flex items-center gap-4 p-4 rounded-xl hover:shadow-md transition-all group">
-                        <div class="resource-icon w-10 h-10 flex-shrink-0">
+                        <a href="/cloudlist.html?service=${encodeURIComponent(res.type)}" class="resource-card flex items-center gap-4 p-4 rounded-xl hover:shadow-md transition-all group">                        <div class="resource-icon w-10 h-10 flex-shrink-0">
                             <img src="/icons/${res.icon}" alt="${res.name}" class="w-full h-full rounded-xl object-cover">
                         </div>
                         <div class="flex-1 min-w-0">
@@ -1307,7 +1306,7 @@
                             </div>
                             ${recs.length > 3 ? `
                                 <div class="mt-4 text-center">
-                                    <a href="/rightsizing" class="inline-flex items-center text-sm text-${color}-600 hover:text-${color}-800 font-medium">
+                                    <a href="/rightsizing.html" class="inline-flex items-center text-sm text-${color}-600 hover:text-${color}-800 font-medium">
                                         View all ${recs.length} recommendations
                                         <i class="fas fa-arrow-right ml-1"></i>
                                     </a>
