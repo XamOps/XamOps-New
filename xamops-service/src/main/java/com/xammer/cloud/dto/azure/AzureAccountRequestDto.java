@@ -9,9 +9,12 @@ public class AzureAccountRequestDto {
     private String clientSecret;
     private String principalId;
     
-    // --- ADD THESE TWO LINES ---
+    // Fields from original file
     private String billingStorageAccountId;
     private String billingResourceGroup;
+
+    // --- Fix for access_type error ---
+    private String access;
 
     // Getters
     public String getAccountName() { return accountName; }
@@ -21,9 +24,12 @@ public class AzureAccountRequestDto {
     public String getClientSecret() { return clientSecret; }
     public String getPrincipalId() { return principalId; }
     
-    // --- ADD GETTERS FOR NEW FIELDS ---
+    // Getters for other fields
     public String getBillingStorageAccountId() { return billingStorageAccountId; }
     public String getBillingResourceGroup() { return billingResourceGroup; }
+
+    // --- Getter for access field (replaces stub) ---
+    public String getAccess() { return access; }
 
     // Setters
     public void setAccountName(String accountName) { this.accountName = accountName; }
@@ -33,7 +39,10 @@ public class AzureAccountRequestDto {
     public void setClientSecret(String clientSecret) { this.clientSecret = clientSecret; }
     public void setPrincipalId(String principalId) { this.principalId = principalId; }
 
-    // --- ADD SETTERS FOR NEW FIELDS ---
+    // Setters for other fields
     public void setBillingStorageAccountId(String billingStorageAccountId) { this.billingStorageAccountId = billingStorageAccountId; }
     public void setBillingResourceGroup(String billingResourceGroup) { this.billingResourceGroup = billingResourceGroup; }
+
+    // --- Setter for access field ---
+    public void setAccess(String access) { this.access = access; }
 }

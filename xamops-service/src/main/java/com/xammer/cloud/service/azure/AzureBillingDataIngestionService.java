@@ -80,8 +80,10 @@ public class AzureBillingDataIngestionService {
         String subscriptionId = account.getAzureSubscriptionId();
         String storageAccountName = account.getAzureBillingStorageAccount();
         String rgName = account.getAzureBillingRg();
-        String containerName = "costexports";
-        String directoryName = "daily-actualcost-0rf35m1";
+
+        // --- MODIFIED SECTION: Read from DB instead of hardcoding ---
+        String containerName = account.getAzureBillingContainer();
+        String directoryName = account.getAzureBillingDirectory();
         
         log.info("Ingesting billing data for account: {}", subscriptionId);
 
@@ -89,6 +91,13 @@ public class AzureBillingDataIngestionService {
             log.warn("Account {} is missing billing storage account or RG name. Skipping.", subscriptionId);
             return;
         }
+        
+        // --- NEW CHECK: Ensure dynamic paths exist in the database ---
+        if (containerName == null || directoryName == null) {
+            log.warn("Account {} is missing billing container or directory name in database. Skipping.", subscriptionId);
+            return;
+        }
+        // --- END OF MODIFICATIONS ---
 
         try {
             String storageUrl = String.format("https://%s.blob.core.windows.net", storageAccountName);
