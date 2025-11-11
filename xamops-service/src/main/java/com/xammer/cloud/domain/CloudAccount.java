@@ -76,6 +76,12 @@ private Long id;
     @Column(name = "azure_billing_storage_account")
     private String azureBillingStorageAccount;
 
+    @Column(name = "azure_billing_container")
+    private String azureBillingContainer;
+
+    @Column(name = "azure_billing_directory")
+    private String azureBillingDirectory;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "client_id", nullable = false)
     @JsonIgnore
