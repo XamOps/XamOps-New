@@ -668,15 +668,15 @@
             </a>
         </div>
 
-        <div x-show="hasAnyRole(['ROLE_BILLOPS_ADMIN'])" x-cloak class="sidebar-section" :class="{'active': isActive('/Xamops_user_management.html') || isActive('/user-manager.html')}">
-            <a href="user-manager.html" class="nav-item flex items-center gap-3 rounded-xl px-4 py-3 font-semibold" :class="isActive('user-manager.html') || isActive('/user-manager.html') ? 'bg-gradient-to-r from-purple-500 to-pink-600 text-white shadow-lg' : 'text-gray-600 hover:bg-purple-50'">
+        <div x-show="hasAnyRole(['ROLE_BILLOPS_ADMIN'])" x-cloak class="sidebar-section" :class="{'active': isActive('/user-manager.html') || isActive('/user-manager.html')}">
+            <a href="/user-manager.html" class="nav-item flex items-center gap-3 rounded-xl px-4 py-3 font-semibold" :class="isActive('user-manager.html') || isActive('/user-manager.html') ? 'bg-gradient-to-r from-purple-500 to-pink-600 text-white shadow-lg' : 'text-gray-600 hover:bg-purple-50'">
                 <i class="fas fa-users fa-fw w-5 text-center"></i>
                 <span class="whitespace-nowrap">User Management</span>
             </a>
         </div>
         
         <div x-show="hasAnyRole(['ROLE_XAMOPS'])" x-cloak class="sidebar-section" :class="{'active': isActive('/Xamops_User_management.html') || isActive('/user-manager.html')}">
-            <a href="Xamops_User_management.html" class="nav-item flex items-center gap-3 rounded-xl px-4 py-3 font-semibold" :class="isActive('Xamops_User_management.html') || isActive('/Xamops_User_management.html') ? 'bg-gradient-to-r from-purple-500 to-pink-600 text-white shadow-lg' : 'text-gray-600 hover:bg-purple-50'">
+            <a href="/Xamops_User_management.html" class="nav-item flex items-center gap-3 rounded-xl px-4 py-3 font-semibold" :class="isActive('Xamops_User_management.html') || isActive('/Xamops_User_management.html') ? 'bg-gradient-to-r from-purple-500 to-pink-600 text-white shadow-lg' : 'text-gray-600 hover:bg-purple-50'">
                 <i class="fas fa-users fa-fw w-5 text-center"></i>
                 <span class="whitespace-nowrap">User Management</span>
             </a>
