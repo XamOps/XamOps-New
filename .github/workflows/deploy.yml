@@ -187,6 +187,8 @@ on:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ap-south-1 
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -200,7 +202,7 @@ jobs:
 
       # 🆕 Added Step: Build Maven Project but skip tests
       - name: Build Maven Project (skip tests)
-        run: mvn clean install -DskipTests
+        run: mvn clean install -DskipTests -Daws.region=${AWS_REGION}
 
       - name: Build & Push Billops
         uses: docker/build-push-action@v4
@@ -248,7 +250,7 @@ jobs:
       - name: Deploy containers on EC2
         run: |
           aws ssm send-command \
-            --targets "Key=instanceIds,Values=" \
+            --targets "Key=instanceIds,Values=i-0715da8b0b0b757e7" \
             --document-name "AWS-RunShellScript" \
             --comment "Deploy microservices" \
             --parameters commands='[
