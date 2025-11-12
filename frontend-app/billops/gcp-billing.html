@@ -273,7 +273,7 @@
 </head>
 <body class="bg-gray-50">
 <div class="flex h-screen">
-    <div id="sidebar-container" class="flex-shrink-0"></div>
+    <include file="/_sidebar.html"></include>
 
     <main class="flex-1 p-6 md:p-8 overflow-y-auto ml-64">
         <div x-data="gcpBillingDashboard()" x-init="init()" x-cloak>
@@ -523,7 +523,7 @@
             },
 
             init() {
-                this.loadSidebar();
+                // this.loadSidebar();
                 const urlParams = new URLSearchParams(window.location.search);
                 this.accountId = urlParams.get('accountIds');
 
@@ -536,19 +536,19 @@
                 this.loadInitialData();
             },
 
-            loadSidebar() {
-                fetch('sidebar.html')
-                    .then(response => response.text())
-                    .then(html => {
-                        document.getElementById('sidebar-container').innerHTML = html;
-                        if (window.Alpine) {
-                            document.querySelectorAll('[x-data]').forEach(el => {
-                                Alpine.initTree(el);
-                            });
-                        }
-                    })
-                    .catch(error => console.error('Error loading sidebar:', error));
-            },
+            // loadSidebar() {
+            //     fetch('sidebar.html')
+            //         .then(response => response.text())
+            //         .then(html => {
+            //             document.getElementById('sidebar-container').innerHTML = html;
+            //             if (window.Alpine) {
+            //                 document.querySelectorAll('[x-data]').forEach(el => {
+            //                     Alpine.initTree(el);
+            //                 });
+            //             }
+            //         })
+            //         .catch(error => console.error('Error loading sidebar:', error));
+            // },
 
             loadInitialData() {
                 if (!this.accountId) return;
