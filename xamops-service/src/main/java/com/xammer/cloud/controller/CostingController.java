@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.LocalDate; // <-- IMPORT ADDED
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -33,8 +34,13 @@ public class CostingController {
             @RequestParam String accountId,
             @RequestParam String groupBy,
             @RequestParam(required = false) String tagKey) {
-        // Pass 'false' as the fourth argument, or set as needed
-        return costService.getCostBreakdown(accountId, groupBy, tagKey, false)
+        
+        // --- FIX: Add default dates for the call ---
+        String startDate = LocalDate.now().withDayOfMonth(1).toString();
+        String endDate = LocalDate.now().toString();
+        
+        // --- FIX: Pass dates to the method call ---
+        return costService.getCostBreakdown(accountId, groupBy, tagKey, false, startDate, endDate)
                 .thenApply(ResponseEntity::ok)
                 .exceptionally(ex -> {
                     logger.error("Error fetching cost breakdown for account {}", accountId, ex);
