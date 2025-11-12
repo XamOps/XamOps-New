@@ -250,10 +250,10 @@ jobs:
       - name: Deploy containers on EC2
         run: |
           aws ssm send-command \
-            --targets "Key=instanceIds,Values=i-0715da8b0b0b757e7" \
+            --instance-ids "i-0715da8b0b0b757e7" \
             --document-name "AWS-RunShellScript" \
             --comment "Deploy microservices" \
-            --parameters commands='[
+            --parameters '{"commands": [
               "sudo docker login ghcr.io -u sahil-remoterepo -p ${{ secrets.UAT_GHCR }}",
               "sudo docker pull ghcr.io/sahil-remoterepo/billops:latest",
               "sudo docker pull ghcr.io/sahil-remoterepo/xamops-service:latest",
@@ -267,5 +267,5 @@ jobs:
               "sudo docker run -d -p 8082:8082 --name billops --network xamops-network ghcr.io/sahil-remoterepo/billops:latest",
               "sudo docker run -d -p 8080:8080 --name xamops-service --network xamops-network --restart always -e SPRING_PROFILES_ACTIVE=sit -e DB_HOST=172.31.9.24 -e DB_USER=xamops_local_user -e DB_PASS=XamOps@123 -e DB_NAME=xamops_local_db -e EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://service-registry:8761/eureka/ -e REDIS_HOST=redis-sit -e REDIS_PORT=6379 -e \"GROQ_API_KEY=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\" ghcr.io/sahil-remoterepo/xamops-service:latest",
               "sudo docker run -d --name frontend-app --network xamops-network ghcr.io/sahil-remoterepo/frontend-app:latest"
-            ]'
+            ]}'
 
