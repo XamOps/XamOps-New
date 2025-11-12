@@ -10,6 +10,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate; // <-- IMPORT ADDED
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,26 +31,31 @@ public class CostController {
     /**
      * Get cost breakdown by dimension (SERVICE, REGION, etc.)
      *
-     * Example: /api/xamops/costs/breakdown?accountId=123456789&groupBy=SERVICE
+     * Example: /api/xamops/costs/breakdown?accountId=123456789&groupBy=SERVICE&startDate=2025-11-01&endDate=2025-11-12
      */
     @GetMapping("/costs/breakdown")
     public CompletableFuture<ResponseEntity<List<CostDto>>> getCostBreakdown(
             @RequestParam String accountId,
             @RequestParam String groupBy,
             @RequestParam(required = false) String tag,
-            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @RequestParam String startDate, // <-- ADDED
+            @RequestParam String endDate) { // <-- ADDED
 
-        logger.info("📊 Cost breakdown request - Account: {}, GroupBy: {}, Tag: {}",
-                accountId, groupBy, tag);
+        // UPDATED Logger to include new date parameters
+        logger.info("📊 Cost breakdown request - Account: {}, GroupBy: {}, Tag: {}, Start: {}, End: {}",
+                accountId, groupBy, tag, startDate, endDate);
 
-        return costService.getCostBreakdown(accountId, groupBy, tag, forceRefresh)
+        // UPDATED Service call to pass new date parameters
+        return costService.getCostBreakdown(accountId, groupBy, tag, forceRefresh, startDate, endDate) 
                 .thenApply(costs -> {
                     logger.info("✅ Cost breakdown retrieved: {} items", costs.size());
                     return ResponseEntity.ok(costs);
                 })
                 .exceptionally(ex -> {
                     logger.error("❌ Error fetching cost breakdown", ex);
-                    return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+                    // --- FIX: Specify generic type for .build() ---
+                    return ResponseEntity.<List<CostDto>>status(HttpStatus.INTERNAL_SERVER_ERROR).build();
                 });
     }
 
@@ -77,7 +83,8 @@ public class CostController {
                 })
                 .exceptionally(ex -> {
                     logger.error("❌ Error fetching historical cost", ex);
-                    return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+                    // --- FIX: Specify generic type for .build() ---
+                    return ResponseEntity.<HistoricalCostDto>status(HttpStatus.INTERNAL_SERVER_ERROR).build();
                 });
     }
 
@@ -100,11 +107,13 @@ public class CostController {
         return costService.getHistoricalCost(accountId, serviceName, regionName, days, forceRefresh)
                 .thenApply(historicalData -> {
                     logger.info("✅ Historical trend retrieved: {} days", historicalData.getLabels().size());
+                    // --- FIX: Fixed typo (historical -> historicalData) ---
                     return ResponseEntity.ok(historicalData);
                 })
                 .exceptionally(ex -> {
                     logger.error("❌ Error fetching historical trend", ex);
-                    return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+                    // --- FIX: Specify generic type for .build() ---
+                    return ResponseEntity.<HistoricalCostDto>status(HttpStatus.INTERNAL_SERVER_ERROR).build();
                 });
     }
 
@@ -168,16 +177,23 @@ public class CostController {
     public CompletableFuture<ResponseEntity<Map<String, Object>>> getCostSummary(
             @RequestParam String accountId,
             @RequestParam(defaultValue = "30") int days,
-            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @RequestParam(required = false) String startDate, // <-- ADDED FOR COMPATIBILITY
+            @RequestParam(required = false) String endDate) { // <-- ADDED FOR COMPATIBILITY
 
         logger.info("📋 Cost summary request - Account: {}", accountId);
 
+        // --- FIX: Provide safe defaults for dates if they are null ---
+        // This prevents passing null or "DEFAULT_START_DATE" to the service
+        String start = (startDate != null) ? startDate : LocalDate.now().withDayOfMonth(1).toString();
+        String end = (endDate != null) ? endDate : LocalDate.now().toString();
+
         // Fetch multiple data points concurrently
         CompletableFuture<List<CostDto>> serviceBreakdown =
-                costService.getCostBreakdown(accountId, "SERVICE", null, forceRefresh);
+                costService.getCostBreakdown(accountId, "SERVICE", null, forceRefresh, start, end); // Pass dates
 
         CompletableFuture<List<CostDto>> regionBreakdown =
-                costService.getCostBreakdown(accountId, "REGION", null, forceRefresh);
+                costService.getCostBreakdown(accountId, "REGION", null, forceRefresh, start, end); // Pass dates
 
         CompletableFuture<HistoricalCostDto> historicalCost =
                 costService.getHistoricalCost(accountId, null, null, days, forceRefresh);
@@ -196,7 +212,8 @@ public class CostController {
                 })
                 .exceptionally(ex -> {
                     logger.error("❌ Error generating cost summary", ex);
-                    return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+                    // --- FIX: Specify generic type for .build() ---
+                    return ResponseEntity.<Map<String, Object>>status(HttpStatus.INTERNAL_SERVER_ERROR).build();
                 });
     }
 

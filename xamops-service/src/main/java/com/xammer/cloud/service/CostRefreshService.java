@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate; // <-- IMPORT ADDED
 import java.util.List;
 
 @Service
@@ -27,7 +28,12 @@ public class CostRefreshService {
     public void triggerCostBreakdownRefresh(String accountId, String groupBy, String tagKey) {
         logger.info("Starting async cost breakdown refresh for account: {}, groupBy: {}, tagKey: {}", accountId, groupBy, tagKey);
         try {
-            List<CostDto> freshData = costService.getCostBreakdown(accountId, groupBy, tagKey, true).join();
+            // --- FIX: Add default dates for the call ---
+            String startDate = LocalDate.now().withDayOfMonth(1).toString();
+            String endDate = LocalDate.now().toString();
+
+            // --- FIX: Pass dates to the method call ---
+            List<CostDto> freshData = costService.getCostBreakdown(accountId, groupBy, tagKey, true, startDate, endDate).join();
             
             String topic = "cost-breakdown-" + groupBy + (tagKey != null ? "-" + tagKey : "");
             dashboardUpdateService.sendUpdate(accountId, freshData);
