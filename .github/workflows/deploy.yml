@@ -87,96 +87,6 @@
 
 
 
-name: Build and Deploy Microservices
-
-on:
-  push:
-    branches:
-      - main
-
-jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v2
-        with:
-          registry: ghcr.io
-          username: sahil-remoterepo
-          password: ${{ secrets.UAT_GHCR }}
-
-      - name: Build & Push Billops
-        uses: docker/build-push-action@v4
-        with:
-          context: .
-          file: ./billops/Dockerfile
-          push: true
-          tags: ghcr.io/sahil-remoterepo/billops:latest
-
-      - name: Build & Push Xamops
-        uses: docker/build-push-action@v4
-        with:
-          context: .
-          file: ./xamops-service/Dockerfile
-          push: true
-          tags: ghcr.io/sahil-remoterepo/xamops-service:latest
-
-      - name: Build & Push Service Registry
-        uses: docker/build-push-action@v4
-        with:
-          context: .
-          file: ./service-registry/Dockerfile
-          push: true
-          tags: ghcr.io/sahil-remoterepo/service-registry:latest
-
-      - name: Build & Push Frontend
-        uses: docker/build-push-action@v4
-        with:
-          context: ./frontend-app
-          file: ./frontend-app/Dockerfile
-          push: true
-          tags: ghcr.io/sahil-remoterepo/frontend-app:latest
-
-  deploy:
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    steps:
-      - name: Configure AWS CLI
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ap-south-1
-
-      - name: Deploy containers on EC2
-        run: |
-          aws ssm send-command \
-            --targets "Key=instanceIds,Values=i-009aa3aa59a60f17f" \
-            --document-name "AWS-RunShellScript" \
-            --comment "Deploy microservices" \
-            --parameters commands='[
-              "sudo docker login ghcr.io -u sahil-remoterepo -p ${{ secrets.UAT_GHCR }}",
-              "sudo docker pull ghcr.io/sahil-remoterepo/billops:latest",
-              "sudo docker pull ghcr.io/sahil-remoterepo/xamops-service:latest",
-              "sudo docker pull ghcr.io/sahil-remoterepo/service-registry:latest",
-              "sudo docker pull ghcr.io/sahil-remoterepo/frontend-app:latest",
-              "sudo docker stop billops || true && sudo docker rm billops || true",
-              "sudo docker stop xamops-service || true && sudo docker rm xamops-service || true",
-              "sudo docker stop service-registry || true && sudo docker rm service-registry || true",
-              "sudo docker stop frontend-app || true && sudo docker rm frontend-app || true",
-              "sudo docker run -d -p 8761:8761 --name service-registry --network xamops-network ghcr.io/sahil-remoterepo/service-registry:latest",
-              "sudo docker run -d -p 8082:8082 --name billops --network xamops-network ghcr.io/sahil-remoterepo/billops:latest",
-              "sudo docker run -d -p 8080:8080 --name xamops-service --network xamops-network --restart always -e SPRING_PROFILES_ACTIVE=sit -e DB_HOST=172.31.9.24 -e DB_USER=xamops_local_user -e DB_PASS=XamOps@123 -e DB_NAME=xamops_local_db -e EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://service-registry:8761/eureka/ -e REDIS_HOST=redis-sit -e REDIS_PORT=6379 -e \"GROQ_API_KEY=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\" ghcr.io/sahil-remoterepo/xamops-service:latest",
-              "sudo docker run -d --name frontend-app --network xamops-network ghcr.io/sahil-remoterepo/frontend-app:latest"
-            ]'
-
-
-
-
-
 # name: Build and Deploy Microservices
 
 # on:
@@ -187,8 +97,6 @@ jobs:
 # jobs:
 #   build-and-push:
 #     runs-on: ubuntu-latest
-#     env:
-#       AWS_REGION: ap-south-1 
 #     steps:
 #       - name: Checkout code
 #         uses: actions/checkout@v3
@@ -199,10 +107,6 @@ jobs:
 #           registry: ghcr.io
 #           username: sahil-remoterepo
 #           password: ${{ secrets.UAT_GHCR }}
-
-#       # 🆕 Added Step: Build Maven Project but skip tests
-#       - name: Build Maven Project (skip tests)
-#         run: mvn clean install -DskipTests -Daws.region=${AWS_REGION}
 
 #       - name: Build & Push Billops
 #         uses: docker/build-push-action@v4
@@ -250,10 +154,10 @@ jobs:
 #       - name: Deploy containers on EC2
 #         run: |
 #           aws ssm send-command \
-#             --instance-ids "i-0715da8b0b0b757e7" \
+#             --targets "Key=instanceIds,Values=i-009aa3aa59a60f17f" \
 #             --document-name "AWS-RunShellScript" \
 #             --comment "Deploy microservices" \
-#             --parameters '{"commands": [
+#             --parameters commands='[
 #               "sudo docker login ghcr.io -u sahil-remoterepo -p ${{ secrets.UAT_GHCR }}",
 #               "sudo docker pull ghcr.io/sahil-remoterepo/billops:latest",
 #               "sudo docker pull ghcr.io/sahil-remoterepo/xamops-service:latest",
@@ -267,5 +171,102 @@ jobs:
 #               "sudo docker run -d -p 8082:8082 --name billops --network xamops-network ghcr.io/sahil-remoterepo/billops:latest",
 #               "sudo docker run -d -p 8080:8080 --name xamops-service --network xamops-network --restart always -e SPRING_PROFILES_ACTIVE=sit -e DB_HOST=172.31.9.24 -e DB_USER=xamops_local_user -e DB_PASS=XamOps@123 -e DB_NAME=xamops_local_db -e EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://service-registry:8761/eureka/ -e REDIS_HOST=redis-sit -e REDIS_PORT=6379 -e \"GROQ_API_KEY=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\" ghcr.io/sahil-remoterepo/xamops-service:latest",
 #               "sudo docker run -d --name frontend-app --network xamops-network ghcr.io/sahil-remoterepo/frontend-app:latest"
-#             ]}'
+#             ]'
 
+
+
+
+name: Build and Deploy Microservices
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          # UPDATED USERNAME HERE
+          username: kshitij-prajapati 
+          password: ${{ secrets.UAT_GHCR }}
+
+      - name: Build & Push Billops
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./billops/Dockerfile
+          push: true
+          tags: ghcr.io/kshitij-prajapati/billops:latest
+
+      - name: Build & Push Xamops
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./xamops-service/Dockerfile
+          push: true
+          tags: ghcr.io/kshitij-prajapati/xamops-service:latest
+
+      - name: Build & Push Service Registry
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./service-registry/Dockerfile
+          push: true
+          tags: ghcr.io/kshitij-prajapati/service-registry:latest
+
+      - name: Build & Push Frontend
+        uses: docker/build-push-action@v4
+        with:
+          context: ./frontend-app
+          file: ./frontend-app/Dockerfile
+          push: true
+          tags: ghcr.io/kshitij-prajapati/frontend-app:latest
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS CLI
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          # AWS REGION MUST MATCH THE ONE USED IN IAM POLICY
+          aws-region: ap-south-1 
+
+      - name: Deploy containers on EC2
+        run: |
+          aws ssm send-command \
+            --targets "Key=instanceIds,Values=i-009aa3aa59a60f17f" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Deploy microservices" \
+            --parameters commands='[
+              # UPDATED USERNAME IN DOCKER LOGIN
+              "sudo docker login ghcr.io -u kshitij-prajapati -p ${{ secrets.UAT_GHCR }}",
+              
+              # UPDATED PULL COMMANDS (all 4)
+              "sudo docker pull ghcr.io/kshitij-prajapati/billops:latest",
+              "sudo docker pull ghcr.io/kshitij-prajapati/xamops-service:latest",
+              "sudo docker pull ghcr.io/kshitij-prajapati/service-registry:latest",
+              "sudo docker pull ghcr.io/kshitij-prajapati/frontend-app:latest",
+              
+              # Stop/Remove commands (no change needed)
+              "sudo docker stop billops || true && sudo docker rm billops || true",
+              "sudo docker stop xamops-service || true && sudo docker rm xamops-service || true",
+              "sudo docker stop service-registry || true && sudo docker rm service-registry || true",
+              "sudo docker stop frontend-app || true && sudo docker rm frontend-app || true",
+              
+              # UPDATED RUN COMMANDS (all 4)
+              "sudo docker run -d -p 8761:8761 --name service-registry --network xamops-network ghcr.io/kshitij-prajapati/service-registry:latest",
+              "sudo docker run -d -p 8082:8082 --name billops --network xamops-network ghcr.io/kshitij-prajapati/billops:latest",
+              "sudo docker run -d -p 8080:8080 --name xamops-service --network xamops-network --restart always -e SPRING_PROFILES_ACTIVE=sit -e DB_HOST=172.31.9.24 -e DB_USER=xamops_local_user -e DB_PASS=XamOps@123 -e DB_NAME=xamops_local_db -e EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://service-registry:8761/eureka/ -e REDIS_HOST=redis-sit -e REDIS_PORT=6379 -e \"GROQ_API_KEY=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\" ghcr.io/kshitij-prajapati/xamops-service:latest",
+              "sudo docker run -d --name frontend-app --network xamops-network ghcr.io/kshitij-prajapati/frontend-app:latest"
+            ]'
