@@ -9,16 +9,24 @@ import com.itextpdf.layout.element.Paragraph;
 import com.itextpdf.layout.element.Table;
 import com.itextpdf.layout.properties.TextAlignment;
 import com.itextpdf.layout.properties.UnitValue;
-import com.xammer.billops.domain.*;
+import com.xammer.cloud.domain.*;
 import com.xammer.billops.dto.DiscountRequestDto;
 import com.xammer.billops.dto.GcpBillingDashboardDto;
 import com.xammer.billops.dto.InvoiceDto;
 import com.xammer.billops.dto.RegionCostDto;
 import com.xammer.billops.dto.ResourceCostDto;
 import com.xammer.billops.dto.ServiceCostDetailDto;
+import com.xammer.billops.repository.AppUserRepository; // 1. ADD IMPORT
 import com.xammer.billops.repository.CloudAccountRepository;
 import com.xammer.billops.repository.DiscountRepository;
 import com.xammer.billops.repository.InvoiceRepository;
+import com.xammer.cloud.domain.AppUser;
+import com.xammer.billops.domain.Client;
+import com.xammer.billops.domain.CloudAccount;
+import com.xammer.cloud.domain.Discount;
+import com.xammer.cloud.domain.Invoice;
+import com.xammer.cloud.domain.InvoiceLineItem;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.CacheEvict;
@@ -49,18 +57,25 @@ public class InvoiceManagementService {
     private final DiscountRepository discountRepository;
     private final BillingService billingService;
     private final GcpCostService gcpCostService;
+    private final AppUserRepository appUserRepository; // 2. ADD REPO
+    private final EmailService emailService; // 3. ADD SERVICE
     private static final Logger logger = LoggerFactory.getLogger(InvoiceManagementService.class);
 
+    // 4. MODIFY CONSTRUCTOR
     public InvoiceManagementService(InvoiceRepository invoiceRepository,
                                   CloudAccountRepository cloudAccountRepository,
                                   DiscountRepository discountRepository,
                                   BillingService billingService,
-                                  GcpCostService gcpCostService) {
+                                  GcpCostService gcpCostService,
+                                  AppUserRepository appUserRepository, // Add
+                                  EmailService emailService) { // Add
         this.invoiceRepository = invoiceRepository;
         this.cloudAccountRepository = cloudAccountRepository;
         this.discountRepository = discountRepository;
         this.billingService = billingService;
         this.gcpCostService = gcpCostService;
+        this.appUserRepository = appUserRepository; // Add
+        this.emailService = emailService; // Add
     }
 
     public InvoiceDto applyDiscountToTemporaryInvoice(InvoiceDto invoiceDto, DiscountRequestDto discountRequest) {
@@ -431,7 +446,53 @@ public class InvoiceManagementService {
          recalculateTotals(invoice);
 
         invoice.setStatus(Invoice.InvoiceStatus.FINALIZED);
-        return invoiceRepository.save(invoice);
+        
+        // Save the finalized invoice
+        Invoice finalizedInvoice = invoiceRepository.save(invoice);
+
+        // --- START: NEW EMAIL NOTIFICATION LOGIC ---
+        try {
+            Client client = finalizedInvoice.getClient();
+            if (client == null) {
+                 logger.warn("Cannot send invoice email: Invoice ID {} has no associated client.", finalizedInvoice.getId());
+                 return finalizedInvoice; // Finalization succeeds, but no email
+            }
+    
+            List<AppUser> users = appUserRepository.findByClientId(client.getId());
+            if (users.isEmpty()) {
+                logger.warn("No users found for client ID {}. Cannot send invoice email.", client.getId());
+                 return finalizedInvoice; // Finalization succeeds
+            }
+    
+            String subject = String.format("Your XamOps Invoice (%s) is Ready", finalizedInvoice.getInvoiceNumber());
+            String text = String.format(
+                "Hello,\n\nYour invoice (%s) for the billing period %s is now finalized and available for review.\n\n" +
+                "Total Amount: $%.2f\n\n" +
+                "You can view your invoice by logging into the XamOps portal.\n\n" +
+                "Thank you,\nThe XamOps Team",
+                finalizedInvoice.getInvoiceNumber(),
+                finalizedInvoice.getBillingPeriod(),
+                finalizedInvoice.getAmount() // Use the final amount
+            );
+    
+            // Loop through all users associated with the client
+            for (AppUser user : users) {
+                if (user.getEmail() != null && !user.getEmail().isBlank()) {
+                    // Send email only if the email field is not null or empty
+                    logger.info("Sending finalized invoice email for invoice {} to user {} ({})", finalizedInvoice.getId(), user.getUsername(), user.getEmail());
+                    emailService.sendSimpleMessage(user.getEmail(), subject, text);
+                } else {
+                     logger.warn("User {} (ID: {}) has no email address. Skipping invoice email.", user.getUsername(), user.getId());
+                }
+            }
+        } catch (Exception e) {
+            // CRITICAL: Log the error but DO NOT re-throw.
+            // The request requires finalization to succeed even if email fails.
+            logger.error("Failed to send invoice finalization email for Invoice ID {}. The invoice was still finalized.", finalizedInvoice.getId(), e);
+        }
+        // --- END: NEW EMAIL NOTIFICATION LOGIC ---
+
+        return finalizedInvoice; // Return the saved invoice
     }
 
     // --- SOLUTION 1 IMPLEMENTATION ---

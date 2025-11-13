@@ -13,4 +13,5 @@ public class TicketReplyDto {
     private String authorUsername;
     private String message;
     private LocalDateTime createdAt;
+    private boolean admin; // <-- ADD THIS LINE
 }

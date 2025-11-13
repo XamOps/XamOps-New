@@ -1,7 +1,7 @@
 package com.xammer.billops.controller;
 
 import com.xammer.billops.dto.UserDTO;
-import com.xammer.billops.domain.AppUser;
+import com.xammer.cloud.domain.AppUser;
 import com.xammer.billops.service.AppUserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;

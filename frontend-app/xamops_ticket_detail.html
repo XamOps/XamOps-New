@@ -15,7 +15,7 @@
 <div class="flex h-screen">
     <div id="sidebar-container" class="flex-shrink-0"></div>
 
-    <div class="flex-1 flex flex-col overflow-hidden">
+    <div class="flex-1 flex flex-col overflow-hidden pl-64">
         <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-6">
             <div x-show="loading" class="text-center p-10"><i class="fas fa-spinner fa-spin text-3xl text-indigo-500"></i></div>
             <div x-show="error" class="text-center p-10 bg-red-50 rounded-lg"><p class="text-red-700" x-text="error"></p></div>
@@ -40,20 +40,22 @@
                         <div class="flex items-start space-x-4">
                             <div class="flex-shrink-0 w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center"><i class="fas fa-user text-gray-500"></i></div>
                             <div class="flex-1">
-                                <p class="font-semibold text-gray-800">You</p>
+                                <p class="font-semibold text-gray-800" x-text="ticket.creatorId === currentUser.id ? 'You' : (ticket.replies.length > 0 ? ticket.replies[0].authorUsername : 'User')"></p>
                                 <div class="bg-gray-50 rounded-lg p-4 mt-1"><p class="text-gray-700 whitespace-pre-wrap" x-text="ticket.description"></p></div>
                                 <p class="text-xs text-gray-400 mt-1" x-text="`Posted on: ${new Date(ticket.createdAt).toLocaleString()}`"></p>
                             </div>
                         </div>
 
                         <template x-for="reply in ticket.replies" :key="reply.id">
-                            <div class="flex items-start space-x-4" :class="reply.authorUsername === currentUser.username ? 'justify-end' : ''">
-                                <div class="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center" :class="reply.authorUsername.includes('admin') ? 'bg-indigo-500' : 'bg-gray-200'">
+                            <div class="flex items-start space-x-4" :class="reply.authorId === currentUser.id ? 'justify-end' : ''">
+                                <div class="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center" 
+                                     :class="reply.authorUsername.includes('admin') ? 'bg-indigo-500' : 'bg-gray-200'">
                                     <i class="fas text-white" :class="reply.authorUsername.includes('admin') ? 'fa-user-shield' : 'fa-user'"></i>
                                 </div>
                                 <div class="flex-1">
-                                    <p class="font-semibold text-gray-800" x-text="reply.authorUsername"></p>
-                                    <div class="rounded-lg p-4 mt-1" :class="reply.authorUsername.includes('admin') ? 'bg-indigo-50' : 'bg-gray-50'">
+                                    <p class="font-semibold text-gray-800" x-text="reply.authorId === currentUser.id ? 'You' : reply.authorUsername"></p>
+                                    <div class="rounded-lg p-4 mt-1" 
+                                         :class="reply.authorId === currentUser.id ? 'bg-indigo-50' : 'bg-gray-50'">
                                         <p class="text-gray-700 whitespace-pre-wrap" x-text="reply.message"></p>
                                     </div>
                                     <p class="text-xs text-gray-400 mt-1" x-text="`Posted on: ${new Date(reply.createdAt).toLocaleString()}`"></p>
@@ -64,8 +66,8 @@
                         <div x-show="ticket.status !== 'CLOSED'" class="pt-6 border-t">
                              <textarea x-model="newReply" rows="4" class="w-full p-3 border rounded-md" placeholder="Type your reply here..."></textarea>
                              <div class="mt-4 flex justify-between items-center">
-                                 <button @click="submitReply()" :disabled="!newReply.trim()" class="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400">Send Reply</button>
-                                 <button x-show="currentUser.roles.includes('ROLE_BILLOPS_ADMIN')" @click="closeTicket()" class="px-6 py-2 bg-red-600 text-white rounded-md hover:bg-red-700">Close Ticket</button>
+                                 <button @click="submitReply()" :disabled="!newReply.trim() || !currentUser.id" class="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400">Send Reply</button>
+                                 <button x-show="currentUser.roles && currentUser.roles.some(role => role.includes('ADMIN'))" @click="closeTicket()" class="px-6 py-2 bg-red-600 text-white rounded-md hover:bg-red-700">Close Ticket</button>
                              </div>
                         </div>
 
@@ -87,7 +89,7 @@
             error: null,
             ticketId: null,
             newReply: '',
-            currentUser: { username: '', roles: [] },
+            currentUser: { id: null, username: '', roles: [] },
 
             init() {
                 this.loadSidebar();
@@ -103,15 +105,18 @@
 
             async fetchCurrentUser() {
                 try {
-                    const response = await fetch('/api/xamops/user/profile');
+                    const response = await fetch('/api/xamops/user/profile', { credentials: 'include' });
+                    if (!response.ok) throw new Error('Not logged in');
                     this.currentUser = await response.json();
                 } catch (e) {
                     console.error('Could not fetch user profile', e);
+                    this.error = 'Could not identify user. Please log in.';
                 }
             },
 
             fetchTicketDetails() {
-                fetch(`/api/xamops/tickets/${this.ticketId}`)
+                if (!this.ticketId) return;
+                fetch(`/api/xamops/tickets/${this.ticketId}`, { credentials: 'include' })
                     .then(res => res.ok ? res.json() : Promise.reject('Ticket not found.'))
                     .then(data => { this.ticket = data; })
                     .catch(err => { this.error = err; })
@@ -119,21 +124,37 @@
             },
 
             submitReply() {
+                // --- START: MODIFIED SUBMIT LOGIC ---
+                if (!this.newReply.trim() || !this.currentUser.id) {
+                    alert('Cannot send reply. User ID not found.');
+                    return;
+                }
+                
                 fetch(`/api/xamops/tickets/${this.ticketId}/replies`, {
+                    credentials: 'include',
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message: this.newReply, authorId: 1 }) // Hardcoded authorId for now
+                    // Send the real logged-in user's ID as authorId
+                    body: JSON.stringify({ message: this.newReply, authorId: this.currentUser.id }) 
                 })
-                .then(res => res.json())
+                // --- END: MODIFIED SUBMIT LOGIC ---
+                .then(res => {
+                    if (!res.ok) throw new Error('Failed to send reply.');
+                    return res.json();
+                })
                 .then(updatedTicket => {
                     this.ticket = updatedTicket;
                     this.newReply = '';
+                })
+                .catch(err => {
+                    console.error('Error submitting reply:', err);
+                    alert('Error: ' + err.message);
                 });
             },
 
             closeTicket() {
                 if(confirm('Are you sure you want to close this ticket?')) {
-                    fetch(`/api/xamops/tickets/${this.ticketId}/close`, { method: 'POST' })
+                    fetch(`/api/xamops/tickets/${this.ticketId}/close`, { method: 'POST', credentials: 'include' })
                     .then(res => res.json())
                     .then(updatedTicket => { this.ticket = updatedTicket; });
                 }

@@ -26,6 +26,12 @@ public class Ticket {
     @JoinColumn(name = "client_id", nullable = false)
     private Client client;
 
+    // --- START OF MODIFICATION ---
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "creator_user_id") // This will be a new column in your 'ticket' table
+    private User creator;
+    // --- END OF MODIFICATION ---
+
     @Column(nullable = false)
     private String subject;
 
@@ -43,10 +49,8 @@ public class Ticket {
     private String accountId;
     private String region;
 
-    // --- START: MODIFIED SECTION ---
     @OneToMany(mappedBy = "ticket", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     private List<TicketReply> replies = new ArrayList<>();
-    // --- END: MODIFIED SECTION ---
 
 
     // Getters and Setters
@@ -65,6 +69,16 @@ public class Ticket {
     public void setClient(Client client) {
         this.client = client;
     }
+
+    // --- START: ADDED GETTER/SETTER FOR CREATOR ---
+    public User getCreator() {
+        return creator;
+    }
+
+    public void setCreator(User creator) {
+        this.creator = creator;
+    }
+    // --- END: ADDED GETTER/SETTER FOR CREATOR ---
 
     public String getSubject() {
         return subject;
@@ -138,7 +152,6 @@ public class Ticket {
         this.region = region;
     }
 
-    // --- START: ADDED GETTERS/SETTERS ---
     public List<TicketReply> getReplies() {
         return replies;
     }
@@ -146,5 +159,4 @@ public class Ticket {
     public void setReplies(List<TicketReply> replies) {
         this.replies = replies;
     }
-    // --- END: ADDED GETTERS/SETTERS ---
 }

@@ -65,14 +65,17 @@ public ResponseEntity<?> getFinOpsReport(
                 });
     }
 
-    @PostMapping("/budgets")
-    public ResponseEntity<Void> createBudget(@RequestParam String accountId, @RequestBody BudgetDetails budgetDetails, Principal principal) {
+ @PostMapping("/budgets")
+    public ResponseEntity<BudgetDetails> createBudget(@RequestParam String accountId, @RequestBody BudgetDetails budgetDetails, Principal principal) {
         try {
-            finOpsService.createBudget(accountId, budgetDetails, principal.getName());
-            return ResponseEntity.status(HttpStatus.CREATED).build();
+            // Capture the returned DTO from the service
+            BudgetDetails createdBudget = finOpsService.createBudget(accountId, budgetDetails, principal.getName());
+            // Return 201 Created with the new budget object as JSON
+            return ResponseEntity.status(HttpStatus.CREATED).body(createdBudget);
         } catch (Exception e) {
             logger.error("Error creating budget for account {}", accountId, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            // Return an error (body can be null or an error map)
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
         }
     }
     

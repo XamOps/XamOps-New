@@ -1,7 +1,7 @@
 package com.xammer.billops.repository;
 
 // Update the import path to match the actual location of the User class
-import com.xammer.billops.domain.User;
+import com.xammer.cloud.domain.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.Optional;
 

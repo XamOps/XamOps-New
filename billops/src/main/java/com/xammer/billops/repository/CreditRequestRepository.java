@@ -1,6 +1,6 @@
 package com.xammer.billops.repository;
 
-import com.xammer.billops.domain.CreditRequest;
+import com.xammer.cloud.domain.CreditRequest;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;

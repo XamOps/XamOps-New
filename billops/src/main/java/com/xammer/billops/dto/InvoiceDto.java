@@ -1,6 +1,6 @@
 package com.xammer.billops.dto;
 
-import com.xammer.billops.domain.Invoice;
+import com.xammer.cloud.domain.Invoice;
 import lombok.Data;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -61,8 +61,8 @@ public class InvoiceDto {
                 dto.setAccountName(invoice.getCloudAccount().getAccountName());
                 dto.setAwsAccountId(invoice.getCloudAccount().getAwsAccountId());
             }
-        } catch (jakarta.persistence.EntityNotFoundException e) {
-            // If the CloudAccount is not found, set placeholder values.
+} catch (javax.persistence.EntityNotFoundException e) {
+                // If the CloudAccount is not found, set placeholder values.
             dto.setAccountName("Unknown/Deleted Account");
             dto.setAwsAccountId("N/A");
         }
