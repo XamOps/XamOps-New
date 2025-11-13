@@ -1232,8 +1232,7 @@
                 ];
 
                 container.innerHTML = resources.map(res => `
-                    <a href="/cloudlist.html" class="resource-card flex items-center gap-4 p-4 rounded-xl hover:shadow-md transition-all group">
-                        <div class="resource-icon w-10 h-10 flex-shrink-0">
+                        <a href="/cloudlist.html?service=${encodeURIComponent(res.type)}" class="resource-card flex items-center gap-4 p-4 rounded-xl hover:shadow-md transition-all group">                        <div class="resource-icon w-10 h-10 flex-shrink-0">
                             <img src="/icons/${res.icon}" alt="${res.name}" class="w-full h-full rounded-xl object-cover">
                         </div>
                         <div class="flex-1 min-w-0">

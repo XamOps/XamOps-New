@@ -23,17 +23,16 @@ public class FinOpsReportScheduleService {
     private final FinOpsReportScheduleRepository scheduleRepository;
     private final CloudAccountRepository cloudAccountRepository;
     private final UserRepository userRepository;
-    private final EmailService emailService; // <-- ADDED THIS
+    private final EmailService emailService; 
 
-    // MODIFIED CONSTRUCTOR
     public FinOpsReportScheduleService(FinOpsReportScheduleRepository scheduleRepository,
                                      CloudAccountRepository cloudAccountRepository,
                                      UserRepository userRepository,
-                                     EmailService emailService) { // <-- ADDED THIS
+                                     EmailService emailService) {
         this.scheduleRepository = scheduleRepository;
         this.cloudAccountRepository = cloudAccountRepository;
         this.userRepository = userRepository;
-        this.emailService = emailService; // <-- ADDED THIS
+        this.emailService = emailService;
     }
 
     @Transactional
@@ -44,17 +43,21 @@ public class FinOpsReportScheduleService {
         CloudAccount account = cloudAccountRepository.findByProviderAccountId(dto.getCloudAccountId())
                 .orElseThrow(() -> new RuntimeException("Cloud account not found: " + dto.getCloudAccountId()));
 
-        String cron = convertFrequencyToCron(dto.getFrequency());
-
-        FinOpsReportSchedule schedule = new FinOpsReportSchedule(
-                dto.getEmail(),
-                dto.getFrequency(),
-                cron,
-                user,
-                account
-        );
+        FinOpsReportSchedule.Frequency frequency = FinOpsReportSchedule.Frequency.valueOf(dto.getFrequency().toUpperCase());
         
+        // --- FIX: Generate cron expression for the given frequency ---
+        String cronExpression = convertFrequencyToCron(frequency.name());
+
+        FinOpsReportSchedule schedule = new FinOpsReportSchedule();
+        schedule.setEmail(dto.getEmail());
+        schedule.setFrequency(frequency);
+        schedule.setUser(user);
+        schedule.setCloudAccount(account);
         schedule.setActive(true);
+        
+        // --- FIX: Set the non-null cron_expression field ---
+        schedule.setCronExpression(cronExpression);
+        
         schedule = scheduleRepository.save(schedule);
         logger.info("Created new FinOps report schedule ID {} for account {} with frequency {}", 
                 schedule.getId(), account.getAccountName(), schedule.getFrequency());
@@ -74,9 +77,9 @@ public class FinOpsReportScheduleService {
                 account.getAccountName(),
                 account.getProviderAccountId(),
                 schedule.getEmail(),
-                schedule.getFrequency()
+                schedule.getFrequency().name() 
             );
-            // Use the simple sendEmail for this text-based confirmation
+            
             emailService.sendEmail(schedule.getEmail(), subject, body); 
             logger.info("Sent schedule acknowledgement email to {}", schedule.getEmail());
         } catch (Exception e) {
@@ -119,27 +122,32 @@ public class FinOpsReportScheduleService {
         logger.info("Deleted FinOps report schedule ID {}", scheduleId);
     }
 
+    /**
+     * Converts a frequency string to a cron expression.
+     * Times are set to 12:30 UTC (6:00 PM IST).
+     */
     private String convertFrequencyToCron(String frequency) {
         switch (frequency) {
             case "DAILY":
-                return "0 0 18 * * ?"; // 6 PM daily
+                return "30 12 * * ?"; // 6:00 PM IST daily
             case "WEEKLY":
-                return "0 0 18 ? * FRI"; // 6 PM every Friday
+                return "30 12 ? * FRI"; // 6:00 PM IST every Friday
             case "MONTHLY":
-                return "0 0 18 30 * ?"; // 6 PM on the 30th of the month
+                return "30 12 30 * ?"; // 6:00 PM IST on the 30th of the month
             default:
                 throw new IllegalArgumentException("Invalid frequency: " + frequency);
         }
     }
 
     private FinOpsReportScheduleDto mapToDto(FinOpsReportSchedule schedule) {
-        return new FinOpsReportScheduleDto(
-                schedule.getId(),
-                schedule.getCloudAccount().getProviderAccountId(),
-                schedule.getCloudAccount().getAccountName(),
-                schedule.getEmail(),
-                schedule.getFrequency(),
-                schedule.isActive()
-        );
+        // --- FIX: Use setters as the DTO constructor was not matching ---
+        FinOpsReportScheduleDto dto = new FinOpsReportScheduleDto();
+        dto.setId(schedule.getId());
+        dto.setCloudAccountId(schedule.getCloudAccount().getProviderAccountId());
+        dto.setAccountName(schedule.getCloudAccount().getAccountName());
+        dto.setEmail(schedule.getEmail());
+        dto.setFrequency(schedule.getFrequency().name()); // Convert Enum to String
+        dto.setActive(schedule.isActive());
+        return dto;
     }
 }

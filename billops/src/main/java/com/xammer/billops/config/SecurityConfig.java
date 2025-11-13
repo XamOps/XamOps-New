@@ -15,6 +15,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import com.xammer.billops.security.CustomAuthenticationSuccessHandler;
+import org.springframework.beans.factory.annotation.Value; // ✅ ADD
 
 import java.util.Arrays; // ✅ ADD
 
@@ -23,8 +24,6 @@ import static org.springframework.security.config.Customizer.withDefaults; // �
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
-
-    // ✅ INJECT THE LOGIN SUCCESS HANDLER
     private final CustomAuthenticationSuccessHandler authenticationSuccessHandler;
 
     public SecurityConfig(CustomAuthenticationSuccessHandler authenticationSuccessHandler) {
@@ -39,6 +38,10 @@ public class SecurityConfig {
         authProvider.setPasswordEncoder(passwordEncoder);
         return authProvider;
     }
+    // --- ADD THIS ---
+    // Inject the origins list from your application.properties
+    @Value("${cors.allowed-origins:http://localhost:5173,https://live.xamops.com}")
+    private String[] allowedOrigins;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {

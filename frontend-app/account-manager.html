@@ -958,13 +958,24 @@ enforcement: DENY
 
             fetchAccounts() {
                 this.isLoading = true;
-                // *** DEBUG LOG ***
-                console.log("Attempting to fetch accounts from: /api/xamops/account-manager/accounts");
-                
+                // *** UPDATED fetch URL and added credentials ***
                 fetch('/api/xamops/account-manager/accounts', { credentials: 'include' })
-                    .then(res => {
-                        // *** DEBUG LOG ***
-                        console.log("Fetch accounts response received. Status:", res.status);
+                        .then(res => {
+                        if (!res.ok) throw new Error('Failed to load accounts'); // Added error check
+                        return res.json();
+                    })
+                    .then(data => {
+                        this.accounts = data;
+                    })
+                    .catch(err => console.error('Failed to load accounts:', err))
+                    .finally(() => this.isLoading = false);
+            },
+
+            // === NEW FUNCTION TO FETCH GITHUB CONFIGS ===
+            fetchGitHubConfigs() {
+                this.isGithubLoading = true;
+                fetch('/api/cicd/config/github', { credentials: 'include' })
+                .then(res => {
                         if (!res.ok) {
                             // *** DEBUG LOG ***
                             console.error("Fetch accounts response was NOT ok. Status:", res.status, res.statusText);

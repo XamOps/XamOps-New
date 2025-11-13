@@ -4,7 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.CostDto;
 import com.xammer.cloud.dto.CostForecastDto;
-import com.xammer.cloud.dto.DetailedCostDto; // <-- NEW IMPORT
+import com.xammer.cloud.dto.DetailedCostDto; 
 import com.xammer.cloud.dto.ForecastDto;
 import com.xammer.cloud.dto.HistoricalCostDto;
 import com.xammer.cloud.repository.CloudAccountRepository;
@@ -14,6 +14,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+// Import @RequestParam
+import org.springframework.web.bind.annotation.RequestParam; 
 import software.amazon.awssdk.services.costexplorer.CostExplorerClient;
 import software.amazon.awssdk.services.costexplorer.model.*;
 
@@ -31,13 +33,13 @@ public class CostService {
     private final CloudAccountRepository cloudAccountRepository;
     private final AwsClientProvider awsClientProvider;
     private final RedisCacheService redisCache;
-    private final ForecastingService forecastingService; // ✅ NEW: Inject ForecastingService
+    private final ForecastingService forecastingService; 
 
     @Autowired
     public CostService(CloudAccountRepository cloudAccountRepository,
                        AwsClientProvider awsClientProvider,
                        RedisCacheService redisCache,
-                       @Lazy ForecastingService forecastingService) { // ✅ CRITICAL: @Lazy to break circular dependency
+                       @Lazy ForecastingService forecastingService) { 
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.redisCache = redisCache;
@@ -114,10 +116,12 @@ public class CostService {
      * Get cost breakdown by dimension (SERVICE, REGION, INSTANCE_TYPE, etc.)
      */
     @Async("awsTaskExecutor")
+    // --- FIX 1: Add startDate and endDate to the method signature ---
     public CompletableFuture<List<CostDto>> getCostBreakdown(
-            String accountId, String groupBy, String tag, boolean forceRefresh) {
+            String accountId, String groupBy, String tag, boolean forceRefresh, String startDate, String endDate) {
 
-        String cacheKey = "costBreakdown-" + accountId + "-" + groupBy + "-" + (tag != null ? tag : "");
+        // --- FIX 2: Use startDate and endDate in the cache key ---
+        String cacheKey = "costBreakdown-" + accountId + "-" + groupBy + "-" + (tag != null ? tag : "") + "-" + startDate + "-" + endDate;
 
         if (!forceRefresh) {
             Optional<List<CostDto>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {});
@@ -132,9 +136,12 @@ public class CostService {
 
         return CompletableFuture.supplyAsync(() -> {
             try {
+                // --- FIX 3: Use startDate and endDate for the DateInterval ---
+                // Cost Explorer 'end' date is exclusive, so add 1 day
+                LocalDate parsedEndDate = LocalDate.parse(endDate);
                 DateInterval dateInterval = DateInterval.builder()
-                        .start(LocalDate.now().withDayOfMonth(1).toString())
-                        .end(LocalDate.now().plusDays(1).toString())
+                        .start(startDate)
+                        .end(parsedEndDate.plusDays(1).toString()) 
                         .build();
 
                 GroupDefinition groupDefinition = "TAG".equalsIgnoreCase(groupBy)
@@ -387,6 +394,58 @@ public class CostService {
                             Collections.emptyList(),
                             Collections.emptyList(),
                             Collections.emptyList());
+                });
+    }
+
+
+    /**
+     * Get comprehensive cost summary
+     *
+     * Example: /api/xamops/costs/summary?accountId=123
+     */
+    @Async("awsTaskExecutor")
+    public CompletableFuture<Map<String, Object>> getCostSummary(
+            String accountId,
+            // The @RequestParam annotations here are from an older file version and don't apply,
+            // but we'll use the variable names passed from the controller.
+            int days,
+            boolean forceRefresh) {
+
+        logger.info("📋 Cost summary request - Account: {}", accountId);
+
+        // --- FIX 4: Provide default dates for the internal calls ---
+        // This summary method will now default to the current month-to-date.
+        String startDate = LocalDate.now().withDayOfMonth(1).toString();
+        String endDate = LocalDate.now().toString();
+
+
+        // Fetch multiple data points concurrently
+        CompletableFuture<List<CostDto>> serviceBreakdown =
+                // --- FIX 5: Pass the 6 required arguments ---
+                getCostBreakdown(accountId, "SERVICE", null, forceRefresh, startDate, endDate);
+
+        CompletableFuture<List<CostDto>> regionBreakdown =
+                // --- FIX 6: Pass the 6 required arguments ---
+                getCostBreakdown(accountId, "REGION", null, forceRefresh, startDate, endDate);
+
+        CompletableFuture<HistoricalCostDto> historicalCost =
+                getHistoricalCost(accountId, null, null, days, forceRefresh);
+
+        return CompletableFuture.allOf(serviceBreakdown, regionBreakdown, historicalCost)
+                .thenApply(v -> {
+                    Map<String, Object> summary = new HashMap<>();
+                    summary.put("serviceBreakdown", serviceBreakdown.join());
+                    summary.put("regionBreakdown", regionBreakdown.join());
+                    summary.put("historicalTrend", historicalCost.join());
+                    summary.put("accountId", accountId);
+                    summary.put("days", days);
+
+                    logger.info("✅ Cost summary generated for account: {}", accountId);
+                    return summary; // Return the map
+                })
+                .exceptionally(ex -> {
+                    logger.error("❌ Error generating cost summary", ex);
+                    return Collections.emptyMap(); // Return an empty map on error
                 });
     }
 }
