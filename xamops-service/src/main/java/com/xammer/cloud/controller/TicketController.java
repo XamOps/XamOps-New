@@ -50,4 +50,9 @@ public class TicketController {
     public ResponseEntity<TicketDto> closeTicket(@PathVariable Long id) {
         return ResponseEntity.ok(ticketService.closeTicket(id));
     }
+    // In TicketController.java
+@GetMapping("/tickets/category/{category}")
+public ResponseEntity<List<TicketDto>> getTicketsByCategory(@PathVariable String category) {
+    return ResponseEntity.ok(ticketService.getTicketsByCategory(category));
+}
 }

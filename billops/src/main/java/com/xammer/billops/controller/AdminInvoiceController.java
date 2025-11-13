@@ -1,6 +1,6 @@
 package com.xammer.billops.controller;
 
-import com.xammer.billops.domain.Invoice;
+import com.xammer.cloud.domain.Invoice;
 import com.xammer.billops.dto.DiscountRequestDto;
 import com.xammer.billops.dto.InvoiceDto;
 import com.xammer.billops.dto.InvoiceUpdateDto; // ADDED IMPORT

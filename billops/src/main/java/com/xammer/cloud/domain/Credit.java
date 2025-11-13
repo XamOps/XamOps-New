@@ -1,6 +1,18 @@
-package com.xammer.billops.domain;
+package com.xammer.cloud.domain;
 
-import jakarta.persistence.*;
+import javax.persistence.CascadeType;
+import javax.persistence.Column;
+import javax.persistence.Entity;
+import javax.persistence.FetchType;
+import javax.persistence.GeneratedValue;
+import javax.persistence.GenerationType;
+import javax.persistence.Id;
+import javax.persistence.JoinColumn;
+import javax.persistence.ManyToOne;
+import javax.persistence.OneToMany;
+import javax.persistence.SequenceGenerator;
+
+import com.xammer.billops.domain.Client;
 
 import java.time.LocalDate;
 
@@ -47,7 +59,7 @@ public class Credit {
 
     public double getAmount() {
         return amount;
-    }
+    }   
 
     public void setAmount(double amount) {
         this.amount = amount;

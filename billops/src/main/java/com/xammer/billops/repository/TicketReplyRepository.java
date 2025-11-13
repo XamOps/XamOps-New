@@ -1,6 +1,6 @@
 package com.xammer.billops.repository;
 
-import com.xammer.billops.domain.TicketReply;
+import com.xammer.cloud.domain.TicketReply;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 

@@ -1,6 +1,6 @@
 package com.xammer.billops.repository;
 
-import com.xammer.billops.domain.InvoiceLineItem;
+import com.xammer.cloud.domain.InvoiceLineItem;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 

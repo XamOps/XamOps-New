@@ -26,11 +26,7 @@ import software.amazon.awssdk.services.costexplorer.model.Granularity;
 import software.amazon.awssdk.services.costexplorer.model.GroupDefinition;
 import software.amazon.awssdk.services.costexplorer.model.GroupDefinitionType;
 import software.amazon.awssdk.services.costexplorer.model.RootCause;
-import software.amazon.awssdk.services.budgets.model.Notification;
-import software.amazon.awssdk.services.budgets.model.NotificationType;
-import software.amazon.awssdk.services.budgets.model.Subscriber;
-import software.amazon.awssdk.services.budgets.model.SubscriptionType;
-import software.amazon.awssdk.services.budgets.model.ComparisonOperator;
+
 import com.xammer.cloud.domain.User;
 import com.xammer.cloud.repository.UserRepository;
 
@@ -171,7 +167,12 @@ public class FinOpsService {
             return CompletableFuture.completedFuture(Collections.emptyList());
         }
     }
-    public void createBudget(String accountId, DashboardData.BudgetDetails budgetDetails, String username) {
+/**
+     * Creates a budget, optionally adding email notifications if the user has an email configured.
+     *
+     * @return The created BudgetDetails object, populated with spends as 0.
+     */
+    public BudgetDetails createBudget(String accountId, DashboardData.BudgetDetails budgetDetails, String username) {
         CloudAccount account = getAccount(accountId);
         BudgetsClient budgetsClient = awsClientProvider.getBudgetsClient(account);
 
@@ -180,7 +181,6 @@ public class FinOpsService {
                 .orElseThrow(() -> new RuntimeException("User not found: " + username));
         String userEmail = user.getEmail();
 
-        logger.info("Creating new budget: {} for account {} with notification email for {}", budgetDetails.getBudgetName(), account.getAwsAccountId(), userEmail);
         try {
             Budget budget = Budget.builder()
                     .budgetName(budgetDetails.getBudgetName()).budgetType(BudgetType.COST).timeUnit(TimeUnit.MONTHLY)
@@ -191,28 +191,47 @@ public class FinOpsService {
                     .accountId(account.getAwsAccountId())
                     .budget(budget);
 
-            // ** Use the user's email from the database **
-            Subscriber emailSubscriber = Subscriber.builder()
-                    .subscriptionType(SubscriptionType.EMAIL)
-                    .address(userEmail)
-                    .build();
+            // Only add notifications if the user's email is present and not blank
+            if (userEmail != null && !userEmail.isBlank()) {
+                logger.info("Creating new budget: {} for account {} (with notifications to {})",
+                        budgetDetails.getBudgetName(), account.getAwsAccountId(), userEmail);
+                
+                Subscriber emailSubscriber = Subscriber.builder()
+                        .subscriptionType(SubscriptionType.EMAIL)
+                        .address(userEmail)
+                        .build();
 
-            Notification notification = Notification.builder()
-                    .notificationType(NotificationType.ACTUAL)
-                    .comparisonOperator(ComparisonOperator.GREATER_THAN)
-                    .threshold(80.0)
-                    .thresholdType(ThresholdType.PERCENTAGE)
-                    .build();
+                Notification notification = Notification.builder()
+                        .notificationType(NotificationType.ACTUAL)
+                        .comparisonOperator(ComparisonOperator.GREATER_THAN)
+                        .threshold(80.0)
+                        .thresholdType(ThresholdType.PERCENTAGE)
+                        .build();
 
-            requestBuilder.notificationsWithSubscribers(Collections.singletonList(
-                    NotificationWithSubscribers.builder()
-                            .notification(notification)
-                            .subscribers(emailSubscriber)
-                            .build()
-            ));
+                requestBuilder.notificationsWithSubscribers(Collections.singletonList(
+                        NotificationWithSubscribers.builder()
+                                .notification(notification)
+                                .subscribers(emailSubscriber)
+                                .build()
+                ));
+            } else {
+                // If no email, just log the creation without notification info
+                logger.info("Creating new budget: {} for account {} (no notification email found for user {})",
+                        budgetDetails.getBudgetName(), account.getAwsAccountId(), username);
+            }
 
             budgetsClient.createBudget(requestBuilder.build());
+            
+            // Evict caches to force a refresh on next load
             redisCache.evict("budgets-" + accountId);
+            redisCache.evict("finopsReport-" + accountId);
+
+            // --- FIX: Return the DTO for the frontend ---
+            // A new budget has 0 spend, so we populate it.
+            budgetDetails.setActualSpend(BigDecimal.ZERO);
+            budgetDetails.setForecastedSpend(BigDecimal.ZERO);
+            return budgetDetails;
+
         } catch (Exception e) {
             logger.error("Failed to create AWS Budget '{}' for account {}", budgetDetails.getBudgetName(), account.getAwsAccountId(), e);
             throw new RuntimeException("Failed to create budget", e);

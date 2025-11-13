@@ -36,7 +36,7 @@
                             <template x-for="ticket in tickets" :key="ticket.id">
                                 <tr>
                                     <td class="px-6 py-4 whitespace-nowrap">
-                                        <a :href="`ticket_detail.html?id=${ticket.id}`" class="text-indigo-600 hover:underline" x-text="ticket.id"></a>
+                                        <a :href="ticket.category === 'Technical' ? `/xamops_ticket_detail.html?id=${ticket.id}` : `/billops/ticket_detail.html?id=${ticket.id}`" class="text-indigo-600 hover:underline" x-text="ticket.id"></a>
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap" x-text="ticket.subject"></td>
                                     <td class="px-6 py-4 whitespace-nowrap" x-text="ticket.accountId || 'N/A'"></td>
@@ -48,7 +48,7 @@
                                         </span>
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                        <a :href="`ticket_detail.html?id=${ticket.id}`" class="text-indigo-600 hover:text-indigo-900">View Details</a>
+                                        <a :href="ticket.category === 'Technical' ? `/xamops_ticket_detail.html?id=${ticket.id}` : `/billops/ticket_detail.html?id=${ticket.id}`" class="text-indigo-600 hover:text-indigo-900">View Details</a>
                                     </td>
                                 </tr>
                             </template>
@@ -71,7 +71,7 @@
             },
 
             fetchTickets() {
-                fetch('/api/billops/tickets')
+                fetch('/api/billops/tickets', { credentials: 'include' })
                     .then(res => {
                         if (!res.ok) {
                            if (res.status === 401 || res.status === 403) window.location.href = '/login';

@@ -131,6 +131,7 @@
             showModal: false,
             tickets: [],
             isSubmitting: false,
+            currentUser: { id: null, username: '', roles: [] }, 
             form: {
                 category: 'Account and Billing',
                 service: '',
@@ -147,20 +148,51 @@
             },
             serviceOptions: {
                 'Account and Billing': ['Billing', 'Pricing', 'Reserved Instances', 'Detailed Billing Report (DBR)'],
-                'Technical': ['EC2', 'S3', 'RDS', 'Lambda', 'Other Technical']
+                // 'Technical': ['EC2', 'S3', 'RDS', 'Lambda', 'Other Technical']
             },
             init() {
+                this.fetchCurrentUser(); 
                 this.fetchTickets();
                 this.form.service = this.serviceOptions[this.form.category][0];
                 this.$watch('form.category', (newCategory) => {
                     this.form.service = this.serviceOptions[newCategory][0];
                 });
             },
+            
+            async fetchCurrentUser() {
+                try {
+                    // --- FIX 1: ADDED credentials: 'include' ---
+                    const response = await fetch('/api/billops/profile', { credentials: 'include' }); 
+                    
+                    if (!response.ok) {
+                        if (response.status === 401) console.error('Could not identify user. Please log in again.');
+                        throw new Error('Not logged in');
+                    }
+                    
+                    const profile = await response.json();
+                    
+                    this.currentUser.id = profile.id;
+                    this.currentUser.username = profile.username;
+                    this.currentUser.roles = profile.roles || [];
+
+                } catch (error) {
+                    console.error('Error fetching user profile:', error);
+                    // alert('Could not identify user. Please log in again.');
+                }
+            },
+            
             async fetchTickets() {
                 try {
-                    const response = await fetch('/api/billops/tickets');
+                    // --- FIX 2: UPDATED URL and ADDED credentials: 'include' ---
+                    const response = await fetch('/api/billops/tickets/category/Account and Billing', { 
+                        credentials: 'include' 
+                    });
+
                     if (!response.ok) throw new Error('Failed to fetch tickets');
+                    
+                    // Data is now pre-filtered by the backend
                     this.tickets = await response.json();
+
                 } catch (error) {
                     console.error('Error fetching tickets:', error);
                     alert('Could not load support tickets.');
@@ -171,19 +203,29 @@
                     alert('Please fill in all required fields.');
                     return;
                 }
-
+                
+                if (!this.currentUser.id) {
+                    alert('Could not identify current user. Please refresh and log in.');
+                    return;
+                }
                 this.isSubmitting = true;
-                const payload = { ...this.form, clientId: 1 };
+                const payload = { 
+                    ...this.form, 
+                    clientId: 1, // This is still hardcoded
+                    creatorId: this.currentUser.id // Send the logged-in user's ID
+                };
 
                 try {
+                    // --- FIX 3: ADDED credentials: 'include' ---
                     const response = await fetch('/api/billops/tickets', {
+                        credentials: 'include', // <-- ADDED
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(payload)
                     });
                     if (!response.ok) throw new Error('Failed to submit ticket');
 
-                    await this.fetchTickets();
+                    await this.fetchTickets(); // Will re-fetch the filtered list
                     this.resetForm();
                     this.showModal = false;
                     alert('Case submitted successfully!');
@@ -209,18 +251,5 @@
         }
     }
 </script>
-
-<!-- <script>
-    fetch('/_sidebar.html')
-        .then(response => response.text())
-        .then(html => {
-            document.getElementById('sidebar-container').innerHTML = html;
-
-            if (window.Alpine) {
-                window.Alpine.initTree(document.getElementById('sidebar-container'));
-            }
-        })
-        .catch(error => console.error('Error loading sidebar:', error));
-</script> -->
 </body>
 </html>
