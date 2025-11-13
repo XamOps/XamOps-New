@@ -45,59 +45,71 @@ public class SecurityConfig {
             )
             .authorizeHttpRequests((requests) -> requests
                 .requestMatchers(new AntPathRequestMatcher("/api/xamops/cloudguard/grafana-ingest", "POST")).permitAll()
-                .requestMatchers(
-                    new AntPathRequestMatcher("/"),
-                    new AntPathRequestMatcher("/index.html"),
-                    new AntPathRequestMatcher("/login"),
-                    new AntPathRequestMatcher("/css/**"),
-                    new AntPathRequestMatcher("/js/**"),
-                    new AntPathRequestMatcher("/images/**"),
-                    new AntPathRequestMatcher("/icons/**"),
-                    new AntPathRequestMatcher("/webjars/**"),
-                    new AntPathRequestMatcher("/gcp_*.html"),
-                    new AntPathRequestMatcher("/azure_dashboard.html"),
-                    new AntPathRequestMatcher("/ws/**"),
-                    new AntPathRequestMatcher("/api/cicd/github/runs"),
-                    new AntPathRequestMatcher("/cloudk8s.html"),
-                    new AntPathRequestMatcher("/eks-details.html"),
-                    new AntPathRequestMatcher("/api/xamops/k8s/**"),
-                    new AntPathRequestMatcher("/api/devops-scripts/**")
-                ).permitAll()
-                .anyRequest().authenticated()
-            )
-            .formLogin((form) -> form
-                .loginPage("/login")
-                .successHandler(authenticationSuccessHandler)
-                .failureHandler((req, res, ex) -> {
-                    res.setStatus(HttpStatus.UNAUTHORIZED.value());
-                    res.setContentType("application/json");
-                    res.getWriter().write("{\"message\": \"Invalid username or password.\"}");
-                })
-                .permitAll()
-            )
-            .logout((logout) -> logout
-                .logoutUrl("/logout")
-                .logoutSuccessUrl("/login?logout")
-                .invalidateHttpSession(true)
-                .deleteCookies("JSESSIONID", "SESSION")  // ✅ Also delete Redis session cookie
-                .permitAll()
-            );
+                        .requestMatchers(
+                                new AntPathRequestMatcher("/"),
+                                new AntPathRequestMatcher("/index.html"),
+                                new AntPathRequestMatcher("/login"),
+                                new AntPathRequestMatcher("/css/**"),
+                                new AntPathRequestMatcher("/js/**"),
+                                new AntPathRequestMatcher("/images/**"),
+                                new AntPathRequestMatcher("/icons/**"),
+                                new AntPathRequestMatcher("/webjars/**"),
+                                new AntPathRequestMatcher("/gcp_*.html"),
+                                new AntPathRequestMatcher("/azure_dashboard.html"),
+                                new AntPathRequestMatcher("/ws/**"),
+                                new AntPathRequestMatcher("/azure_*.html"),
+                                new AntPathRequestMatcher("/cloudlist.html"),
+                                
+                                new AntPathRequestMatcher("/api/cicd/github/runs"), 
+                                new AntPathRequestMatcher("/api/cicd/config/**"),
+                                
+                                new AntPathRequestMatcher("/cloudk8s.html"),
+                                new AntPathRequestMatcher("/eks-details.html"),
+                                new AntPathRequestMatcher("/api/xamops/k8s/**"),
+                                new AntPathRequestMatcher("/sonarqube.html"),
+                                new AntPathRequestMatcher("/user-manager.html"),
+                                new AntPathRequestMatcher("/api/devops-scripts/**")
+                                // ** ADD NEW RULE FOR FINOPS SCHEDULES (will be caught by anyRequest().authenticated()) **
+                                // No explicit permitAll needed, it should be authenticated.
+                        ).permitAll()
+                        .anyRequest().authenticated() // <-- This line correctly secures the new endpoints
+                )
+                .formLogin((form) -> form
+                        .loginPage("/login")
+                        .successHandler(authenticationSuccessHandler)
+                        .permitAll()
+                )
+                .logout((logout) -> logout
+                        .logoutUrl("/logout")
+                        .logoutSuccessUrl("/login?logout")
+                        .invalidateHttpSession(true)
+                        .deleteCookies("JSESSIONID")
+                        .permitAll()
+                );
 
         return http.build();
     }
-
+    
+    // === FIX: ALLOW PRODUCTION ORIGIN ===
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(Arrays.asList("http://localhost:5173"));
+        // FIX APPLIED: Added the production HTTPS domain.
+        configuration.setAllowedOrigins(Arrays.asList(
+                "http://localhost:5173",
+                "https://live.xamops.com" ,
+                "https://uat.xamops.com"
+        ));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("*"));
-        configuration.setAllowCredentials(true);
-
+        // This is necessary for Spring Security to handle cookies (JSESSIONID)
+        configuration.setAllowCredentials(true); 
+        
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", configuration);
+        source.registerCorsConfiguration("/**", configuration); 
         return source;
     }
+    // === END OF FIX ===
 
     @Bean
     public CommonsRequestLoggingFilter requestLoggingFilter() {

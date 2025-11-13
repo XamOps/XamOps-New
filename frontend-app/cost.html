@@ -325,11 +325,11 @@
                                 <i class="fas fa-chart-line text-white text-xl"></i>
                             </div>
                             <div class="text-right">
-                                <p class="text-sm text-gray-600">Total MTD</p>
+                                <p class="text-sm text-gray-600">Total Cost</p>
                                 <p class="text-2xl font-bold gradient-text" x-text="isLoading ? '...' : '$' + costData.reduce((sum, item) => sum + item.amount, 0).toFixed(2)"></p>
                             </div>
                         </div>
-                        <div class="text-sm text-gray-500">Month to Date Spending</div>
+                         <div class="text-sm text-gray-500" x-text="'Spending for ' + startDate + ' to ' + endDate"></div>
                     </div>
 
                     <div class="metric-card rounded-2xl p-6 fade-in">
@@ -367,11 +367,26 @@
                             </div>
                             <div>
                                 <h2 class="text-xl font-bold text-gray-800">Cost Breakdown</h2>
-                                <p class="text-sm text-gray-600">Month to date spending analysis</p>
+                                <p class="text-sm text-gray-600">Spending analysis for selected range</p>
                             </div>
                         </div>
 
-                        <div class="flex items-center space-x-4 bg-white/70 backdrop-blur-sm rounded-xl p-4 border border-gray-200/50">
+                        <div class="flex flex-wrap items-center space-x-4 bg-white/70 backdrop-blur-sm rounded-xl p-4 border border-gray-200/50">
+                            
+                            <div class="flex items-center space-x-2">
+                                <i class="fas fa-calendar-alt text-gray-500 text-sm"></i>
+                                <span class="text-sm font-medium text-gray-700">From:</span>
+                                <input type="date" x-model="startDate" @change="loadCostData(true)" 
+                                       class="form-input px-2 py-1 text-sm rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200">
+                            </div>
+
+                            <div class="flex items-center space-x-2">
+                                <i class="fas fa-calendar-alt text-gray-500 text-sm"></i>
+                                <span class="text-sm font-medium text-gray-700">To:</span>
+                                <input type="date" x-model="endDate" @change="loadCostData(true)"
+                                       class="form-input px-2 py-1 text-sm rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200">
+                            </div>
+
                             <div class="flex items-center space-x-2">
                                 <i class="fas fa-layer-group text-gray-500"></i>
                                 <span class="text-sm font-medium text-gray-700">Group by:</span>
@@ -381,6 +396,7 @@
                                 <option value="REGION">Region</option>
                                 <option value="TAG">Tag</option>
                             </select>
+                            
                             <div x-show="groupBy === 'TAG'" class="relative">
                                 <i class="fas fa-tag absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm"></i>
                                 <input type="text" x-model="tagKey" @input.debounce.500ms="loadCostData(true)" placeholder="Enter Tag Key" class="form-input pl-8 pr-4 py-2 text-sm rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200">
@@ -591,6 +607,8 @@
             isLoading: true,
             isRefreshing: false,
             costData: [],
+            startDate: '', // Added for date picker
+            endDate: '',   // Added for date picker
             groupBy: 'SERVICE',
             tagKey: 'Name',
             costChart: null,
@@ -613,6 +631,13 @@
             init() {
                 const urlParams = new URLSearchParams(window.location.search);
                 this.selectedAccountId = urlParams.get('accountIds');
+
+                // --- Set default dates ---
+                const today = new Date();
+                const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+                this.endDate = today.toISOString().split('T')[0];
+                this.startDate = startOfMonth.toISOString().split('T')[0];
+                // --- End of new logic ---
 
                 if (!this.selectedAccountId) {
                     const storedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
@@ -641,7 +666,8 @@
                     this.isLoading = true;
                 }
 
-                let url = `/api/xamops/costs/breakdown?accountId=${this.selectedAccountId}&groupBy=${this.groupBy}&forceRefresh=${forceRefresh}`;
+                // UPDATED URL to include dates
+                let url = `/api/xamops/costs/breakdown?accountId=${this.selectedAccountId}&groupBy=${this.groupBy}&forceRefresh=${forceRefresh}&startDate=${this.startDate}&endDate=${this.endDate}`;
                 if (this.groupBy === 'TAG' && this.tagKey) {
                     url += `&tag=${this.tagKey}`;
                 }
@@ -652,18 +678,37 @@
                             console.log('Cost breakdown refresh initiated. Waiting for WebSocket.');
                             return null;
                         }
+                        if (!res.ok) {
+                            // Handle HTTP errors (like 500)
+                            console.error('Failed to load cost data, server responded with status:', res.status);
+                            return res.json(); // Try to parse error body
+                        }
                         return res.json();
                     })
                     .then(data => {
-                        if (data) {
+                        // --- THIS IS THE FIX ---
+                        // Check if data is an array before using it
+                        if (Array.isArray(data)) {
                             this.costData = data;
-                            this.renderChart();
-                            this.forecast.availableServices = this.costData.map(item => item.name).sort();
+                            if (this.costData.length > 0) {
+                                this.forecast.availableServices = this.costData.map(item => item.name).sort();
+                            } else {
+                                this.forecast.availableServices = [];
+                            }
+                        } else {
+                            // This handles null, undefined, or error objects from the API
+                            console.warn('Received non-array data from API, setting to empty list.', data);
+                            this.costData = []; // Set to empty array to prevent "not iterable" errors
+                            this.forecast.availableServices = [];
                         }
+                        // Always re-render, even with empty data
+                        this.renderChart();
+                        // --- END OF FIX ---
                     })
                     .catch(err => {
                         console.error('Failed to load cost data:', err);
                         this.costData = [];
+                        this.renderChart(); // Also render on catch
                     })
                     .finally(() => {
                         this.isLoading = false;
@@ -674,6 +719,7 @@
             },
 
             get sortedCostData() {
+                // This will now be safe because this.costData is guaranteed to be an array
                 return [...this.costData].sort((a, b) => b.amount - a.amount);
             },
 
@@ -682,6 +728,13 @@
                 if (!ctx) return;
                 if (this.costChart) this.costChart.destroy();
                 const topN = 10;
+                
+                // This check is now safe
+                if (!Array.isArray(this.costData) || this.costData.length === 0) {
+                    // Don't try to render a chart if there's no data
+                    return;
+                }
+
                 const sortedData = this.sortedCostData;
                 const chartData = sortedData.slice(0, topN);
                 const otherData = sortedData.slice(topN);
@@ -851,18 +904,16 @@
 
                     const result = await response.json();
                     console.log('📊 Forecast response:', result);
-                    console.log('📊 Sample predictions:', result.forecast.predictions.slice(0, 5));
-                    console.log('📊 Date range:', result.forecast.dates[0], 'to', result.forecast.dates[result.forecast.dates.length - 1]);
-
+                    
                     if (result.status === 'success' && result.forecast) {
-                        this.forecast.data = result.forecast;
-
-                        if (this.forecast.data.dates && this.forecast.data.dates.length > 0) {
+                        // Check if forecast data is valid
+                        if (result.forecast.dates && result.forecast.dates.length > 0) {
+                            this.forecast.data = result.forecast;
                             console.log(`✅ Forecast loaded: ${this.forecast.data.dates.length} periods`);
                             this.$nextTick(() => this.renderForecastChart());
                         } else {
-                            console.warn('⚠️ Forecast data is empty');
-                            this.forecast.data = null;
+                            console.warn('⚠️ Forecast data is empty or invalid');
+                            this.forecast.data = null; // Set to null to show "No Data"
                         }
                     } else {
                         console.warn('⚠️ Invalid forecast response');

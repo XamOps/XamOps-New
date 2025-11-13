@@ -25,31 +25,63 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      // Proxy admin API requests to the billops-service
-      '/api/admin': {
-        target: 'http://localhost:8082',
+      // Azure API endpoints
+      '/api/azure': {
+        target: 'http://localhost:8080', // xamops-service
         changeOrigin: true,
         secure: false,
       },
+
+      // AWS API endpoints
+      '/api/aws': {
+        target: 'http://localhost:8080', // xamops-service
+        changeOrigin: true,
+        secure: false,
+      },
+
+      // GCP API endpoints
+      '/api/gcp': {
+        target: 'http://localhost:8080', // xamops-service
+        changeOrigin: true,
+        secure: false,
+      },
+
+      // Admin API requests to billops-service
+      '/api/admin': {
+        target: 'http://localhost:8082', // billops-service
+        changeOrigin: true,
+        secure: false,
+      },
+
+      // AI Advisor
       '/api/ai-advisor': {
         target: 'http://localhost:8080',
         changeOrigin: true,
         secure: false,
       },
-      // Proxy billops service requests
+
+      // Billops service requests
       '/api/billops': {
-        target: 'http://localhost:8082',
-        changeOrigin: true,
-        secure: false,
-      },
-      // Proxy xamops service requests
-      '/api/xamops': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:8082', // billops-service
         changeOrigin: true,
         secure: false,
       },
 
-      // --- ADD THE 'configure' BLOCK TO LOGIN ---
+      // Xamops service requests
+      '/api/xamops': {
+        target: 'http://localhost:8080', // xamops-service
+        changeOrigin: true,
+        secure: false,
+      },
+
+      // CICD API endpoints (for GitHub, etc.)
+      '/api/cicd': {
+        target: 'http://localhost:8080', // xamops-service
+        changeOrigin: true,
+        secure: false,
+      },
+
+      // Authentication requests to xamops
       '/login': {
         target: 'http://localhost:8080',
         changeOrigin: true,
@@ -58,7 +90,8 @@ export default defineConfig({
           proxy.on('proxyRes', cookieRewrite);
         }
       },
-      // --- ADD THE 'configure' BLOCK TO LOGOUT ---
+
+      // Logout with cookie rewrite
       '/logout': {
         target: 'http://localhost:8080',
         changeOrigin: true,
@@ -75,6 +108,7 @@ export default defineConfig({
       }
     }
   },
+
   build: {
     rollupOptions: {
       input: {
@@ -104,8 +138,11 @@ export default defineConfig({
         'devops_in_the_box.html': resolve(__dirname, 'devops_in_the_box.html'),
         'gcp_devops_in_the_box.html': resolve(__dirname, 'gcp_devops_in_the_box.html'),
         'cicd_pipelines.html': resolve(__dirname, 'cicd_pipelines.html'),
-        'add-github-config.html': resolve(__dirname, 'add-github-config.html'),
         security: resolve(__dirname, 'security.html'),
+        'add-github-config.html': resolve(__dirname,'add-github-config.html'),
+        'sonarqube.html': resolve(__dirname,'sonarqube.html'),
+
+        // Admin subdir files
         'admin_credits': resolve(__dirname, 'billops/admin_credits.html'),
         'admin_invoice_detail': resolve(__dirname, 'billops/admin_invoice_detail.html'),
         'admin_invoices': resolve(__dirname, 'billops/admin_invoices.html'),
@@ -115,6 +152,8 @@ export default defineConfig({
         'ticket_detail': resolve(__dirname, 'billops/ticket_detail.html'),
         'credits': resolve(__dirname, 'billops/credits.html'),
         'invoices': resolve(__dirname, 'billops/invoices.html'),
+
+        // GCP subdir files
         'gcp_cloudlist': resolve(__dirname, 'gcp_cloudlist.html'),
         'gcp_cloudmap': resolve(__dirname, 'gcp_cloudmap.html'),
         'gcp_cost': resolve(__dirname, 'gcp_cost.html'),
@@ -127,7 +166,12 @@ export default defineConfig({
         'gcp_cloudk8s.html': resolve(__dirname, 'gcp_cloudk8s.html'),
         'gcp_performance.html': resolve(__dirname, 'gcp_performance.html'),
         'gcp_reservations.html': resolve(__dirname, 'gcp_reservations.html'),
-        'gcp_alerts.html': resolve(__dirname, 'gcp_alerts.html')
+        'gcp_alerts.html': resolve(__dirname, 'gcp_alerts.html'),
+
+        // Azure files
+        'azure_cloudlist': resolve(__dirname, 'azure_cloudlist.html'),
+        'azure_dashboard': resolve(__dirname, 'azure_dashboard.html'),
+        'azure-finops-report': resolve(__dirname, 'azure-finops-report.html')
       },
     },
   },

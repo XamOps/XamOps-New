@@ -21,6 +21,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import com.xammer.cloud.dto.azure.AzureAccountRequestDto;
 import org.springframework.http.HttpStatus;
+import com.xammer.cloud.service.azure.AzureCostManagementService;
 
 @RestController
 @RequestMapping("/api/xamops/account-manager")
@@ -39,6 +40,9 @@ public class AccountManagerController {
 
     @Autowired
     private ClientRepository clientRepository;
+
+    @Autowired
+    private AzureCostManagementService azureCostService;
 
     @PostMapping("/generate-stack-url")
     public ResponseEntity<Map<String, String>> generateStackUrl(@RequestBody AccountCreationRequestDto request, @AuthenticationPrincipal ClientUserDetails userDetails) {
@@ -175,7 +179,7 @@ public ResponseEntity<?> getAccounts(@AuthenticationPrincipal ClientUserDetails 
                 account.getRoleArn(),
                 account.getExternalId(),
                 account.getProvider());
-        dto.setGrafanaIp(account.getGrafanaIp()); // <-- This is the new line you must add
+        dto.setGrafanaIp(account.getGrafanaIp()); 
         return dto;
     }
 
@@ -195,17 +199,44 @@ public ResponseEntity<?> getAccounts(@AuthenticationPrincipal ClientUserDetails 
             newAccount.setAzureSubscriptionId(request.getSubscriptionId());
             newAccount.setAzureClientId(request.getClientId());
             newAccount.setAzureClientSecret(request.getClientSecret());
-            newAccount.setStatus("CONNECTED");
+            newAccount.setStatus("CONNECTED"); // Set to CONNECTED, as setup follows
             newAccount.setClient(client);
+            newAccount.setAccessType(request.getAccess());
+            newAccount.setExternalId(request.getPrincipalId()); 
 
+            // First save to get an ID and basic info
             CloudAccount savedAccount = cloudAccountRepository.save(newAccount);
-            return ResponseEntity.ok(savedAccount);
+            
+            // --- MODIFIED SECTION ---
+            try {
+                // 1. Call setupCostExports, which now returns the path info
+                Map<String, String> exportConfig = azureCostService.setupCostExports(savedAccount, request);
+
+                // 2. Get the names and save them to the account
+                savedAccount.setAzureBillingContainer(exportConfig.get("containerName"));
+                savedAccount.setAzureBillingDirectory(exportConfig.get("directoryName"));
+
+                // 3. Re-save the account with the new path information
+                CloudAccount finalAccount = cloudAccountRepository.save(savedAccount);
+                return ResponseEntity.ok(finalAccount);
+
+            } catch (Exception e) {
+                // If cost setup fails, log it but still return the account.
+                // Billing data will be missing, but the account is "connected".
+                logger.error("Azure account {} added, but cost export setup failed: {}", savedAccount.getId(), e.getMessage());
+                // You might want to set status to "WARNING" or similar here
+                // savedAccount.setStatus("WARNING");
+                // cloudAccountRepository.save(savedAccount);
+                return ResponseEntity.ok(savedAccount); // Return the partially set-up account
+            }
+            // --- END OF MODIFIED SECTION ---
 
         } catch (Exception e) {
-            logger.error("Error adding Azure account", e);
+            logger.error("Error adding Azure account (pre-cost-setup)", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("An unexpected error occurred while adding the account.");
         }
     }
+    
     @PostMapping("/accounts/{accountId}/monitoring")
     public ResponseEntity<?> updateMonitoringEndpoint(@PathVariable String accountId,
                                                       @RequestBody Map<String, String> payload) {
