@@ -19,6 +19,8 @@ import com.xammer.billops.dto.ServiceCostDetailDto;
 import com.xammer.billops.repository.CloudAccountRepository;
 import com.xammer.billops.repository.DiscountRepository;
 import com.xammer.billops.repository.InvoiceRepository;
+import com.xammer.billops.controller.AdminCloudFrontController;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.CacheEvict;
@@ -26,9 +28,16 @@ import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.xammer.billops.dto.InvoiceUpdateDto;
-// It might be necessary to import Hibernate for initialization if needed,
-// but let's try without it first as the DTO conversion *should* trigger loading.
-// import org.hibernate.Hibernate;
+import com.xammer.billops.repository.CloudFrontPrivateRateRepository; // User-added
+import com.xammer.billops.domain.CloudFrontPrivateRate; // User-added
+import com.xammer.billops.service.CloudFrontUsageService.CloudFrontUsageDto; // User-added
+import java.math.MathContext; // User-added
+
+// --- Imports Added By AI ---
+import com.xammer.billops.service.CloudFrontUsageService;
+import com.xammer.billops.repository.ClientRepository;
+import com.xammer.billops.domain.Client;
+// --- End Imports Added By AI ---
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -50,18 +59,31 @@ public class InvoiceManagementService {
     private final BillingService billingService;
     private final GcpCostService gcpCostService;
     private static final Logger logger = LoggerFactory.getLogger(InvoiceManagementService.class);
+    private final CloudFrontUsageService cloudFrontUsageService;
+    private final CloudFrontPrivateRateRepository privateRateRepository;
+    private final ClientRepository clientRepository;
 
+    // --- CONSTRUCTOR UPDATED BY AI ---
     public InvoiceManagementService(InvoiceRepository invoiceRepository,
                                   CloudAccountRepository cloudAccountRepository,
                                   DiscountRepository discountRepository,
                                   BillingService billingService,
-                                  GcpCostService gcpCostService) {
+                                  GcpCostService gcpCostService,
+                                  CloudFrontUsageService cloudFrontUsageService,
+                                  CloudFrontPrivateRateRepository privateRateRepository,
+                                  ClientRepository clientRepository) {
         this.invoiceRepository = invoiceRepository;
         this.cloudAccountRepository = cloudAccountRepository;
         this.discountRepository = discountRepository;
         this.billingService = billingService;
         this.gcpCostService = gcpCostService;
+        // --- Assignments added by AI ---
+        this.cloudFrontUsageService = cloudFrontUsageService;
+        this.privateRateRepository = privateRateRepository;
+        this.clientRepository = clientRepository;
+        // --- End assignments added by AI ---
     }
+    // --- END CONSTRUCTOR UPDATE ---
 
     public InvoiceDto applyDiscountToTemporaryInvoice(InvoiceDto invoiceDto, DiscountRequestDto discountRequest) {
         InvoiceDto.DiscountDto newDiscount = new InvoiceDto.DiscountDto();
@@ -601,7 +623,7 @@ public class InvoiceManagementService {
                      accountIdDisplay = account.getGcpProjectId();
                  }
              } else {
-                  logger.warn("CloudAccount is null for Invoice ID {} during PDF generation.", invoice.getId());
+                  logger.warn("CloudAccount is null for Invoice ID {} during PDF generation.", (invoice != null ? invoice.getId() : "UNKNOWN"));
              }
 
 
@@ -745,6 +767,9 @@ public class InvoiceManagementService {
          if (invoice.getLineItems() == null) {
              invoice.setLineItems(new ArrayList<>());
          } else {
+            // Before clearing, explicitly delete line items if orphanRemoval=false
+            // or if you want to be extra safe.
+            // invoiceLineItemRepository.deleteAll(invoice.getLineItems());
             invoice.getLineItems().clear(); // Clear existing items linked to this invoice
          }
         // If using CascadeType.ALL and orphanRemoval=true, clearing should trigger deletion.
@@ -784,5 +809,126 @@ public class InvoiceManagementService {
         return invoiceRepository.save(invoice); // Save changes
     }
 
+
+    // --- NEW METHOD FOR CLOUDFRONT INVOICING ADDED BY AI ---
+
+    /**
+     * Generates a draft invoice for CloudFront based on custom rates.
+     *
+     * @param accountId AWS Account ID
+     * @param year      Billing year
+     * @param month     Billing month
+     * @param usageData List of DTOs containing usage data (from AWS or Bill Upload)
+     * @return The newly created and saved DRAFT invoice.
+     */
+    @Transactional
+    @CacheEvict(value = {"invoices", "invoiceDtos"}, allEntries = true)
+    public Invoice generateCloudFrontInvoice(String accountId, int year, int month, List<CloudFrontUsageDto> usageData) {
+        
+        CloudAccount cloudAccount = cloudAccountRepository.findByAwsAccountId(accountId)
+                .stream().findFirst()
+                .orElseThrow(() -> new RuntimeException("Cloud account not found: " + accountId));
+
+        Client client = cloudAccount.getClient();
+        if (client == null) {
+            throw new RuntimeException("Account " + accountId + " is not associated with a client.");
+        }
+
+        // --- THIS LOGIC IS NO LONGER NEEDED, as we are copying costs directly ---
+        // List<CloudFrontPrivateRate> rates = privateRateRepository.findByClientId(client.getId());
+
+        Invoice invoice = new Invoice();
+        invoice.setCloudAccount(cloudAccount);
+        invoice.setClient(client);
+        invoice.setInvoiceDate(LocalDate.now());
+        invoice.setBillingPeriod(YearMonth.of(year, month).format(DateTimeFormatter.ofPattern("yyyy-MM")));
+        invoice.setStatus(Invoice.InvoiceStatus.DRAFT);
+        invoice.setInvoiceNumber("CF-" + UUID.randomUUID().toString().toUpperCase().substring(0, 10));
+        invoice.setLineItems(new ArrayList<>());
+        
+        BigDecimal totalAwsCost = BigDecimal.ZERO; // This will be the original AWS total
+
+        for (CloudFrontUsageDto usage : usageData) {
+            // --- LOGIC CHANGED ---
+            // We no longer look for a rate. We just copy the data.
+            
+            BigDecimal originalCost = BigDecimal.valueOf(usage.getCost());
+
+            InvoiceLineItem lineItem = new InvoiceLineItem();
+            lineItem.setInvoice(invoice);
+            lineItem.setServiceName("Amazon CloudFront");
+            lineItem.setRegionName(usage.getRegion());
+            lineItem.setResourceName(usage.getUsageType());
+            lineItem.setUsageQuantity(String.format("%.3f", usage.getQuantity()));
+            lineItem.setUnit(usage.getUnit()); 
+            lineItem.setCost(originalCost.setScale(4, RoundingMode.HALF_UP)); // <-- Set the original AWS cost
+            
+            invoice.getLineItems().add(lineItem);
+            totalAwsCost = totalAwsCost.add(originalCost);
+        }
+
+        invoice.setPreDiscountTotal(totalAwsCost.setScale(4, RoundingMode.HALF_UP));
+        invoice.setDiscountAmount(BigDecimal.ZERO.setScale(4, RoundingMode.HALF_UP)); 
+        invoice.setAmount(totalAwsCost.setScale(4, RoundingMode.HALF_UP));
+
+        return invoiceRepository.save(invoice);
+    }
+    /**
+ * Update invoice line items with new unit rates (for CloudFront invoice editing)
+ * This method is called from AdminCloudFrontController when editing rates.
+ */
+@Transactional
+@CacheEvict(value = {"invoices", "invoiceDtos"}, allEntries = true)
+public Invoice updateInvoiceLineItems(Long invoiceId, List<com.xammer.billops.controller.AdminCloudFrontController.LineItemUpdate> updates) {
+    logger.info("Updating CloudFront invoice {} with {} line item changes", invoiceId, updates.size());
+    
+    Invoice invoice = invoiceRepository.findById(invoiceId)
+        .orElseThrow(() -> new RuntimeException("Invoice not found: " + invoiceId));
+    
+    if (invoice.getStatus() != Invoice.InvoiceStatus.DRAFT) {
+        throw new RuntimeException("Cannot edit finalized invoice");
+    }
+    
+    BigDecimal newTotal = BigDecimal.ZERO;
+    
+    for (com.xammer.billops.controller.AdminCloudFrontController.LineItemUpdate update : updates) {
+        InvoiceLineItem item = invoice.getLineItems().stream()
+            .filter(li -> li.getId().equals(update.id))
+            .findFirst()
+            .orElseThrow(() -> new RuntimeException("Line item not found: " + update.id));
+        
+        // Parse quantity from usageQuantity string (e.g., "1000.000 GB")
+        String[] parts = item.getUsageQuantity().split(" ");
+        BigDecimal quantity;
+        
+        try {
+            quantity = new BigDecimal(parts[0]);
+        } catch (Exception e) {
+            logger.warn("Failed to parse quantity from '{}', using 1.0", item.getUsageQuantity());
+            quantity = BigDecimal.ONE;
+        }
+        
+        // Calculate new cost = unitRate × quantity
+        BigDecimal cost = update.unitRate
+            .multiply(quantity)
+            .setScale(4, RoundingMode.HALF_UP);
+        
+        item.setCost(cost);
+        
+        // Only add to total if item is not hidden
+        if (!item.isHidden()) {
+            newTotal = newTotal.add(cost);
+        }
+    }
+    
+    invoice.setPreDiscountTotal(newTotal);
+    invoice.setAmount(newTotal);
+    invoice.setStatus(Invoice.InvoiceStatus.FINALIZED);
+    
+    Invoice savedInvoice = invoiceRepository.save(invoice);
+    logger.info("CloudFront invoice {} updated and finalized with new total: {}", invoiceId, newTotal);
+    
+    return savedInvoice;
+}
 
 }
