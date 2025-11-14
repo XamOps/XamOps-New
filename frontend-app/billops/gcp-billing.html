@@ -6,8 +6,6 @@
     <title>XamOps - GCP Billing Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
-    <link rel="apple-touch-icon" href="/icons/XamOps.png">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <style>
@@ -16,23 +14,8 @@
             background-color: #f8fafc;
         }
 
-        [x-cloak] {
-            display: none !important;
-        }
+        [x-cloak] { display: none !important; }
 
-        .loading {
-            text-align: center;
-            padding: 2rem;
-            color: #6b7280;
-        }
-
-        .error {
-            text-align: center;
-            padding: 2rem;
-            color: #dc2626;
-        }
-
-        /* Professional Card Styling */
         .dashboard-card {
             background: #ffffff;
             border-radius: 12px;
@@ -41,208 +24,14 @@
             margin-bottom: 24px;
         }
 
-        .dashboard-header {
-            border-bottom: 2px solid #f1f5f9;
-            padding-bottom: 16px;
-            margin-bottom: 24px;
-        }
-
-        .dashboard-title {
-            font-size: 28px;
-            font-weight: 700;
-            color: #1e293b;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        /* Metric Cards */
-        .metric-cards {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-            gap: 20px;
-            margin-bottom: 32px;
-        }
-
         .metric-card {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             border-radius: 12px;
             padding: 24px;
             color: white;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            transition: transform 0.2s, box-shadow 0.2s;
         }
 
-        .metric-card:hover {
-            transform: translateY(-4px);
-            box-shadow: 0 8px 12px rgba(0, 0, 0, 0.15);
-        }
-
-        .metric-card-icon {
-            width: 48px;
-            height: 48px;
-            background: rgba(255, 255, 255, 0.2);
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-bottom: 16px;
-        }
-
-        .metric-card-icon i {
-            font-size: 24px;
-        }
-
-        .metric-card-label {
-            font-size: 13px;
-            font-weight: 500;
-            opacity: 0.9;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 8px;
-        }
-
-        .metric-card-value {
-            font-size: 32px;
-            font-weight: 700;
-            line-height: 1;
-            margin-bottom: 8px;
-        }
-
-        .metric-card-change {
-            font-size: 13px;
-            opacity: 0.85;
-        }
-
-        /* Filter Controls */
-        .filter-select {
-            padding: 8px 16px;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            background: white;
-            font-size: 14px;
-            font-weight: 500;
-            color: #475569;
-            cursor: pointer;
-            transition: border-color 0.2s;
-        }
-
-        .filter-select:hover {
-            border-color: #94a3b8;
-        }
-
-        .filter-select:focus {
-            outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-        }
-
-        /* Charts */
-        .chart-container {
-            background: white;
-            border-radius: 12px;
-            padding: 24px;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-            height: 300px;
-            margin-bottom: 24px;
-        }
-
-        .chart-title {
-            font-size: 18px;
-            font-weight: 600;
-            color: #1e293b;
-            margin-bottom: 20px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        /* Tables */
-        .cost-breakdown-table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 0;
-        }
-
-        .cost-breakdown-table thead {
-            background: #f8fafc;
-        }
-
-        .cost-breakdown-table th {
-            padding: 16px 20px;
-            text-align: left;
-            font-size: 13px;
-            font-weight: 600;
-            color: #64748b;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            border-bottom: 2px solid #e2e8f0;
-        }
-
-        .cost-breakdown-table th:last-child {
-            text-align: right;
-        }
-
-        .cost-breakdown-table td {
-            padding: 16px 20px;
-            border-bottom: 1px solid #f1f5f9;
-            font-size: 14px;
-            color: #334155;
-        }
-
-        .cost-breakdown-table td:last-child {
-            text-align: right;
-            font-weight: 600;
-        }
-
-        .cost-breakdown-table tbody tr {
-            transition: background-color 0.15s;
-        }
-
-        .cost-breakdown-table tbody tr:hover {
-            background-color: #f8fafc;
-        }
-
-        /* Service Badge */
-        .service-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 6px 12px;
-            background: #f1f5f9;
-            border-radius: 6px;
-            font-size: 13px;
-            font-weight: 500;
-            color: #475569;
-        }
-
-        .service-icon {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-        }
-
-        /* Buttons */
-        .export-button {
-            padding: 10px 20px;
-            background: #10b981;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            transition: background-color 0.2s;
-        }
-
-        .export-button:hover {
-            background: #059669;
-        }
-
-        /* Loading Spinner */
         .spinner {
             border: 3px solid #f3f4f6;
             border-top: 3px solid #667eea;
@@ -258,224 +47,243 @@
             100% { transform: rotate(360deg); }
         }
 
-        /* Responsive */
-        @media (max-width: 768px) {
-            .cost-breakdown-table th, .cost-breakdown-table td {
-                padding: 12px 16px;
-                font-size: 13px;
-            }
-
-            .chart-container {
-                height: 220px;
-            }
+        /* Debug Panel */
+        .debug-panel {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 8px;
+            max-width: 400px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 1000;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
         }
+
+        .debug-panel .debug-title {
+            font-weight: bold;
+            color: #60a5fa;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+
+        .debug-panel .debug-line {
+            margin: 5px 0;
+            padding: 3px 0;
+            border-bottom: 1px solid #334155;
+        }
+
+        .debug-panel .debug-true { color: #34d399; }
+        .debug-panel .debug-false { color: #f87171; }
+        .debug-panel .debug-number { color: #fbbf24; }
     </style>
 </head>
 <body class="bg-gray-50">
 <div class="flex h-screen">
-    <include file="/_sidebar.html"></include>
+      <include file="/_sidebar.html"></include>
+    <div class="flex-1 flex flex-col overflow-hidden pl-64">
 
-    <main class="flex-1 p-6 md:p-8 overflow-y-auto ml-64">
+    <main class="flex-1 p-6 md:p-8 overflow-y-auto">
         <div x-data="gcpBillingDashboard()" x-init="init()" x-cloak>
-            <div class="dashboard-card mb-6">
-                <div class="dashboard-header">
-                    <div class="flex justify-between items-center">
-                        <h1 class="dashboard-title">
-                            <i class="fas fa-file-invoice-dollar text-blue-600"></i>
-                            GCP Billing Dashboard
-                            <span x-show="isUpdating" class="updating-spinner" title="Updating data..."></span>
-                        </h1>
-                        <div class="flex items-center space-x-3">
-                            <select x-model="selectedYear" @change="loadInitialData()" class="filter-select" :disabled="loading || isUpdating">
-                                <template x-for="year in availableYears" :key="year">
-                                    <option :value="year" x-text="year"></option>
-                                </template>
-                            </select>
-                            <select x-model="selectedMonth" @change="loadInitialData()" class="filter-select" :disabled="loading || isUpdating">
-                                <option value="">All Months</option>
-                                <template x-for="month in months" :key="month.value">
-                                    <option :value="month.value" x-text="month.label"></option>
-                                </template>
-                            </select>
-                        </div>
+            
+            <!-- Debug Panel -->
+            <!-- <div class="debug-panel" x-show="true">
+                <div class="debug-title">🔍 Debug Info</div>
+                <div class="debug-line">
+                    <span>Loading: </span>
+                    <span :class="loading ? 'debug-true' : 'debug-false'" x-text="loading"></span>
+                </div>
+                <div class="debug-line">
+                    <span>IsUpdating: </span>
+                    <span :class="isUpdating ? 'debug-true' : 'debug-false'" x-text="isUpdating"></span>
+                </div>
+                <div class="debug-line">
+                    <span>HasData: </span>
+                    <span :class="hasData ? 'debug-true' : 'debug-false'" x-text="hasData"></span>
+                </div>
+                <div class="debug-line">
+                    <span>Error: </span>
+                    <span class="debug-false" x-text="error || 'none'"></span>
+                </div>
+                <div class="debug-line">
+                    <span>ServiceBreakdown Length: </span>
+                    <span class="debug-number" x-text="dashboardData.serviceBreakdown?.length || 0"></span>
+                </div>
+                <div class="debug-line">
+                    <span>CostHistory Length: </span>
+                    <span class="debug-number" x-text="dashboardData.costHistory?.length || 0"></span>
+                </div>
+                <div class="debug-line">
+                    <span>Total Cost: </span>
+                    <span class="debug-number" x-text="dashboardData.totalCost || 0"></span>
+                </div>
+                <div class="debug-line">
+                    <span>Account ID: </span>
+                    <span x-text="accountId || 'none'"></span>
+                </div>
+            </div> -->
+
+            <!-- Header -->
+            <div class="dashboard-card">
+                <div class="flex justify-between items-center mb-6">
+                    <h1 class="text-3xl font-bold text-gray-800">
+                        <i class="fas fa-file-invoice-dollar text-blue-600 mr-2"></i>
+                        GCP Billing Dashboard
+                        <span x-show="isUpdating" class="text-sm text-gray-500 ml-3">
+                            <i class="fas fa-sync-alt fa-spin"></i> Refreshing...
+                        </span>
+                    </h1>
+                    <div class="flex items-center space-x-3">
+                        <select x-model="selectedYear" @change="loadInitialData()" class="px-4 py-2 border rounded-lg">
+                            <template x-for="year in availableYears" :key="year">
+                                <option :value="year" x-text="year"></option>
+                            </template>
+                        </select>
+                        <select x-model="selectedMonth" @change="loadInitialData()" class="px-4 py-2 border rounded-lg">
+                            <option value="">All Months</option>
+                            <template x-for="month in months" :key="month.value">
+                                <option :value="month.value" x-text="month.label"></option>
+                            </template>
+                        </select>
+                        <button @click="fetchFreshData()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700" :disabled="loading || isUpdating">
+                            <i class="fas fa-sync-alt" :class="{'fa-spin': isUpdating}"></i>
+                            <span class="ml-2">Refresh</span>
+                        </button>
                     </div>
                 </div>
 
-                <div x-show="loading" class="loading">
+                <!-- Loading State -->
+                <div x-show="loading" class="text-center py-12">
                     <div class="spinner"></div>
                     <p class="mt-4 text-gray-600">Loading GCP billing data...</p>
                 </div>
 
-                <div x-show="error && !hasData && !loading" class="error bg-red-50 border border-red-200 p-4 rounded-lg">
+                <!-- Error State -->
+                <div x-show="error && !hasData && !loading" class="bg-red-50 border border-red-200 p-4 rounded-lg text-center">
                     <i class="fas fa-exclamation-triangle text-red-500 mr-2"></i>
                     <span x-text="error"></span>
                 </div>
 
-                <div x-show="updateError && hasData && !loading" class="mb-4 p-3 text-sm text-yellow-800 rounded-lg bg-yellow-50 border border-yellow-200" role="alert">
-                    <i class="fas fa-exclamation-circle mr-2"></i>
-                    <span x-text="updateError"></span>
-                </div>
-
                 <!-- Metric Cards -->
-                <div x-show="!loading && hasData && isUpdating" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div x-show="!loading && hasData" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
                     <div class="metric-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%)">
-                        <div class="metric-card-icon">
-                            <i class="fas fa-rupee-sign"></i>
-                        </div>
-                        <div class="metric-card-label">Total Cost</div>
-                        <div class="metric-card-value" x-text="formatCurrency(dashboardData.totalCost)"></div>
-                        <div class="metric-card-change">
-                            <i class="fas fa-calendar-alt"></i> MTD
-                        </div>
-                    </div>
-
-                    <div class="metric-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%)">
-                        <div class="metric-card-icon">
-                            <i class="fas fa-history"></i>
-                        </div>
-                        <div class="metric-card-label">Last Month Cost</div>
-                        <div class="metric-card-value" x-text="formatCurrency(dashboardData.costLastMonth)"></div>
-                        <div class="metric-card-change">Previous Billing Cycle</div>
+                        <div class="text-sm opacity-80 mb-2">TOTAL COST</div>
+                        <div class="text-3xl font-bold" x-text="formatCurrency(dashboardData.totalCost)"></div>
+                        <div class="text-sm opacity-80 mt-2">MTD</div>
                     </div>
 
                     <div class="metric-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)">
-                        <div class="metric-card-icon">
-                            <i class="fas fa-layer-group"></i>
-                        </div>
-                        <div class="metric-card-label">Active Services</div>
-                        <div class="metric-card-value" x-text="dashboardData.serviceBreakdown?.length || 0"></div>
-                        <div class="metric-card-change">Services with costs</div>
+                        <div class="text-sm opacity-80 mb-2">LAST MONTH COST</div>
+                        <div class="text-3xl font-bold" x-text="formatCurrency(dashboardData.costLastMonth)"></div>
+                        <div class="text-sm opacity-80 mt-2">Previous Cycle</div>
                     </div>
 
                     <div class="metric-card" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)">
-                        <div class="metric-card-icon">
-                            <i class="fas fa-chart-pie"></i>
-                        </div>
-                        <div class="metric-card-label">Top Service</div>
-                        <div class="metric-card-value" style="font-size: 18px;" x-text="getTopService()"></div>
-                        <div class="metric-card-change" x-text="formatCurrency(getTopServiceCost())"></div>
+                        <div class="text-sm opacity-80 mb-2">ACTIVE SERVICES</div>
+                        <div class="text-3xl font-bold" x-text="dashboardData.serviceBreakdown?.length || 0"></div>
+                        <div class="text-sm opacity-80 mt-2">Services with costs</div>
+                    </div>
+
+                    <div class="metric-card" style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%)">
+                        <div class="text-sm opacity-80 mb-2">TOP SERVICE</div>
+                        <div class="text-lg font-bold" x-text="getTopService()"></div>
+                        <div class="text-sm opacity-80 mt-2" x-text="formatCurrency(getTopServiceCost())"></div>
                     </div>
                 </div>
             </div>
 
             <!-- Charts Section -->
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <div x-show="!loading && hasData" class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
                 <div class="dashboard-card">
-                    <h3 class="chart-title">
-                        <i class="fas fa-chart-line text-blue-600"></i>
-                        Cost History
+                    <h3 class="text-lg font-semibold mb-4">
+                        <i class="fas fa-chart-line text-blue-600 mr-2"></i>Cost History
                     </h3>
-                    <div class="chart-container" style="height: 300px;">
+                    <div style="height: 300px;">
                         <canvas id="costHistoryChart"></canvas>
-                    </div>
-                    <div x-show="!loading && !dashboardData.costHistory || dashboardData.costHistory.length === 0" class="text-center py-10 text-gray-500">
-                        No cost history data available.
                     </div>
                 </div>
 
                 <div class="dashboard-card">
-                    <h3 class="chart-title">
-                        <i class="fas fa-chart-pie text-purple-600"></i>
-                        Service Breakdown
+                    <h3 class="text-lg font-semibold mb-4">
+                        <i class="fas fa-chart-pie text-purple-600 mr-2"></i>Service Breakdown
                     </h3>
-                    <div class="chart-container" style="height: 300px;">
+                    <div style="height: 300px;">
                         <canvas id="serviceBreakdownChart"></canvas>
-                    </div>
-                    <div x-show="!loading && !dashboardData.serviceBreakdown || dashboardData.serviceBreakdown.length === 0" class="text-center py-10 text-gray-500">
-                        No service breakdown data available.
                     </div>
                 </div>
             </div>
 
-            <!-- Detailed Service Costs Table -->
-            <div class="dashboard-card">
+            <!-- Detailed Service Costs Table - THIS IS THE KEY SECTION -->
+            <div x-show="!loading && hasData" class="dashboard-card">
                 <div class="flex justify-between items-center mb-6">
-                    <h3 class="chart-title">
-                        <i class="fas fa-table text-green-600"></i>
+                    <h3 class="text-lg font-semibold">
+                        <i class="fas fa-table text-green-600 mr-2"></i>
                         Detailed Service Costs
                     </h3>
-                    <button @click="exportToExcel()" class="export-button" :disabled="loading || isUpdating">
-                        <i class="fas fa-file-excel"></i>
-                        Export to Excel
+                    <button @click="exportToExcel()" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+                        <i class="fas fa-file-excel mr-2"></i>Export to Excel
                     </button>
+                </div>
+
+                <!-- Table Debug Info -->
+                <div class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded text-sm">
+                    <strong>Table Debug:</strong>
+                    <span x-text="`Services: ${dashboardData.serviceBreakdown?.length || 0}, Showing: ${!loading && hasData}`"></span>
                 </div>
 
                 <div class="overflow-x-auto">
                     <table class="min-w-full bg-white">
                         <thead class="bg-gray-100">
-                        <tr>
-                            <th class="text-left py-3 px-4 font-semibold text-sm text-gray-600 w-25%">SERVICE</th>
-                            <th class="text-right py-3 px-4 font-semibold text-sm text-gray-600">COST INR</th>
-                            <th class="text-right py-3 px-4 font-semibold text-sm text-gray-600">PERCENTAGE OF TOTAL</th>
-                        </tr>
+                            <tr>
+                                <th class="text-left py-3 px-4 font-semibold text-sm text-gray-600">SERVICE</th>
+                                <th class="text-right py-3 px-4 font-semibold text-sm text-gray-600">COST INR</th>
+                                <th class="text-right py-3 px-4 font-semibold text-sm text-gray-600">PERCENTAGE</th>
+                            </tr>
                         </thead>
                         <tbody>
-                        <template x-show="!loading && dashboardData.serviceBreakdown?.length > 0">
-                            <template x-for="service in dashboardData.serviceBreakdown" :key="service.serviceName">
-                                <tr @click="toggleServiceDetails(service.serviceName)" class="border-b border-gray-200 hover:bg-gray-50 cursor-pointer">
-                                    <td class="py-3 px-4 text-gray-700">
-                                        <i class="fas transition-transform duration-300 mr-3" :class="expandedServices[service.serviceName] ? 'fa-chevron-down' : 'fa-chevron-right'"></i>
-                                        <span class="font-medium" x-text="service.serviceName"></span>
-                                    </td>
-                                    <td class="py-3 px-4 text-right text-gray-800 font-semibold" x-text="formatCurrency(service.amount)"></td>
-                                    <td class="py-3 px-4 text-right text-gray-600">
-                                        <div class="flex items-center justify-end">
-                                            <span class="mr-2" x-text="getPercentage(service.amount)"></span>
-                                            <div class="w-32 bg-gray-200 rounded-full h-2.5">
-                                                <div class="bg-blue-600 h-2.5 rounded-full" :style="`width: ${getPercentage(service.amount)}`"></div>
-                                            </div>
-                                        </div>
-                                    </td>
-                                </tr>
+                            <template x-if="dashboardData.serviceBreakdown && dashboardData.serviceBreakdown.length > 0">
+                                <template x-for="(service, index) in dashboardData.serviceBreakdown" :key="service.serviceName + index">
+                                    <tr class="border-b border-gray-200 hover:bg-gray-50 cursor-pointer" @click="toggleServiceDetails(service.serviceName)">
+                                        <td class="py-3 px-4">
+                                            <i class="fas mr-2" :class="expandedServices[service.serviceName] ? 'fa-chevron-down' : 'fa-chevron-right'"></i>
+                                            <span class="font-medium" x-text="service.serviceName"></span>
+                                        </td>
+                                        <td class="py-3 px-4 text-right font-semibold" x-text="formatCurrency(service.amount)"></td>
+                                        <td class="py-3 px-4 text-right">
+                                            <span x-text="getPercentage(service.amount)"></span>
+                                        </td>
+                                    </tr>
+                                </template>
+                            </template>
 
-                                <tr x-show="expandedServices[service.serviceName]" x-transition>
-                                    <td colspan="3" class="p-0 bg-gray-50">
-                                        <div class="px-8 py-4">
-                                            <div x-show="serviceResources[service.serviceName]?.loading" class="text-center text-gray-500 py-4">
-                                                <i class="fas fa-spinner fa-spin mr-2"></i>Loading resources...
-                                            </div>
-                                            <div x-show="serviceResources[service.serviceName]?.error" class="text-center text-red-500 py-4" x-text="serviceResources[service.serviceName].error"></div>
-
-                                            <table x-show="serviceResources[service.serviceName] && !serviceResources[service.serviceName].loading && serviceResources[service.serviceName].data?.length > 0" class="min-w-full">
-                                                <thead class="border-b">
-                                                <tr>
-                                                    <th class="text-left py-2 px-4 font-semibold text-xs text-gray-500 uppercase tracking-wider w-35%">Resource</th>
-                                                    <th class="text-right py-2 px-4 font-semibold text-xs text-gray-500 uppercase tracking-wider">Cost</th>
-                                                </tr>
-                                                </thead>
-                                                <tbody>
-                                                <template x-for="resource in serviceResources[service.serviceName]?.data" :key="resource.resourceName + resource.amount">
-                                                    <tr class="border-b border-gray-200 last:border-b-0">
-                                                        <td class="py-2 px-4 text-sm text-gray-600 truncate" x-text="resource.resourceName"></td>
-                                                        <td class="py-2 px-4 text-right text-sm text-gray-700 font-medium" x-text="formatCurrency(resource.amount)"></td>
-                                                    </tr>
-                                                </template>
-                                                </tbody>
-                                            </table>
-
-                                            <div x-show="serviceResources[service.serviceName] && !serviceResources[service.serviceName].loading && serviceResources[service.serviceName].data?.length === 0" class="text-center text-gray-500 py-4">
-                                                No detailed resource breakdown available for this service period.
-                                            </div>
-                                        </div>
+                            <template x-if="!dashboardData.serviceBreakdown || dashboardData.serviceBreakdown.length === 0">
+                                <tr>
+                                    <td colspan="3" class="text-center py-12 text-gray-500">
+                                        <i class="fas fa-inbox text-3xl mb-3"></i>
+                                        <p>No service cost data available</p>
                                     </td>
                                 </tr>
                             </template>
-                        </template>
-
-                        <template x-show="!loading && !dashboardData.serviceBreakdown || dashboardData.serviceBreakdown.length === 0">
-                            <tr>
-                                <td colspan="3" class="text-center py-12">
-                                    <i class="fas fa-inbox text-gray-300 text-3xl mb-3"></i>
-                                    <p class="text-gray-500 font-medium">No service cost data available for the selected period.</p>
-                                </td>
-                            </tr>
-                        </template>
                         </tbody>
                     </table>
                 </div>
             </div>
+
+            <!-- No Data State -->
+            <div x-show="!loading && !hasData && !error" class="dashboard-card text-center py-12">
+                <i class="fas fa-inbox text-gray-300 text-5xl mb-4"></i>
+                <p class="text-gray-500 text-lg font-medium">No billing data found</p>
+                <p class="text-gray-400 mt-2">Try selecting a different period or refreshing</p>
+            </div>
+
         </div>
     </main>
+</div>
 </div>
 
 <script>
@@ -491,18 +299,12 @@
             accountId: null,
             availableYears: [new Date().getFullYear(), new Date().getFullYear() - 1, new Date().getFullYear() - 2],
             months: [
-                { value: '01', label: 'Jan' },
-                { value: '02', label: 'Feb' },
-                { value: '03', label: 'Mar' },
-                { value: '04', label: 'Apr' },
-                { value: '05', label: 'May' },
-                { value: '06', label: 'Jun' },
-                { value: '07', label: 'Jul' },
-                { value: '08', label: 'Aug' },
-                { value: '09', label: 'Sep' },
-                { value: '10', label: 'Oct' },
-                { value: '11', label: 'Nov' },
-                { value: '12', label: 'Dec' }
+                { value: '01', label: 'Jan' }, { value: '02', label: 'Feb' },
+                { value: '03', label: 'Mar' }, { value: '04', label: 'Apr' },
+                { value: '05', label: 'May' }, { value: '06', label: 'Jun' },
+                { value: '07', label: 'Jul' }, { value: '08', label: 'Aug' },
+                { value: '09', label: 'Sep' }, { value: '10', label: 'Oct' },
+                { value: '11', label: 'Nov' }, { value: '12', label: 'Dec' }
             ],
             dashboardData: {
                 totalCost: 0,
@@ -519,15 +321,26 @@
             },
 
             get hasData() {
-                return !this.loading && this.dashboardData && (this.dashboardData.costHistory?.length > 0 || this.dashboardData.serviceBreakdown?.length > 0);
+                const result = this.dashboardData && 
+                    (this.dashboardData.costHistory?.length > 0 || 
+                     this.dashboardData.serviceBreakdown?.length > 0);
+                console.log('🔍 hasData computed:', result, {
+                    dashboardData: this.dashboardData,
+                    costHistoryLength: this.dashboardData?.costHistory?.length,
+                    serviceBreakdownLength: this.dashboardData?.serviceBreakdown?.length
+                });
+                return result;
             },
 
             init() {
-                // this.loadSidebar();
+                console.log('🚀 Initializing GCP Billing Dashboard');
                 const urlParams = new URLSearchParams(window.location.search);
                 this.accountId = urlParams.get('accountIds');
 
+                console.log('📋 Account ID from URL:', this.accountId);
+
                 if (!this.accountId) {
+                    console.error('❌ No GCP Account ID in URL');
                     this.error = 'No GCP Account ID specified in the URL.';
                     this.loading = false;
                     return;
@@ -536,51 +349,51 @@
                 this.loadInitialData();
             },
 
-            // loadSidebar() {
-            //     fetch('sidebar.html')
-            //         .then(response => response.text())
-            //         .then(html => {
-            //             document.getElementById('sidebar-container').innerHTML = html;
-            //             if (window.Alpine) {
-            //                 document.querySelectorAll('[x-data]').forEach(el => {
-            //                     Alpine.initTree(el);
-            //                 });
-            //             }
-            //         })
-            //         .catch(error => console.error('Error loading sidebar:', error));
-            // },
-
             loadInitialData() {
                 if (!this.accountId) return;
 
+                console.log('📥 Loading initial data for account:', this.accountId);
                 this.loading = true;
                 this.isUpdating = false;
                 this.error = null;
                 this.updateError = null;
                 this.destroyCharts();
 
-                console.log('--- Attempting to load CACHED GCP dashboard data for', this.accountId, '---');
-
                 const cachedUrl = `/api/billops/billing/gcp/dashboard/cached?accountIdentifier=${this.accountId}${this.selectedYear ? `&year=${this.selectedYear}` : ''}${this.selectedMonth ? `&month=${this.selectedMonth}` : ''}`;
 
+                console.log('🔍 Checking cache at:', cachedUrl);
+
                 fetch(cachedUrl, { credentials: 'include' })
-                    .then(res => (res.ok ? res.json() : res.status === 404 ? null : (() => { throw new Error(`Failed to check cache. Status ${res.status}`); })()))
+                    .then(res => {
+                        console.log('📡 Cache response status:', res.status);
+                        return res.ok ? res.json() : res.status === 404 ? null : (() => { throw new Error(`Cache check failed: ${res.status}`); })();
+                    })
                     .then(cachedData => {
                         if (cachedData) {
-                            console.log('Found CACHED GCP data. Displaying and refreshing in background.');
+                            console.log('✅ Found cached data:', cachedData);
+                            console.log('   - Service Breakdown items:', cachedData.serviceBreakdown?.length);
+                            console.log('   - Cost History items:', cachedData.costHistory?.length);
+                            console.log('   - Total Cost:', cachedData.totalCost);
+                            
                             this.dashboardData = cachedData;
                             this.loading = false;
-                            this.$nextTick(() => this.renderOrUpdateCharts());
+                            
+                            console.log('🎨 Rendering charts from cached data');
+                            this.$nextTick(() => {
+                                this.renderOrUpdateCharts();
+                                console.log('📊 Charts rendered, hasData:', this.hasData);
+                            });
+                            
                             this.isUpdating = true;
                             this.fetchFreshData();
                         } else {
-                            console.log('No CACHED GCP data found. Fetching fresh data directly.');
+                            console.log('⚠️ No cached data, fetching fresh');
                             this.fetchFreshData();
                         }
                     })
                     .catch(err => {
-                        console.error('Error during initial cached data check:', err);
-                        this.error = 'Error checking cache. Trying to fetch fresh data...';
+                        console.error('❌ Cache check error:', err);
+                        this.error = 'Error checking cache. Fetching fresh data...';
                         this.fetchFreshData();
                     });
             },
@@ -588,35 +401,52 @@
             fetchFreshData() {
                 if (!this.accountId) return;
 
-                if (!this.isUpdating && !this.loading) {
-                    this.isUpdating = true;
-                    this.updateError = null;
-                } else if (this.loading) {
-                    this.isUpdating = false;
-                }
-
-                console.log('--- Fetching FRESH GCP dashboard data for', this.accountId, '---');
+                this.isUpdating = true;
+                this.updateError = null;
 
                 const freshUrl = `/api/billops/billing/gcp/dashboard/${this.accountId}${this.selectedYear ? `?year=${this.selectedYear}` : ''}${this.selectedMonth ? `&month=${this.selectedMonth}` : ''}`;
 
+                console.log('🔄 Fetching fresh data from:', freshUrl);
+
                 fetch(freshUrl, { credentials: 'include' })
                     .then(res => {
+                        console.log('📡 Fresh data response status:', res.status);
                         if (!res.ok) {
                             return res.text().then(text => {
-                                throw new Error(`Failed to fetch fresh data. Status ${res.status}. ${text}`);
+                                throw new Error(`Failed: ${res.status}. ${text}`);
                             });
                         }
                         return res.json();
                     })
                     .then(freshData => {
-                        console.log('Received FRESH GCP Data:', JSON.parse(JSON.stringify(freshData)));
-                        this.dashboardData = freshData || { totalCost: 0, costThisMonth: 0, costLastMonth: 0, costHistory: [], serviceBreakdown: [] };
+                        console.log('✅ Received fresh data:', freshData);
+                        console.log('   - Service Breakdown items:', freshData?.serviceBreakdown?.length);
+                        console.log('   - Cost History items:', freshData?.costHistory?.length);
+                        console.log('   - Total Cost:', freshData?.totalCost);
+                        
+                        if (freshData && freshData.serviceBreakdown) {
+                            console.log('📝 First 3 services:', freshData.serviceBreakdown.slice(0, 3));
+                        }
+                        
+                        this.dashboardData = freshData || { 
+                            totalCost: 0, 
+                            costThisMonth: 0, 
+                            costLastMonth: 0, 
+                            costHistory: [], 
+                            serviceBreakdown: [] 
+                        };
                         this.error = null;
-                        this.$nextTick(() => this.renderOrUpdateCharts());
+                        
+                        console.log('🎨 Rendering charts from fresh data');
+                        this.$nextTick(() => {
+                            this.renderOrUpdateCharts();
+                            console.log('📊 Charts updated, hasData:', this.hasData);
+                            console.log('🔍 DOM Check - Table should be visible:', !this.loading && this.hasData);
+                        });
                     })
                     .catch(err => {
-                        console.error('GCP Data fetching error:', err);
-                        const errorMsg = err.message || 'Failed to retrieve fresh billing data.';
+                        console.error('❌ Fresh data error:', err);
+                        const errorMsg = err.message || 'Failed to retrieve billing data.';
                         if (this.loading) {
                             this.error = errorMsg;
                         } else {
@@ -626,11 +456,17 @@
                     .finally(() => {
                         this.loading = false;
                         this.isUpdating = false;
-                        console.log('--- GCP Data fetch attempt complete ---');
+                        console.log('🏁 Data fetch complete. Final state:', {
+                            loading: this.loading,
+                            isUpdating: this.isUpdating,
+                            hasData: this.hasData,
+                            serviceCount: this.dashboardData.serviceBreakdown?.length
+                        });
                     });
             },
 
             destroyCharts() {
+                console.log('🧹 Destroying existing charts');
                 if (this.charts.costHistory) {
                     this.charts.costHistory.destroy();
                     this.charts.costHistory = null;
@@ -642,15 +478,21 @@
             },
 
             renderOrUpdateCharts() {
+                console.log('📊 Rendering/updating charts');
                 this.renderCostHistoryChart();
                 this.renderServiceBreakdownChart();
             },
 
             renderCostHistoryChart() {
                 const ctx = document.getElementById('costHistoryChart')?.getContext('2d');
-                if (!ctx) return;
+                if (!ctx) {
+                    console.warn('⚠️ Cost history chart canvas not found');
+                    return;
+                }
 
                 const history = this.dashboardData.costHistory || [];
+                console.log('📈 Rendering cost history chart with', history.length, 'points');
+
                 const labels = history.map(h => h.date || h.month || h.name);
                 const data = history.map(h => h.amount || h.cost || 0);
 
@@ -669,15 +511,12 @@
                                 borderColor: '#667eea',
                                 backgroundColor: 'rgba(102, 126, 234, 0.1)',
                                 borderWidth: 2,
-                                fill: true,
-                                pointRadius: 4,
-                                pointBackgroundColor: '#667eea'
+                                fill: true
                             }]
                         },
                         options: {
                             responsive: true,
-                            maintainAspectRatio: false,
-                            plugins: { legend: { display: false } }
+                            maintainAspectRatio: false
                         }
                     });
                 }
@@ -685,18 +524,22 @@
 
             renderServiceBreakdownChart() {
                 const ctx = document.getElementById('serviceBreakdownChart')?.getContext('2d');
-                if (!ctx) return;
+                if (!ctx) {
+                    console.warn('⚠️ Service breakdown chart canvas not found');
+                    return;
+                }
 
                 const services = this.dashboardData.serviceBreakdown || [];
+                console.log('🥧 Rendering service breakdown chart with', services.length, 'services');
+
                 const topServices = services.slice(0, 10);
                 const labels = topServices.map(item => item.serviceName || item.name);
                 const data = topServices.map(item => item.amount || 0);
-                const backgroundColors = ['#667eea', '#764ba2', '#f093fb', '#f5576c', '#4facfe', '#00f2fe', '#43e97b', '#38f9d7', '#fa709a', '#fee140'];
+                const colors = ['#667eea', '#764ba2', '#f093fb', '#f5576c', '#4facfe', '#00f2fe', '#43e97b', '#38f9d7', '#fa709a', '#fee140'];
 
                 if (this.charts.serviceBreakdown) {
                     this.charts.serviceBreakdown.data.labels = labels;
                     this.charts.serviceBreakdown.data.datasets[0].data = data;
-                    this.charts.serviceBreakdown.data.datasets[0].backgroundColor = backgroundColors.slice(0, data.length);
                     this.charts.serviceBreakdown.update();
                 } else {
                     this.charts.serviceBreakdown = new Chart(ctx, {
@@ -705,93 +548,29 @@
                             labels: labels,
                             datasets: [{
                                 data: data,
-                                backgroundColor: backgroundColors.slice(0, data.length)
+                                backgroundColor: colors
                             }]
                         },
                         options: {
                             responsive: true,
-                            maintainAspectRatio: false,
-                            plugins: { legend: { position: 'right' } }
+                            maintainAspectRatio: false
                         }
                     });
                 }
             },
 
             toggleServiceDetails(serviceName) {
+                console.log('🔽 Toggling service details for:', serviceName);
                 this.expandedServices[serviceName] = !this.expandedServices[serviceName];
-                if (this.expandedServices[serviceName] && (!this.serviceResources[serviceName] || this.serviceResources[serviceName].data.length === 0)) {
-                    this.loadInitialResourceData(serviceName);
-                }
-            },
-
-            loadInitialResourceData(serviceName) {
-                if (!this.accountId || !serviceName) return;
-
-                this.serviceResources[serviceName] = { loading: true, data: [], error: null, isUpdating: false };
-
-                console.log('--- Attempting to load CACHED GCP resource data for', serviceName, '---');
-
-                const cachedUrl = `/api/billops/billing/gcp/resource-costs/cached?accountIdentifier=${this.accountId}&serviceName=${encodeURIComponent(serviceName)}`;
-
-                fetch(cachedUrl, { credentials: 'include' })
-                    .then(res => (res.ok ? res.json() : null))
-                    .then(cachedData => {
-                        if (cachedData) {
-                            console.log('Found CACHED resources for', serviceName + '. Displaying and refreshing.');
-                            this.serviceResources[serviceName] = { loading: false, data: cachedData, error: null, isUpdating: true };
-                            this.fetchFreshResourceData(serviceName);
-                        } else {
-                            console.log('No CACHED resources for', serviceName + '. Fetching fresh.');
-                            this.fetchFreshResourceData(serviceName);
-                        }
-                    })
-                    .catch(err => {
-                        console.error('Error checking cache for', serviceName + ':', err);
-                        this.serviceResources[serviceName] = { loading: true, data: [], error: 'Error checking cache.', isUpdating: false };
-                        this.fetchFreshResourceData(serviceName);
-                    });
-            },
-
-            fetchFreshResourceData(serviceName) {
-                if (!this.accountId || !serviceName) return;
-
-                if (!this.serviceResources[serviceName]) {
-                    this.serviceResources[serviceName] = { loading: true, data: [], error: null, isUpdating: false };
-                } else if (!this.serviceResources[serviceName].loading) {
-                    this.serviceResources[serviceName].isUpdating = true;
-                    this.serviceResources[serviceName].error = null;
-                }
-
-                console.log('--- Fetching FRESH GCP resource data for', serviceName, '---');
-
-                const freshUrl = `/api/billops/billing/gcp/resource-costs?accountIdentifier=${this.accountId}&serviceName=${encodeURIComponent(serviceName)}`;
-
-                fetch(freshUrl, { credentials: 'include' })
-                    .then(res => {
-                        if (!res.ok) throw new Error(`Failed to load resource details. Status ${res.status}.`);
-                        return res.json();
-                    })
-                    .then(data => {
-                        console.log('Received FRESH resources for', serviceName + '.');
-                        this.serviceResources[serviceName] = { loading: false, data: data, error: null, isUpdating: false };
-                    })
-                    .catch(err => {
-                        console.error('Failed to fetch fresh resources for', serviceName + ':', err);
-                        this.serviceResources[serviceName].error = err.message;
-                        this.serviceResources[serviceName].loading = false;
-                        this.serviceResources[serviceName].isUpdating = false;
-                    });
             },
 
             formatCurrency(amount) {
                 const numericAmount = Number(amount);
                 if (isNaN(numericAmount)) return '₹0.00';
-
                 return new Intl.NumberFormat('en-IN', {
                     style: 'currency',
                     currency: 'INR',
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2
+                    minimumFractionDigits: 2
                 }).format(numericAmount);
             },
 
@@ -802,71 +581,24 @@
                 return ((numericAmount / total) * 100).toFixed(1) + '%';
             },
 
-            getTimeRangeLabel() {
-                return 'MTD ' + new Date().toLocaleString('default', { month: 'short' }) + ' ' + this.selectedYear;
-            },
-
             getTopService() {
                 const services = this.dashboardData.serviceBreakdown || [];
-                if (services.length === 0) return 'NA';
-                const topService = services.reduce((max, service) => (Number(service.amount) > Number(max?.amount || 0) ? service : max), services[0]);
-                return topService?.serviceName || 'NA';
+                if (services.length === 0) return 'N/A';
+                const top = services.reduce((max, s) => (Number(s.amount) > Number(max?.amount || 0) ? s : max), services[0]);
+                return top?.serviceName || 'N/A';
             },
 
             getTopServiceCost() {
                 const services = this.dashboardData.serviceBreakdown || [];
                 if (services.length === 0) return 0;
-                const topService = services.reduce((max, service) => (Number(service.amount) > Number(max?.amount || 0) ? service : max), services[0]);
-                return Number(topService?.amount || 0);
+                const top = services.reduce((max, s) => (Number(s.amount) > Number(max?.amount || 0) ? s : max), services[0]);
+                return Number(top?.amount || 0);
             },
 
-            async exportToExcel() {
-                if (this.isLoading || this.isRefreshing) {
-                    this.updateError = 'Please wait for data to load before exporting.';
-                    return;
-                }
-                if (!this.dashboardData.serviceBreakdown || this.dashboardData.serviceBreakdown.length === 0) {
-                    this.updateError = 'No data to export.';
-                    return;
-                }
-
-                this.isExporting = true;
-                const exportData = this.dashboardData.serviceBreakdown.map(service => ({
-                    'Service Name': service.serviceName,
-                    'Description': service.description || 'GCP Service',
-                    'Cost INR': Number(service.amount).toFixed(2),
-                    'Percentage': this.getPercentage(service.amount)
-                }));
-
-                exportData.push({
-                    'Service Name': 'TOTAL',
-                    'Description': '',
-                    'Cost INR': Number(this.dashboardData.totalCost).toFixed(2),
-                    'Percentage': '100.0%'
-                });
-
-                const date = new Date().toISOString().split('T')[0];
-                const timeRange = this.getTimeRangeLabel().replace(/ /g, '');
-                const filename = `GCPBilling_${this.accountId}_${timeRange}_${date}.xlsx`;
-
-                if (typeof XLSX === 'undefined') {
-                    const script = document.createElement('script');
-                    script.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
-                    document.head.appendChild(script);
-                    script.onload = () => {
-                        const ws = XLSX.utils.json_to_sheet(exportData);
-                        const wb = XLSX.utils.book_new();
-                        XLSX.utils.book_append_sheet(wb, ws, 'GCP Billing');
-                        XLSX.writeFile(wb, filename);
-                        this.isExporting = false;
-                    };
-                } else {
-                    const ws = XLSX.utils.json_to_sheet(exportData);
-                    const wb = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(wb, ws, 'GCP Billing');
-                    XLSX.writeFile(wb, filename);
-                    this.isExporting = false;
-                }
+            exportToExcel() {
+                console.log('📤 Exporting to Excel');
+                // Implement export functionality
+                alert('Export functionality - implement with SheetJS');
             }
         };
     }

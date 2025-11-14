@@ -9,7 +9,20 @@
         <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
 <link rel="apple-touch-icon" href="/icons/XamOps.png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>[x-cloak] { display: none !important; }</style>
+    <style>
+        [x-cloak] { display: none !important; }
+        .updating-spinner {
+             display: inline-block;
+             width: 16px;
+             height: 16px;
+             border: 2px solid #d1d5db;
+             border-radius: 50%;
+             border-top-color: #4f46e5;
+             animation: spin 0.8s linear infinite;
+             margin-left: 8px;
+       }
+       @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
 </head>
 <body class="bg-gray-100" x-data="ticketAdmin()">
 <div class="flex h-screen">
@@ -18,9 +31,48 @@
     <div class="flex-1 flex flex-col overflow-hidden pl-64">
         <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-6">
             <div class="container mx-auto">
-                <h1 class="text-3xl font-bold text-gray-800 mb-6">Ticket Administration</h1>
+                <h1 class="text-3xl font-bold text-gray-800 mb-6 flex items-center">
+                    Ticket Administration
+                    <span x-show="isUpdating && !loading" class="updating-spinner" title="Updating data..."></span>
+                </h1>
 
-                <div class="bg-white rounded-lg shadow-md overflow-hidden">
+                <div x-show="loading" class="bg-white rounded-lg shadow-md overflow-hidden animate-pulse">
+                     <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"><div class="h-4 bg-gray-300 rounded w-16"></div></th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"><div class="h-4 bg-gray-300 rounded w-32"></div></th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"><div class="h-4 bg-gray-300 rounded w-24"></div></th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"><div class="h-4 bg-gray-300 rounded w-20"></div></th>
+                                <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider"><div class="h-4 bg-gray-300 rounded w-16 mx-auto"></div></th>
+                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider"><div class="h-4 bg-gray-300 rounded w-20 ml-auto"></div></th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            <template x-for="i in 5" :key="i">
+                                <tr>
+                                    <td class="px-6 py-4"><div class="h-4 bg-gray-300 rounded w-10"></div></td>
+                                    <td class="px-6 py-4"><div class="h-4 bg-gray-300 rounded w-48"></div></td>
+                                    <td class="px-6 py-4"><div class="h-4 bg-gray-300 rounded w-24"></div></td>
+                                    <td class="px-6 py-4"><div class="h-4 bg-gray-300 rounded w-20"></div></td>
+                                    <td class="px-6 py-4"><div class="h-6 bg-gray-300 rounded-full w-20 mx-auto"></div></td>
+                                    <td class="px-6 py-4"><div class="h-4 bg-gray-300 rounded w-20 ml-auto"></div></td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div x-show="error && !loading" class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg" role="alert">
+                    <strong class="font-bold">Error: </strong>
+                    <span class="block sm:inline" x-text="error"></span>
+                </div>
+                <div x-show="updateError && !loading" class="bg-yellow-50 border border-yellow-200 text-yellow-700 px-4 py-3 rounded-lg mb-4" role="alert">
+                    <strong class="font-bold">Update Warning: </strong>
+                    <span class="block sm:inline" x-text="updateError"> (showing cached data)</span>
+                </div>
+
+                <div x-show="!loading" class="bg-white rounded-lg shadow-md overflow-hidden" x-cloak>
                      <table class="min-w-full divide-y divide-gray-200">
                         <thead class="bg-gray-50">
                             <tr>
@@ -33,6 +85,14 @@
                             </tr>
                         </thead>
                         <tbody class="bg-white divide-y divide-gray-200">
+                            <template x-if="tickets.length === 0">
+                                <tr>
+                                    <td colspan="6" class="text-center py-10 text-gray-500">
+                                        <i class="fas fa-inbox text-3xl text-gray-300"></i>
+                                        <p class="mt-2">No tickets found.</p>
+                                    </td>
+                                </tr>
+                            </template>
                             <template x-for="ticket in tickets" :key="ticket.id">
                                 <tr>
                                     <td class="px-6 py-4 whitespace-nowrap">
@@ -64,13 +124,52 @@
     function ticketAdmin() {
         return {
             tickets: [],
+            loading: true,
+            isUpdating: false,
+            error: null,
+            updateError: null,
             
             init() {
                 // this.loadSidebar();
-                this.fetchTickets();
+                this.loadInitialData();
             },
 
-            fetchTickets() {
+            loadInitialData() {
+                this.loading = true;
+                this.isUpdating = false;
+                this.error = null;
+                this.updateError = null;
+
+                fetch('/api/billops/tickets/cached', { credentials: 'include' })
+                    .then(res => {
+                        if (res.ok) return res.json();
+                        if (res.status === 404) return null; // 404 is OK, means no cache
+                        throw new Error(`Cache check failed with status: ${res.status}`);
+                    })
+                    .then(cachedData => {
+                        if (cachedData) {
+                            console.log('Found cached tickets. Displaying and refreshing.');
+                            this.tickets = cachedData.sort((a, b) => b.id - a.id);
+                            this.loading = false;
+                            this.fetchFreshData(); // Refresh in background
+                        } else {
+                            console.log('No cached tickets found. Fetching fresh data.');
+                            this.fetchFreshData(); // Fetch fresh, will set loading=false
+                        }
+                    })
+                    .catch(err => {
+                        console.error("Error loading cached tickets:", err.message);
+                        this.error = "Could not load cached data. Trying fresh fetch...";
+                        this.fetchFreshData(); // Fallback to fresh fetch
+                    });
+            },
+
+            fetchFreshData() {
+                if (!this.loading) { // Only show background spinner if not initial load
+                    this.isUpdating = true;
+                }
+                this.updateError = null; // Clear previous update errors
+
                 fetch('/api/billops/tickets', { credentials: 'include' })
                     .then(res => {
                         if (!res.ok) {
@@ -80,21 +179,25 @@
                         return res.json();
                     })
                     .then(data => {
+                        console.log('Received fresh tickets.');
                         this.tickets = data.sort((a, b) => b.id - a.id);
+                        this.error = null; // Clear any previous error
                     })
                     .catch(err => {
-                        console.error("An error occurred during fetch:", err.message);
+                        console.error("An error occurred during fresh fetch:", err.message);
+                        if (this.loading) { // If it was the initial load
+                            this.error = err.message;
+                        } else { // If it was a background refresh
+                            this.updateError = err.message;
+                        }
+                    })
+                    .finally(() => {
+                        this.loading = false;
+                        this.isUpdating = false;
                     });
-            },
+            }
 
-            // loadSidebar() {
-            //     fetch('/_sidebar.html')
-            //         .then(response => response.text())
-            //         .then(html => {
-            //             document.getElementById('sidebar-container').innerHTML = html;
-            //             if(window.Alpine) Alpine.start();
-            //         });
-            // }
+            // loadSidebar() { ... }
         }
     }
 </script>

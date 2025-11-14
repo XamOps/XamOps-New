@@ -14,6 +14,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.CachePut; // ADDED
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,7 +25,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
+import java.util.Optional; // ADDED
 
 @Service
 public class GcpCostService {
@@ -41,9 +42,20 @@ public class GcpCostService {
         this.cloudAccountRepository = cloudAccountRepository;
     }
 
+    // --- NEW METHOD (Cache-Only) ---
     @Transactional(readOnly = true)
     @Cacheable(value = "gcpDashboard", key = "#accountIdentifier")
-    public GcpBillingDashboardDto getGcpBillingDashboardDto(String accountIdentifier) throws IOException, InterruptedException {
+    public Optional<GcpBillingDashboardDto> getCachedGcpBillingDashboardDto(String accountIdentifier) {
+        logger.info("Attempting to retrieve CACHED GCP dashboard for: '{}'", accountIdentifier);
+        // Spring AOP replaces this with a cache lookup.
+        return Optional.empty(); 
+    }
+
+    // --- MODIFIED METHOD (Fetch & Cache-Write) ---
+    @Transactional(readOnly = true)
+    @CachePut(value = "gcpDashboard", key = "#accountIdentifier")
+    public Optional<GcpBillingDashboardDto> getGcpBillingDashboardDtoAndCache(String accountIdentifier) throws IOException, InterruptedException {
+        // Renamed from getGcpBillingDashboardDto
         logger.info("Attempting to find GCP account with identifier: '{}'", accountIdentifier);
 
         Optional<CloudAccount> accountOpt = findAccount(accountIdentifier);
@@ -75,12 +87,22 @@ public class GcpCostService {
         dashboardDto.setCostLastMonth(lastMonthSpend);
         dashboardDto.setCostThisMonth(totalCost);
 
-        return dashboardDto;
+        return Optional.of(dashboardDto); // MODIFIED: Return as Optional
     }
 
+    // --- NEW METHOD (Cache-Only) ---
     @Transactional(readOnly = true)
     @Cacheable(value = "gcpResourceCosts", key = "{#accountIdentifier, #serviceName}")
-    public List<GcpResourceCostDto> getResourceCostsForService(String accountIdentifier, String serviceName) throws IOException, InterruptedException {
+    public Optional<List<GcpResourceCostDto>> getCachedResourceCostsForService(String accountIdentifier, String serviceName) {
+        logger.info("Attempting to retrieve CACHED GCP resource costs for: '{}', service: '{}'", accountIdentifier, serviceName);
+        return Optional.empty(); // Spring AOP handles this
+    }
+
+    // --- MODIFIED METHOD (Fetch & Cache-Write) ---
+    @Transactional(readOnly = true)
+    @CachePut(value = "gcpResourceCosts", key = "{#accountIdentifier, #serviceName}")
+    public Optional<List<GcpResourceCostDto>> getResourceCostsForServiceAndCache(String accountIdentifier, String serviceName) throws IOException, InterruptedException {
+        // Renamed from getResourceCostsForService
         logger.info("Fetching resource costs for service '{}' in account '{}'", serviceName, accountIdentifier);
         Optional<CloudAccount> accountOpt = findAccount(accountIdentifier);
 
@@ -110,7 +132,13 @@ public class GcpCostService {
                 startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
                 today.format(DateTimeFormatter.ISO_LOCAL_DATE));
 
-        return executeResourceCostQuery(bigquery, query);
+        // --- ADDED LOGGING ---
+        // This is the MOST IMPORTANT log. It shows the exact query.
+        // You can copy this query and run it directly in the BigQuery console to test it.
+        logger.debug("Executing BigQuery query for resource costs:\n{}", query);
+        // --- END LOGGING ---
+
+        return Optional.of(executeResourceCostQuery(bigquery, query)); // MODIFIED: Return as Optional
     }
 
     @CacheEvict(value = {"gcpDashboard", "gcpResourceCosts"}, allEntries = true)
@@ -120,7 +148,20 @@ public class GcpCostService {
 
     private List<GcpResourceCostDto> executeResourceCostQuery(BigQuery bq, String query) throws InterruptedException {
         QueryJobConfiguration queryConfig = QueryJobConfiguration.newBuilder(query).build();
+        
+        // --- ADDED LOGGING ---
+        logger.debug("BigQuery job configured. Executing query...");
+        // --- END LOGGING ---
+
         TableResult results = bq.query(queryConfig);
+
+        // --- ADDED LOGGING ---
+        // This tells us exactly how many rows BigQuery returned, before any processing.
+        // If this is 0, the query is correct but returned no data (e.g., no costs for that service).
+        long totalRows = results.getTotalRows();
+        logger.debug("Query executed. Total rows returned: {}", totalRows);
+        // --- END LOGGING ---
+
         List<GcpResourceCostDto> resourceCosts = new ArrayList<>();
         for (FieldValueList row : results.iterateAll()) {
             String fullResourceName = row.get("resource_name").getStringValue();
@@ -128,6 +169,12 @@ public class GcpCostService {
             BigDecimal amount = row.get("total_cost").getNumericValue();
             resourceCosts.add(new GcpResourceCostDto(shortResourceName, amount));
         }
+
+        // --- ADDED LOGGING ---
+        // This confirms how many rows were processed into the final list.
+        logger.debug("Finished processing {} resource cost rows.", resourceCosts.size());
+        // --- END LOGGING ---
+        
         return resourceCosts;
     }
 

@@ -14,12 +14,14 @@ import org.slf4j.Logger; // --- ADDED IMPORT ---
 import org.slf4j.LoggerFactory; // --- ADDED IMPORT ---
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.CachePut; // --- ADDED IMPORT ---
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional; // --- ADDED IMPORT ---
 import java.util.stream.Collectors;
 
 @Service
@@ -101,16 +103,26 @@ public class TicketService {
         return convertToDto(savedTicket);
     }
 
-@Transactional(readOnly = true)
-    @Cacheable("tickets")
-    public List<TicketDto> getAllTickets() {
+    // --- NEW CACHE-ONLY METHOD ---
+    @Transactional(readOnly = true)
+    @Cacheable(value = "tickets", key = "'allTickets'")
+    public Optional<List<TicketDto>> getCachedAllTickets() {
+        logger.debug("Attempting to retrieve CACHED 'allTickets'");
+        return Optional.empty(); // Spring AOP replaces this
+    }
+
+    // --- MODIFIED: RENAMED AND CHANGED TO @CachePut ---
+    @Transactional(readOnly = true)
+    @CachePut(value = "tickets", key = "'allTickets'")
+    public List<TicketDto> getAllTicketsAndCache() {
+        logger.debug("Fetching FRESH 'allTickets' and updating cache");
         // --- THIS IS THE FIX ---
         return ticketRepository.findAllWithRepliesAndAuthors().stream()
                 .map(this::convertToDto)
                 .collect(Collectors.toList());
     }
 
-@Transactional(readOnly = true)
+    @Transactional(readOnly = true)
     @Cacheable(value = "tickets", key = "#ticketId")
     public TicketDto getTicketById(Long ticketId) {
         // --- THIS IS THE FIX ---
@@ -121,10 +133,19 @@ public class TicketService {
         return convertToDto(ticket);
     }
     
-    // --- ADD THIS NEW METHOD ---
-@Transactional(readOnly = true)
-    @Cacheable(value = "tickets", key = "#category")
-    public List<TicketDto> getTicketsByCategory(String category) {
+    // --- NEW CACHE-ONLY METHOD ---
+    @Transactional(readOnly = true)
+    @Cacheable(value = "tickets", key = "'category_' + #category")
+    public Optional<List<TicketDto>> getCachedTicketsByCategory(String category) {
+        logger.debug("Attempting to retrieve CACHED tickets for category: {}", category);
+        return Optional.empty(); // Spring AOP replaces this
+    }
+
+    // --- MODIFIED: RENAMED AND CHANGED TO @CachePut ---
+    @Transactional(readOnly = true)
+    @CachePut(value = "tickets", key = "'category_' + #category")
+    public List<TicketDto> getTicketsByCategoryAndCache(String category) {
+        logger.debug("Fetching FRESH tickets for category: {} and updating cache", category);
         return ticketRepository.findAllByCategoryWithRepliesAndAuthors(category).stream()
                 .map(this::convertToDto)
                 .collect(Collectors.toList());

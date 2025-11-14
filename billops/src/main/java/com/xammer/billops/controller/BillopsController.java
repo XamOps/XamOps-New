@@ -205,11 +205,30 @@ public class BillopsController {
     }
 
 
+    // --- NEW Endpoint to get CACHED GCP dashboard data ---
+    @GetMapping("/billing/gcp/dashboard/cached")
+    public ResponseEntity<GcpBillingDashboardDto> getCachedGcpBillingDashboard(
+            @RequestParam String accountIdentifier,
+            @RequestParam(required = false) Integer year, // Params included for key compatibility
+            @RequestParam(required = false) Integer month) {
+        
+        logger.debug("GET /billing/gcp/dashboard/cached called for account: {}", accountIdentifier);
+        // Note: The key in GcpCostService is just #accountIdentifier. 
+        // Year/month are ignored but good to have in the request.
+        Optional<GcpBillingDashboardDto> cachedData = gcpCostService.getCachedGcpBillingDashboardDto(accountIdentifier);
+        
+        return cachedData
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    // --- MODIFIED Endpoint to get FRESH GCP dashboard data (and update cache) ---
     @GetMapping("/billing/gcp/dashboard/{accountIdentifier}")
     public ResponseEntity<GcpBillingDashboardDto> getGcpBillingDashboard(@PathVariable String accountIdentifier) {
-        // Implement stale-while-revalidate for GCP if needed, following the same pattern
         try {
-            GcpBillingDashboardDto dashboardDto = gcpCostService.getGcpBillingDashboardDto(accountIdentifier);
+            // MODIFIED: Call the @CachePut method and handle Optional
+            GcpBillingDashboardDto dashboardDto = gcpCostService.getGcpBillingDashboardDtoAndCache(accountIdentifier)
+                    .orElseThrow(() -> new IllegalStateException("GCP data was unexpectedly null after fetch"));
             return ResponseEntity.ok(dashboardDto);
         } catch (IllegalArgumentException e) {
             logger.error("Error fetching GCP billing data (Bad Request): " + e.getMessage(), e);
@@ -228,13 +247,29 @@ public class BillopsController {
         }
     }
 
+    // --- NEW Endpoint to get CACHED GCP resource costs ---
+    @GetMapping("/billing/gcp/resource-costs/cached")
+    public ResponseEntity<List<GcpResourceCostDto>> getCachedGcpResourceCosts(
+            @RequestParam String accountIdentifier,
+            @RequestParam String serviceName) {
+        logger.debug("GET /billing/gcp/resource-costs/cached for account: {}, service: {}", accountIdentifier, serviceName);
+        
+        Optional<List<GcpResourceCostDto>> cachedData = gcpCostService.getCachedResourceCostsForService(accountIdentifier, serviceName);
+        
+        return cachedData
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+    
+    // --- MODIFIED Endpoint to get FRESH GCP resource costs (and update cache) ---
     @GetMapping("/billing/gcp/resource-costs")
     public ResponseEntity<List<GcpResourceCostDto>> getGcpResourceCosts(
             @RequestParam String accountIdentifier,
             @RequestParam String serviceName) {
-         // Implement stale-while-revalidate for GCP if needed
         try {
-            List<GcpResourceCostDto> resourceCosts = gcpCostService.getResourceCostsForService(accountIdentifier, serviceName);
+            // MODIFIED: Call the @CachePut method
+            List<GcpResourceCostDto> resourceCosts = gcpCostService.getResourceCostsForServiceAndCache(accountIdentifier, serviceName)
+                    .orElse(Collections.emptyList()); // Return empty list if optional is empty
             return ResponseEntity.ok(resourceCosts);
         } catch (IllegalArgumentException e) {
              logger.error("Bad request for GCP resource costs for service '{}', account '{}': {}", serviceName, accountIdentifier, e.getMessage());
@@ -377,18 +412,40 @@ public class BillopsController {
          }
     }
 
-    @GetMapping("/credits/admin/all")
-    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')") // Keep authorization check
-    public ResponseEntity<List<CreditRequestDto>> getAllCreditRequests() {
-        return ResponseEntity.ok(creditRequestService.getAllCreditRequests());
+    // --- NEW: CACHED Admin List ---
+    @GetMapping("/credits/admin/all/cached")
+    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
+    public ResponseEntity<List<CreditRequestDto>> getCachedAllCreditRequests() {
+        logger.debug("GET /credits/admin/all/cached called");
+        return creditRequestService.getCachedAllCreditRequests()
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
+    // --- MODIFIED: FRESH Admin List ---
+    @GetMapping("/credits/admin/all")
+    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')") 
+    public ResponseEntity<List<CreditRequestDto>> getFreshAllCreditRequests() {
+        logger.debug("GET /credits/admin/all (fresh) called");
+        return ResponseEntity.ok(creditRequestService.getAllCreditRequestsAndCache());
+    }
+
+    // --- NEW: CACHED User List ---
+    @GetMapping("/credits/user/{userId}/cached")
+    public ResponseEntity<List<CreditRequestDto>> getCachedCreditRequestsByUser(@PathVariable Long userId) {
+        // TODO: Add security check here to ensure user can only get their own
+        logger.debug("GET /credits/user/{}/cached called", userId);
+        return creditRequestService.getCachedCreditRequestsByUserId(userId)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    // --- MODIFIED: FRESH User List ---
     @GetMapping("/credits/user/{userId}")
-    public ResponseEntity<List<CreditRequestDto>> getCreditRequestsByUser(@PathVariable Long userId) {
-        // Add check: Ensure the authenticated user is requesting their own credits or is an admin
-        // This requires access to Authentication object and potentially user roles.
-        // Simplified for now.
-        return ResponseEntity.ok(creditRequestService.getCreditRequestsByUserId(userId));
+    public ResponseEntity<List<CreditRequestDto>> getFreshCreditRequestsByUser(@PathVariable Long userId) {
+        // TODO: Add security check
+        logger.debug("GET /credits/user/{} (fresh) called", userId);
+        return ResponseEntity.ok(creditRequestService.getCreditRequestsByUserIdAndCache(userId));
     }
 
     @PutMapping("/credits/{id}/status")
@@ -418,10 +475,27 @@ public class BillopsController {
          }
     }
 
+    // --- NEW: CACHED Endpoint for All Tickets ---
+    @GetMapping("/tickets/cached")
+    public ResponseEntity<List<TicketDto>> getCachedAllTickets() {
+        logger.debug("GET /tickets/cached called");
+        Optional<List<TicketDto>> cachedData = ticketService.getCachedAllTickets();
+        return cachedData
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    // --- MODIFIED: FRESH Endpoint for All Tickets ---
     @GetMapping("/tickets")
     public ResponseEntity<List<TicketDto>> getAllTickets() {
-        // Consider adding pagination for large numbers of tickets
-        return ResponseEntity.ok(ticketService.getAllTickets());
+        logger.debug("GET /tickets (fresh) called");
+        try {
+            // This method now fetches fresh data AND updates the cache
+            return ResponseEntity.ok(ticketService.getAllTicketsAndCache());
+        } catch (Exception e) {
+            logger.error("Error fetching fresh tickets: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError().build();
+        }
     }
 
     @GetMapping("/tickets/{id}")
@@ -478,14 +552,33 @@ public class BillopsController {
              return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
          }
     }
-  @GetMapping("/tickets/category/{category}")
+
+    // --- NEW: CACHED Endpoint for Tickets by Category ---
+    @GetMapping("/tickets/category/{category}/cached")
+    public ResponseEntity<List<TicketDto>> getCachedTicketsByCategory(@PathVariable String category) {
+        try {
+            String decodedCategory = java.net.URLDecoder.decode(category, java.nio.charset.StandardCharsets.UTF_8);
+            logger.debug("GET /tickets/category/{}/cached called", decodedCategory);
+            Optional<List<TicketDto>> cachedData = ticketService.getCachedTicketsByCategory(decodedCategory);
+            return cachedData
+                    .map(ResponseEntity::ok)
+                    .orElseGet(() -> ResponseEntity.notFound().build());
+        } catch (Exception e) {
+            logger.error("Error fetching cached tickets by category {}: {}", category, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    // --- MODIFIED: FRESH Endpoint for Tickets by Category ---
+    @GetMapping("/tickets/category/{category}")
     public ResponseEntity<List<TicketDto>> getTicketsByCategory(@PathVariable String category) {
         try {
-            // This handles the space in "Account and Billing"
             String decodedCategory = java.net.URLDecoder.decode(category, java.nio.charset.StandardCharsets.UTF_8);
-            return ResponseEntity.ok(ticketService.getTicketsByCategory(decodedCategory));
+            logger.debug("GET /tickets/category/{} (fresh) called", decodedCategory);
+            // This method now fetches fresh data AND updates the cache
+            return ResponseEntity.ok(ticketService.getTicketsByCategoryAndCache(decodedCategory));
         } catch (Exception e) {
-            logger.error("Error fetching tickets by category {}: {}", category, e.getMessage(), e);
+            logger.error("Error fetching fresh tickets by category {}: {}", category, e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -503,6 +596,4 @@ public class BillopsController {
      private java.util.function.Supplier<RuntimeException> accessDeniedException(Long accountId) {
          return () -> new SecurityException("Account not found or access denied for ID: " + accountId);
      }
-
-
 }

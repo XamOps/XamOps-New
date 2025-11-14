@@ -262,7 +262,7 @@
              border-top-color: #4f46e5; /* Accent color */
              animation: spin 0.8s linear infinite;
              margin-left: 8px; /* Spacing */
-         }
+       }
 
         @keyframes spin {
             to { transform: rotate(360deg); }
@@ -276,7 +276,7 @@
         .skeleton-placeholder-dark {
              background-color: #cbd5e1; /* Tailwind gray-400 */
              border-radius: 4px;
-        }
+         }
 
         /* Responsive Design */
         @media (max-width: 768px) {
@@ -367,32 +367,32 @@
                              <div class="skeleton-placeholder h-3 w-3/5"></div>
                          </div>
                          <div class="overflow-x-auto">
-                            <table class="cost-breakdown-table">
-                                <colgroup>
-                                    <col style="width: 60px;">
-                                    <col style="width: 45%;">
-                                    <col style="width: 25%;">
-                                    <col style="width: 25%;">
-                                </colgroup>
-                                <thead>
-                                    <tr>
-                                        <th><div class="skeleton-placeholder h-4 w-4 mx-auto"></div></th>
-                                        <th><div class="skeleton-placeholder h-4 w-24"></div></th>
-                                        <th><div class="skeleton-placeholder h-4 w-20 ml-auto"></div></th>
-                                        <th><div class="skeleton-placeholder h-4 w-20 ml-auto"></div></th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <template x-for="i in 5" :key="i">
-                                        <tr class="skeleton-row">
-                                            <td><div class="skeleton-placeholder h-6 w-6 mx-auto rounded-md"></div></td>
-                                            <td><div class="skeleton-placeholder h-4 w-3/4"></div></td>
-                                            <td><div class="skeleton-placeholder h-4 w-1/2 ml-auto"></div></td>
-                                            <td><div class="skeleton-placeholder h-4 w-1/2 ml-auto"></div></td>
-                                        </tr>
-                                    </template>
-                                </tbody>
-                            </table>
+                             <table class="cost-breakdown-table">
+                                 <colgroup>
+                                     <col style="width: 60px;">
+                                     <col style="width: 45%;">
+                                     <col style="width: 25%;">
+                                     <col style="width: 25%;">
+                                 </colgroup>
+                                 <thead>
+                                     <tr>
+                                         <th><div class="skeleton-placeholder h-4 w-4 mx-auto"></div></th>
+                                         <th><div class="skeleton-placeholder h-4 w-24"></div></th>
+                                         <th><div class="skeleton-placeholder h-4 w-20 ml-auto"></div></th>
+                                         <th><div class="skeleton-placeholder h-4 w-20 ml-auto"></div></th>
+                                     </tr>
+                                 </thead>
+                                 <tbody>
+                                     <template x-for="i in 5" :key="i">
+                                         <tr class="skeleton-row">
+                                             <td><div class="skeleton-placeholder h-6 w-6 mx-auto rounded-md"></div></td>
+                                             <td><div class="skeleton-placeholder h-4 w-3/4"></div></td>
+                                             <td><div class="skeleton-placeholder h-4 w-1/2 ml-auto"></div></td>
+                                             <td><div class="skeleton-placeholder h-4 w-1/2 ml-auto"></div></td>
+                                         </tr>
+                                     </template>
+                                 </tbody>
+                             </table>
                          </div>
                      </div>
                 </div>
@@ -434,10 +434,10 @@
                                 <p class="text-sm text-gray-500 mt-1">Distribution by AWS services</p>
                             </div>
                             <div class="p-4">
-                                 <div class="chart-container" x-show="billingData.serviceBreakdown.length > 0">
+                                <div class="chart-container" x-show="billingData.serviceBreakdown.length > 0">
                                     <canvas id="serviceBreakdownChart"></canvas>
                                 </div>
-                                 <div x-show="!loading && billingData.serviceBreakdown.length === 0" class="text-center py-10 text-gray-500">
+                                <div x-show="!loading && billingData.serviceBreakdown.length === 0" class="text-center py-10 text-gray-500">
                                     No service breakdown data available.
                                 </div>
                             </div>
@@ -569,9 +569,9 @@
             get hasData() {
                 // Check if *either* billingData or detailedBreakdown has content
                 return (!this.loading && // Only consider data if not initially loading
-                       ( (this.billingData && this.billingData.costHistory && this.billingData.costHistory.length > 0) ||
+                        ( (this.billingData && this.billingData.costHistory && this.billingData.costHistory.length > 0) ||
                          (this.detailedBreakdown && this.detailedBreakdown.length > 0) )
-                       );
+                        );
             },
 
             init() {
@@ -724,9 +724,9 @@
 
                 if (safeHistory.length === 0) {
                      if (this.costHistoryChart) {
-                        this.costHistoryChart.destroy();
-                        this.costHistoryChart = null;
-                    }
+                         this.costHistoryChart.destroy();
+                         this.costHistoryChart = null;
+                     }
                 } else {
                     if (this.costHistoryChart) {
                         this.costHistoryChart.data.labels = historyLabels;

@@ -21,6 +21,18 @@
             background-size: 1.5em 1.5em;
             padding-right: 2.5rem;
         }
+        /* --- ADDED SPINNER STYLE --- */
+        .updating-spinner {
+             display: inline-block;
+             width: 16px;
+             height: 16px;
+             border: 2px solid #d1d5db;
+             border-radius: 50%;
+             border-top-color: #4f46e5;
+             animation: spin 0.8s linear infinite;
+             margin-left: 8px;
+       }
+       @keyframes spin { to { transform: rotate(360deg); } }
     </style>
 </head>
 <body class="bg-gray-100" x-data="creditAdmin()">
@@ -30,10 +42,21 @@
     <div class="flex-1 flex flex-col overflow-hidden pl-64">
         <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-6">
             <div class="container mx-auto">
-                <h1 class="text-3xl font-bold text-gray-800 mb-6">Credit Request Administration</h1>
+                <h1 class="text-3xl font-bold text-gray-800 mb-6 flex items-center">
+                    Credit Request Administration
+                    <span x-show="isUpdating && !loading" class="updating-spinner" title="Updating data..."></span>
+                </h1>
 
                 <div x-show="loading" class="text-center p-10"><i class="fas fa-spinner fa-spin text-3xl text-indigo-500"></i></div>
-                <div x-show="error" class="text-center p-10 bg-red-50 rounded-lg"><p class="text-red-700" x-text="error"></p></div>
+                
+                <div x-show="error && !loading" class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6" role="alert">
+                    <strong class="font-bold">Error: </strong>
+                    <span class="block sm:inline" x-text="error"></span>
+                </div>
+                <div x-show="updateError && !loading" class="bg-yellow-50 border border-yellow-200 text-yellow-700 px-4 py-3 rounded-lg mb-6" role="alert">
+                    <strong class="font-bold">Update Warning: </strong>
+                    <span class="block sm:inline" x-text="updateError + ' (showing cached data)'"></span>
+                </div>
                 
                 <div x-show="!loading && requests.length > 0" class="bg-white rounded-lg shadow-md overflow-hidden" x-cloak>
                      <table class="min-w-full divide-y divide-gray-200">
@@ -69,7 +92,7 @@
                         </tbody>
                     </table>
                 </div>
-                 <div x-show="!loading && requests.length === 0" class="text-center p-12 bg-white rounded-lg shadow">
+                 <div x-show="!loading && requests.length === 0 && !error" class="text-center p-12 bg-white rounded-lg shadow" x-cloak>
                     <i class="fas fa-inbox text-4xl text-gray-300"></i>
                     <p class="mt-4 text-gray-600">No credit requests found.</p>
                 </div>
@@ -83,17 +106,54 @@
         return {
             requests: [],
             loading: true,
+            isUpdating: false, // ADDED
             error: null,
+            updateError: null, // ADDED
             
             init() {
-                this.loadSidebar();
-                this.fetchRequests();
+                // this.loadSidebar();
+                this.loadInitialData(); // MODIFIED
             },
 
-            fetchRequests() {
+            // --- NEW FUNCTION ---
+            loadInitialData() {
                 this.loading = true;
+                this.isUpdating = false;
                 this.error = null;
-                fetch('/api/billops/credits/admin/all')
+                this.updateError = null;
+
+                fetch('/api/billops/credits/admin/all/cached', { credentials: 'include' })
+                    .then(res => {
+                        if (res.ok) return res.json();
+                        if (res.status === 404) return null; // 404 is OK, means no cache
+                        throw new Error(`Cache check failed with status: ${res.status}`);
+                    })
+                    .then(cachedData => {
+                        if (cachedData) {
+                            console.log('Found cached admin credits. Displaying and refreshing.');
+                            this.requests = cachedData.sort((a, b) => b.id - a.id);
+                            this.loading = false;
+                            this.fetchFreshData(); // Refresh in background
+                        } else {
+                            console.log('No cached admin credits found. Fetching fresh data.');
+                            this.fetchFreshData(); // Fetch fresh, will set loading=false
+                        }
+                    })
+                    .catch(err => {
+                        console.error("Error loading cached credits:", err.message);
+                        this.error = "Could not load cached data. Trying fresh fetch...";
+                        this.fetchFreshData(); // Fallback to fresh fetch
+                    });
+            },
+
+            // --- RENAMED & MODIFIED FUNCTION ---
+            fetchFreshData() {
+                if (!this.loading) { // Only show background spinner if not initial load
+                    this.isUpdating = true;
+                }
+                this.updateError = null; // Clear previous update errors
+
+                fetch('/api/billops/credits/admin/all', { credentials: 'include' }) // MODIFIED: Added credentials
                     .then(res => {
                         if (!res.ok) {
                            if (res.status === 401 || res.status === 403) {
@@ -105,19 +165,32 @@
                         return res.json();
                     })
                     .then(data => {
+                        console.log('Received fresh admin credits.');
                         this.requests = data.sort((a, b) => b.id - a.id);
+                        this.error = null; // Clear any previous error
                     })
                     .catch(err => {
-                        console.error("An error occurred during fetch:", err.message);
-                        if (!this.error) this.error = "Could not load credit requests.";
+                        console.error("An error occurred during fresh fetch:", err.message);
+                        if (!this.error) { // Don't overwrite a more specific auth error
+                            if (this.loading) {
+                                this.error = "Could not load credit requests.";
+                            } else {
+                                this.updateError = "Failed to refresh credit requests.";
+                            }
+                        }
                     })
-                    .finally(() => this.loading = false);
+                    .finally(() => {
+                        this.loading = false;
+                        this.isUpdating = false;
+                    });
             },
 
             updateStatus(id, newStatus) {
+                // This logic is fine, but we'll change the error handling
                 fetch(`/api/billops/credits/${id}/status`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include', // ADDED
                     body: JSON.stringify({ status: newStatus })
                 })
                 .then(res => {
@@ -125,16 +198,19 @@
                     return res.json();
                 })
                 .then(updatedRequest => {
+                    // This is an optimistic update, which is good.
                     const index = this.requests.findIndex(r => r.id === id);
                     if (index !== -1) this.requests[index] = updatedRequest;
                 })
                 .catch(err => {
                     alert(err.message);
-                    this.fetchRequests(); // Re-fetch to revert optimistic update
+                    // MODIFIED: Call the fresh data function
+                    this.fetchFreshData(); // Re-fetch to revert optimistic update
                 });
             },
             
             formatCurrency(value) {
+                if (value === null || value === undefined) return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(0);
                 return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
             },
 
@@ -154,12 +230,7 @@
             },
 
             // loadSidebar() {
-            //     fetch('/_sidebar.html')
-            //         .then(response => response.text())
-            //         .then(html => {
-            //             document.getElementById('sidebar-container').innerHTML = html;
-            //             if(window.Alpine) Alpine.start();
-            //         });
+            //     ...
             // }
         }
     }
