@@ -1,7 +1,7 @@
 package com.xammer.billops.controller;
 
 import com.xammer.billops.domain.CloudFrontPrivateRate;
-import com.xammer.billops.domain.Invoice;
+import com.xammer.cloud.domain.Invoice;
 import com.xammer.billops.dto.InvoiceDto;
 import com.xammer.billops.repository.CloudFrontPrivateRateRepository;
 import com.xammer.billops.service.CloudFrontUsageService;

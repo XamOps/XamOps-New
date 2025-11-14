@@ -39,6 +39,7 @@ import com.xammer.billops.service.CloudFrontUsageService;
 import com.xammer.billops.repository.ClientRepository;
 import com.xammer.billops.domain.Client;
 // --- End Imports Added By AI ---
+import com.xammer.billops.domain.CloudAccount;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -73,9 +74,8 @@ public class InvoiceManagementService {
                                   DiscountRepository discountRepository,
                                   BillingService billingService,
                                   GcpCostService gcpCostService,
-                                  AppUserRepository appUserRepository, // Add
-                                  EmailService emailService) { // Add
-                                  GcpCostService gcpCostService,
+                                  AppUserRepository appUserRepository,
+                                  EmailService emailService,
                                   CloudFrontUsageService cloudFrontUsageService,
                                   CloudFrontPrivateRateRepository privateRateRepository,
                                   ClientRepository clientRepository) {
@@ -84,10 +84,11 @@ public class InvoiceManagementService {
         this.discountRepository = discountRepository;
         this.billingService = billingService;
         this.gcpCostService = gcpCostService;
-        this.appUserRepository = appUserRepository; // Add
-        this.emailService = emailService; // Add
-        // --- Assignments added by AI ---
+        this.appUserRepository = appUserRepository;
+        this.emailService = emailService;
         this.cloudFrontUsageService = cloudFrontUsageService;
+        // No duplicate assignments; only assign once in constructor
+        // (already assigned above)
         this.privateRateRepository = privateRateRepository;
         this.clientRepository = clientRepository;
         // --- End assignments added by AI ---
