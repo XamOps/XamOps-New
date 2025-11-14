@@ -87,6 +87,19 @@
         .region-name { color: #6b7280; font-weight: 500; padding-left: 20px; }
         .resource-name { color: #9ca3af; font-size: 13px; padding-left: 40px; }
         /* --- END: STYLES COPIED FROM billing.html --- */
+        
+        /* --- ADDED SPINNER STYLE --- */
+        .updating-spinner {
+             display: inline-block;
+             width: 16px;
+             height: 16px;
+             border: 2px solid #d1d5db;
+             border-radius: 50%;
+             border-top-color: #4f46e5;
+             animation: spin 0.8s linear infinite;
+             margin-left: 8px;
+       }
+       @keyframes spin { to { transform: rotate(360deg); } }
     </style>
 </head>
 <body class="bg-gray-100" x-data="invoicePage()">
@@ -98,12 +111,14 @@
             <div class="container mx-auto">
                 <div class="flex justify-between items-center mb-6">
                      <div>
-                        <h1 class="text-3xl font-bold text-gray-800">View Invoices</h1>
+                        <h1 class="text-3xl font-bold text-gray-800 flex items-center"> View Invoices
+                            <span x-show="isUpdating && !listLoading" class="updating-spinner" title="Updating data..."></span>
+                        </h1>
                         <p class="text-gray-600" x-text="selectedAccountName ? `Account: ${selectedAccountName} (${selectedAccountId})` : 'No account selected'"></p>
                     </div>
                 </div>
 
-                <div class="bg-white p-4 rounded-lg shadow-md mb-6 flex items-center space-x-4">
+                <div class.bind="bg-white p-4 rounded-lg shadow-md mb-6 flex items-center space-x-4">
                     <div>
                         <label for="year" class="block text-sm font-medium text-gray-700">Year</label>
                         <select id="year" x-model="selectedYear" @change="filterAndDisplayInvoices()" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
@@ -132,14 +147,28 @@
                             <i class="fas fa-arrow-left mr-2"></i>Back to List
                         </button>
                     </div>
+                    <div class="pt-6" x-show="viewState === 'list'">
+                        <button @click="fetchFreshData()" class="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50 disabled:bg-gray-200" :disabled="listLoading || isUpdating">
+                             <i class="fas" :class="{ 'fa-sync-alt fa-spin': isUpdating, 'fa-sync-alt': !isUpdating }"></i>
+                             <span class="ml-2" x-text="isUpdating ? 'Refreshing...' : 'Refresh'"></span>
+                        </button>
+                    </div>
                 </div>
+
+                <div x-show="!listLoading && !detailLoading && updateError" class="mb-4 p-3 text-sm text-yellow-800 rounded-lg bg-yellow-50 border border-yellow-200" role="alert">
+                    <i class="fas fa-exclamation-circle mr-2"></i>
+                    <span x-text="updateError + ' (showing cached data)'"></span>
+                </div>
+
                 <div x-show="listLoading || detailLoading" class="text-center p-10 bg-white rounded-lg shadow-md">
                     <i class="fas fa-spinner fa-spin text-3xl text-indigo-500"></i>
                     <p class="mt-2" x-text="listLoading ? 'Fetching invoice list...' : 'Loading invoice details...'"></p>
                 </div>
+                
                 <div x-show="!listLoading && !detailLoading && error" class="text-center p-10 bg-blue-50 rounded-lg shadow-md">
                      <p class="text-blue-700" x-text="error"></p>
                 </div>
+                
                 <div x-show="!listLoading && viewState === 'list' && filteredInvoices.length > 0" class="bg-white rounded-lg shadow-md overflow-hidden" x-cloak>
                     <table class="min-w-full divide-y divide-gray-200">
                         <thead class="bg-gray-50">
@@ -173,6 +202,7 @@
                         </tbody>
                     </table>
                 </div>
+                
                  <div x-show="!detailLoading && viewState === 'detail' && selectedInvoice" class="space-y-6" x-cloak>
                     <div class="bg-white rounded-lg shadow-md p-8">
                         <div class="flex justify-between items-start mb-8">
@@ -289,14 +319,17 @@
             ],
             selectedMonth: 'all', // Default to 'all'
             
-            // --- START: MODIFIED/NEW STATE PROPERTIES ---
             viewState: 'list', // 'list' or 'detail'
             allInvoices: [], // Holds all invoices from API
             filteredInvoices: [], // Holds invoices after filtering
             selectedInvoice: null, // Holds the invoice for the detail view
             listLoading: true,
             detailLoading: false,
-            // --- END: MODIFIED/NEW STATE PROPERTIES ---
+            
+            // --- START: NEW STATE PROPERTIES ---
+            isUpdating: false,
+            updateError: null,
+            // --- END: NEW STATE PROPERTIES ---
 
             error: null,
             
@@ -312,7 +345,8 @@
                     this.selectedAccountId = accountIds.split(',')[0]; 
                     // Fetch account name (assuming it's in session storage or another source)
                     // For demo, we'll set it when we filter
-                    this.fetchAllInvoices();
+                    // MODIFIED: Call new load function
+                    this.loadInitialData(); 
                 } else {
                     this.error = "No account selected. Please choose an account from the sidebar.";
                     this.listLoading = false;
@@ -320,34 +354,76 @@
             },
 
             // --- START: NEW FUNCTION ---
-            // Fetches ALL invoices from the admin endpoint
-            fetchAllInvoices() {
+            loadInitialData() {
                 this.listLoading = true;
+                this.isUpdating = false;
                 this.error = null;
-                fetch('/api/admin/invoices') // Uses the admin endpoint to get the list
+                this.updateError = null;
+                
+                fetch('/api/admin/invoices/cached') // Call CACHED endpoint
                     .then(res => {
-                        if (!res.ok) throw new Error('Failed to load invoice list.');
-                        return res.json();
+                        if (res.ok) return res.json();
+                        if (res.status === 404) return null; // 404 is OK, means no cache
+                        throw new Error(`Cache check failed with status: ${res.status}`);
                     })
-                    .then(data => {
-                        this.allInvoices = data;
-                        this.filterAndDisplayInvoices(); // Filter and display the list
+                    .then(cachedData => {
+                        if (cachedData) {
+                            console.log('Found cached invoice list. Displaying and refreshing.');
+                            this.allInvoices = cachedData;
+                            this.filterAndDisplayInvoices(); // Filter and display cached list
+                            this.listLoading = false; // Show cached data immediately
+                            this.fetchFreshData(); // Refresh in background
+                        } else {
+                            console.log('No cached invoice list found. Fetching fresh data.');
+                            this.fetchFreshData(); // Fetch fresh, will set listLoading=false
+                        }
                     })
                     .catch(error => {
-                        console.error('Error fetching invoice list:', error);
-                        this.error = 'An error occurred while fetching the invoice list.';
-                    })
-                    .finally(() => {
-                        this.listLoading = false;
+                        console.error('Error loading cached invoices:', error);
+                        this.error = 'Could not load cached data. Trying fresh fetch...';
+                        this.fetchFreshData(); // Fallback to fresh fetch
                     });
             },
             
             // --- START: NEW FUNCTION ---
+            fetchFreshData() {
+                if (!this.listLoading) { // Only show background spinner if not initial load
+                    this.isUpdating = true;
+                }
+                this.updateError = null; // Clear previous update errors
+
+                fetch('/api/admin/invoices') // Call FRESH endpoint
+                    .then(res => {
+                        if (!res.ok) throw new Error('Failed to load fresh invoice list.');
+                        return res.json();
+                    })
+                    .then(data => {
+                        console.log('Received fresh invoice list.');
+                        this.allInvoices = data;
+                        this.filterAndDisplayInvoices(); // Re-filter and display fresh list
+                        this.error = null; // Clear any previous error
+                    })
+                    .catch(error => {
+                        console.error('Error fetching fresh invoice list:', error);
+                        if (this.listLoading) { // If it was the initial load
+                            this.error = 'An error occurred while fetching the invoice list.';
+                        } else { // If it was a background refresh
+                            this.updateError = 'Failed to refresh invoice list.';
+                        }
+                    })
+                    .finally(() => {
+                        this.listLoading = false;
+                        this.isUpdating = false;
+                    });
+            },
+            // --- END: NEW FUNCTIONS ---
+            
             // Filters the master list and updates the view
             filterAndDisplayInvoices() {
                 this.viewState = 'list';
                 this.selectedInvoice = null;
-                this.error = null;
+                // Don't clear main error if list is just empty
+                // this.error = null; 
 
                 let invoices = this.allInvoices.filter(inv => 
                     inv.awsAccountId === this.selectedAccountId && inv.status === 'FINALIZED'
@@ -370,12 +446,13 @@
                 // Sort by ID descending to show latest on top
                 this.filteredInvoices = invoices.sort((a, b) => b.id - a.id); 
 
-                if (this.filteredInvoices.length === 0) {
+                if (this.filteredInvoices.length === 0 && !this.error) {
                     this.error = "No finalized invoices found for the selected account and period.";
+                } else if (this.filteredInvoices.length > 0) {
+                    this.error = null; // Clear error if we found invoices
                 }
             },
 
-            // --- START: NEW FUNCTION ---
             // Sets the state to view a single invoice's details
             viewInvoice(invoice) {
                 this.viewState = 'detail';
@@ -384,24 +461,22 @@
                 
                 // The 'invoice' object from the list is the full DTO
                 this.selectedInvoice = invoice;
+                // Transform line items for the drilldown table
                 this.detailedBreakdown = this.transformToDrilldown(invoice.lineItems);
                 
                 this.detailLoading = false;
             },
 
-            // --- START: NEW FUNCTION ---
             // Resets the state to show the list
             goBackToList() {
                 this.viewState = 'list';
                 this.selectedInvoice = null;
                 this.error = null;
-                // Re-run filter in case user navigated here directly
+                // Re-run filter, which is instant
                 this.filterAndDisplayInvoices(); 
             },
 
-            // --- END: NEW FUNCTIONS ---
-
-            // --- This function is still used by the detail view ---
+            // This function is still used by the detail view
             transformToDrilldown(lineItems) {
                 if (!lineItems || lineItems.length === 0) return [];
 
@@ -445,7 +520,6 @@
                 
                 return result;
             },
-            // --- END: NEW DATA TRANSFORMATION FUNCTION ---
 
             downloadInvoice() {
                 // Modified to use selectedInvoice
@@ -467,7 +541,7 @@
                     // Use selectedInvoice for file name
                     a.download = `invoice-${this.selectedInvoice.awsAccountId}-${this.selectedInvoice.billingPeriod}.pdf`;
                     document.body.appendChild(a);
-                    a.click();
+a.click();
                     window.URL.revokeObjectURL(url);
                     document.body.removeChild(a);
                 })
@@ -489,7 +563,6 @@
                 return num.toLocaleString('en-US', { maximumFractionDigits: 3 });
             },
 
-            // --- START: NEW TOGGLE METHODS ---
             toggleService(serviceName) {
                 this.expandedServices[serviceName] = !this.expandedServices[serviceName];
             },
@@ -498,7 +571,6 @@
                 const key = `${serviceName}-${regionName}`;
                 this.expandedRegions[key] = !this.expandedRegions[key];
             },
-            // --- END: NEW TOGGLE METHODS ---
             
             // loadSidebar() {
             //     ...
@@ -506,7 +578,6 @@
         }
     }
 
-    // --- MODIFIED: Ensure Alpine is initialized correctly ---
     document.addEventListener('alpine:init', () => {
         Alpine.data('invoicePage', invoicePage);
     });

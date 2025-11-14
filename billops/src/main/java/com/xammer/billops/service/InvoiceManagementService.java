@@ -9,7 +9,7 @@ import com.itextpdf.layout.element.Paragraph;
 import com.itextpdf.layout.element.Table;
 import com.itextpdf.layout.properties.TextAlignment;
 import com.itextpdf.layout.properties.UnitValue;
-import com.xammer.cloud.domain.*;
+import com.xammer.cloud.domain.*; // Assuming this contains shared entities
 import com.xammer.billops.dto.DiscountRequestDto;
 import com.xammer.billops.dto.GcpBillingDashboardDto;
 import com.xammer.billops.dto.InvoiceDto;
@@ -30,6 +30,7 @@ import com.xammer.cloud.domain.InvoiceLineItem;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.CachePut; // --- ADDED IMPORT ---
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -46,7 +47,7 @@ import java.text.NumberFormat;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
+import java.util.*; // --- Import Optional ---
 import java.util.stream.Collectors;
 
 @Service
@@ -63,12 +64,12 @@ public class InvoiceManagementService {
 
     // 4. MODIFY CONSTRUCTOR
     public InvoiceManagementService(InvoiceRepository invoiceRepository,
-                                  CloudAccountRepository cloudAccountRepository,
-                                  DiscountRepository discountRepository,
-                                  BillingService billingService,
-                                  GcpCostService gcpCostService,
-                                  AppUserRepository appUserRepository, // Add
-                                  EmailService emailService) { // Add
+                                    CloudAccountRepository cloudAccountRepository,
+                                    DiscountRepository discountRepository,
+                                    BillingService billingService,
+                                    GcpCostService gcpCostService,
+                                    AppUserRepository appUserRepository, // Add
+                                    EmailService emailService) { // Add
         this.invoiceRepository = invoiceRepository;
         this.cloudAccountRepository = cloudAccountRepository;
         this.discountRepository = discountRepository;
@@ -151,9 +152,9 @@ public class InvoiceManagementService {
          try {
              invoice.setClient(cloudAccount.getClient());
          } catch (Exception e) {
-              logger.error("Could not get Client for CloudAccount ID {} during temporary invoice generation: {}", cloudAccount.getId(), e.getMessage());
-              // Handle this case - maybe throw exception or assign a default/null client if allowed?
-              throw new RuntimeException("Failed to associate client with temporary invoice", e);
+             logger.error("Could not get Client for CloudAccount ID {} during temporary invoice generation: {}", cloudAccount.getId(), e.getMessage());
+             // Handle this case - maybe throw exception or assign a default/null client if allowed?
+             throw new RuntimeException("Failed to associate client with temporary invoice", e);
          }
 
         invoice.setInvoiceDate(LocalDate.now());
@@ -195,7 +196,7 @@ public class InvoiceManagementService {
 
 
     @Transactional
-    @CacheEvict(value = {"invoices", "invoiceDtos"}, allEntries = true) // Evict both caches just in case
+    @CacheEvict(value = {"invoices", "invoiceDtos", "invoiceLists"}, allEntries = true) // Evict all
     public Invoice generateDraftInvoice(String accountId, int year, int month) {
         Optional<CloudAccount> accountOpt = cloudAccountRepository.findByAwsAccountId(accountId)
                 .stream().findFirst();
@@ -210,7 +211,11 @@ public class InvoiceManagementService {
 
         if ("GCP".equals(cloudAccount.getProvider())) {
             try {
-                GcpBillingDashboardDto dashboardDto = gcpCostService.getGcpBillingDashboardDto(accountId);
+                // --- START OF FIX ---
+                // Call the new 'AndCache' method and handle the Optional
+                GcpBillingDashboardDto dashboardDto = gcpCostService.getGcpBillingDashboardDtoAndCache(accountId)
+                        .orElse(null); // Get the DTO or null if the optional was empty
+                // --- END OF FIX ---
 
                 if (dashboardDto != null && dashboardDto.getServiceBreakdown() != null) {
                     for (GcpBillingDashboardDto.ServiceBreakdown service : dashboardDto.getServiceBreakdown()) {
@@ -307,7 +312,7 @@ public class InvoiceManagementService {
     }
 
     @Transactional
-    @CacheEvict(value = {"invoices", "invoiceDtos"}, allEntries = true)
+    @CacheEvict(value = {"invoices", "invoiceDtos", "invoiceLists"}, allEntries = true)
     public Invoice applyDiscountToInvoice(Long invoiceId, String serviceName, BigDecimal percentage) {
         Invoice invoice = invoiceRepository.findById(invoiceId)
                 .orElseThrow(() -> new RuntimeException("Invoice not found: " + invoiceId));
@@ -318,19 +323,19 @@ public class InvoiceManagementService {
         }
 
          // Validate percentage
-        if (percentage == null || percentage.compareTo(BigDecimal.ZERO) < 0 || percentage.compareTo(new BigDecimal("100")) > 0) {
+         if (percentage == null || percentage.compareTo(BigDecimal.ZERO) < 0 || percentage.compareTo(new BigDecimal("100")) > 0) {
             throw new IllegalArgumentException("Discount percentage must be between 0 and 100.");
-        }
+         }
 
 
         Discount discount = new Discount();
         discount.setInvoice(invoice);
          // Eagerly fetch or ensure client is accessible
-        try {
-            discount.setClient(invoice.getClient());
+         try {
+             discount.setClient(invoice.getClient());
          } catch (Exception e) {
-             logger.error("Could not get Client for Invoice ID {} during discount application: {}", invoice.getId(), e.getMessage());
-             throw new RuntimeException("Failed to associate client with discount", e);
+              logger.error("Could not get Client for Invoice ID {} during discount application: {}", invoice.getId(), e.getMessage());
+              throw new RuntimeException("Failed to associate client with discount", e);
          }
 
         discount.setServiceName(serviceName);
@@ -357,7 +362,7 @@ public class InvoiceManagementService {
     }
 
     @Transactional
-    @CacheEvict(value = {"invoices", "invoiceDtos"}, allEntries = true)
+    @CacheEvict(value = {"invoices", "invoiceDtos", "invoiceLists"}, allEntries = true)
     public Invoice removeDiscountFromInvoice(Long invoiceId, Long discountId) {
         Invoice invoice = invoiceRepository.findById(invoiceId)
                 .orElseThrow(() -> new RuntimeException("Invoice not found: " + invoiceId));
@@ -420,11 +425,11 @@ public class InvoiceManagementService {
         // Use consistent scale (e.g., 4) for amounts
         invoice.setDiscountAmount(totalDiscount.setScale(4, RoundingMode.HALF_UP));
          // Ensure preDiscountTotal reflects only non-hidden items if discounts apply per service
-        // Re-calculate preDiscountTotal based on non-hidden items if not already done
+         // Re-calculate preDiscountTotal based on non-hidden items if not already done
          BigDecimal visiblePreDiscountTotal = lineItems.stream()
-                                                      .filter(item -> !item.isHidden())
-                                                      .map(item -> Optional.ofNullable(item.getCost()).orElse(BigDecimal.ZERO))
-                                                      .reduce(BigDecimal.ZERO, BigDecimal::add);
+                                                    .filter(item -> !item.isHidden())
+                                                    .map(item -> Optional.ofNullable(item.getCost()).orElse(BigDecimal.ZERO))
+                                                    .reduce(BigDecimal.ZERO, BigDecimal::add);
         // It might be better to store both "raw total" and "visible total" on the Invoice entity
         // For now, let's assume preDiscountTotal *should* represent the total of visible items
         // If preDiscountTotal IS the raw total including hidden, the discount logic needs adjustment for 'ALL' case.
@@ -437,7 +442,7 @@ public class InvoiceManagementService {
 
 
     @Transactional
-    @CacheEvict(value = {"invoices", "invoiceDtos"}, allEntries = true)
+    @CacheEvict(value = {"invoices", "invoiceDtos", "invoiceLists"}, allEntries = true)
     public Invoice finalizeInvoice(Long invoiceId) {
         Invoice invoice = invoiceRepository.findById(invoiceId)
                 .orElseThrow(() -> new RuntimeException("Invoice not found: " + invoiceId));
@@ -460,7 +465,7 @@ public class InvoiceManagementService {
     
             List<AppUser> users = appUserRepository.findByClientId(client.getId());
             if (users.isEmpty()) {
-                logger.warn("No users found for client ID {}. Cannot send invoice email.", client.getId());
+                 logger.warn("No users found for client ID {}. Cannot send invoice email.", client.getId());
                  return finalizedInvoice; // Finalization succeeds
             }
     
@@ -538,16 +543,16 @@ public class InvoiceManagementService {
         logger.info("--> RESULT: Found finalized invoice with ID: {}", singleInvoice.getId());
 
          // ---- Eager Loading (Optional but can help prevent lazy loading issues during DTO conversion) ----
-        // Uncomment these lines if you still encounter issues after switching to DTO caching.
-        // try {
-        //     Hibernate.initialize(singleInvoice.getClient());
-        //     Hibernate.initialize(singleInvoice.getCloudAccount());
-        //     Hibernate.initialize(singleInvoice.getLineItems());
-        //     Hibernate.initialize(singleInvoice.getDiscounts());
-        // } catch (Exception e) {
-        //     logger.error("Error initializing lazy associations for Invoice ID {}: {}", singleInvoice.getId(), e.getMessage());
-        //     // Handle error appropriately, maybe return null or throw a specific exception
-        // }
+         // Uncomment these lines if you still encounter issues after switching to DTO caching.
+         // try {
+         //     Hibernate.initialize(singleInvoice.getClient());
+         //     Hibernate.initialize(singleInvoice.getCloudAccount());
+         //     Hibernate.initialize(singleInvoice.getLineItems());
+         //     Hibernate.initialize(singleInvoice.getDiscounts());
+         // } catch (Exception e) {
+         //     logger.error("Error initializing lazy associations for Invoice ID {}: {}", singleInvoice.getId(), e.getMessage());
+         //     // Handle error appropriately, maybe return null or throw a specific exception
+         // }
          // ---- End Eager Loading ----
 
 
@@ -607,7 +612,7 @@ public class InvoiceManagementService {
                 item.setUnit(itemDto.getUnit());
                 item.setCost(itemDto.getCost());
                 item.setHidden(itemDto.isHidden()); // Include hidden status if needed for PDF logic later
-                 item.setInvoice(invoice); // Associate with temporary invoice
+                item.setInvoice(invoice); // Associate with temporary invoice
                 return item;
             }).collect(Collectors.toList());
             invoice.setLineItems(lineItems);
@@ -700,9 +705,9 @@ public class InvoiceManagementService {
             Map<String, List<InvoiceLineItem>> groupedByService = lineItems.stream()
                      // Filter out hidden items *before* grouping, if they shouldn't appear in PDF
                     .filter(item -> !item.isHidden())
-                     .collect(Collectors.groupingBy(
+                    .collect(Collectors.groupingBy(
                          item -> Optional.ofNullable(item.getServiceName()).orElse("Uncategorized") // Handle null service name
-                     ));
+                    ));
 
 
             NumberFormat currencyFormatter = NumberFormat.getCurrencyInstance(Locale.US);
@@ -724,7 +729,7 @@ public class InvoiceManagementService {
 
                 for (InvoiceLineItem item : itemsForService) {
                      // Optionally skip hidden items again if filtering wasn't done before grouping
-                    // if (item.isHidden()) continue;
+                     // if (item.isHidden()) continue;
 
                     chargesTable.addCell(new Cell().add(new Paragraph("").setMarginLeft(15)).setBorder(null)); // Indentation
                     chargesTable.addCell(new Cell().add(new Paragraph(Optional.ofNullable(item.getResourceName()).orElse("N/A"))));
@@ -739,9 +744,9 @@ public class InvoiceManagementService {
 
                  // Recalculate service total based only on items included in the loop (non-hidden)
                 BigDecimal serviceTotal = itemsForService.stream()
-                                               // .filter(item -> !item.isHidden()) // Already filtered before grouping
-                                               .map(item -> Optional.ofNullable(item.getCost()).orElse(BigDecimal.ZERO))
-                                               .reduce(BigDecimal.ZERO, BigDecimal::add);
+                                     // .filter(item -> !item.isHidden()) // Already filtered before grouping
+                                     .map(item -> Optional.ofNullable(item.getCost()).orElse(BigDecimal.ZERO))
+                                     .reduce(BigDecimal.ZERO, BigDecimal::add);
 
 
                 chargesTable.addCell(new Cell(1, 3).setBorder(null)); // Empty cells for alignment
@@ -777,7 +782,7 @@ public class InvoiceManagementService {
 
         } catch (Exception e) {
              logger.error("Error creating PDF for invoice {}: {}",
-                          (invoice != null ? invoice.getId() : "UNKNOWN"), e.getMessage(), e);
+                         (invoice != null ? invoice.getId() : "UNKNOWN"), e.getMessage(), e);
             // Optionally rethrow or handle differently
              throw new RuntimeException("Failed to generate PDF: " + e.getMessage(), e);
         }
@@ -786,7 +791,7 @@ public class InvoiceManagementService {
 
 
     @Transactional
-    @CacheEvict(value = {"invoices", "invoiceDtos"}, allEntries = true)
+    @CacheEvict(value = {"invoices", "invoiceDtos", "invoiceLists"}, allEntries = true)
     public Invoice updateInvoice(Long invoiceId, InvoiceUpdateDto invoiceUpdateDto) {
         Invoice invoice = invoiceRepository.findById(invoiceId)
                 .orElseThrow(() -> new RuntimeException("Invoice not found: " + invoiceId));
@@ -816,7 +821,7 @@ public class InvoiceManagementService {
 
          // Ensure DTO list is not null
         List<InvoiceUpdateDto.LineItemUpdateDto> lineItemDtos = Optional.ofNullable(invoiceUpdateDto.getLineItems())
-                                                                         .orElse(Collections.emptyList());
+                                                                    .orElse(Collections.emptyList());
 
         for (InvoiceUpdateDto.LineItemUpdateDto itemDto : lineItemDtos) {
             InvoiceLineItem newLineItem = new InvoiceLineItem();
@@ -846,4 +851,23 @@ public class InvoiceManagementService {
     }
 
 
+    // --- START: NEW CACHING METHODS FOR ADMIN INVOICE LIST ---
+    
+    @Transactional(readOnly = true)
+    @Cacheable(value = "invoiceLists", key = "'allAdminInvoices'")
+    public Optional<List<InvoiceDto>> getCachedAllInvoices() {
+        logger.debug("Attempting to retrieve CACHED 'allAdminInvoices'");
+        return Optional.empty(); // Spring AOP replaces this
+    }
+    
+    @Transactional(readOnly = true)
+    @CachePut(value = "invoiceLists", key = "'allAdminInvoices'")
+    public List<InvoiceDto> getAllInvoicesAndCache() {
+        logger.debug("Fetching FRESH 'allAdminInvoices' and updating cache");
+        List<Invoice> invoices = invoiceRepository.findAll();
+        // Convert to DTO inside the transactional method to load lazy collections
+        return invoices.stream().map(InvoiceDto::fromEntity).collect(Collectors.toList());
+    }
+    
+    // --- END: NEW CACHING METHODS FOR ADMIN INVOICE LIST ---
 }

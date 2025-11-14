@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional; // --- ADDED IMPORT ---
 import java.util.stream.Collectors;
 
 @RestController
@@ -18,7 +19,7 @@ import java.util.stream.Collectors;
 public class AdminInvoiceController {
 
     private final InvoiceManagementService invoiceManagementService;
-    private final InvoiceRepository invoiceRepository;
+    private final InvoiceRepository invoiceRepository; // Still needed for other methods if not moved
 
     public AdminInvoiceController(InvoiceManagementService invoiceManagementService, InvoiceRepository invoiceRepository) {
         this.invoiceManagementService = invoiceManagementService;
@@ -35,10 +36,22 @@ public class AdminInvoiceController {
         return ResponseEntity.ok(InvoiceDto.fromEntity(draftInvoice));
     }
 
+    // --- MODIFIED: This is now the FRESH endpoint ---
     @GetMapping
-    public ResponseEntity<List<InvoiceDto>> getAllInvoices() {
-        List<Invoice> invoices = invoiceRepository.findAll();
-        return ResponseEntity.ok(invoices.stream().map(InvoiceDto::fromEntity).collect(Collectors.toList()));
+    public ResponseEntity<List<InvoiceDto>> getFreshAllInvoices() {
+        // Calls the @CachePut method
+        List<InvoiceDto> invoices = invoiceManagementService.getAllInvoicesAndCache();
+        return ResponseEntity.ok(invoices);
+    }
+
+    // --- NEW: This is the CACHED endpoint ---
+    @GetMapping("/cached")
+    public ResponseEntity<List<InvoiceDto>> getCachedAllInvoices() {
+        // Calls the @Cacheable method
+        Optional<List<InvoiceDto>> cachedInvoices = invoiceManagementService.getCachedAllInvoices();
+        return cachedInvoices
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     // --- START: MODIFICATION FOR ADMIN CACHING FIX ---
