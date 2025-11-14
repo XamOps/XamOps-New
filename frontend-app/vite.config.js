@@ -127,6 +127,8 @@ export default defineConfig({
         'ticket_detail': resolve(__dirname, 'billops/ticket_detail.html'),
         'credits': resolve(__dirname, 'billops/credits.html'),
         'invoices': resolve(__dirname, 'billops/invoices.html'),
+        'admin_cloudfront_billing': resolve(__dirname, 'billops/admin_cloudfront_billing.html'), 
+
 
         // GCP subdir files
         'gcp_cloudlist': resolve(__dirname, 'gcp_cloudlist.html'),
