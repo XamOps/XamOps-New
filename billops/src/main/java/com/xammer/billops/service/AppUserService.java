@@ -1,6 +1,6 @@
 package com.xammer.billops.service;
 
-import com.xammer.billops.domain.AppUser;
+import com.xammer.cloud.domain.AppUser;
 import com.xammer.billops.domain.Client;
 import com.xammer.billops.dto.UserDTO;
 import com.xammer.billops.repository.AppUserRepository;

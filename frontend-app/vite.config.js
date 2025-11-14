@@ -2,29 +2,44 @@ import { defineConfig } from 'vite';
 import { resolve } from 'path';
 import htmlInclude from 'vite-plugin-html-include';
 
+// --- ADD THIS HELPER FUNCTION ---
+// This function rewrites the backend's cookie to work with the frontend proxy
+const cookieRewrite = (proxyRes, req) => {
+  const cookies = proxyRes.headers['set-cookie'];
+  if (cookies) {
+    const newCookies = cookies.map(cookie =>
+      cookie
+        .replace(/; path=\/.*?(;|$)/, '; path=/;') // Set Path to root
+        .replace(/; domain=.*?(;|$)/, `; domain=${req.headers.host.split(':')[0]};`) // Set Domain to frontend
+    );
+    proxyRes.headers['set-cookie'] = newCookies;
+  }
+};
+// --- END OF HELPER FUNCTION ---
+
 export default defineConfig({
   plugins: [
     htmlInclude(),
   ],
 
   server: {
-    port: 5173, // Your frontend port
+    port: 5173,
     proxy: {
-      // ✅ Azure API endpoints
+      // Azure API endpoints
       '/api/azure': {
         target: 'http://localhost:8080', // xamops-service
         changeOrigin: true,
         secure: false,
       },
 
-      // ✅ AWS API endpoints
+      // AWS API endpoints
       '/api/aws': {
         target: 'http://localhost:8080', // xamops-service
         changeOrigin: true,
         secure: false,
       },
 
-      // ✅ GCP API endpoints
+      // GCP API endpoints
       '/api/gcp': {
         target: 'http://localhost:8080', // xamops-service
         changeOrigin: true,
@@ -40,7 +55,7 @@ export default defineConfig({
 
       // AI Advisor
       '/api/ai-advisor': {
-        target: 'http://localhost:8080', // xamops-service
+        target: 'http://localhost:8080',
         changeOrigin: true,
         secure: false,
       },
@@ -49,31 +64,41 @@ export default defineConfig({
       '/api/billops': {
         target: 'http://localhost:8082', // billops-service
         changeOrigin: true,
+        secure: false,
       },
 
       // Xamops service requests
       '/api/xamops': {
         target: 'http://localhost:8080', // xamops-service
         changeOrigin: true,
+        secure: false,
       },
 
-      // --- START OF ADDED FIX ---
-      // ✅ CICD API endpoints (for GitHub, etc.)
+      // CICD API endpoints (for GitHub, etc.)
       '/api/cicd': {
         target: 'http://localhost:8080', // xamops-service
         changeOrigin: true,
         secure: false,
       },
-      // --- END OF ADDED FIX ---
 
       // Authentication requests to xamops
       '/login': {
         target: 'http://localhost:8080',
         changeOrigin: true,
+        secure: false,
+        configure: (proxy, options) => {
+          proxy.on('proxyRes', cookieRewrite);
+        }
       },
+
+      // Logout with cookie rewrite
       '/logout': {
         target: 'http://localhost:8080',
         changeOrigin: true,
+        secure: false,
+        configure: (proxy, options) => {
+          proxy.on('proxyRes', cookieRewrite);
+        }
       },
 
       // WebSocket proxy for xamops

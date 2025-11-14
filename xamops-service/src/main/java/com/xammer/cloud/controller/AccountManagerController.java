@@ -69,24 +69,64 @@ public class AccountManagerController {
         }
     }
 
-    @GetMapping("/accounts")
-    public List<AccountDto> getAccounts(@AuthenticationPrincipal ClientUserDetails userDetails) {
-        boolean isAdmin = userDetails.getAuthorities().stream()
-                .map(GrantedAuthority::getAuthority)
-                .anyMatch(role -> "ROLE_BILLOPS_ADMIN".equals(role));
-
-        List<CloudAccount> accounts;
-        if (isAdmin) {
-            accounts = cloudAccountRepository.findAll();
-        } else {
-            Long clientId = userDetails.getClientId();
-            accounts = cloudAccountRepository.findByClientId(clientId);
-        }
-
-        return accounts.stream()
-                .map(this::mapToAccountDto)
-                .collect(Collectors.toList());
+ @GetMapping("/accounts")
+public ResponseEntity<?> getAccounts(@AuthenticationPrincipal ClientUserDetails userDetails, Authentication authentication) {
+    
+    logger.info("========== GET ACCOUNTS REQUEST ==========");
+    
+    // Check authentication state
+    if (authentication == null) {
+        logger.error("✗ Authentication object is NULL");
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+            .body(Map.of("error", "Authentication required", "message", "No authentication found in security context"));
     }
+    
+    logger.info("✓ Authentication present: {}", authentication.isAuthenticated());
+    logger.info("  - Principal type: {}", authentication.getPrincipal().getClass().getName());
+    logger.info("  - Principal value: {}", authentication.getPrincipal());
+    
+    // Check if userDetails was properly deserialized
+    if (userDetails == null) {
+        logger.error("✗ ClientUserDetails is NULL - Session deserialization failed");
+        logger.error("  - Authentication principal type: {}", authentication.getPrincipal().getClass().getName());
+        logger.error("  - This usually means Redis session could not deserialize ClientUserDetails");
+        logger.error("  - SOLUTION: Clear Redis sessions and re-login");
+        
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+            .body(Map.of(
+                "error", "Session deserialization failed",
+                "message", "User details could not be restored from session. Please log out and log back in.",
+                "principalType", authentication.getPrincipal().getClass().getName()
+            ));
+    }
+    
+    logger.info("✓ ClientUserDetails restored successfully");
+    logger.info("  - Username: {}", userDetails.getUsername());
+    logger.info("  - Client ID: {}", userDetails.getClientId());
+    logger.info("  - Authorities: {}", userDetails.getAuthorities());
+    
+    // Continue with original logic
+    boolean isAdmin = userDetails.getAuthorities().stream()
+        .map(GrantedAuthority::getAuthority)
+        .anyMatch(role -> "ROLE_BILLOPS_ADMIN".equals(role));
+    
+    List<CloudAccount> accounts;
+    if (isAdmin) {
+        logger.info("User is admin - fetching all accounts");
+        accounts = cloudAccountRepository.findAll();
+    } else {
+        Long clientId = userDetails.getClientId();
+        logger.info("Fetching accounts for Client ID: {}", clientId);
+        accounts = cloudAccountRepository.findByClientId(clientId);
+    }
+    
+    logger.info("✓ Found {} accounts", accounts.size());
+    
+    return ResponseEntity.ok(accounts.stream()
+        .map(this::mapToAccountDto)
+        .collect(Collectors.toList()));
+}
+
 
 
     @DeleteMapping("/accounts/{id}")

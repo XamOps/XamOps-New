@@ -2,12 +2,14 @@ package com.xammer.billops;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.autoconfigure.domain.EntityScan; // 1. IMPORT THIS
 import org.springframework.cache.annotation.EnableCaching;
-import org.springframework.cloud.client.discovery.EnableDiscoveryClient; // 1. IMPORT THIS
+import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 
 @SpringBootApplication
-@EnableDiscoveryClient // 2. ADD THIS ANNOTATION
+@EnableDiscoveryClient
 @EnableCaching
+@EntityScan(basePackages = {"com.xammer.billops", "com.xammer.cloud.domain"}) // 2. ADD THIS LINE
 public class BillopsApplication {
 
     public static void main(String[] args) {

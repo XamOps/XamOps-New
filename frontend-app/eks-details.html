@@ -6,15 +6,17 @@
     <title>XamOps - EKS Cluster Details</title>
         <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
 <link rel="apple-touch-icon" href="/icons/XamOps.png">
-    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https.cdn.tailwindcss.com"></script>
     <link
             rel="stylesheet"
             href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
     />
     <script
-            src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"
+            src="https.cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"
             defer
     ></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
     <script type="module" src="/src/main.js"></script>
     <style>
         @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap");
@@ -33,6 +35,24 @@
           box-shadow: 0 6px 18px rgb(0 0 0 / 0.06);
           border: 1px solid rgba(0, 0, 0, 0.08);
           padding: 1.75rem;
+        }
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .data-table th, .data-table td {
+            border: 1px solid #e2e8f0;
+            padding: 12px 16px;
+            text-align: left;
+            font-size: 0.875rem;
+        }
+        .data-table th {
+            background-color: #f8fafc;
+            font-weight: 600;
+            color: #4a5568;
+        }
+        .data-table tbody tr:nth-child(even) {
+            background-color: #fdfdfe;
         }
     </style>
 </head>
@@ -68,32 +88,48 @@
         >
             <div class="glass-card">
                 <h3 class="font-semibold text-gray-600">Status</h3>
-                <p class="text-2xl font-extrabold text-green-600" x-text="cluster.status">
-                    Connected
+                <p class="text-2xl font-extrabold text-green-600" x-text="cluster.status || '...'">
+                    ...
                 </p>
             </div>
             <div class="glass-card">
                 <h3 class="font-semibold text-gray-600">Kubernetes Version</h3>
-                <p class="text-2xl font-extrabold text-gray-800" x-text="cluster.version">
-                    v1.23.10
+                <p class="text-2xl font-extrabold text-gray-800" x-text="cluster.version || '...'">
+                    ...
                 </p>
             </div>
             <div class="glass-card">
                 <h3 class="font-semibold text-gray-600">Region</h3>
-                <p class="text-2xl font-extrabold text-gray-800" x-text="cluster.region">
-                    us-east-1
+                <p class="text-2xl font-extrabold text-gray-800" x-text="cluster.region || '...'">
+                    ...
                 </p>
             </div>
         </section>
 
-        <section>
-            <nav class="flex space-x-4 border-b border-gray-300 mb-6">
+        <section class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8" x-show="!isLoading && !errorMessage && nodes.length > 0">
+            <div class="glass-card">
+                <h3 class="font-semibold text-gray-600 mb-4">Node CPU Utilization (%)</h3>
+                <div style="height: 300px;">
+                    <canvas id="nodeCpuChart"></canvas>
+                </div>
+            </div>
+            <div class="glass-card">
+                <h3 class="font-semibold text-gray-600 mb-4">Node Memory Utilization (%)</h3>
+                <div style="height: 300px;">
+                    <canvas id="nodeMemoryChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+
+        <section class="glass-card !p-0">
+            <nav class="flex space-x-4 border-b border-gray-300 px-7">
                 <button
                         @click="activeTab = 'nodes'"
                         :class="{'border-indigo-600 text-indigo-600 border-b-2': activeTab === 'nodes'}"
-                        class="py-2 px-6 font-semibold text-gray-500 hover:text-indigo-600 focus:outline-none"
+                        class="py-4 px-1 font-semibold text-gray-500 hover:text-indigo-600 focus:outline-none"
                         role="tab"
-                        aria-selected="false"
+                        :aria-selected="activeTab === 'nodes'"
                         aria-controls="nodes-panel"
                         id="nodes-tab"
                 >
@@ -102,9 +138,9 @@
                 <button
                         @click="activeTab = 'pods'"
                         :class="{'border-indigo-600 text-indigo-600 border-b-2': activeTab === 'pods'}"
-                        class="py-2 px-6 font-semibold text-gray-500 hover:text-indigo-600 focus:outline-none"
+                        class="py-4 px-1 font-semibold text-gray-500 hover:text-indigo-600 focus:outline-none"
                         role="tab"
-                        aria-selected="false"
+                        :aria-selected="activeTab === 'pods'"
                         aria-controls="pods-panel"
                         id="pods-tab"
                 >
@@ -113,9 +149,9 @@
                 <button
                         @click="activeTab = 'deployments'"
                         :class="{'border-indigo-600 text-indigo-600 border-b-2': activeTab === 'deployments'}"
-                        class="py-2 px-6 font-semibold text-gray-500 hover:text-indigo-600 focus:outline-none"
+                        class="py-4 px-1 font-semibold text-gray-500 hover:text-indigo-600 focus:outline-none"
                         role="tab"
-                        aria-selected="false"
+                        :aria-selected="activeTab === 'deployments'"
                         aria-controls="deployments-panel"
                         id="deployments-tab"
                 >
@@ -123,19 +159,115 @@
                 </button>
             </nav>
 
-            <div x-show="isLoading" class="text-center py-12 text-gray-600">
-                <i class="fas fa-spinner fa-spin text-4xl mb-4"></i>
-                Loading data...
-            </div>
-            <div x-show="!isLoading" x-cloak>
-                <div x-show="activeTab === 'nodes'" id="nodes-panel" role="tabpanel" aria-labelledby="nodes-tab">
-                    <p class="text-gray-700">Node information will be displayed here once data is fetched.</p>
+            <div class="p-7">
+                <div x-show="isLoading" class="text-center py-12 text-gray-600">
+                    <i class="fas fa-spinner fa-spin text-4xl mb-4"></i>
+                    <p>Loading data...</p>
                 </div>
-                <div x-show="activeTab === 'pods'" id="pods-panel" role="tabpanel" aria-labelledby="pods-tab">
-                    <p class="text-gray-700">Pod information will be displayed here once data is fetched.</p>
+                
+                <div x-show="errorMessage" x-cloak class="text-center py-12 text-red-600">
+                    <i class="fas fa-exclamation-triangle text-4xl mb-4"></i>
+                    <p x-text="errorMessage"></p>
                 </div>
-                <div x-show="activeTab === 'deployments'" id="deployments-panel" role="tabpanel" aria-labelledby="deployments-tab">
-                    <p class="text-gray-700">Deployment information will be displayed here once data is fetched.</p>
+
+                <div x-show="!isLoading && !errorMessage" x-cloak>
+                    <div x-show="activeTab === 'nodes'" id="nodes-panel" role="tabpanel" aria-labelledby="nodes-tab">
+                        <template x-if="nodes.length > 0">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Status</th>
+                                        <th>Instance Type</th>
+                                        <th>Zone</th>
+                                        <th>K8s Version</th>
+                                        <th>Age</th>
+                                        <th>CPU</th>
+                                        <th>Memory</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="node in nodes" :key="node.name">
+                                        <tr>
+                                            <td x-text="node.name"></td>
+                                            <td x-text="node.status"></td>
+                                            <td x-text="node.instanceType || 'N/A'"></td>
+                                            <td x-text="node.availabilityZone || 'N/A'"></td>
+                                            <td x-text="node.k8sVersion || 'N/A'"></td>
+                                            <td x-text="node.age || 'N/A'"></td>
+                                            <td x-text="node.cpuUsage || 'N/A'"></td>
+                                            <td x-text="node.memUsage || 'N/A'"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </template>
+                        <template x-if="nodes.length === 0">
+                            <p class="text-gray-700">No nodes found for this cluster.</p>
+                        </template>
+                    </div>
+
+                    <div x-show="activeTab === 'pods'" id="pods-panel" role="tabpanel" aria-labelledby="pods-tab">
+                         <template x-if="pods.length > 0">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Ready</th>
+                                        <th>Status</th>
+                                        <th>Restarts</th>
+                                        <th>Age</th>
+                                        <th>Node</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="pod in pods" :key="pod.name">
+                                        <tr>
+                                            <td x-text="pod.name"></td>
+                                            <td x-text="pod.ready"></td>
+                                            <td x-text="pod.status"></td>
+                                            <td x-text="pod.restarts"></td>
+                                            <td x-text="pod.age"></td>
+                                            <td x-text="pod.nodeName || 'N/A'"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </template>
+                        <template x-if="!isLoading && pods.length === 0">
+                            <p class="text-gray-700">No pods found for this cluster.</p>
+                        </template>
+                    </div>
+
+                    <div x-show="activeTab === 'deployments'" id="deployments-panel" role="tabpanel" aria-labelledby="deployments-tab">
+                         <template x-if="deployments.length > 0">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Ready</th>
+                                        <th>Up-to-date</th>
+                                        <th>Available</th>
+                                        <th>Age</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="dep in deployments" :key="dep.name">
+                                        <tr>
+                                            <td x-text="dep.name"></td>
+                                            <td x-text="dep.ready"></td>
+                                            <td x-text="dep.upToDate"></td>
+                                            <td x-text="dep.available"></td>
+                                            <td x-text="dep.age"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </template>
+                        <template x-if="!isLoading && deployments.length === 0">
+                            <p class="text-gray-700">No deployments found for this cluster.</p>
+                        </template>
+                    </div>
                 </div>
             </div>
         </section>
@@ -145,23 +277,144 @@
 <script>
     function eksDetails() {
       return {
-        isLoading: true,
+        isLoading: true, 
         clusterName: "",
-        cluster: {},
+        cluster: {}, 
         activeTab: "nodes",
         selectedAccountId: null,
+        
+        nodes: [],
+        pods: [],
+        deployments: [],
+        errorMessage: null,
+
+        cpuChart: null,
+        memoryChart: null,
 
         init() {
           const urlParams = new URLSearchParams(window.location.search);
           this.clusterName = urlParams.get("name");
-          this.cluster = history.state || {};
 
           const storedIds = JSON.parse(
             sessionStorage.getItem("selectedAccountIds") || "[]"
           );
           if (storedIds.length > 0) this.selectedAccountId = storedIds[0];
+          
+          this.fetchDetails(); 
+        },
 
-          this.isLoading = false;
+        async fetchDetails() {
+            this.isLoading = true;
+            this.errorMessage = null;
+
+            if (!this.selectedAccountId || !this.clusterName) {
+                this.errorMessage = "Error: Account ID or Cluster Name is missing.";
+                this.isLoading = false;
+                console.error(this.errorMessage);
+                return;
+            }
+            
+            try {
+                // --- STEP 1: Fetch cluster details (to get region) ---
+                const detailsUrl = `/api/xamops/k8s/${this.clusterName}/details?accountId=${this.selectedAccountId}`;
+                const clusterRes = await fetch(detailsUrl);
+                
+                if (!clusterRes.ok) {
+                    throw new Error(`Failed to fetch cluster details: ${clusterRes.statusText}`);
+                }
+                
+                this.cluster = await clusterRes.json();
+
+                // --- STEP 2: Fetch nodes, pods, deployments ---
+                const query = `?accountId=${this.selectedAccountId}&region=${this.cluster.region}`;
+                const baseUrl = `/api/xamops/eks/${this.clusterName}`;
+
+                const [nodesRes, podsRes, deploymentsRes] = await Promise.all([
+                    fetch(`${baseUrl}/nodes${query}`),
+                    fetch(`${baseUrl}/pods${query}`),
+                    fetch(`${baseUrl}/deployments${query}`)
+                ]);
+
+                if (!nodesRes.ok) throw new Error(`Failed to fetch nodes: ${nodesRes.statusText}`);
+                if (!podsRes.ok) throw new Error(`Failed to fetch pods: ${podsRes.statusText}`);
+                if (!deploymentsRes.ok) throw new Error(`Failed to fetch deployments: ${deploymentsRes.statusText}`);
+
+                this.nodes = await nodesRes.json();
+                this.pods = await podsRes.json();
+                this.deployments = await deploymentsRes.json();
+
+                this.$nextTick(() => {
+                    this.initCharts();
+                });
+
+            } catch (err) {
+                console.error("Error fetching cluster details:", err);
+                this.errorMessage = `Failed to load cluster data: ${err.message}`;
+            } finally {
+                this.isLoading = false; 
+            }
+        },
+
+        // --- FUNCTION TO INITIALIZE CHARTS (FIXED) ---
+        initCharts() {
+            if (this.nodes.length === 0) return;
+
+            // Parse data for charts (USING CORRECTED PROPERTY NAMES)
+            const labels = this.nodes.map(n => n.name.substring(0, 25) + (n.name.length > 25 ? '...' : ''));
+            const cpuData = this.nodes.map(n => parseFloat(n.cpuUsage) || 0);     // <-- FIX
+            const memoryData = this.nodes.map(n => parseFloat(n.memUsage) || 0);  // <-- FIX
+            
+            // --- Create CPU Chart ---
+            const cpuCtx = document.getElementById('nodeCpuChart');
+            if (cpuCtx) {
+                if (this.cpuChart) this.cpuChart.destroy(); 
+                this.cpuChart = new Chart(cpuCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'CPU Usage %',
+                            data: cpuData,
+                            backgroundColor: 'rgba(59, 130, 246, 0.5)',
+                            borderColor: 'rgba(59, 130, 246, 1)',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: { beginAtZero: true, max: 100 }
+                        }
+                    }
+                });
+            }
+
+            // --- Create Memory Chart ---
+            const memCtx = document.getElementById('nodeMemoryChart');
+            if (memCtx) {
+                if (this.memoryChart) this.memoryChart.destroy(); 
+                this.memoryChart = new Chart(memCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Memory Usage %',
+                            data: memoryData,
+                            backgroundColor: 'rgba(16, 185, 129, 0.5)',
+                            borderColor: 'rgba(16, 185, 129, 1)',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: { beginAtZero: true, max: 100 }
+                        }
+                    }
+                });
+            }
         }
       };
     }

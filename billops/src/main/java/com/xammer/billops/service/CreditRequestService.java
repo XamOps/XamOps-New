@@ -1,7 +1,7 @@
 package com.xammer.billops.service;
 
-import com.xammer.billops.domain.CreditRequest;
-import com.xammer.billops.domain.User;
+import com.xammer.cloud.domain.CreditRequest;
+import com.xammer.cloud.domain.User;
 import com.xammer.billops.dto.CreditRequestDto;
 import com.xammer.billops.repository.CreditRequestRepository;
 import com.xammer.billops.repository.UserRepository;

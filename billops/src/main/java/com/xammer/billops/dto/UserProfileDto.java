@@ -3,6 +3,7 @@ package com.xammer.billops.dto;
 import java.util.List;
 
 public class UserProfileDto {
+    private Long id; // --- ADDED THIS FIELD ---
     private String username;
     private List<String> roles;
 
@@ -10,6 +11,16 @@ public class UserProfileDto {
         this.username = username;
         this.roles = roles;
     }
+
+    // --- START: ADDED GETTER/SETTER FOR ID ---
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+    // --- END: ADDED GETTER/SETTER FOR ID ---
 
     // Getters and Setters
     public String getUsername() { return username; }
