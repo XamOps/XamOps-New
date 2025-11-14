@@ -1,5 +1,7 @@
 package com.xammer.billops.controller;
 
+// ✅ CHANGE THIS IMPORT
+import com.xammer.cloud.security.ClientUserDetails; 
 import com.xammer.billops.dto.UserProfileDto;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -13,31 +15,32 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 @RestController
-@RequestMapping("/api/xamops")
+@RequestMapping("/api/billops")
 public class UserProfileController {
 
     @GetMapping("/profile")
     public ResponseEntity<UserProfileDto> getUserProfile() {
-        // Get the current authentication object from the security context.
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
 
         if (authentication == null || !authentication.isAuthenticated() || "anonymousUser".equals(authentication.getPrincipal())) {
-            // If no user is authenticated, return an unauthorized status.
             return ResponseEntity.status(401).build();
         }
 
-        // Get the username from the authentication principal.
         String username = authentication.getName();
-
-        // Get the roles (authorities) and convert them to a list of strings.
         List<String> roles = authentication.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
                 .collect(Collectors.toList());
 
-        // Create the UserProfileDto with the actual user's data.
         UserProfileDto userProfile = new UserProfileDto(username, roles);
         
-        // Return the real user profile.
+        // --- START: DYNAMIC ID FIX ---
+        // ✅ CHANGE THE CHECK TO ClientUserDetails
+        Object principal = authentication.getPrincipal();
+        if (principal instanceof ClientUserDetails) {
+            userProfile.setId(((ClientUserDetails) principal).getId());
+        } 
+        // --- END: DYNAMIC ID FIX ---
+        
         return ResponseEntity.ok(userProfile);
     }
 }

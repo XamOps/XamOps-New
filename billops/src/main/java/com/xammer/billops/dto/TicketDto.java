@@ -4,7 +4,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.time.LocalDateTime;
-import java.util.List; // ADD THIS IMPORT
+import java.util.List; 
 
 @Setter
 @Getter
@@ -26,6 +26,17 @@ public class TicketDto {
     private String region;
 
     // --- START: MODIFIED SECTION ---
-    private List<TicketReplyDto> replies; // Add this line to hold replies
+    private List<TicketReplyDto> replies; 
+
+    private Long creatorId; // Added to pass the creator's ID
     // --- END: MODIFIED SECTION ---
+
+    // --- Manually added getter/setter for creatorId ---
+    public Long getCreatorId() {
+        return creatorId;
+    }
+
+    public void setCreatorId(Long creatorId) {
+        this.creatorId = creatorId;
+    }
 }

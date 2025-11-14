@@ -13,7 +13,6 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 @RestController
-// --- FIX: Standardized the RequestMapping to include "/xamops" ---
 @RequestMapping("/api/xamops/k8s")
 public class CloudK8sController {
 
@@ -51,8 +50,29 @@ public class CloudK8sController {
     public CompletableFuture<ResponseEntity<List<K8sNodeInfo>>> getNodes(
             @RequestParam String accountId,
             @PathVariable String clusterName) {
+        // Note: This endpoint from EksService only gets metrics, not K8s API nodes.
+        // We are leaving it as-is and using EksController for the K8s API data.
         return eksService.getK8sNodes(accountId, clusterName, false)
                 .thenApply(ResponseEntity::ok)
                 .exceptionally(ex -> ResponseEntity.status(500).body(Collections.emptyList()));
+    }
+
+    // --- NEW ENDPOINT TO FIX THE UI ERROR ---
+    /**
+     * Fetches the details for a single cluster, using the cache.
+     * This is used by eks-details.html to get its initial data.
+     */
+    @GetMapping("/{clusterName}/details")
+    public CompletableFuture<ResponseEntity<K8sClusterInfo>> getClusterDetails(
+            @PathVariable String clusterName,
+            @RequestParam String accountId) {
+        
+        // Call the existing service method (it uses the cache, per your logs)
+        return eksService.getEksClusterInfo(accountId, false)
+            .thenApply(clusters -> clusters.stream()
+                .filter(c -> c.getName().equals(clusterName))
+                .findFirst()
+                .map(ResponseEntity::ok) // Found it, return 200 OK with the cluster
+                .orElse(ResponseEntity.notFound().build())); // Not found, return 404
     }
 }

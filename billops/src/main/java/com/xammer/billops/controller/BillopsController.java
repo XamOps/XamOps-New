@@ -2,10 +2,10 @@ package com.xammer.billops.controller;
 
 import com.xammer.billops.domain.Client;
 import com.xammer.billops.domain.CloudAccount;
-import com.xammer.billops.domain.User;
+import com.xammer.cloud.domain.AppUser; // UPDATED: Changed from User
 import com.xammer.billops.dto.*; // Import all DTOs
 import com.xammer.billops.repository.CloudAccountRepository;
-import com.xammer.billops.repository.UserRepository;
+import com.xammer.billops.repository.AppUserRepository; // UPDATED: Changed from UserRepository
 import com.xammer.billops.service.*; // Import all services
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,8 +14,9 @@ import org.springframework.http.HttpStatus; // Import HttpStatus
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.core.Authentication;
+import org.springframework.security.core.Authentication; // UPDATED: Import Authentication
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
+// Keep this import
 import org.springframework.web.bind.annotation.*;
 
 import java.io.ByteArrayInputStream;
@@ -24,8 +25,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional; // Import Optional
-
-import org.springframework.web.bind.annotation.RequestMethod; // Keep this import
 
 @RestController
 @RequestMapping("/api/billops")
@@ -36,7 +35,7 @@ public class BillopsController {
     private final BillingService billingService;
     private final CostService costService;
     private final ResourceService resourceService;
-    private final UserRepository userRepository;
+    private final AppUserRepository userRepository; // UPDATED: Changed from UserRepository
     private final CloudAccountRepository cloudAccountRepository;
     private final ExcelExportService excelExportService;
     private final CreditRequestService creditRequestService;
@@ -49,7 +48,7 @@ public class BillopsController {
     public BillopsController(BillingService billingService,
                              CostService costService,
                              ResourceService resourceService,
-                             UserRepository userRepository,
+                             AppUserRepository userRepository, // UPDATED: Changed from UserRepository
                              CloudAccountRepository cloudAccountRepository,
                              ExcelExportService excelExportService,
                              CreditRequestService creditRequestService,
@@ -59,7 +58,7 @@ public class BillopsController {
         this.billingService = billingService;
         this.costService = costService;
         this.resourceService = resourceService;
-        this.userRepository = userRepository;
+        this.userRepository = userRepository; // UPDATED
         this.cloudAccountRepository = cloudAccountRepository;
         this.excelExportService = excelExportService;
         this.creditRequestService = creditRequestService;
@@ -256,7 +255,7 @@ public class BillopsController {
     @GetMapping("/accounts")
     public ResponseEntity<List<CloudAccount>> getCloudAccounts(Authentication authentication) {
         try {
-            User user = userRepository.findByUsername(authentication.getName())
+            AppUser user = userRepository.findByUsername(authentication.getName()) // UPDATED
                     .orElseThrow(() -> new UsernameNotFoundException("User not found: " + authentication.getName())); // More specific message
             // Handle cases where user might not have a client associated (though schema implies it's required)
             Client client = Optional.ofNullable(user.getClient())
@@ -283,7 +282,7 @@ public class BillopsController {
                                                                          @RequestParam String serviceName,
                                                                          Authentication authentication) {
         try {
-            User user = userRepository.findByUsername(authentication.getName())
+            AppUser user = userRepository.findByUsername(authentication.getName()) // UPDATED
                     .orElseThrow(() -> new UsernameNotFoundException("User not found: " + authentication.getName()));
 
             Client client = Optional.ofNullable(user.getClient())
@@ -321,7 +320,7 @@ public class BillopsController {
                                                     @RequestParam(required = false) Integer month,
                                                     Authentication authentication) throws IOException { // Keep throws IOException for clarity
          try {
-            User user = userRepository.findByUsername(authentication.getName())
+            AppUser user = userRepository.findByUsername(authentication.getName()) // UPDATED
                     .orElseThrow(() -> new UsernameNotFoundException("User not found: " + authentication.getName()));
 
              Client client = Optional.ofNullable(user.getClient())
@@ -435,13 +434,27 @@ public class BillopsController {
          }
     }
 
+    // --- UPDATED METHOD ---
     @PostMapping("/tickets/{id}/replies")
-    public ResponseEntity<TicketDto> addTicketReply(@PathVariable Long id, @RequestBody TicketReplyDto replyDto) {
+    public ResponseEntity<TicketDto> addTicketReply(@PathVariable Long id, 
+                                                    @RequestBody TicketReplyDto replyDto,
+                                                    Authentication authentication) {
          try {
-             // Add validation: Check if replyDto has authorId and message
-             if (replyDto.getAuthorId() == null || replyDto.getMessage() == null || replyDto.getMessage().isBlank()) {
+            if (authentication == null || !authentication.isAuthenticated() || "anonymousUser".equals(authentication.getPrincipal())) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+            }
+
+            // Get username securely from the session
+            String username = authentication.getName();
+            
+            // Set the username on the DTO. The service will use this to find the user.
+            replyDto.setAuthorUsername(username); 
+            
+            // We no longer need the authorId from the DTO, so we can null-check the message.
+            if (replyDto.getMessage() == null || replyDto.getMessage().isBlank()) {
                  return ResponseEntity.badRequest().build();
-             }
+            }
+
             return ResponseEntity.ok(ticketService.addReplyToTicket(id, replyDto));
          } catch (IllegalStateException e) { // Handle closed-ticket or similar state issues first
              logger.error("Error adding reply to ticket {}: {}", id, e.getMessage());
@@ -464,6 +477,17 @@ public class BillopsController {
              logger.error("Error closing ticket {}: {}", id, e.getMessage());
              return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
          }
+    }
+  @GetMapping("/tickets/category/{category}")
+    public ResponseEntity<List<TicketDto>> getTicketsByCategory(@PathVariable String category) {
+        try {
+            // This handles the space in "Account and Billing"
+            String decodedCategory = java.net.URLDecoder.decode(category, java.nio.charset.StandardCharsets.UTF_8);
+            return ResponseEntity.ok(ticketService.getTicketsByCategory(decodedCategory));
+        } catch (Exception e) {
+            logger.error("Error fetching tickets by category {}: {}", category, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
     }
 
 

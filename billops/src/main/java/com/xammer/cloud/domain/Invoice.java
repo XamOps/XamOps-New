@@ -1,6 +1,23 @@
-package com.xammer.billops.domain;
+package com.xammer.cloud.domain;
 
-import jakarta.persistence.*;
+import javax.persistence.CascadeType;
+import javax.persistence.Column;
+import javax.persistence.Entity;
+import javax.persistence.Enumerated;
+import javax.persistence.FetchType;
+import javax.persistence.GeneratedValue;
+import javax.persistence.GenerationType;
+import javax.persistence.Id;
+import javax.persistence.JoinColumn;
+import javax.persistence.ManyToOne;
+import javax.persistence.OneToMany;
+import javax.persistence.SequenceGenerator;
+import javax.persistence.Table;
+import com.xammer.billops.domain.Client;
+import com.xammer.billops.domain.CloudAccount;
+
+import javax.persistence.EnumType;
+
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -76,7 +93,6 @@ public class Invoice {
     public BigDecimal getAmount() { return this.amount; }
     public void setAmount(BigDecimal amount) { this.amount = amount; }
     // --- END FIX ---
-
     public CloudAccount getCloudAccount() { return cloudAccount; }
     public void setCloudAccount(CloudAccount cloudAccount) { this.cloudAccount = cloudAccount; }
     public List<InvoiceLineItem> getLineItems() { return lineItems; }

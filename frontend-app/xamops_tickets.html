@@ -20,9 +20,10 @@
 
         <div class="p-10">
             <div class="flex items-center justify-between mb-8">
-                <h1 class="text-3xl font-bold text-gray-800">Support Tickets</h1>
-                <button @click="showModal=true"
-                        class="bg-indigo-600 text-white rounded-lg px-6 py-3 font-semibold shadow hover:bg-indigo-700 transition">
+<h1 class="text-3xl font-bold text-gray-800">Support Tickets (Technical)</h1> <button @click="showModal=true"
+                        class="bg-indigo-600 text-white rounded-lg px-6 py-3 font-semibold shadow hover:bg-indigo-700 transition"
+                        :disabled="userLoading"
+                        :class="{ 'opacity-50 cursor-not-allowed': userLoading }">
                     <i class="fas fa-plus mr-2"></i>Create a Case
                 </button>
             </div>
@@ -47,7 +48,15 @@
                     </a>
                 </template>
             </div>
+            
+            <div x-show="!loading && tickets.length === 0" class="text-center text-gray-500 py-10" x-cloak>
+                There are no tickets in the "Technical" category.
             </div>
+            <div x-show="loading" class="text-center text-gray-500 py-10">
+                <i class="fas fa-spinner fa-spin text-2xl"></i>
+            </div>
+
+        </div>
         
         <div x-show="showModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60">
             <div @click.away="!isSubmitting && (showModal = false)"
@@ -65,7 +74,7 @@
                             <label class="block text-sm font-semibold text-gray-700 mb-2">Category</label>
                             <select x-model="form.category" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
                                 <option>Technical</option>
-                            </select>
+                                </select>
                         </div>
                         <div>
                             <label class="block text-sm font-semibold text-gray-700 mb-2">Service</label>
@@ -95,7 +104,7 @@
                             <label class="block text-sm font-semibold text-gray-700 mb-2">Description</label>
                             <textarea x-model="form.description" maxlength="8000" rows="4" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" placeholder="Describe your question or issue in detail" required></textarea>
                         </div>
-                        <template x-if="form.category === 'Account and Billing'">
+                        <template x-if="form.category === 'Account and Billing'"> 
                             <div class="grid grid-cols-2 gap-6">
                                 <div>
                                     <label class="block text-sm font-semibold text-gray-700 mb-2">AWS Account ID</label>
@@ -131,8 +140,11 @@
             showModal: false,
             tickets: [],
             isSubmitting: false,
+            loading: true, // Added loading state
+            userLoading: true, // <-- ADD THIS LINE
+            currentUser: { id: null, username: '', roles: [] }, 
             form: {
-                category: 'Account and Billing',
+                category: 'Technical', // <-- Changed default to Technical
                 service: '',
                 severity: '',
                 subject: '',
@@ -150,20 +162,45 @@
                 'Technical': ['EC2', 'S3', 'RDS', 'Lambda', 'Other Technical']
             },
             init() {
+                this.fetchCurrentUser(); 
                 this.fetchTickets();
                 this.form.service = this.serviceOptions[this.form.category][0];
                 this.$watch('form.category', (newCategory) => {
                     this.form.service = this.serviceOptions[newCategory][0];
                 });
             },
-            async fetchTickets() {
+            
+            async fetchCurrentUser() {
                 try {
-                    const response = await fetch('/api/xamops/tickets');
-                    if (!response.ok) throw new Error('Failed to fetch tickets');
-                    this.tickets = await response.json();
+                    const response = await fetch('/api/xamops/user/profile', { credentials: 'include' }); 
+                    if (!response.ok) throw new Error('Not logged in');
+                    const profile = await response.json();
+                    
+                    this.currentUser.id = profile.id; 
+                    this.currentUser.username = profile.username;
+                    this.currentUser.roles = profile.roles || [];
                 } catch (error) {
+                    console.error('Error fetching user profile:', error);
+                    alert('Could not identify user. Please log in again.');
+                } finally {
+                    this.userLoading = false; // <-- ADD THIS LINE
+                }
+            },
+            
+async fetchTickets() {
+    this.loading = true;
+    try {
+        // --- CALL THE NEW, FASTER ENDPOINT ---
+        const response = await fetch('/api/xamops/tickets/category/Technical', { credentials: 'include' });
+        if (!response.ok) throw new Error('Failed to fetch tickets');
+        
+        this.tickets = await response.json(); // No more frontend filtering needed
+
+    } catch (error) {
                     console.error('Error fetching tickets:', error);
                     alert('Could not load support tickets.');
+                } finally {
+                    this.loading = false;
                 }
             },
             async submitCase() {
@@ -172,11 +209,20 @@
                     return;
                 }
 
+                if (!this.currentUser.id) {
+                    alert('Could not identify current user. Please refresh and log in.');
+                    return;
+                }
                 this.isSubmitting = true;
-                const payload = { ...this.form, clientId: 1 };
+                const payload = { 
+                    ...this.form, 
+                    clientId: 1, 
+                    creatorId: this.currentUser.id 
+                };
 
                 try {
                     const response = await fetch('/api/xamops/tickets', {
+                        credentials: 'include',
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(payload)
@@ -197,8 +243,8 @@
             },
             resetForm() {
                 this.form = {
-                    category: 'Account and Billing',
-                    service: this.serviceOptions['Account and Billing'][0],
+                    category: 'Technical',
+                    service: this.serviceOptions['Technical'][0],
                     severity: '',
                     subject: '',
                     description: '',
@@ -210,17 +256,5 @@
     }
 </script>
 
-<!-- <script>
-    fetch('/_sidebar.html')
-        .then(response => response.text())
-        .then(html => {
-            document.getElementById('sidebar-container').innerHTML = html;
-
-            if (window.Alpine) {
-                window.Alpine.initTree(document.getElementById('sidebar-container'));
-            }
-        })
-        .catch(error => console.error('Error loading sidebar:', error));
-</script> -->
 </body>
 </html>

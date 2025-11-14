@@ -233,4 +233,59 @@ public class InvoiceDto {
         public String getDescription() { return description; }
         public void setDescription(String description) { this.description = description; }
     }
+
+    public static InvoiceDto fromEntity(Invoice invoice) {
+        InvoiceDto dto = new InvoiceDto();
+        dto.setId(invoice.getId());
+        dto.setInvoiceNumber(invoice.getInvoiceNumber());
+        dto.setInvoiceDate(invoice.getInvoiceDate());
+        dto.setBillingPeriod(invoice.getBillingPeriod());
+        dto.setStatus(invoice.getStatus());
+        dto.setPreDiscountTotal(invoice.getPreDiscountTotal());
+        dto.setDiscountAmount(invoice.getDiscountAmount());
+        dto.setAmount(invoice.getAmount());
+
+        // --- START OF FIX ---
+        // This try-catch block will prevent the error if a CloudAccount is missing.
+        try {
+            if (invoice.getCloudAccount() != null) {
+                dto.setAccountName(invoice.getCloudAccount().getAccountName());
+                dto.setAwsAccountId(invoice.getCloudAccount().getAwsAccountId());
+            }
+} catch (javax.persistence.EntityNotFoundException e) {
+                // If the CloudAccount is not found, set placeholder values.
+            dto.setAccountName("Unknown/Deleted Account");
+            dto.setAwsAccountId("N/A");
+        }
+        // --- END OF FIX ---
+
+        if (invoice.getLineItems() != null) {
+            dto.setLineItems(invoice.getLineItems().stream()
+                .filter(item -> !item.isHidden())
+                .map(item -> {
+                    LineItemDto itemDto = new LineItemDto();
+                    itemDto.setServiceName(item.getServiceName());
+                    itemDto.setRegionName(item.getRegionName());
+                    itemDto.setResourceName(item.getResourceName());
+                    itemDto.setUsageQuantity(item.getUsageQuantity());
+                    itemDto.setUnit(item.getUnit());
+                    itemDto.setCost(item.getCost());
+                    itemDto.setHidden(item.isHidden());
+                    return itemDto;
+                }).collect(Collectors.toList()));
+        }
+
+        if (invoice.getDiscounts() != null) {
+            dto.setDiscounts(invoice.getDiscounts().stream().map(discount -> {
+                DiscountDto discountDto = new DiscountDto();
+                discountDto.setId(discount.getId());
+                discountDto.setServiceName(discount.getServiceName());
+                discountDto.setPercentage(discount.getPercentage());
+                discountDto.setDescription(discount.getDescription());
+                return discountDto;
+            }).collect(Collectors.toList()));
+        }
+        
+        return dto;
+    }
 }

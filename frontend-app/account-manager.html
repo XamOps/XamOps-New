@@ -951,8 +951,9 @@ enforcement: DENY
             githubConfigs: [],
 
             init() {
+                console.log("AccountManager component initializing...");
                 this.fetchAccounts();
-                this.fetchGitHubConfigs(); // <-- ADD THIS LINE
+                this.fetchGitHubConfigs(); 
             },
 
             fetchAccounts() {
@@ -976,15 +977,50 @@ enforcement: DENY
                 fetch('/api/cicd/config/github', { credentials: 'include' })
                 .then(res => {
                         if (!res.ok) {
-                            if (res.status === 401 || res.status === 403) console.error('Not authenticated to fetch GitHub configs');
-                            throw new Error('Failed to load GitHub configs');
+                            // *** DEBUG LOG ***
+                            console.error("Fetch accounts response was NOT ok. Status:", res.status, res.statusText);
+                            throw new Error(`Failed to load accounts. Status: ${res.status}`);
                         }
                         return res.json();
                     })
                     .then(data => {
+                        // *** DEBUG LOG ***
+                        console.log("Successfully fetched and parsed account data:", data);
+                        this.accounts = data;
+                    })
+                    .catch(err => {
+                        // *** DEBUG LOG ***
+                        console.error("CRITICAL: Failed to load accounts. Error:", err);
+                    })
+                    .finally(() => this.isLoading = false);
+            },
+
+            fetchGitHubConfigs() {
+                this.isGithubLoading = true;
+                // *** DEBUG LOG ***
+                console.log("Attempting to fetch GitHub configs from: /api/cicd/config/github");
+                
+                fetch('/api/cicd/config/github', { credentials: 'include' })
+                    .then(res => {
+                        // *** DEBUG LOG ***
+                        console.log("Fetch GitHub configs response received. Status:", res.status);
+                        if (!res.ok) {
+                            if (res.status === 401 || res.status === 403) {
+                                console.error("Not authenticated to fetch GitHub configs. Status:", res.status);
+                            }
+                            throw new Error(`Failed to load GitHub configs. Status: ${res.status}`);
+                        }
+                        return res.json();
+                    })
+                    .then(data => {
+                        // *** DEBUG LOG ***
+                        console.log("Successfully fetched and parsed GitHub configs:", data);
                         this.githubConfigs = data;
                     })
-                    .catch(err => console.error('Failed to load GitHub configs:', err))
+                    .catch(err => {
+                        // *** DEBUG LOG ***
+                        console.error("CRITICAL: Failed to load GitHub configs. Error:", err);
+                    })
                     .finally(() => this.isGithubLoading = false);
             },
 
@@ -993,16 +1029,14 @@ enforcement: DENY
                 if (!confirm(`Are you sure you want to remove the repository "${config.owner}/${config.repo}"?`)) {
                     return;
                 }
-                // Use absolute URL and credentials
                 fetch(`/api/cicd/config/github/${config.id}`, {
-                method: 'DELETE',
+                    method: 'DELETE',
                     credentials: 'include'
                 })
                 .then(res => {
                     if (!res.ok) {
                         throw new Error('Failed to remove GitHub config.');
                     }
-                    // Remove from local array on success
                     this.githubConfigs = this.githubConfigs.filter(c => c.id !== config.id);
                     alert('Repository connection removed.');
                 })
@@ -1012,16 +1046,16 @@ enforcement: DENY
                 });
             },
 
-            // ... (your existing openVerificationModal, addAzureAccount, resetNewAccount functions) ...
             openVerificationModal(account) {
                 this.verifyingAccount = account;
                 this.verificationDetails.externalId = account.externalId;
                 this.verificationError = '';
                 this.isModalOpen = true;
             },
+
             addAzureAccount() {
-                fetch('/api/accounts/azure', {
-                method: 'POST',
+                fetch('/api/xamops/account-manager/azure', {
+                    method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         accountName: this.newAccount.azure.name,
@@ -1042,12 +1076,14 @@ enforcement: DENY
                     this.accounts.push(newAcc);
                     this.addAccountModal = false;
                     this.resetNewAccount();
+                    this.fetchAccounts(); // Refresh list
                 })
                 .catch(err => {
                     alert(`Error adding Azure account: ${err.message}`);
                     console.error(err);
                 });
             },
+            
             resetNewAccount() {
                 this.providerSelection = null;
                 this.newAccount = {
@@ -1060,11 +1096,10 @@ enforcement: DENY
             verifyAccount() {
                 this.isVerifying = true;
                 this.verificationError = '';
-                // *** UPDATED fetch URL and added credentials ***
                 fetch('/api/xamops/account-manager/verify-account', {
-                method: 'POST',
+                    method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include', // <-- ADD THIS
+                    credentials: 'include', 
                     body: JSON.stringify(this.verificationDetails)
                 })
                 .then(res => {
@@ -1089,24 +1124,22 @@ enforcement: DENY
                 if (!confirm(`Are you sure you want to remove the account "${account.name}"? This action cannot be undone.`)) {
                     return;
                 }
-                // *** UPDATED fetch URL and added credentials ***
                 fetch(`/api/xamops/account-manager/accounts/${account.dbId}`, {
-                method: 'DELETE',
-                    credentials: 'include' // <-- ADD THIS
+                    method: 'DELETE',
+                    credentials: 'include' 
                 })
                 .then(res => {
                     if (!res.ok) {
                         throw new Error('Failed to remove account.');
                     }
                     this.accounts = this.accounts.filter(acc => acc.dbId !== account.dbId);
-       const selectedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-    const newSelectedIds = selectedIds.filter(id => id !== account.id);
+                    const selectedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                    const newSelectedIds = selectedIds.filter(id => id !== account.id);
 
-    if (selectedIds.length !== newSelectedIds.length) {
-        sessionStorage.setItem('selectedAccountIds', JSON.stringify(newSelectedIds));
-        // Force a reload or redirect to the dashboard to reflect the change
-        window.location.href = '/dashboard.html';
-    }
+                    if (selectedIds.length !== newSelectedIds.length) {
+                        sessionStorage.setItem('selectedAccountIds', JSON.stringify(newSelectedIds));
+                        window.location.href = '/dashboard.html';
+                    }
                 })
                 .catch(err => {
                     alert(`Error: ${err.message}`);
@@ -1125,6 +1158,3 @@ enforcement: DENY
         }
     }
 </script>
-
-</body>
-</html>

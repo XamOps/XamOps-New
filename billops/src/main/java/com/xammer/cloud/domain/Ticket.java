@@ -1,6 +1,21 @@
-package com.xammer.billops.domain;
+package com.xammer.cloud.domain;
 
-import jakarta.persistence.*;
+import javax.persistence.CascadeType;
+import javax.persistence.Column;
+import javax.persistence.Entity;
+import javax.persistence.FetchType;
+import javax.persistence.GeneratedValue;
+import javax.persistence.GenerationType;
+import javax.persistence.Id;
+import javax.persistence.JoinColumn;
+import javax.persistence.Lob;
+import javax.persistence.ManyToOne;
+import javax.persistence.OneToMany;
+import javax.persistence.SequenceGenerator;
+import javax.persistence.Table;
+
+import com.xammer.billops.domain.Client;
+
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -15,6 +30,12 @@ public class Ticket {
     @ManyToOne
     @JoinColumn(name = "client_id", nullable = false)
     private Client client;
+
+    // --- START OF MODIFICATION ---
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "creator_user_id") // This will be a new column in your 'ticket' table
+    private User creator;
+    // --- END OF MODIFICATION ---
 
     @Column(nullable = false)
     private String subject;
@@ -33,10 +54,8 @@ public class Ticket {
     private String accountId;
     private String region;
 
-    // --- START: MODIFIED SECTION ---
     @OneToMany(mappedBy = "ticket", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     private List<TicketReply> replies = new ArrayList<>();
-    // --- END: MODIFIED SECTION ---
 
 
     // Getters and Setters
@@ -55,6 +74,16 @@ public class Ticket {
     public void setClient(Client client) {
         this.client = client;
     }
+
+    // --- START: ADDED GETTER/SETTER FOR CREATOR ---
+    public User getCreator() {
+        return creator;
+    }
+
+    public void setCreator(User creator) {
+        this.creator = creator;
+    }
+    // --- END: ADDED GETTER/SETTER FOR CREATOR ---
 
     public String getSubject() {
         return subject;
@@ -128,7 +157,6 @@ public class Ticket {
         this.region = region;
     }
 
-    // --- START: ADDED GETTERS/SETTERS ---
     public List<TicketReply> getReplies() {
         return replies;
     }
@@ -136,5 +164,4 @@ public class Ticket {
     public void setReplies(List<TicketReply> replies) {
         this.replies = replies;
     }
-    // --- END: ADDED GETTERS/SETTERS ---
 }

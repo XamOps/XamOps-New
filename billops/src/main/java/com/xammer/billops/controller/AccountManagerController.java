@@ -2,7 +2,7 @@ package com.xammer.billops.controller;
 
 import com.xammer.billops.domain.Client;
 import com.xammer.billops.domain.CloudAccount;
-import com.xammer.billops.domain.User;
+import com.xammer.cloud.domain.User;
 import com.xammer.billops.dto.AccountCreationRequestDto;
 import com.xammer.billops.dto.GcpAccountRequestDto;
 import com.xammer.billops.dto.VerifyAccountRequest;

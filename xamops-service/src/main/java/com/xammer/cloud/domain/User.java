@@ -33,6 +33,7 @@ public class User {
     // --- ✅ MODIFIED THIS LINE ---
     @Column(nullable = false)
     private String role; // e.g., "USER", "ADMIN", "BILLOPS", "XAMOPS"
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "client_id", nullable = false)
     @JsonIgnore

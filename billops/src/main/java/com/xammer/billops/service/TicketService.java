@@ -1,15 +1,17 @@
 package com.xammer.billops.service;
 
 import com.xammer.billops.domain.Client;
-import com.xammer.billops.domain.Ticket;
-import com.xammer.billops.domain.TicketReply;
-import com.xammer.billops.domain.User;
+import com.xammer.cloud.domain.Ticket;
+import com.xammer.cloud.domain.TicketReply;
+import com.xammer.cloud.domain.User;
 import com.xammer.billops.dto.TicketDto;
 import com.xammer.billops.dto.TicketReplyDto;
 import com.xammer.billops.repository.ClientRepository;
 import com.xammer.billops.repository.TicketReplyRepository;
 import com.xammer.billops.repository.TicketRepository;
 import com.xammer.billops.repository.UserRepository;
+import org.slf4j.Logger; // --- ADDED IMPORT ---
+import org.slf4j.LoggerFactory; // --- ADDED IMPORT ---
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
@@ -22,6 +24,12 @@ import java.util.stream.Collectors;
 
 @Service
 public class TicketService {
+
+    // --- START: ADDED/MODIFIED FIELDS ---
+    private static final Logger logger = LoggerFactory.getLogger(TicketService.class);
+    private static final String ADMIN_TECHNICAL_EMAIL = "sahil@xammer.in";
+    private static final String ADMIN_BILLING_EMAIL = "akshay@xammer.in";
+    // --- END: ADDED/MODIFIED FIELDS ---
 
     @Autowired
     private TicketRepository ticketRepository;
@@ -40,6 +48,14 @@ public class TicketService {
         Client client = clientRepository.findById(ticketDto.getClientId())
                 .orElseThrow(() -> new RuntimeException("Client not found"));
 
+        // --- START: ADDED LOGIC TO GET CREATOR ---
+        if (ticketDto.getCreatorId() == null) {
+            throw new RuntimeException("Creator ID is required to create a ticket.");
+        }
+        User creator = userRepository.findById(ticketDto.getCreatorId())
+                .orElseThrow(() -> new RuntimeException("Creator (user) not found"));
+        // --- END: ADDED LOGIC ---
+
         Ticket ticket = new Ticket();
         ticket.setSubject(ticketDto.getSubject());
         ticket.setDescription(ticketDto.getDescription());
@@ -50,28 +66,68 @@ public class TicketService {
         ticket.setSeverity(ticketDto.getSeverity());
         ticket.setAccountId(ticketDto.getAccountId());
         ticket.setRegion(ticketDto.getRegion());
+        
+        ticket.setCreator(creator); // <-- Set the creator
 
         Ticket savedTicket = ticketRepository.save(ticket);
 
-        // Omitted email logic for brevity...
+        // --- START: EMAIL NOTIFICATION LOGIC ---
+        try {
+            String adminEmail = "Account and Billing".equalsIgnoreCase(savedTicket.getCategory()) ? 
+                                ADMIN_BILLING_EMAIL : ADMIN_TECHNICAL_EMAIL;
+            
+            String subject = String.format("New Ticket [ID: %d]: %s", savedTicket.getId(), savedTicket.getSubject());
+            String text = String.format(
+                "A new ticket has been created by %s (Client: %s).\n\n" +
+                "Category: %s\n" +
+                "Service: %s\n" +
+                "Severity: %s\n\n" +
+                "Description:\n%s",
+                creator.getUsername(),
+                client.getName(),
+                ticket.getCategory(),
+                ticket.getService(),
+                ticket.getSeverity(),
+                ticket.getDescription()
+            );
+            
+            emailService.sendSimpleMessage(adminEmail, subject, text);
+        } catch (Exception e) {
+            // Log the email error but don't fail the transaction
+            logger.error("Failed to send new ticket notification email for ticket {}", savedTicket.getId(), e);
+        }
+        // --- END: EMAIL NOTIFICATION LOGIC ---
 
         return convertToDto(savedTicket);
     }
 
-    @Transactional(readOnly = true)
+@Transactional(readOnly = true)
     @Cacheable("tickets")
     public List<TicketDto> getAllTickets() {
-        return ticketRepository.findAll().stream()
+        // --- THIS IS THE FIX ---
+        return ticketRepository.findAllWithRepliesAndAuthors().stream()
                 .map(this::convertToDto)
                 .collect(Collectors.toList());
     }
 
-    @Transactional(readOnly = true)
+@Transactional(readOnly = true)
     @Cacheable(value = "tickets", key = "#ticketId")
     public TicketDto getTicketById(Long ticketId) {
-        Ticket ticket = ticketRepository.findById(ticketId)
-                .orElseThrow(() -> new RuntimeException("Ticket not found"));
+        // --- THIS IS THE FIX ---
+        Ticket ticket = ticketRepository.findByIdWithRepliesAndAuthors(ticketId);
+        if (ticket == null) {
+            throw new RuntimeException("Ticket not found");
+        }
         return convertToDto(ticket);
+    }
+    
+    // --- ADD THIS NEW METHOD ---
+@Transactional(readOnly = true)
+    @Cacheable(value = "tickets", key = "#category")
+    public List<TicketDto> getTicketsByCategory(String category) {
+        return ticketRepository.findAllByCategoryWithRepliesAndAuthors(category).stream()
+                .map(this::convertToDto)
+                .collect(Collectors.toList());
     }
 
     @Transactional
@@ -96,6 +152,42 @@ public class TicketService {
         ticket.setStatus("IN_PROGRESS"); // Update status on reply
 
         Ticket updatedTicket = ticketRepository.save(ticket);
+
+        // --- START: EMAIL NOTIFICATION LOGIC ---
+        try {
+            User ticketCreator = ticket.getCreator(); // Get the original creator
+            
+            String subject = String.format("New Reply on Ticket [ID: %d]: %s", ticket.getId(), ticket.getSubject());
+            String text = String.format(
+                "%s has replied to ticket %d:\n\n---\n%s\n---",
+                author.getUsername(),
+                ticket.getId(),
+                reply.getMessage()
+            );
+
+            // Check if the replier is an admin (based on your table data)
+            boolean isAdminReply = author.getRole() != null && 
+                                   (author.getRole().contains("ADMIN"));            
+            if (isAdminReply) {
+                // ADMIN replied. Send email to the ticket creator.
+                if (ticketCreator != null && ticketCreator.getEmail() != null) {
+                    emailService.sendSimpleMessage(ticketCreator.getEmail(), subject, text);
+                } else {
+                    logger.warn("Cannot notify ticket creator for ticket {}: Creator or email is null.", ticket.getId());
+                }
+            } else {
+                // USER replied. Send email to the appropriate admin.
+                String adminEmail = "Account and Billing".equalsIgnoreCase(ticket.getCategory()) ? 
+                                    ADMIN_BILLING_EMAIL : ADMIN_TECHNICAL_EMAIL;
+                emailService.sendSimpleMessage(adminEmail, subject, text);
+            }
+            
+        } catch (Exception e) {
+            // Log the email error
+            logger.error("Failed to send reply notification email for ticket {}", ticket.getId(), e);
+        }
+        // --- END: EMAIL NOTIFICATION LOGIC ---
+        
         return convertToDto(updatedTicket);
     }
 
@@ -126,6 +218,12 @@ public class TicketService {
         if (ticket.getClient() != null) {
             dto.setClientId(ticket.getClient().getId());
         }
+
+        // --- START: ADDED CREATOR ID ---
+        if (ticket.getCreator() != null) {
+            dto.setCreatorId(ticket.getCreator().getId());
+        }
+        // --- END: ADDED CREATOR ID ---
 
         if (ticket.getReplies() != null) {
             dto.setReplies(ticket.getReplies().stream()
