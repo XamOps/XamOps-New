@@ -233,7 +233,6 @@
         }
     },
 
-    // ✅ FIXED: isActive Function - Now correctly detects /azure-finops-report.html
     isActive(path) {
         const currentPath = window.location.pathname;
         
@@ -306,7 +305,7 @@
         return currentPath.startsWith(path) && path !== '/';
     },
 
-    // ✅ FIXED: getLink Function - Now correctly routes Azure FinOps to /azure-finops-report.html
+    // --- START: MODIFIED getLink FUNCTION ---
     getLink(basePath) {
         const selectedIds = this.selectedAccountIds;
         if (selectedIds.length === 0) {
@@ -322,7 +321,14 @@
         
         // Handle BillOps paths separately
         if (basePath.includes('/billops/')) {
-            if (basePath.includes('billing.html')) {
+            
+            // FIX: Check for admin pages FIRST to prevent them from being
+            // matched by the provider-switching logic.
+            if (basePath.startsWith('/billops/admin_')) {
+                finalPath = basePath;
+            }
+            // FIX: Use an exact match '===' instead of '.includes()'
+            else if (basePath === '/billops/billing.html') { 
                 switch (provider) {
                     case 'GCP':
                         finalPath = '/billops/gcp-billing.html';
@@ -336,6 +342,9 @@
                         break;
                 }
             }
+            // Other non-admin billops pages (like invoices.html) will pass through
+            // with their original 'finalPath' which is correct.
+
         } else {
             // --- START OF MODIFICATION 3 (A) ---
             // Define pages that should NOT be transformed for GCP (AWS-only pages)
@@ -408,6 +417,7 @@
         }
         return url.toString();
     }
+    // --- END: MODIFIED getLink FUNCTION ---
 }">
 
     <div class="flex-shrink-0 flex items-center justify-center h-16 border-b bg-white">
@@ -648,6 +658,13 @@
                     </button>
                     <div x-show="open" class="ml-6 mt-2 space-y-1">
                         <a :href="getLink('/billops/admin_invoices.html')" :class="{'text-gray-800 font-bold bg-gray-100': isActive('/billops/admin_invoices')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-gray-800">Invoice Admin</a>
+                        
+                        <a :href="getLink('/billops/admin_cloudfront_billing.html')" 
+                           :class="{'text-gray-800 font-bold bg-gray-100': isActive('/billops/admin_cloudfront_billing')}" 
+                           class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-gray-800">
+                           CloudFront Billing
+                        </a>
+
                         <a :href="getLink('/billops/admin_credits.html')" :class="{'text-gray-800 font-bold bg-gray-100': isActive('/billops/admin_credits')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-gray-800">Credit Admin</a>
                         <a :href="getLink('/billops/admin_tickets.html')" :class="{'text-gray-800 font-bold bg-gray-100': isActive('/billops/admin_tickets')}" class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-gray-800">Ticket Admin</a>
                     </div>
@@ -669,7 +686,7 @@
         </div>
 
         <div x-show="hasAnyRole(['ROLE_BILLOPS_ADMIN'])" x-cloak class="sidebar-section" :class="{'active': isActive('/user-manager.html') || isActive('/user-manager.html')}">
-            <a href="/user-manager.html" class="nav-item flex items-center gap-3 rounded-xl px-4 py-3 font-semibold" :class="isActive('user-manager.html') || isActive('/user-manager.html') ? 'bg-gradient-to-r from-purple-500 to-pink-600 text-white shadow-lg' : 'text-gray-600 hover:bg-purple-50'">
+            <a href="/user-manager.html" class="nav-item flex items-center gap-3 rounded-xl px-4 py-3 font-semibold" :class="isActive('/user-manager.html') || isActive('/user-manager.html') ? 'bg-gradient-to-r from-purple-500 to-pink-600 text-white shadow-lg' : 'text-gray-600 hover:bg-purple-50'">
                 <i class="fas fa-users fa-fw w-5 text-center"></i>
                 <span class="whitespace-nowrap">User Management</span>
             </a>
