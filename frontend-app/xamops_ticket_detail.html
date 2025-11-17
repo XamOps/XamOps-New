@@ -6,8 +6,8 @@
     <title>XamOps - Ticket Details</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-        <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
-<link rel="apple-touch-icon" href="/icons/XamOps.png">
+    <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
+    <link rel="apple-touch-icon" href="/icons/XamOps.png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>[x-cloak] { display: none !important; }</style>
 </head>
@@ -20,7 +20,7 @@
             <div x-show="loading" class="text-center p-10"><i class="fas fa-spinner fa-spin text-3xl text-indigo-500"></i></div>
             <div x-show="error" class="text-center p-10 bg-red-50 rounded-lg"><p class="text-red-700" x-text="error"></p></div>
             
-            <div x-show="!loading && ticket" class="container mx-auto">
+            <div x-show="!loading && ticket" class="container mx-auto" x-cloak>
                 <a href="javascript:history.back()" class="text-indigo-600 hover:text-indigo-800 mb-4 inline-block"><i class="fas fa-arrow-left mr-2"></i>Back</a>
                 
                 <div class="bg-white rounded-lg shadow-md">
@@ -40,7 +40,7 @@
                         <div class="flex items-start space-x-4">
                             <div class="flex-shrink-0 w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center"><i class="fas fa-user text-gray-500"></i></div>
                             <div class="flex-1">
-                                <p class="font-semibold text-gray-800" x-text="ticket.creatorId === currentUser.id ? 'You' : (ticket.replies.length > 0 ? ticket.replies[0].authorUsername : 'User')"></p>
+                                <p class="font-semibold text-gray-800" x-text="ticket.creatorId === currentUser.id ? 'You' : (ticket.replies.length > 0 ? 'Original Poster' : 'User')"></p>
                                 <div class="bg-gray-50 rounded-lg p-4 mt-1"><p class="text-gray-700 whitespace-pre-wrap" x-text="ticket.description"></p></div>
                                 <p class="text-xs text-gray-400 mt-1" x-text="`Posted on: ${new Date(ticket.createdAt).toLocaleString()}`"></p>
                             </div>
@@ -48,31 +48,81 @@
 
                         <template x-for="reply in ticket.replies" :key="reply.id">
                             <div class="flex items-start space-x-4" :class="reply.authorId === currentUser.id ? 'justify-end' : ''">
-                                <div class="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center" 
+                                <div x-show="reply.authorId !== currentUser.id" class="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center" 
                                      :class="reply.authorUsername.includes('admin') ? 'bg-indigo-500' : 'bg-gray-200'">
                                     <i class="fas text-white" :class="reply.authorUsername.includes('admin') ? 'fa-user-shield' : 'fa-user'"></i>
                                 </div>
-                                <div class="flex-1">
-                                    <p class="font-semibold text-gray-800" x-text="reply.authorId === currentUser.id ? 'You' : reply.authorUsername"></p>
-                                    <div class="rounded-lg p-4 mt-1" 
-                                         :class="reply.authorId === currentUser.id ? 'bg-indigo-50' : 'bg-gray-50'">
+                                
+                                <div class="flex-1 max-w-3xl">
+                                    <p class="font-semibold text-gray-800" :class="reply.authorId === currentUser.id ? 'text-right' : ''" x-text="reply.authorId === currentUser.id ? 'You' : reply.authorUsername"></p>
+                                    
+                                    <div class="rounded-lg p-4 mt-1 shadow-sm" 
+                                         :class="reply.authorId === currentUser.id ? 'bg-indigo-50 ml-auto' : 'bg-gray-50'">
                                         <p class="text-gray-700 whitespace-pre-wrap" x-text="reply.message"></p>
+
+                                        <template x-if="reply.attachmentUrl">
+                                            <div class="mt-3 pt-3 border-t border-gray-200">
+                                                <template x-if="reply.attachmentType && reply.attachmentType.startsWith('image/')">
+                                                    <div>
+                                                        <a :href="reply.attachmentUrl" target="_blank" class="block relative group w-fit">
+                                                            <img :src="reply.attachmentUrl" alt="Attachment" class="max-h-48 rounded-md border border-gray-300 hover:opacity-90 transition">
+                                                            <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition bg-black bg-opacity-20 rounded-md">
+                                                                <i class="fas fa-external-link-alt text-white drop-shadow-md"></i>
+                                                            </div>
+                                                        </a>
+                                                    </div>
+                                                </template>
+
+                                                <template x-if="!reply.attachmentType || !reply.attachmentType.startsWith('image/')">
+                                                    <a :href="reply.attachmentUrl" target="_blank" class="flex items-center space-x-2 text-indigo-600 hover:text-indigo-800 p-2 bg-white rounded border w-fit">
+                                                        <i class="fas" :class="reply.attachmentType === 'application/pdf' ? 'fa-file-pdf text-red-500' : 'fa-paperclip'"></i>
+                                                        <span class="text-sm underline truncate max-w-xs" x-text="reply.attachmentName || 'View Attachment'"></span>
+                                                    </a>
+                                                </template>
+                                            </div>
+                                        </template>
                                     </div>
-                                    <p class="text-xs text-gray-400 mt-1" x-text="`Posted on: ${new Date(reply.createdAt).toLocaleString()}`"></p>
+                                    <p class="text-xs text-gray-400 mt-1" :class="reply.authorId === currentUser.id ? 'text-right' : ''" x-text="`Posted on: ${new Date(reply.createdAt).toLocaleString()}`"></p>
+                                </div>
+
+                                <div x-show="reply.authorId === currentUser.id" class="flex-shrink-0 w-10 h-10 rounded-full bg-indigo-500 flex items-center justify-center ml-2">
+                                    <i class="fas fa-user text-white"></i>
                                 </div>
                             </div>
                         </template>
 
                         <div x-show="ticket.status !== 'CLOSED'" class="pt-6 border-t">
-                             <textarea x-model="newReply" rows="4" class="w-full p-3 border rounded-md" placeholder="Type your reply here..."></textarea>
+                             <div class="relative">
+                                 <textarea x-model="newReply" rows="4" class="w-full p-3 border rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Type your reply here..."></textarea>
+                                 
+                                 <div x-show="selectedFile" class="absolute bottom-3 right-3 bg-gray-100 border rounded px-2 py-1 flex items-center text-xs text-gray-600">
+                                     <i class="fas fa-file mr-1"></i>
+                                     <span x-text="selectedFile?.name.length > 20 ? selectedFile.name.substring(0, 17) + '...' : selectedFile.name"></span>
+                                     <button @click="clearFile()" class="ml-2 text-red-500 hover:text-red-700"><i class="fas fa-times"></i></button>
+                                 </div>
+                             </div>
+                             
                              <div class="mt-4 flex justify-between items-center">
-                                 <button @click="submitReply()" :disabled="!newReply.trim() || !currentUser.id" class="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400">Send Reply</button>
-                                 <button x-show="currentUser.roles && currentUser.roles.some(role => role.includes('ADMIN'))" @click="closeTicket()" class="px-6 py-2 bg-red-600 text-white rounded-md hover:bg-red-700">Close Ticket</button>
+                                 <div class="flex items-center space-x-2">
+                                     <input type="file" x-ref="fileInput" class="hidden" @change="handleFileSelect($event)">
+                                     <button @click="$refs.fileInput.click()" class="text-gray-500 hover:text-indigo-600 transition" title="Attach File">
+                                         <i class="fas fa-paperclip text-xl"></i>
+                                     </button>
+                                     <span class="text-xs text-gray-400" x-show="!selectedFile">Attach image or PDF</span>
+                                 </div>
+
+                                 <div class="flex space-x-3">
+                                     <button x-show="currentUser.roles && currentUser.roles.some(role => role.includes('ADMIN'))" @click="closeTicket()" class="px-4 py-2 bg-red-100 text-red-700 rounded-md hover:bg-red-200 transition">Close Ticket</button>
+                                     <button @click="submitReply()" :disabled="(!newReply.trim() && !selectedFile) || isSubmitting" class="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition flex items-center">
+                                         <span x-show="!isSubmitting">Send Reply</span>
+                                         <span x-show="isSubmitting"><i class="fas fa-spinner fa-spin mr-2"></i>Sending...</span>
+                                     </button>
+                                 </div>
                              </div>
                         </div>
 
-                        <div x-show="ticket.status === 'CLOSED'" class="text-center text-gray-500 py-4 border-t">
-                            This ticket has been closed. You can no longer reply.
+                        <div x-show="ticket.status === 'CLOSED'" class="text-center text-gray-500 py-4 border-t bg-gray-50 rounded-lg">
+                            <i class="fas fa-lock mr-2"></i> This ticket has been closed. You can no longer reply.
                         </div>
                     </div>
                 </div>
@@ -90,6 +140,8 @@
             ticketId: null,
             newReply: '',
             currentUser: { id: null, username: '', roles: [] },
+            selectedFile: null,
+            isSubmitting: false,
 
             init() {
                 this.loadSidebar();
@@ -123,33 +175,63 @@
                     .finally(() => { this.loading = false; });
             },
 
-            submitReply() {
-                // --- START: MODIFIED SUBMIT LOGIC ---
-                if (!this.newReply.trim() || !this.currentUser.id) {
-                    alert('Cannot send reply. User ID not found.');
+            handleFileSelect(event) {
+                const file = event.target.files[0];
+                if (file) {
+                    // Basic validation (optional)
+                    if (file.size > 5 * 1024 * 1024) { // 5MB limit example
+                        alert("File is too large. Max size is 5MB.");
+                        this.clearFile();
+                        return;
+                    }
+                    this.selectedFile = file;
+                }
+            },
+
+            clearFile() {
+                this.selectedFile = null;
+                if (this.$refs.fileInput) {
+                    this.$refs.fileInput.value = '';
+                }
+            },
+
+            async submitReply() {
+                if ((!this.newReply.trim() && !this.selectedFile) || !this.currentUser.id) {
+                    alert('Cannot send empty reply.');
                     return;
                 }
+
+                this.isSubmitting = true;
+
+                // Use FormData for multipart/form-data submission
+                const formData = new FormData();
+                formData.append('message', this.newReply || ' '); // Send space if message empty but file exists
+                formData.append('authorId', this.currentUser.id);
                 
-                fetch(`/api/xamops/tickets/${this.ticketId}/replies`, {
-                    credentials: 'include',
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    // Send the real logged-in user's ID as authorId
-                    body: JSON.stringify({ message: this.newReply, authorId: this.currentUser.id }) 
-                })
-                // --- END: MODIFIED SUBMIT LOGIC ---
-                .then(res => {
-                    if (!res.ok) throw new Error('Failed to send reply.');
-                    return res.json();
-                })
-                .then(updatedTicket => {
+                if (this.selectedFile) {
+                    formData.append('file', this.selectedFile);
+                }
+
+                try {
+                    const response = await fetch(`/api/xamops/tickets/${this.ticketId}/replies`, {
+                        credentials: 'include',
+                        method: 'POST',
+                        // Note: Do NOT set Content-Type header manually for FormData, browser does it automatically with boundary
+                        body: formData
+                    });
+
+                    if (!response.ok) throw new Error('Failed to send reply.');
+                    
+                    const updatedTicket = await response.json();
                     this.ticket = updatedTicket;
                     this.newReply = '';
-                })
-                .catch(err => {
+                    this.clearFile();
+                } catch (err) {
                     console.error('Error submitting reply:', err);
                     alert('Error: ' + err.message);
-                });
+                } finally {
+                    this.isSubmitting = false;
+                }
             },
 
             closeTicket() {

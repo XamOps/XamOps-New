@@ -6,14 +6,12 @@ import com.xammer.cloud.service.TicketService;
 
 import java.util.List;
 
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/xamops")
@@ -40,19 +38,44 @@ public class TicketController {
         return ResponseEntity.ok(ticketService.getTicketById(id));
     }
 
-    @PostMapping("/tickets/{id}/replies")
-    public ResponseEntity<TicketDto> addTicketReply(@PathVariable Long id, @RequestBody TicketReplyDto replyDto) {
-        return ResponseEntity.ok(ticketService.addReplyToTicket(id, replyDto));
+    // --- UPDATED ENDPOINT TO SUPPORT MULTIPART FILE UPLOAD ---
+    @PostMapping(value = "/tickets/{id}/replies", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<TicketDto> addTicketReply(
+            @PathVariable Long id, 
+            @RequestPart("message") String message,
+            @RequestPart(value = "file", required = false) MultipartFile file,
+            @RequestPart(value = "authorId", required = false) String authorIdStr,
+            Authentication authentication) {
+        
+        TicketReplyDto replyDto = new TicketReplyDto();
+        replyDto.setMessage(message);
+
+        // Prefer Authentication object for security
+        if (authentication != null) {
+             replyDto.setAuthorUsername(authentication.getName());
+        }
+        
+        // Fallback to authorId if passed manually (e.g., admin actions if needed, though Auth is preferred)
+        if (authorIdStr != null && !authorIdStr.isBlank()) {
+            try {
+                replyDto.setAuthorId(Long.parseLong(authorIdStr));
+            } catch (NumberFormatException e) {
+                // Ignore invalid ID format
+            }
+        }
+        
+        return ResponseEntity.ok(ticketService.addReplyToTicket(id, replyDto, file));
     }
+    // ----------------------------------------------------------
 
     @PostMapping("/tickets/{id}/close")
     @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
     public ResponseEntity<TicketDto> closeTicket(@PathVariable Long id) {
         return ResponseEntity.ok(ticketService.closeTicket(id));
     }
-    // In TicketController.java
-@GetMapping("/tickets/category/{category}")
-public ResponseEntity<List<TicketDto>> getTicketsByCategory(@PathVariable String category) {
-    return ResponseEntity.ok(ticketService.getTicketsByCategory(category));
-}
+
+    @GetMapping("/tickets/category/{category}")
+    public ResponseEntity<List<TicketDto>> getTicketsByCategory(@PathVariable String category) {
+        return ResponseEntity.ok(ticketService.getTicketsByCategory(category));
+    }
 }
