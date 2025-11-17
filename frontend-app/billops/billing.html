@@ -5,19 +5,17 @@
     <title>XamOps - Billing Dashboard</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-        <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
-<link rel="apple-touch-icon" href="/icons/XamOps.png">
+    <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
+    <link rel="apple-touch-icon" href="/icons/XamOps.png">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <style>
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            background-color: #f8fafc; /* Slightly lighter gray */
+            background-color: #f8fafc;
         }
         [x-cloak] { display: none !important; }
-        /* Keep existing loading/error styles if needed elsewhere, but skeleton hides the spinner */
-        /* .loading { text-align: center; padding: 2rem; color: #6b7280; } */
         .error { text-align: center; padding: 2rem; color: #dc2626; }
 
         /* Professional Card Styling */
@@ -33,7 +31,7 @@
             box-shadow: 0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.06);
         }
 
-        /* Table Styling with Consistent Column Alignment */
+        /* Table Styling */
         .cost-breakdown-table {
             width: 100%;
             border-collapse: separate;
@@ -42,10 +40,9 @@
             background: white;
             border-radius: 8px;
             overflow: hidden;
-            table-layout: fixed; /* Force fixed layout */
+            table-layout: fixed;
         }
 
-        /* Critical: Define specific column widths that ALL tbody elements must follow */
         .cost-breakdown-table colgroup col:nth-child(1) { width: 60px; }
         .cost-breakdown-table colgroup col:nth-child(2) { width: 45%; }
         .cost-breakdown-table colgroup col:nth-child(3) { width: 25%; }
@@ -64,51 +61,19 @@
             position: relative;
         }
 
-        /* Enforce consistent column widths across all tbody elements */
-        .cost-breakdown-table th:nth-child(1),
-        .cost-breakdown-table td:nth-child(1) {
-            width: 60px;
-            min-width: 60px;
-            max-width: 60px;
-            text-align: center;
-            box-sizing: border-box;
-        }
+        .cost-breakdown-table th:nth-child(1), .cost-breakdown-table td:nth-child(1) { width: 60px; text-align: center; }
+        .cost-breakdown-table th:nth-child(2), .cost-breakdown-table td:nth-child(2) { width: 45%; text-align: left; word-wrap: break-word; }
+        .cost-breakdown-table th:nth-child(3), .cost-breakdown-table td:nth-child(3) { width: 25%; text-align: right; }
+        .cost-breakdown-table th:nth-child(4), .cost-breakdown-table td:nth-child(4) { width: 25%; text-align: right; }
 
-        .cost-breakdown-table th:nth-child(2),
-        .cost-breakdown-table td:nth-child(2) {
-            width: 45%;
-            text-align: left;
-            box-sizing: border-box;
-            word-wrap: break-word;
-            overflow-wrap: break-word;
-        }
-
-        .cost-breakdown-table th:nth-child(3),
-        .cost-breakdown-table td:nth-child(3) {
-            width: 25%;
-            text-align: right;
-            box-sizing: border-box;
-        }
-
-        .cost-breakdown-table th:nth-child(4),
-        .cost-breakdown-table td:nth-child(4) {
-            width: 25%;
-            text-align: right;
-            box-sizing: border-box;
-        }
-
-        /* Ensure ALL tbody elements follow the same layout */
-        .cost-breakdown-table tbody {
-            display: table-row-group; /* Force proper table behavior */
-        }
-
+        .cost-breakdown-table tbody { display: table-row-group; }
         .cost-breakdown-table tbody tr {
             transition: all 0.15s ease;
             border-bottom: 1px solid #f1f5f9;
-            display: table-row; /* Force proper row behavior */
+            display: table-row;
         }
 
-        .cost-breakdown-table tbody tr:hover:not(.skeleton-row) { /* Don't apply hover to skeleton */
+        .cost-breakdown-table tbody tr:hover:not(.skeleton-row) {
             background-color: rgba(99, 102, 241, 0.02);
             transform: translateY(-1px);
         }
@@ -117,7 +82,7 @@
             padding: 16px 20px;
             vertical-align: middle;
             border-bottom: 1px solid #f1f5f9;
-            display: table-cell; /* Force proper cell behavior */
+            display: table-cell;
         }
 
         .expand-icon {
@@ -133,64 +98,31 @@
             background: rgba(99, 102, 241, 0.1);
         }
 
-        .expand-icon:hover {
-            background: rgba(99, 102, 241, 0.2);
-        }
+        .expand-icon:hover { background: rgba(99, 102, 241, 0.2); }
+        .rotate-90 { transform: rotate(90deg); }
 
-        .rotate-90 {
-            transform: rotate(90deg);
-        }
-
-        /* Drilldown Row Styling */
         .drilldown-row {
             background: linear-gradient(135deg, #fafbff 0%, #f8fafc 100%);
             border-left: 4px solid #6366f1;
         }
-
-        .drilldown-row td {
-            border-bottom: 1px solid #e2e8f0;
-            padding: 12px 20px;
-        }
-
+        .drilldown-row td { border-bottom: 1px solid #e2e8f0; padding: 12px 20px; }
         .nested-drilldown {
             background: linear-gradient(135deg, #f0f4ff 0%, #fafbff 100%);
             border-left: 4px solid #8b5cf6;
         }
 
-        /* Amount Column Styling */
         .amount-cell {
             font-weight: 600;
             font-family: 'JetBrains Mono', monospace;
             text-align: right;
             color: #059669;
         }
+        .service-name { font-weight: 600; color: #1f2937; font-size: 15px; }
+        .region-name { color: #6b7280; font-weight: 500; padding-left: 20px; }
+        .resource-name { color: #9ca3af; font-size: 13px; padding-left: 40px; }
 
-        .service-name {
-            font-weight: 600;
-            color: #1f2937;
-            font-size: 15px;
-        }
+        .chart-container { position: relative; height: 280px; padding: 10px; }
 
-        .region-name {
-            color: #6b7280;
-            font-weight: 500;
-            padding-left: 20px;
-        }
-
-        .resource-name {
-            color: #9ca3af;
-            font-size: 13px;
-            padding-left: 40px;
-        }
-
-        /* Chart Container Improvements */
-        .chart-container {
-            position: relative;
-            height: 280px;
-            padding: 10px;
-        }
-
-        /* Professional Header */
         .dashboard-header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
@@ -198,14 +130,8 @@
             padding: 20px 24px;
             margin-bottom: 0;
         }
+        .dashboard-title { font-size: 24px; font-weight: 700; margin: 0; }
 
-        .dashboard-title {
-            font-size: 24px;
-            font-weight: 700;
-            margin: 0;
-        }
-
-        /* Filter Controls */
         .filter-select {
             background: white;
             border: 2px solid #e5e7eb;
@@ -216,14 +142,8 @@
             color: #374151;
             transition: all 0.2s ease;
         }
+        .filter-select:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1); }
 
-        .filter-select:focus {
-            outline: none;
-            border-color: #6366f1;
-            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
-        }
-        
-        /* --- NEW REFRESH BUTTON STYLE --- */
         .refresh-button {
             background: #ffffff;
             border: 2px solid #e5e7eb;
@@ -235,7 +155,7 @@
             transition: all 0.2s ease;
             display: flex;
             align-items: center;
-            line-height: 1.5; /* Match select height */
+            line-height: 1.5;
         }
         .refresh-button:hover:not(:disabled) {
             border-color: #6366f1;
@@ -247,55 +167,35 @@
             cursor: not-allowed;
             background: #f9fafb;
         }
-        .refresh-button .fa-spin {
-            animation: spin 0.8s linear infinite;
-        }
-        /* --- END NEW STYLE --- */
+        .refresh-button .fa-spin { animation: spin 0.8s linear infinite; }
 
-        /* Small spinner for background updates */
         .updating-spinner {
              display: inline-block;
-             width: 16px; /* Smaller size */
+             width: 16px;
              height: 16px;
-             border: 2px solid #d1d5db; /* Lighter border */
+             border: 2px solid #ffffff; /* White for header contrast */
              border-radius: 50%;
-             border-top-color: #4f46e5; /* Accent color */
+             border-top-color: transparent;
              animation: spin 0.8s linear infinite;
-             margin-left: 8px; /* Spacing */
+             margin-left: 10px;
        }
 
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
+        @keyframes spin { to { transform: rotate(360deg); } }
 
-        /* Skeleton Loader Styles */
-        .skeleton-placeholder {
-            background-color: #e2e8f0; /* Tailwind gray-300 */
-            border-radius: 4px;
-        }
-        .skeleton-placeholder-dark {
-             background-color: #cbd5e1; /* Tailwind gray-400 */
-             border-radius: 4px;
-         }
+        .skeleton-placeholder { background-color: #e2e8f0; border-radius: 4px; }
+        .skeleton-placeholder-dark { background-color: #cbd5e1; border-radius: 4px; }
 
-        /* Responsive Design */
         @media (max-width: 768px) {
-            .cost-breakdown-table th,
-            .cost-breakdown-table td {
-                padding: 12px 16px;
-                font-size: 13px;
-            }
-
-            .chart-container {
-                height: 220px;
-            }
+            .cost-breakdown-table th, .cost-breakdown-table td { padding: 12px 16px; font-size: 13px; }
+            .chart-container { height: 220px; }
         }
     </style>
 </head>
-<body class="bg-slate-100"> <div class="flex h-screen">
+<body class="bg-slate-100"> 
+<div class="flex h-screen">
   <include file="/_sidebar.html"></include>
 
-    <div class="flex-1 flex flex-col overflow-y-auto pl-64" x-data="billingDashboard()" x-init="init()">
+    <div class="flex-1 flex flex-col overflow-y-auto pl-64" x-data="billingDashboard()">
 
         <div class="p-10">
             <div class="max-w-7xl mx-auto">
@@ -312,12 +212,13 @@
                          </div>
                      </div>
                 </div>
-                 <div x-show="!loading" class="dashboard-card mb-6">
+
+                <div x-show="!loading" class="dashboard-card mb-6">
                     <div class="dashboard-header">
                         <div class="flex justify-between items-center">
                             <h1 class="dashboard-title flex items-center">
                                 Billing Dashboard
-                                <span x-show="isUpdating && !loading" class="updating-spinner" title="Updating data..."></span>
+                                <span x-show="isUpdating" class="updating-spinner" title="Refreshing data in background..."></span>
                             </h1>
                             <div class="flex items-center space-x-3">
                                 <select x-model="selectedYear" @change="handleFilterChange()" class="filter-select" :disabled="loading || isUpdating">
@@ -331,11 +232,11 @@
                                     </template>
                                 </select>
                                 
-                                <button @click="fetchFreshData()" class="refresh-button" :disabled="loading || isUpdating">
+                                <button @click="fetchFreshData(true)" class="refresh-button" :disabled="loading || isUpdating">
                                     <i class="fas" :class="{ 'fa-sync-alt fa-spin': isUpdating, 'fa-sync-alt': !isUpdating }"></i>
                                     <span class="ml-2" x-text="isUpdating ? 'Refreshing...' : 'Refresh'"></span>
                                 </button>
-                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -482,8 +383,7 @@
                                             <td>
                                                 <div class="service-name" x-text="service.serviceName"></div>
                                             </td>
-                                            <td>
-                                                <span class="text-gray-500">—</span> </td>
+                                            <td><span class="text-gray-500">—</span></td>
                                             <td>
                                                 <div class="amount-cell" x-text="formatCurrency(service.totalCost)"></div>
                                             </td>
@@ -500,8 +400,7 @@
                                                     <td>
                                                         <div class="region-name" x-text="region.regionName"></div>
                                                     </td>
-                                                    <td>
-                                                        <span class="text-gray-500">—</span> </td>
+                                                    <td><span class="text-gray-500">—</span></td>
                                                     <td>
                                                         <div class="amount-cell text-blue-600" x-text="formatCurrency(region.cost)"></div>
                                                     </td>
@@ -509,7 +408,8 @@
 
                                                 <template x-for="resource in region.resources" :key="resource.resourceId + '-' + resource.cost">
                                                     <tr x-show="expandedRegions[`${service.serviceName}-${region.regionName}`]" class="nested-drilldown">
-                                                        <td></td> <td>
+                                                        <td></td> 
+                                                        <td>
                                                             <div class="resource-name" x-text="resource.resourceName"></div>
                                                         </td>
                                                         <td class="text-right text-gray-600 text-sm" x-text="resource.quantity != null ? `${formatNumber(resource.quantity)} ${resource.unit || ''}` : 'N/A'"></td>
@@ -537,19 +437,22 @@
                 </div>
             </div>
         </div>
-    </main>
+    </div>
 </div>
 
 <script>
     function billingDashboard() {
         return {
-            loading: true, // Indicates initial load before *any* data is shown
-            isUpdating: false, // Indicates background update in progress
-            error: null, // Critical error preventing display
-            updateError: null, // Non-critical error during background update
+            loading: true, // Controls full-screen skeleton
+            isUpdating: false, // Controls background update spinner
+            error: null, // Critical errors (when no data exists)
+            updateError: null, // Non-critical errors (background sync failed)
+            
             accountId: null,
             selectedYear: new Date().getFullYear(),
             selectedMonth: new Date().getMonth() + 1,
+            cacheKey: '', 
+            
             availableYears: [new Date().getFullYear(), new Date().getFullYear() - 1],
             availableMonths: [
                 { value: 1, name: 'Jan' }, { value: 2, name: 'Feb' }, { value: 3, name: 'Mar' },
@@ -557,236 +460,214 @@
                 { value: 7, name: 'Jul' }, { value: 8, name: 'Aug' }, { value: 9, name: 'Sep' },
                 { value: 10, name: 'Oct' }, { value: 11, name: 'Nov' }, { value: 12, name: 'Dec' }
             ],
-            // Initialize with empty arrays to prevent errors before data loads
+
+            // Data holders
             billingData: { costHistory: [], serviceBreakdown: [] },
             detailedBreakdown: [],
+            
+            // UI State
             expandedServices: {},
             expandedRegions: {},
             costHistoryChart: null,
             serviceBreakdownChart: null,
 
-             // Computed property to check if we have any data to display (cached or fresh)
+            // Check if valid data exists to show (cached or fresh)
             get hasData() {
-                // Check if *either* billingData or detailedBreakdown has content
-                return (!this.loading && // Only consider data if not initially loading
-                        ( (this.billingData && this.billingData.costHistory && this.billingData.costHistory.length > 0) ||
-                         (this.detailedBreakdown && this.detailedBreakdown.length > 0) )
-                        );
+                return (
+                    (this.billingData && this.billingData.costHistory && this.billingData.costHistory.length > 0) ||
+                    (this.detailedBreakdown && this.detailedBreakdown.length > 0)
+                );
             },
 
             init() {
-                // this.loadSidebar();
                 const urlParams = new URLSearchParams(window.location.search);
-                // Allow multiple account IDs separated by comma, but primarily use the first for display logic if needed
                 this.accountId = urlParams.get('accountIds') || urlParams.get('accountId');
-
-                console.log('--- Alpine Component Initialized ---');
-                console.log('Account ID(s) from URL:', this.accountId);
 
                 if (!this.accountId) {
                     this.error = "No AWS Account ID(s) specified in the URL.";
                     this.loading = false;
                     return;
                 }
-                // Start the initial data load process
-                this.loadInitialData();
+
+                // 1. Generate cache key
+                this.updateCacheKey();
+
+                // 2. Attempt Instant Load from LocalStorage
+                const loadedFromCache = this.loadFromLocalStorage();
+                
+                if (loadedFromCache) {
+                    console.log("✅ Instant load successful");
+                } else {
+                    console.log("⏳ No cache found, waiting for network...");
+                }
+
+                // 3. Trigger Background Sync
+                this.fetchFreshData();
+            },
+            
+            updateCacheKey() {
+                this.cacheKey = `billops_data_${this.accountId}_${this.selectedYear}_${this.selectedMonth}`;
             },
 
-            loadInitialData() {
-                this.loading = true; // Set initial loading state
-                this.isUpdating = false;
-                this.error = null;
-                this.updateError = null;
-                 // Ensure charts are destroyed if re-initializing
-                if (this.costHistoryChart) this.costHistoryChart.destroy();
-                if (this.serviceBreakdownChart) this.serviceBreakdownChart.destroy();
-                this.costHistoryChart = null;
-                this.serviceBreakdownChart = null;
-
-
-                console.log(`--- Attempting to load CACHED data for ${this.selectedYear}-${this.selectedMonth} ---`);
-                const cachedSummaryUrl = `/api/billops/billing/cached?accountIds=${this.accountId}&year=${this.selectedYear}&month=${this.selectedMonth}`;
-                const cachedDetailedUrl = `/api/billops/detailed-breakdown/cached?accountIds=${this.accountId}&year=${this.selectedYear}&month=${this.selectedMonth}`;
-
-                Promise.all([
-                    fetch(cachedSummaryUrl).then(res => res.ok ? res.json() : null), // Return null if not found or error
-                    fetch(cachedDetailedUrl).then(res => res.ok ? res.json() : null)
-                ])
-                .then(([cachedSummary, cachedDetailed]) => {
-                    if (cachedSummary || cachedDetailed) {
-                        console.log('✅ Found CACHED data. Displaying stale data and starting background refresh.');
-                        // Ensure defaults if one part is null
-                        this.billingData = cachedSummary || { costHistory: [], serviceBreakdown: [] };
-                        this.detailedBreakdown = cachedDetailed || [];
-                        // IMPORTANT: Set loading to false *before* rendering charts
+            loadFromLocalStorage() {
+                try {
+                    const cached = localStorage.getItem(this.cacheKey);
+                    if (cached) {
+                        const parsed = JSON.parse(cached);
+                        console.log('⚡ [Cache] Loaded data from LocalStorage');
+                        
+                        this.billingData = parsed.summary || { costHistory: [], serviceBreakdown: [] };
+                        this.detailedBreakdown = parsed.details || [];
+                        
+                        // CRITICAL: Hide skeleton immediately
                         this.loading = false;
+                        
                         this.$nextTick(() => {
-                            // Render charts with potentially empty cached data
                             this.renderOrUpdateCharts(this.billingData.costHistory, this.billingData.serviceBreakdown);
                         });
-                        this.isUpdating = true; // Indicate background refresh started AFTER showing cached data
-                        this.fetchFreshData(); // Trigger background refresh
-                    } else {
-                        console.log('ℹ️ No CACHED data found. Fetching fresh data directly.');
-                        // Keep loading = true, fetchFreshData will set it to false
-                        this.fetchFreshData();
+                        return true; // Data loaded successfully
                     }
-                })
-                .catch(err => {
-                    console.error("Error during initial cached data fetch:", err);
-                    this.error = 'An error occurred checking for cached data. Trying to fetch fresh data.';
-                     // Still try to fetch fresh data
-                    this.fetchFreshData(); // fetchFreshData handles setting loading=false
-                });
+                } catch (e) {
+                    console.warn('Error parsing local storage:', e);
+                }
+                return false; // No valid data loaded
             },
 
-            fetchFreshData() {
-                // If not already updating (e.g., called directly because cache was empty), set updating state
-                // === MODIFICATION ===
-                // Set isUpdating = true regardless of 'loading' state, so the refresh button spinner works
-                // on first load *and* subsequent refreshes.
-                this.isUpdating = true;
-                this.updateError = null; // Clear previous update errors
+            fetchFreshData(manualRefresh = false) {
+                if (manualRefresh) console.log('🖱️ Manual refresh triggered');
+                
+                this.isUpdating = true; 
+                this.updateError = null;
 
-                console.log(`--- Fetching FRESH data for ${this.selectedYear}-${this.selectedMonth} ---`);
+                // Only show skeleton if we have NO data on screen
+                if (!this.hasData) {
+                    this.loading = true;
+                }
+
+                console.log(`🔄 [Network] Fetching fresh data for ${this.selectedYear}-${this.selectedMonth}...`);
+                
                 const freshSummaryUrl = `/api/billops/billing?accountIds=${this.accountId}&year=${this.selectedYear}&month=${this.selectedMonth}`;
                 const freshDetailedUrl = `/api/billops/detailed-breakdown?accountIds=${this.accountId}&year=${this.selectedYear}&month=${this.selectedMonth}`;
 
                 Promise.all([
-                    fetch(freshSummaryUrl).then(res => {
-                        if (!res.ok) return Promise.reject(`Failed to fetch summary data (Status: ${res.status})`);
-                        return res.json();
-                    }),
-                    fetch(freshDetailedUrl).then(res => {
-                         if (!res.ok) return Promise.reject(`Failed to fetch detailed breakdown (Status: ${res.status})`);
-                        return res.json();
-                    })
+                    fetch(freshSummaryUrl).then(res => res.ok ? res.json() : Promise.reject('Summary fetch failed')),
+                    fetch(freshDetailedUrl).then(res => res.ok ? res.json() : Promise.reject('Detailed fetch failed'))
                 ])
                 .then(([freshSummary, freshDetailed]) => {
-                    console.log('✅ Received FRESH Summary Data:', JSON.parse(JSON.stringify(freshSummary)));
-                    console.log('✅ Received FRESH Detailed Breakdown Data:', JSON.parse(JSON.stringify(freshDetailed)));
+                    console.log('✅ [Network] Fresh data received');
 
-                     // Update data properties - ensure they are not null/undefined
                     this.billingData = freshSummary || { costHistory: [], serviceBreakdown: [] };
                     this.detailedBreakdown = freshDetailed || [];
-
+                    
                     this.$nextTick(() => {
-                         // Update charts with fresh data
                         this.renderOrUpdateCharts(this.billingData.costHistory, this.billingData.serviceBreakdown);
                     });
-                     this.error = null; // Clear critical error if fresh data succeeds
+
+                    const dataToCache = {
+                        timestamp: new Date().getTime(),
+                        summary: freshSummary,
+                        details: freshDetailed
+                    };
+                    localStorage.setItem(this.cacheKey, JSON.stringify(dataToCache));
+                    this.error = null;
                 })
                 .catch(err => {
-                    console.error("Data fetching error:", err);
-                    const errorMsg = typeof err === 'string' ? err : 'Failed to retrieve billing data. Please try again later.';
-                    // If this was the *initial* load (loading was true), set the main error
-                    if (this.loading) {
-                        this.error = errorMsg;
+                    console.error("Network error:", err);
+                    const msg = "Failed to refresh data. Please check your connection.";
+                    
+                    if (!this.hasData) { 
+                        this.error = msg; 
                     } else {
-                    // Otherwise, set non-critical update error, keep showing stale data if available
-                        this.updateError = errorMsg;
+                        this.updateError = msg; 
                     }
                 })
                 .finally(() => {
-                    this.loading = false; // Ensure initial loader is hidden regardless of success/failure
-                    this.isUpdating = false; // Background update finished
-                    console.log('--- Data fetch attempt complete ---');
+                    this.loading = false;
+                    this.isUpdating = false;
                 });
             },
 
             handleFilterChange() {
-                console.log(`--- Filters changed to ${this.selectedYear}-${this.selectedMonth}. Reloading data. ---`);
+                this.updateCacheKey();
+                
                 this.expandedServices = {};
                 this.expandedRegions = {};
-                // Reset errors and trigger the full load process (cached first, then fresh)
                 this.error = null;
                 this.updateError = null;
-                this.loadInitialData(); // This now handles destroying charts internally
+
+                // Try to switch to cached data for the NEW date immediately
+                if (!this.loadFromLocalStorage()) {
+                    // If new unseen month, show skeleton
+                    this.loading = true;
+                    this.billingData = { costHistory: [], serviceBreakdown: [] };
+                    this.detailedBreakdown = [];
+                    // Destroy charts to avoid artifacts
+                    if (this.costHistoryChart) { this.costHistoryChart.destroy(); this.costHistoryChart = null; }
+                    if (this.serviceBreakdownChart) { this.serviceBreakdownChart.destroy(); this.serviceBreakdownChart = null; }
+                }
+
+                this.fetchFreshData();
             },
 
-             renderOrUpdateCharts(history, services) {
+            renderOrUpdateCharts(history, services) {
                 const safeHistory = history || [];
                 const safeServices = services || [];
-
-                console.log('--- Rendering/Updating charts ---');
+                
                 const historyCanvas = document.getElementById('costHistoryChart');
                 const serviceCanvas = document.getElementById('serviceBreakdownChart');
 
-                if (!historyCanvas || !serviceCanvas) {
-                    console.warn("Chart canvas elements not found yet. Chart rendering deferred.");
-                    // Attempt to retry after a short delay if needed, or rely on nextTick from caller
-                    return;
-                }
+                if (!historyCanvas || !serviceCanvas) return;
 
-                // --- Cost History Chart ---
-                const historyLabels = history.map(h => new Date(h.date).toLocaleString('default', { month: 'short' }));
+                const historyLabels = safeHistory.map(h => new Date(h.date).toLocaleString('default', { month: 'short' }));
                 const historyData = safeHistory.map(h => h && h.cost != null ? h.cost : 0);
 
-                if (safeHistory.length === 0) {
-                     if (this.costHistoryChart) {
-                         this.costHistoryChart.destroy();
-                         this.costHistoryChart = null;
-                     }
-                } else {
+                if (safeHistory.length > 0) {
                     if (this.costHistoryChart) {
-                        this.costHistoryChart.data.labels = historyLabels;
-                        this.costHistoryChart.data.datasets[0].data = historyData;
-                        this.costHistoryChart.update();
-                    } else {
-                        this.costHistoryChart = new Chart(historyCanvas.getContext('2d'), {
-                            type: 'bar',
-                            data: {
-                                labels: historyLabels,
-                                datasets: [{
-                                    label: 'Monthly Cost',
-                                    data: historyData,
-                                    backgroundColor: (context) => { /* Gradient logic */
-                                        const {ctx, chartArea} = context.chart;
-                                        if (!chartArea) return null;
-                                        const gradient = ctx.createLinearGradient(0, chartArea.bottom, 0, chartArea.top);
-                                        gradient.addColorStop(0, '#6366f1');
-                                        gradient.addColorStop(1, '#8b5cf6');
-                                        return gradient;
-                                     },
-                                    borderColor: '#6366f1', borderWidth: 2, borderRadius: 6, borderSkipped: false,
-                                }]
-                            },
-                            options: { responsive: true, maintainAspectRatio: false, /* plugins, scales */ }
-                        });
+                        this.costHistoryChart.destroy(); // Safer to destroy and recreate to avoid overlay issues
                     }
+                    this.costHistoryChart = new Chart(historyCanvas.getContext('2d'), {
+                        type: 'bar',
+                        data: {
+                            labels: historyLabels,
+                            datasets: [{
+                                label: 'Monthly Cost',
+                                data: historyData,
+                                backgroundColor: (context) => {
+                                    const {ctx, chartArea} = context.chart;
+                                    if (!chartArea) return null;
+                                    const gradient = ctx.createLinearGradient(0, chartArea.bottom, 0, chartArea.top);
+                                    gradient.addColorStop(0, '#6366f1');
+                                    gradient.addColorStop(1, '#8b5cf6');
+                                    return gradient;
+                                    },
+                                borderColor: '#6366f1', borderWidth: 2, borderRadius: 6, borderSkipped: false,
+                            }]
+                        },
+                        options: { responsive: true, maintainAspectRatio: false }
+                    });
                 }
 
-                // --- Service Breakdown Chart ---
                 const serviceLabels = safeServices.map(s => s && s.name ? s.name : 'Unknown');
                 const serviceData = safeServices.map(s => s && s.cost != null ? s.cost : 0);
 
-                if (safeServices.length === 0) {
+                if (safeServices.length > 0) {
                     if (this.serviceBreakdownChart) {
                         this.serviceBreakdownChart.destroy();
-                        this.serviceBreakdownChart = null;
                     }
-                } else {
-                    if (this.serviceBreakdownChart) {
-                        this.serviceBreakdownChart.data.labels = serviceLabels;
-                        this.serviceBreakdownChart.data.datasets[0].data = serviceData;
-                        this.serviceBreakdownChart.update();
-                    } else {
-                        this.serviceBreakdownChart = new Chart(serviceCanvas.getContext('2d'), {
-                            type: 'doughnut',
-                            data: {
-                                labels: serviceLabels,
-                                datasets: [{
-                                    label: 'Cost', data: serviceData,
-                                    backgroundColor: ['#6366f1', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#3b82f6', '#ec4899', '#14b8a6'],
-                                    borderWidth: 3, borderColor: '#ffffff', hoverBorderWidth: 4, hoverOffset: 8
-                                }]
-                            },
-                             options: { responsive: true, maintainAspectRatio: false, /* plugins */ }
-                        });
-                    }
+                    this.serviceBreakdownChart = new Chart(serviceCanvas.getContext('2d'), {
+                        type: 'doughnut',
+                        data: {
+                            labels: serviceLabels,
+                            datasets: [{
+                                label: 'Cost', data: serviceData,
+                                backgroundColor: ['#6366f1', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#3b82f6', '#ec4899', '#14b8a6'],
+                                borderWidth: 3, borderColor: '#ffffff', hoverBorderWidth: 4, hoverOffset: 8
+                            }]
+                        },
+                        options: { responsive: true, maintainAspectRatio: false }
+                    });
                 }
             },
-
 
             formatCurrency(value) {
                 if (typeof value !== 'number') return '$0.00';
@@ -799,7 +680,6 @@
                 return num.toLocaleString('en-US', { maximumFractionDigits: 3 });
             },
 
-
             toggleService(serviceName) {
                 this.expandedServices[serviceName] = !this.expandedServices[serviceName];
             },
@@ -807,16 +687,7 @@
             toggleRegion(serviceName, regionName) {
                 const key = `${serviceName}-${regionName}`;
                 this.expandedRegions[key] = !this.expandedRegions[key];
-            },
-
-            // loadSidebar() {
-            //     fetch('/_sidebar.html')
-            //         .then(response => response.text())
-            //         .then(html => {
-            //             document.getElementById('sidebar-container').innerHTML = html;
-            //             if (window.Alpine) Alpine.initTree(document.getElementById('sidebar-container'));
-            //         });
-            // }
+            }
         }
     }
 

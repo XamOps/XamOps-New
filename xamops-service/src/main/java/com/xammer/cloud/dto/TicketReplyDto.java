@@ -13,5 +13,10 @@ public class TicketReplyDto {
     private String authorUsername;
     private String message;
     private LocalDateTime createdAt;
-    private boolean admin; // <-- ADD THIS LINE
+    private boolean admin;
+
+    // --- NEW FIELDS ---
+    private String attachmentUrl;  // The secure, temporary link
+    private String attachmentName;
+    private String attachmentType;
 }

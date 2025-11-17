@@ -11,6 +11,8 @@ import software.amazon.awssdk.services.cloudformation.CloudFormationClient;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.pricing.PricingClient;
 import software.amazon.awssdk.services.rds.RdsClient;
+import software.amazon.awssdk.services.s3.S3Client; // --- ADDED ---
+import software.amazon.awssdk.services.s3.presigner.S3Presigner; // --- ADDED ---
 import software.amazon.awssdk.services.sts.StsClient;
 
 @Configuration
@@ -18,6 +20,10 @@ public class AwsConfig {
 
     @Value("${aws.region}")
     private String region;
+    
+    // Optional: Use specific S3 region if different, otherwise default to main region
+    @Value("${app.s3.region:ap-south-1}") 
+    private String s3Region;
 
     private DefaultCredentialsProvider getCredentialsProvider() {
         return DefaultCredentialsProvider.create();
@@ -62,6 +68,24 @@ public class AwsConfig {
                 .credentialsProvider(getCredentialsProvider())
                 .build();
     }
+
+    // --- NEW BEANS FOR FILE UPLOAD ---
+    @Bean
+    public S3Client s3Client() {
+        return S3Client.builder()
+                .region(Region.of(s3Region))
+                .credentialsProvider(getCredentialsProvider())
+                .build();
+    }
+
+    @Bean
+    public S3Presigner s3Presigner() {
+        return S3Presigner.builder()
+                .region(Region.of(s3Region))
+                .credentialsProvider(getCredentialsProvider())
+                .build();
+    }
+    // ---------------------------------
 
     @Bean("awsTaskExecutor")
     public TaskExecutor threadPoolTaskExecutor() {

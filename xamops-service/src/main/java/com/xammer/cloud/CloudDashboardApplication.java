@@ -18,7 +18,7 @@ public class CloudDashboardApplication {
         SpringApplication.run(CloudDashboardApplication.class, args);
     }
 
-//    }
+
 
     @Bean
     public ObjectMapper objectMapper() {
