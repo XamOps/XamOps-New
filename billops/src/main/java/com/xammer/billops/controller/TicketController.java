@@ -3,6 +3,7 @@ package com.xammer.billops.controller;
 import com.xammer.billops.dto.TicketDto;
 import com.xammer.billops.dto.TicketReplyDto;
 import com.xammer.billops.service.TicketService;
+import com.xammer.cloud.security.ClientUserDetails; // Import added
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -28,8 +29,19 @@ public class TicketController {
     }
 
     @PostMapping("/tickets")
-    public ResponseEntity<TicketDto> createTicket(@RequestBody TicketDto ticketDto) {
+    public ResponseEntity<TicketDto> createTicket(@RequestBody TicketDto ticketDto, Authentication authentication) {
         try {
+            // FIX: Inject Creator ID from Security Context
+            if (authentication != null && authentication.getPrincipal() instanceof ClientUserDetails) {
+                ClientUserDetails userDetails = (ClientUserDetails) authentication.getPrincipal();
+                ticketDto.setCreatorId(userDetails.getId());
+                
+                // Optional: Ensure Client ID is also set if missing
+                if (ticketDto.getClientId() == null) {
+                    ticketDto.setClientId(userDetails.getClientId());
+                }
+            }
+
             return ResponseEntity.ok(ticketService.createTicket(ticketDto));
         } catch (RuntimeException e) {
             logger.error("Error creating ticket: {}", e.getMessage(), e);
@@ -84,6 +96,11 @@ public class TicketController {
             TicketReplyDto replyDto = new TicketReplyDto();
             replyDto.setAuthorUsername(username);
             replyDto.setMessage(message);
+            
+            // Also capture author ID if possible to ensure consistency
+            if (authentication.getPrincipal() instanceof ClientUserDetails) {
+                replyDto.setAuthorId(((ClientUserDetails) authentication.getPrincipal()).getId());
+            }
 
             if (replyDto.getMessage() == null || replyDto.getMessage().isBlank()) {
                 return ResponseEntity.badRequest().build();
