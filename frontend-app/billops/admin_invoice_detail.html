@@ -6,14 +6,14 @@
     <title>XamOps - Review Invoice</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-        <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
-<link rel="apple-touch-icon" href="/icons/XamOps.png">
+    <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
+    <link rel="apple-touch-icon" href="/icons/XamOps.png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/big.js@6.0.3/big.min.js"></script>
     <style>
         [x-cloak] { display: none !important; }
 
-        /* --- START: STYLES COPIED FOR DRILL-DOWN CONSISTENCY --- */
+        /* --- DRILL-DOWN TABLE STYLES --- */
         .cost-breakdown-table {
             width: 100%;
             border-collapse: separate;
@@ -87,7 +87,6 @@
         .service-name { font-weight: 600; color: #1f2937; font-size: 15px; }
         .region-name { color: #6b7280; font-weight: 500; padding-left: 20px; }
         .resource-name { color: #9ca3af; font-size: 13px; padding-left: 40px; }
-        /* --- END: COPIED STYLES --- */
     </style>
 </head>
 <body class="bg-gray-100" x-data="invoiceDetailPage()">
@@ -96,126 +95,167 @@
 
     <div class="flex-1 flex flex-col overflow-hidden pl-64">
         <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-6 relative">
-            <div x-show="loading" class="text-center p-10"><i class="fas fa-spinner fa-spin text-3xl text-indigo-500"></i></div>
-            <div x-show="error" class="text-center p-10 bg-red-50 rounded-lg"><p class="text-red-700" x-text="error"></p></div>
+            
+            <div x-show="loading" class="text-center p-20" x-cloak>
+                <i class="fas fa-circle-notch fa-spin text-4xl text-indigo-500 mb-4"></i>
+                <p class="text-gray-500">Loading invoice details...</p>
+            </div>
+            
+            <div x-show="error && !loading" class="text-center p-10 bg-red-50 rounded-lg border border-red-200 m-6" x-cloak>
+                <i class="fas fa-exclamation-triangle text-red-500 text-3xl mb-2"></i>
+                <p class="text-red-700 font-medium" x-text="error"></p>
+                <a href="/admin_invoices.html" class="mt-4 inline-block text-indigo-600 hover:underline">Return to List</a>
+            </div>
             
             <div x-show="!loading && invoice" class="container mx-auto" x-cloak>
-                <a href="admin_invoices.html" class="text-indigo-600 hover:text-indigo-800 mb-4 inline-block"><i class="fas fa-arrow-left mr-2"></i>Back to All Invoices</a>
+                <a href="admin_invoices.html" class="text-indigo-600 hover:text-indigo-800 mb-4 inline-flex items-center transition-colors">
+                    <i class="fas fa-arrow-left mr-2"></i>Back to All Invoices
+                </a>
+                
                 <div class="bg-white rounded-lg shadow-md p-8">
-                    <div class="flex justify-between items-start mb-6">
+                    <div class="flex justify-between items-start mb-8 pb-6 border-b border-gray-100">
                         <div>
-                            <h1 class="text-3xl font-bold text-gray-800" x-text="`Invoice #${invoice.invoiceNumber}`"></h1>
-                            <p class="text-gray-600" x-text="`For: ${invoice.accountName} (${invoice.awsAccountId})`"></p>
+                            <h1 class="text-3xl font-bold text-gray-800 flex items-center">
+                                <span x-text="`Invoice #${invoice.invoiceNumber}`"></span>
+                            </h1>
+                            <p class="text-gray-600 mt-1" x-text="`Account: ${invoice.accountName} (${invoice.awsAccountId})`"></p>
                         </div>
                         <div class="text-right">
-                            <span class="px-3 py-1 text-sm font-semibold rounded-full" :class="{ 'bg-yellow-100 text-yellow-800': invoice.status === 'DRAFT', 'bg-green-100 text-green-800': invoice.status === 'FINALIZED' }" x-text="invoice.status"></span>
+                            <span class="px-3 py-1 text-sm font-semibold rounded-full" 
+                                  :class="{ 
+                                      'bg-yellow-100 text-yellow-800': invoice.status === 'DRAFT', 
+                                      'bg-green-100 text-green-800': invoice.status === 'FINALIZED',
+                                      'bg-gray-100 text-gray-800': invoice.status === 'VOID'
+                                  }" x-text="invoice.status">
+                            </span>
                             <p class="text-gray-500 mt-2" x-text="`Period: ${invoice.billingPeriod}`"></p>
+                            <p class="text-xs text-gray-400" x-text="`Date: ${invoice.invoiceDate}`"></p>
                         </div>
                     </div>
 
-                    <div x-show="invoice.status === 'DRAFT'" class="bg-indigo-50 border border-indigo-200 p-4 rounded-lg mb-6">
-                        <h3 class="font-semibold text-lg text-indigo-800 mb-3">Admin Actions</h3>
-                        <div class="flex items-end justify-between">
-                             <div>
-                                <h4 class="font-medium text-gray-700 mb-2">Apply Discount</h4>
+                    <div x-show="invoice.status === 'DRAFT'" class="bg-indigo-50 border border-indigo-200 p-5 rounded-lg mb-8 shadow-sm">
+                        <h3 class="font-semibold text-lg text-indigo-900 mb-4 flex items-center">
+                            <i class="fas fa-user-shield mr-2"></i> Admin Actions
+                        </h3>
+                        
+                        <div class="flex flex-col md:flex-row md:items-end justify-between gap-4">
+                            <div class="flex-1 bg-white p-4 rounded border border-indigo-100">
+                                <h4 class="font-medium text-gray-700 mb-2 text-sm uppercase tracking-wide">Apply Discount</h4>
                                 <div class="flex items-center space-x-2">
-                                    <select x-model="discountService" class="block w-full text-sm border-gray-300 rounded-md">
-                                        <option value="ALL">Overall Bill</option>
+                                    <select x-model="discountService" class="block w-full text-sm border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                                        <option value="ALL">Entire Invoice (Overall)</option>
                                         <template x-for="service in uniqueServices" :key="service">
                                             <option :value="service" x-text="service"></option>
                                         </template>
                                     </select>
-                                    <input type="number" x-model.number="discountPercentage" placeholder="%" class="w-20 text-sm border-gray-300 rounded-md">
-                                    <button @click="applyDiscount()" :disabled="!discountService || !discountPercentage" class="px-4 py-2 bg-indigo-500 text-white text-sm rounded-md hover:bg-indigo-600 disabled:bg-gray-400">Apply</button>
+                                    <div class="relative w-24">
+                                        <input type="number" x-model.number="discountPercentage" placeholder="%" min="0" max="100" class="block w-full text-sm border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 pr-6">
+                                        <div class="absolute inset-y-0 right-0 pr-2 flex items-center pointer-events-none">
+                                            <span class="text-gray-500 sm:text-sm">%</span>
+                                        </div>
+                                    </div>
+                                    <button @click="applyDiscount()" :disabled="!discountService || discountPercentage === null || discountPercentage === ''" class="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors">
+                                        Apply
+                                    </button>
                                 </div>
                             </div>
-                            <div class="flex items-end justify-end space-x-4">
-                                <button @click="finalizeInvoice()" class="px-6 py-2 bg-green-600 text-white font-semibold rounded-md hover:bg-green-700"><i class="fas fa-check-circle mr-2"></i>Finalize & Publish</button>
+                            
+                            <div class="flex-shrink-0">
+                                <button @click="finalizeInvoice()" class="px-6 py-3 bg-green-600 text-white font-bold rounded-md hover:bg-green-700 shadow-md transform transition hover:-translate-y-0.5">
+                                    <i class="fas fa-check-circle mr-2"></i>Finalize Invoice
+                                </button>
                             </div>
                         </div>
-                        <div x-show="message" class="mt-3 text-sm" :class="isError ? 'text-red-600' : 'text-green-600'" x-text="message"></div>
+                        
+                        <div x-show="message" class="mt-3 text-sm font-medium p-2 rounded bg-white border" :class="isError ? 'text-red-600 border-red-200' : 'text-green-600 border-green-200'" x-text="message"></div>
                     </div>
 
                     <div>
-                        <h2 class="text-xl font-bold text-gray-800 mb-4">Invoice Details</h2>
-                         <div class="border rounded-lg overflow-hidden">
+                        <h2 class="text-xl font-bold text-gray-800 mb-4">Cost Breakdown</h2>
+                        <div class="border border-gray-200 rounded-lg overflow-hidden">
                              <table class="cost-breakdown-table">
                                 <colgroup>
-                                    <col style="width: 60px;">
+                                    <col style="width: 50px;">
                                     <col style="width: 45%;">
                                     <col style="width: 25%;">
                                     <col style="width: 25%;">
                                 </colgroup>
                                 <thead>
-                                <tr>
-                                    <th></th>
-                                    <th>Service / Resource</th>
-                                    <th>Usage Quantity</th>
-                                    <th>Amount (USD)</th>
-                                </tr>
+                                    <tr>
+                                        <th></th>
+                                        <th>Service / Resource</th>
+                                        <th>Usage</th>
+                                        <th class="text-right">Amount</th>
+                                    </tr>
                                 </thead>
 
                                 <template x-for="service in detailedBreakdown" :key="service.serviceName">
                                     <tbody>
-                                    <tr @click="toggleService(service.serviceName)" class="cursor-pointer">
-                                        <td>
-                                            <div class="expand-icon" :class="{ 'rotate-90': expandedServices[service.serviceName] }">
-                                                <i class="fas fa-chevron-right text-sm"></i>
-                                            </div>
-                                        </td>
-                                        <td><div class="service-name" x-text="service.serviceName"></div></td>
-                                        <td><span class="text-gray-500">—</span></td>
-                                        <td><div class="amount-cell" x-text="formatCurrency(service.totalCost)"></div></td>
-                                    </tr>
-
-                                    <template x-for="region in service.regionCosts" :key="region.regionName">
-                                        <tbody x-show="expandedServices[service.serviceName]">
-                                        <tr @click="toggleRegion(service.serviceName, region.regionName)" class="cursor-pointer drilldown-row">
+                                        <tr @click="toggleService(service.serviceName)" class="cursor-pointer group">
                                             <td>
-                                                <div class="expand-icon" :class="{ 'rotate-90': expandedRegions[`${service.serviceName}-${region.regionName}`] }">
+                                                <div class="expand-icon" :class="{ 'rotate-90': expandedServices[service.serviceName] }">
                                                     <i class="fas fa-chevron-right text-xs"></i>
                                                 </div>
                                             </td>
-                                            <td><div class="region-name" x-text="region.regionName"></div></td>
-                                            <td><span class="text-gray-500">—</span></td>
-                                            <td><div class="amount-cell text-blue-600" x-text="formatCurrency(region.cost)"></div></td>
+                                            <td>
+                                                <div class="service-name group-hover:text-indigo-600 transition-colors" x-text="service.serviceName"></div>
+                                            </td>
+                                            <td><span class="text-gray-400 text-xs">—</span></td>
+                                            <td><div class="amount-cell" x-text="formatCurrency(service.totalCost)"></div></td>
                                         </tr>
 
-                                        <template x-for="resource in region.resources" :key="resource.resourceId">
-                                            <tr x-show="expandedRegions[`${service.serviceName}-${region.regionName}`]" class="nested-drilldown">
-                                                <td></td>
-                                                <td><div class="resource-name" x-text="resource.resourceName"></div></td>
-                                                <td class="text-right text-gray-600 text-sm" x-text="`${formatNumber(resource.usageQuantity)} ${resource.unit}`"></td>
-                                                <td><div class="amount-cell text-purple-600" x-text="formatCurrency(resource.cost)"></div></td>
-                                            </tr>
+                                        <template x-for="region in service.regionCosts" :key="region.regionName">
+                                            <tbody x-show="expandedServices[service.serviceName]">
+                                                <tr @click="toggleRegion(service.serviceName, region.regionName)" class="cursor-pointer drilldown-row group">
+                                                    <td>
+                                                        <div class="expand-icon ml-2" :class="{ 'rotate-90': expandedRegions[`${service.serviceName}-${region.regionName}`] }">
+                                                            <i class="fas fa-chevron-right text-[10px]"></i>
+                                                        </div>
+                                                    </td>
+                                                    <td><div class="region-name group-hover:text-indigo-600" x-text="region.regionName"></div></td>
+                                                    <td><span class="text-gray-400 text-xs">—</span></td>
+                                                    <td><div class="amount-cell text-blue-600 text-sm" x-text="formatCurrency(region.cost)"></div></td>
+                                                </tr>
+
+                                                <template x-for="resource in region.resources" :key="resource.resourceId">
+                                                    <tr x-show="expandedRegions[`${service.serviceName}-${region.regionName}`]" class="nested-drilldown">
+                                                        <td></td>
+                                                        <td><div class="resource-name" x-text="resource.resourceName"></div></td>
+                                                        <td class="text-right text-gray-500 text-xs font-mono" x-text="`${formatNumber(resource.usageQuantity)} ${resource.unit}`"></td>
+                                                        <td><div class="amount-cell text-purple-600 text-xs" x-text="formatCurrency(resource.cost)"></div></td>
+                                                    </tr>
+                                                </template>
+                                            </tbody>
                                         </template>
-                                        </tbody>
-                                    </template>
                                     </tbody>
                                 </template>
                                 
-                                <tfoot>
-                                    <tr class="border-t-2">
-                                        <td colspan="3" class="text-right font-semibold py-3">Subtotal</td>
-                                        <td class="text-right font-semibold py-3" x-text="formatCurrency(invoice.preDiscountTotal)"></td>
+                                <tfoot class="bg-gray-50">
+                                    <tr class="border-t-2 border-gray-200">
+                                        <td colspan="3" class="px-6 py-4 text-right text-gray-600 font-medium">Subtotal</td>
+                                        <td class="px-6 py-4 text-right text-gray-800 font-bold" x-text="formatCurrency(invoice.preDiscountTotal)"></td>
                                     </tr>
-                                     <template x-for="discount in invoice.discounts" :key="discount.id">
-                                        <tr class="text-sm">
-                                            <td colspan="3" class="px-4 py-1 text-right text-gray-500" x-text="discount.description"></td>
-                                            <td class="px-4 py-1 text-right text-red-600 flex justify-end items-center">
-                                                <span x-text="formatCurrency(calculateDiscountAmount(discount))"></span>
-                                                <button x-show="invoice.status === 'DRAFT'" @click="removeDiscount(discount.id)" class="ml-2 text-gray-400 hover:text-red-500" title="Remove Discount"><i class="fas fa-trash-alt fa-xs"></i></button>
+                                    
+                                    <template x-for="discount in invoice.discounts" :key="discount.id">
+                                        <tr class="bg-red-50">
+                                            <td colspan="3" class="px-6 py-2 text-right text-red-600 text-sm">
+                                                <span x-text="discount.description"></span>
+                                                <button x-show="invoice.status === 'DRAFT'" @click="removeDiscount(discount.id)" class="ml-2 text-red-400 hover:text-red-800 transition-colors" title="Remove Discount">
+                                                    <i class="fas fa-times-circle"></i>
+                                                </button>
                                             </td>
+                                            <td class="px-6 py-2 text-right text-red-700 font-medium text-sm" x-text="formatCurrency(calculateDiscountAmount(discount))"></td>
                                         </tr>
                                     </template>
-                                    <tr class="border-t-2 border-gray-300 bg-gray-100">
-                                        <td colspan="3" class="px-4 py-3 text-right text-gray-800 font-bold text-lg">FINAL TOTAL:</td>
-                                        <td class="px-4 py-3 text-right text-gray-900 font-bold text-lg" x-text="formatCurrency(invoice.amount)"></td>
+                                    
+                                    <tr class="border-t-2 border-indigo-100 bg-indigo-50">
+                                        <td colspan="3" class="px-6 py-4 text-right text-indigo-900 font-bold text-lg">TOTAL DUE</td>
+                                        <td class="px-6 py-4 text-right text-indigo-700 font-bold text-xl" x-text="formatCurrency(invoice.amount)"></td>
                                     </tr>
                                 </tfoot>
                             </table>
                         </div>
-                         </div>
+                    </div>
                 </div>
             </div>
         </main>
@@ -235,71 +275,93 @@
             message: '',
             isError: false,
 
-            // --- START: NEW PROPERTIES FOR DRILL-DOWN ---
+            // Drill-down State
             detailedBreakdown: [],
             expandedServices: {},
             expandedRegions: {},
-            // --- END: NEW PROPERTIES ---
 
             init() {
-                // this.loadSidebar();
                 const urlParams = new URLSearchParams(window.location.search);
                 this.invoiceId = urlParams.get('id');
                 if (!this.invoiceId) {
-                    this.error = "No Invoice ID provided."; this.loading = false; return;
+                    this.error = "No Invoice ID provided."; 
+                    this.loading = false; 
+                    return;
                 }
                 this.fetchInvoiceDetails();
             },
 
             fetchInvoiceDetails() {
-                this.loading = true; this.error = null;
+                this.loading = true; 
+                this.error = null;
+                
                 fetch(`/api/admin/invoices/${this.invoiceId}`)
-                    .then(res => res.ok ? res.json() : Promise.reject('Invoice not found.'))
+                    .then(res => {
+                        if (!res.ok) throw new Error('Invoice not found.');
+                        return res.json();
+                    })
                     .then(data => {
                         this.invoice = data;
-                        this.detailedBreakdown = this.transformToDrilldown(data.lineItems); // Transform data
+                        // Transform flat line items to hierarchical data
+                        this.detailedBreakdown = this.transformToDrilldown(data.lineItems);
                         this.updateUniqueServices();
                     })
                     .catch(err => { this.error = err.message; })
                     .finally(() => { this.loading = false; });
             },
 
-            // --- START: NEW DATA TRANSFORMATION FUNCTION ---
+            // Transforms API flat list to Service -> Region -> Resource hierarchy
             transformToDrilldown(lineItems) {
                 if (!lineItems || lineItems.length === 0) return [];
+                
                 const serviceMap = new Map();
+                
                 for (const item of lineItems) {
+                    // 1. Service Level
                     if (!serviceMap.has(item.serviceName)) {
-                        serviceMap.set(item.serviceName, { serviceName: item.serviceName, totalCost: 0, regionCosts: new Map() });
+                        serviceMap.set(item.serviceName, { 
+                            serviceName: item.serviceName, 
+                            totalCost: 0, 
+                            regionCosts: new Map() 
+                        });
                     }
                     const service = serviceMap.get(item.serviceName);
                     service.totalCost += item.cost;
 
+                    // 2. Region Level
                     if (!service.regionCosts.has(item.regionName)) {
-                        service.regionCosts.set(item.regionName, { regionName: item.regionName, cost: 0, resources: [] });
+                        service.regionCosts.set(item.regionName, { 
+                            regionName: item.regionName, 
+                            cost: 0, 
+                            resources: [] 
+                        });
                     }
                     const region = service.regionCosts.get(item.regionName);
                     region.cost += item.cost;
+
+                    // 3. Resource Level
                     region.resources.push({
-                        resourceId: `${item.serviceName}-${item.regionName}-${item.resourceName}-${item.cost}`,
+                        resourceId: `${item.serviceName}-${item.regionName}-${item.resourceName}-${item.cost}`, // Unique key for loop
                         resourceName: item.resourceName,
                         usageQuantity: item.usageQuantity,
                         unit: item.unit,
                         cost: item.cost
                     });
                 }
+                
+                // Convert Maps to Arrays for Alpine x-for
                 const result = [];
                 for (const service of serviceMap.values()) {
                     service.regionCosts = Array.from(service.regionCosts.values());
                     result.push(service);
                 }
-                return result;
+                return result.sort((a, b) => b.totalCost - a.totalCost); // Sort by cost desc
             },
-            // --- END: NEW DATA TRANSFORMATION FUNCTION ---
             
             updateUniqueServices() {
                 if (this.invoice && this.invoice.lineItems) {
-                    this.uniqueServices = [...new Set(this.invoice.lineItems.map(item => item.serviceName))];
+                    const services = new Set(this.invoice.lineItems.map(item => item.serviceName));
+                    this.uniqueServices = Array.from(services).sort();
                 }
             },
             
@@ -310,52 +372,69 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ serviceName: this.discountService, percentage: this.discountPercentage })
                 })
-                .then(res => res.ok ? res.json() : Promise.reject('Failed to apply discount.'))
+                .then(res => {
+                    if (!res.ok) throw new Error('Failed to apply discount.');
+                    return res.json();
+                })
                 .then(updatedInvoice => {
+                    // Update local data with returned invoice (totals are recalculated on backend)
                     this.invoice = updatedInvoice;
                     this.detailedBreakdown = this.transformToDrilldown(updatedInvoice.lineItems);
                     this.message = 'Discount applied successfully!';
                     this.discountPercentage = null;
                 })
-                .catch(err => { this.message = err.message; this.isError = true; });
+                .catch(err => { this.message = err.message || 'Error applying discount'; this.isError = true; });
             },
 
             removeDiscount(discountId) {
+                if (!confirm('Remove this discount?')) return;
                 this.message = '';
                 fetch(`/api/admin/invoices/${this.invoiceId}/discounts/${discountId}`, { method: 'DELETE' })
-                .then(res => res.ok ? res.json() : Promise.reject('Failed to remove discount.'))
+                .then(res => {
+                    if (!res.ok) throw new Error('Failed to remove discount.');
+                    return res.json();
+                })
                 .then(updatedInvoice => {
                     this.invoice = updatedInvoice;
                     this.detailedBreakdown = this.transformToDrilldown(updatedInvoice.lineItems);
                     this.message = 'Discount removed successfully!';
                     this.isError = false;
                 })
-                .catch(err => { this.message = err; this.isError = true; });
+                .catch(err => { this.message = err.message; this.isError = true; });
             },
 
+            // Helper purely for display logic in the footer
             calculateDiscountAmount(discount) {
-                let amount = 0;
-                const percentage = new Big(discount.percentage).div(100);
-                if (discount.serviceName.toUpperCase() === 'ALL') {
-                    amount = new Big(this.invoice.preDiscountTotal).times(percentage);
-                } else {
-                    const serviceTotal = this.invoice.lineItems
-                        .filter(item => item.serviceName === discount.serviceName)
-                        .reduce((sum, item) => sum.plus(new Big(item.cost)), new Big(0));
-                    amount = serviceTotal.times(percentage);
-                }
-                return amount.times(-1).toNumber();
+                try {
+                    let amount = 0;
+                    const percentage = new Big(discount.percentage).div(100);
+                    
+                    if (discount.serviceName === 'ALL') {
+                        amount = new Big(this.invoice.preDiscountTotal).times(percentage);
+                    } else {
+                        // Sum costs of matching services from the detailed view to ensure accuracy
+                        const service = this.detailedBreakdown.find(s => s.serviceName === discount.serviceName);
+                        if (service) {
+                            amount = new Big(service.totalCost).times(percentage);
+                        }
+                    }
+                    return amount.times(-1).toNumber(); // Return negative for display
+                } catch(e) { return 0; }
             },
 
             finalizeInvoice() {
-                if (!confirm('Are you sure you want to finalize this invoice? This action cannot be undone.')) return;
+                if (!confirm('Are you sure you want to finalize this invoice? This action cannot be undone and will notify the client.')) return;
                 this.message = ''; this.isError = false;
+                
                 fetch(`/api/admin/invoices/${this.invoiceId}/finalize`, { method: 'POST' })
-                .then(res => res.ok ? res.json() : Promise.reject('Failed to finalize invoice.'))
+                .then(res => {
+                    if (!res.ok) throw new Error('Failed to finalize invoice.');
+                    return res.json();
+                })
                 .then(finalizedInvoice => {
                     this.invoice = finalizedInvoice;
                     this.detailedBreakdown = this.transformToDrilldown(finalizedInvoice.lineItems);
-                    this.message = 'Invoice has been finalized and is now visible to the user.';
+                    this.message = 'Invoice finalized successfully!';
                 })
                 .catch(err => { this.message = err.message; this.isError = true; });
             },
@@ -366,13 +445,12 @@
             },
 
             formatNumber(value) {
-                if (typeof value !== 'number' && typeof value !== 'string') return '0';
+                if (value === null || value === undefined) return '0';
                 const num = Number(value);
                 if (isNaN(num)) return '0';
                 return num.toLocaleString('en-US', { maximumFractionDigits: 3 });
             },
 
-            // --- START: NEW TOGGLE METHODS ---
             toggleService(serviceName) {
                 this.expandedServices[serviceName] = !this.expandedServices[serviceName];
             },
@@ -380,17 +458,7 @@
             toggleRegion(serviceName, regionName) {
                 const key = `${serviceName}-${regionName}`;
                 this.expandedRegions[key] = !this.expandedRegions[key];
-            },
-            // --- END: NEW TOGGLE METHODS ---
-
-            // loadSidebar() {
-            //     fetch('/_sidebar.html')
-            //         .then(response => response.text())
-            //         .then(html => {
-            //             document.getElementById('sidebar-container').innerHTML = html;
-            //             if (window.Alpine) Alpine.start();
-            //         });
-            // }
+            }
         };
     }
     

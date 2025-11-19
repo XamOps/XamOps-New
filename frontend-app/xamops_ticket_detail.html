@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>XamOps - Ticket Details (Admin)</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    
     <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     
@@ -39,23 +39,27 @@
 <body class="bg-gray-100 font-sans" x-data="ticketDetailApp()">
 
 <div class="flex h-screen overflow-hidden">
-    <div id="sidebar-container" class="flex-shrink-0"></div>
+  <include file="/_sidebar.html"></include>
 
     <div class="flex-1 flex flex-col min-w-0 overflow-hidden pl-64">
         
         <header class="bg-white shadow-sm z-10 border-b border-gray-200 px-6 py-4">
             <div class="max-w-5xl mx-auto flex justify-between items-center">
                 <div class="flex items-center gap-4">
-                    <a href="xamops_tickets.html" class="text-gray-500 hover:text-indigo-600 transition">
-                        <i class="fas fa-arrow-left"></i>
+                    <a href="/xamops_tickets.html" class="text-gray-500 hover:text-indigo-600 transition">
+                        <i class="fas fa-arrow-left"></i> Back to List
                     </a>
                     <div>
                         <h1 class="text-xl font-bold text-gray-900 flex items-center gap-3">
                             <span x-text="ticket ? ticket.subject : 'Loading...'"></span>
                         </h1>
                         <div class="flex items-center gap-3 text-xs text-gray-500 mt-1" x-show="ticket">
+                            <span class="font-mono text-gray-400" x-text="'#' + ticket.id"></span>
+                            <span>&bull;</span>
                             <span class="bg-gray-100 px-2 py-0.5 rounded border border-gray-200" x-text="ticket.category"></span>
                             <span x-text="ticket.service"></span>
+                            <span>&bull;</span>
+                            <span x-show="ticket.accountId" class="text-gray-600 font-medium" x-text="`Account: ${ticket.accountId}`"></span>
                             <span>&bull;</span>
                             <span x-text="'Created: ' + formatDate(ticket.createdAt)"></span>
                         </div>
@@ -103,10 +107,14 @@
                                 </div>
                                 <div class="prose prose-sm max-w-none text-gray-700" x-text="ticket.description"></div>
                                 
-                                <div class="mt-4 flex gap-4 text-xs text-gray-500 border-t border-gray-100 pt-3">
-                                    <div><strong>Account ID:</strong> <span x-text="ticket.accountId || 'N/A'"></span></div>
+                                <div class="mt-4 pt-3 border-t border-gray-100 flex flex-wrap gap-4 text-xs text-gray-500">
                                     <div><strong>Region:</strong> <span x-text="ticket.region || 'Global'"></span></div>
-                                    <div><strong>Severity:</strong> <span class="text-orange-600 font-semibold" x-text="ticket.severity"></span></div>
+                                    <div><strong>Severity:</strong> <span class="font-medium" 
+                                        :class="{
+                                            'text-red-600': ['High', 'Critical'].includes(ticket.severity),
+                                            'text-orange-500': ticket.severity === 'Medium',
+                                            'text-blue-500': ticket.severity === 'Low'
+                                        }" x-text="ticket.severity"></span></div>
                                 </div>
                             </div>
                         </div>
@@ -144,7 +152,7 @@
                                          :class="isMe(reply) 
                                             ? 'bg-indigo-600 text-white rounded-2xl rounded-tr-none' 
                                             : 'bg-white text-gray-800 border border-gray-200 rounded-2xl rounded-tl-none'">
-                                        
+                                    
                                         <div class="prose-chat ql-editor !p-0 !min-h-0" 
                                              :class="isMe(reply) ? 'prose-chat-inverse' : ''"
                                              x-html="reply.message"></div>
@@ -158,6 +166,7 @@
                                                 </div>
                                                 <div class="flex-1 min-w-0">
                                                     <p class="text-sm font-medium truncate" x-text="reply.fileName || 'Attachment'"></p>
+                                                    <p class="text-xs opacity-80">Click to view</p>
                                                 </div>
                                                 <div class="ml-2"><i class="fas fa-external-link-alt opacity-70"></i></div>
                                             </div>
@@ -167,6 +176,10 @@
                             </div>
                         </div>
                     </template>
+
+                    <div x-show="ticket.replies.length === 0" class="text-center py-10">
+                        <p class="text-gray-400 text-sm italic">No replies yet. Start the conversation below.</p>
+                    </div>
 
                 </div>
             </div>
@@ -189,11 +202,13 @@
                     </div>
 
                     <div class="flex justify-between items-center">
-                        <label class="cursor-pointer text-gray-500 hover:text-indigo-600 flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-50 transition">
-                            <i class="fas fa-paperclip"></i>
-                            <span class="text-sm">Attach File</span>
-                            <input type="file" class="hidden" @change="handleFile">
-                        </label>
+                        <div class="flex items-center">
+                            <label class="cursor-pointer text-gray-500 hover:text-indigo-600 flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-50 transition">
+                                <i class="fas fa-paperclip"></i>
+                                <span class="text-sm">Attach File</span>
+                                <input type="file" class="hidden" @change="handleFile">
+                            </label>
+                        </div>
                         
                         <div class="flex gap-3">
                             <button type="button" @click="closeTicket" class="px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg text-sm font-medium transition">
@@ -219,12 +234,12 @@
     function ticketDetailApp() {
         return {
             loading: true,
-            ticketId: null,
+            isSubmitting: false,
             ticket: null,
             newReply: '',
             attachment: null,
             fileName: '',
-            isSubmitting: false,
+            ticketId: null,
             quillInstance: null,
             currentUser: { id: null },
 
@@ -232,7 +247,7 @@
                 const urlParams = new URLSearchParams(window.location.search);
                 this.ticketId = urlParams.get('id');
                 
-                this.loadSidebar();
+                // this.loadSidebar();
                 
                 if(this.ticketId) {
                     this.fetchCurrentUser().then(() => this.fetchTicket());
@@ -242,7 +257,10 @@
             async fetchCurrentUser() {
                 try {
                     const response = await fetch('/api/xamops/user/profile', { credentials: 'include' });
-                    if (response.ok) this.currentUser = await response.json();
+                    if (response.ok) {
+                        this.currentUser = await response.json();
+                        console.log("Admin User Loaded:", this.currentUser);
+                    }
                 } catch(e) { console.error(e); }
             },
 
@@ -293,14 +311,14 @@
                 }
             },
 
-            // Admin View Logic: Admins/Support on Right, Customers on Left
+            // Updated isMe logic for admin check
             isMe(reply) {
                 // Check if reply is marked as admin in DTO
                 if (reply.admin === true) return true;
                 
-                // Fallback: check if author matches current admin user
+                // Fallback: check if author matches current admin user (safe comparison)
                 if (this.currentUser && this.currentUser.id) {
-                    return reply.authorId === this.currentUser.id;
+                    return String(reply.authorId) === String(this.currentUser.id);
                 }
                 
                 // Default fallback for admin portal: Support is "Me"
@@ -331,13 +349,11 @@
                 const formData = new FormData();
                 formData.append('message', this.newReply);
                 formData.append('ticketId', this.ticketId);
-                // Ensure admin flag is handled by backend based on role, or send if needed
                 if(this.currentUser.id) formData.append('authorId', this.currentUser.id);
                 
                 if(this.attachment) formData.append('file', this.attachment);
 
                 try {
-                    // FIXED ENDPOINT: Plural 'replies'
                     const response = await fetch(`/api/xamops/tickets/${this.ticketId}/replies`, {
                         credentials: 'include',
                         method: 'POST',
@@ -349,7 +365,6 @@
                     const updatedTicket = await response.json();
                     this.ticket = updatedTicket;
                     
-                    // Reset
                     this.quillInstance.root.innerHTML = '';
                     this.newReply = '';
                     this.clearFile();
@@ -374,15 +389,6 @@
                 }
             },
             
-            loadSidebar() {
-                fetch('/_sidebar.html')
-                    .then(response => response.text())
-                    .then(html => {
-                        document.getElementById('sidebar-container').innerHTML = html;
-                        if (window.Alpine) Alpine.start();
-                    });
-            },
-
             formatDate(dateString) {
                 if (!dateString) return '';
                 return new Date(dateString).toLocaleString();
@@ -395,7 +401,8 @@
             },
 
             getInitials(name) {
-                return name ? name.charAt(0).toUpperCase() : 'U';
+                if (!name) return 'U';
+                return name.charAt(0).toUpperCase();
             }
         };
     }

@@ -3,73 +3,76 @@ package com.xammer.billops.controller;
 import com.xammer.cloud.domain.Invoice;
 import com.xammer.billops.dto.DiscountRequestDto;
 import com.xammer.billops.dto.InvoiceDto;
-import com.xammer.billops.dto.InvoiceUpdateDto; // ADDED IMPORT
-import com.xammer.billops.repository.InvoiceRepository;
+import com.xammer.billops.dto.InvoiceUpdateDto;
 import com.xammer.billops.service.InvoiceManagementService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Optional; // --- ADDED IMPORT ---
-import java.util.stream.Collectors;
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/admin/invoices")
 public class AdminInvoiceController {
 
+    private static final Logger logger = LoggerFactory.getLogger(AdminInvoiceController.class);
     private final InvoiceManagementService invoiceManagementService;
-    private final InvoiceRepository invoiceRepository; // Still needed for other methods if not moved
 
-    public AdminInvoiceController(InvoiceManagementService invoiceManagementService, InvoiceRepository invoiceRepository) {
+    public AdminInvoiceController(InvoiceManagementService invoiceManagementService) {
         this.invoiceManagementService = invoiceManagementService;
-        this.invoiceRepository = invoiceRepository;
     }
 
     @PostMapping("/generate")
     public ResponseEntity<InvoiceDto> generateDraftInvoice(@RequestBody Map<String, Object> payload) {
         String accountId = (String) payload.get("accountId");
-        int year = (Integer) payload.get("year");
-        int month = (Integer) payload.get("month");
+        
+        // FIX: Safely parse integers from the payload to handle both String ("2025") and Integer (2025) inputs
+        int year = Integer.parseInt(String.valueOf(payload.get("year")));
+        int month = Integer.parseInt(String.valueOf(payload.get("month")));
 
         Invoice draftInvoice = invoiceManagementService.generateDraftInvoice(accountId, year, month);
         return ResponseEntity.ok(InvoiceDto.fromEntity(draftInvoice));
     }
 
-    // --- MODIFIED: This is now the FRESH endpoint ---
+    /**
+     * Unified endpoint for Invoice List.
+     * Supports "Instant Load" via caching and manual refresh.
+     * GET /api/admin/invoices?forceRefresh=true|false
+     */
     @GetMapping
-    public ResponseEntity<List<InvoiceDto>> getFreshAllInvoices() {
-        // Calls the @CachePut method
-        List<InvoiceDto> invoices = invoiceManagementService.getAllInvoicesAndCache();
-        return ResponseEntity.ok(invoices);
+    public ResponseEntity<List<InvoiceDto>> getAllInvoices(@RequestParam(defaultValue = "false") boolean forceRefresh) {
+        logger.debug("GET /api/admin/invoices called. ForceRefresh: {}", forceRefresh);
+
+        // 1. Try Cache (if not forced)
+        if (!forceRefresh) {
+            Optional<List<InvoiceDto>> cachedInvoices = invoiceManagementService.getCachedAllInvoices();
+            if (cachedInvoices.isPresent()) {
+                logger.debug("Returning CACHED invoice list");
+                return ResponseEntity.ok(cachedInvoices.get());
+            }
+        }
+
+        // 2. Fetch Fresh Data (if forced or cache miss)
+        logger.info("Fetching FRESH invoice list and updating cache");
+        List<InvoiceDto> freshInvoices = invoiceManagementService.getAllInvoicesAndCache();
+        return ResponseEntity.ok(freshInvoices);
     }
 
-    // --- NEW: This is the CACHED endpoint ---
-    @GetMapping("/cached")
-    public ResponseEntity<List<InvoiceDto>> getCachedAllInvoices() {
-        // Calls the @Cacheable method
-        Optional<List<InvoiceDto>> cachedInvoices = invoiceManagementService.getCachedAllInvoices();
-        return cachedInvoices
-                .map(ResponseEntity::ok)
-                .orElseGet(() -> ResponseEntity.notFound().build());
-    }
-
-    // --- START: MODIFICATION FOR ADMIN CACHING FIX ---
     @GetMapping("/{id}")
     public ResponseEntity<InvoiceDto> getInvoiceById(@PathVariable Long id) {
-        // CHANGED: The service now returns the DTO directly, which is cache-safe.
+        // Uses the service method that returns DTO directly (cache-safe)
         InvoiceDto invoiceDto = invoiceManagementService.getInvoiceForAdmin(id);
         return ResponseEntity.ok(invoiceDto);
     }
-    // --- END: MODIFICATION FOR ADMIN CACHING FIX ---
 
-    // --- START: NEW ENDPOINT TO SAVE CHANGES ---
     @PutMapping("/{id}")
     public ResponseEntity<InvoiceDto> updateInvoice(@PathVariable Long id, @RequestBody InvoiceUpdateDto invoiceUpdateDto) {
         Invoice updatedInvoice = invoiceManagementService.updateInvoice(id, invoiceUpdateDto);
         return ResponseEntity.ok(InvoiceDto.fromEntity(updatedInvoice));
     }
-    // --- END: NEW ENDPOINT ---
 
     @PutMapping("/{id}/discount")
     public ResponseEntity<InvoiceDto> applyDiscount(@PathVariable Long id, @RequestBody DiscountRequestDto discountRequest) {

@@ -12,7 +12,6 @@
     <style>
         [x-cloak] { display: none !important; }
 
-        /* --- START: STYLES COPIED FROM billing.html --- */
         .cost-breakdown-table {
             width: 100%;
             border-collapse: separate;
@@ -86,9 +85,7 @@
         .service-name { font-weight: 600; color: #1f2937; font-size: 15px; }
         .region-name { color: #6b7280; font-weight: 500; padding-left: 20px; }
         .resource-name { color: #9ca3af; font-size: 13px; padding-left: 40px; }
-        /* --- END: STYLES COPIED FROM billing.html --- */
         
-        /* --- ADDED SPINNER STYLE --- */
         .updating-spinner {
              display: inline-block;
              width: 16px;
@@ -127,7 +124,7 @@
                 <div class="bg-white p-4 rounded-lg shadow-md mb-6 flex items-center space-x-4">
                     <div>
                         <label for="year" class="block text-sm font-medium text-gray-700">Year</label>
-                        <select id="year" x-model="selectedYear" @change="filterAndDisplayInvoices()" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
+                        <select id="year" x-model="selectedYear" @change="handleFilterChange()" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md" :disabled="listLoading || isUpdating">
                             <option value="all">All Years</option>
                             <template x-for="year in years" :key="year">
                                 <option :value="year" x-text="year"></option>
@@ -136,7 +133,7 @@
                     </div>
                     <div>
                         <label for="month" class="block text-sm font-medium text-gray-700">Month</label>
-                        <select id="month" x-model="selectedMonth" @change="filterAndDisplayInvoices()" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
+                        <select id="month" x-model="selectedMonth" @change="handleFilterChange()" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md" :disabled="listLoading || isUpdating">
                             <option value="all">All Months</option>
                             <template x-for="month in months" :key="month.value">
                                 <option :value="month.value" x-text="month.name"></option>
@@ -156,7 +153,7 @@
                     </div>
                     
                     <div class="pt-6" x-show="viewState === 'list'">
-                        <button @click="fetchFreshData(true)" class="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50 disabled:bg-gray-200 transition-colors" :disabled="listLoading || isUpdating">
+                        <button @click="fetchData(true)" class="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50 disabled:bg-gray-200 transition-colors" :disabled="listLoading || isUpdating">
                              <i class="fas" :class="{ 'fa-sync-alt fa-spin': isUpdating, 'fa-sync-alt': !isUpdating }"></i>
                              <span class="ml-2" x-text="isUpdating ? 'Refreshing...' : 'Refresh'"></span>
                         </button>
@@ -171,7 +168,7 @@
                 <div x-show="error && !hasData" class="text-center p-10 bg-red-50 rounded-lg shadow-md border border-red-100" x-cloak>
                      <i class="fas fa-exclamation-triangle text-red-400 text-2xl mb-2"></i>
                      <p class="text-red-700 font-medium" x-text="error"></p>
-                     <button @click="fetchFreshData(true)" class="mt-3 text-red-600 hover:underline text-sm">Try Again</button>
+                     <button @click="fetchData(true)" class="mt-3 text-red-600 hover:underline text-sm">Try Again</button>
                 </div>
 
                 <div x-show="listLoading" class="bg-white rounded-lg shadow-md overflow-hidden p-6 space-y-4">
@@ -348,8 +345,7 @@
             detailedBreakdown: [],
             expandedServices: {},
             expandedRegions: {},
-            cacheKey: '',
-
+            
             // Computed property for data existence
             get hasData() {
                 return this.allInvoices && this.allInvoices.length > 0;
@@ -360,66 +356,51 @@
                 const accountIds = urlParams.get('accountId') || urlParams.get('accountIds');
                 
                 if (accountIds) {
-                    this.selectedAccountId = accountIds.split(',')[0]; 
-                    this.cacheKey = `xamops_invoices_${this.selectedAccountId}`;
-                    
-                    // 1. Instant Load from Cache
-                    const loaded = this.loadFromLocalStorage();
-                    if(loaded) console.log("✅ Cached invoices loaded");
-
-                    // 2. Background Sync
-                    this.fetchFreshData(); 
+                    this.selectedAccountId = accountIds.split(',')[0];
+                    // Unified Fetch: Initial load (forceRefresh = false)
+                    this.fetchData(false);
                 } else {
                     this.error = "No account selected. Please choose an account from the sidebar.";
                     this.listLoading = false;
                 }
             },
 
-            loadFromLocalStorage() {
-                try {
-                    const cached = localStorage.getItem(this.cacheKey);
-                    if (cached) {
-                        const data = JSON.parse(cached);
-                        this.allInvoices = data;
-                        this.filterAndDisplayInvoices();
-                        this.listLoading = false; // Hide skeleton immediately
-                        return true;
-                    }
-                } catch (e) { console.error(e); }
-                return false;
-            },
-
-            fetchFreshData(manual = false) {
-                if(manual) console.log("🖱️ Manual refresh triggered");
-                this.isUpdating = true;
-                this.updateError = null;
-                this.error = null; // Reset main error if trying again
-
-                // Only show full skeleton if we have NO data on screen
-                if (!this.hasData) {
+            // Unified function handling both Initial Load and Force Refresh
+            fetchData(forceRefresh = false) {
+                if (forceRefresh) {
+                    this.isUpdating = true;
+                    this.updateError = null;
+                    console.log("🔄 Refreshing invoice list...");
+                } else {
                     this.listLoading = true;
+                    this.error = null;
+                    console.log("📥 Initial load for invoice list...");
                 }
 
-                fetch('/api/admin/invoices')
+                // Using Admin endpoint for now as per requirements. 
+                // Ideally this should be a user-scoped endpoint like /api/billops/invoices
+                fetch(`/api/admin/invoices?forceRefresh=${forceRefresh}`)
                     .then(res => {
-                        if (!res.ok) throw new Error('Failed to load fresh invoice list.');
+                        if (!res.ok) throw new Error('Failed to load invoice list.');
                         return res.json();
                     })
                     .then(data => {
-                        console.log('✅ Received fresh invoice list.');
+                        console.log('✅ Invoice list received.');
                         this.allInvoices = data;
-                        // Update Cache
-                        localStorage.setItem(this.cacheKey, JSON.stringify(data));
-                        // Refresh View
                         this.filterAndDisplayInvoices();
                     })
                     .catch(error => {
-                        console.error('Error fetching fresh invoice list:', error);
-                        const msg = 'Failed to refresh invoice data.';
-                        if (!this.hasData) { 
-                            this.error = msg; 
-                        } else { 
-                            this.updateError = msg; 
+                        console.error('Error fetching invoice list:', error);
+                        const msg = 'Failed to load invoice data.';
+                        
+                        if (forceRefresh) {
+                            this.updateError = msg;
+                        } else {
+                            if (!this.hasData) {
+                                this.error = msg;
+                            } else {
+                                this.updateError = msg + " Showing cached data.";
+                            }
                         }
                     })
                     .finally(() => {
@@ -428,10 +409,15 @@
                     });
             },
             
+            handleFilterChange() {
+                this.filterAndDisplayInvoices();
+            },
+            
             filterAndDisplayInvoices() {
                 this.viewState = 'list';
                 this.selectedInvoice = null;
 
+                // Filter for current account and FINALIZED status (Users only see finalized)
                 let invoices = this.allInvoices.filter(inv => 
                     inv.awsAccountId === this.selectedAccountId && inv.status === 'FINALIZED'
                 );
@@ -456,11 +442,13 @@
                 this.viewState = 'detail';
                 this.detailLoading = true;
                 this.error = null;
-                
                 this.selectedInvoice = invoice;
-                this.detailedBreakdown = this.transformToDrilldown(invoice.lineItems);
                 
-                this.detailLoading = false;
+                // Small timeout to allow UI transition before heavy transformation
+                setTimeout(() => {
+                     this.detailedBreakdown = this.transformToDrilldown(invoice.lineItems);
+                     this.detailLoading = false;
+                }, 50);
             },
 
             goBackToList() {
@@ -514,6 +502,7 @@
 
             downloadInvoice() {
                 if (!this.selectedInvoice) return;
+                
                 fetch('/api/billops/invoices/download-preview', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },

@@ -5,221 +5,294 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>XamOps - Invoice Administration</title>
     <script src="https://cdn.tailwindcss.com"></script>
-        <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
-<link rel="apple-touch-icon" href="/icons/XamOps.png">
+    <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
+    <link rel="apple-touch-icon" href="/icons/XamOps.png">
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         [x-cloak] { display: none !important; }
-        /* --- ADDED SPINNER STYLE --- */
+        /* Spinner for background updates */
         .updating-spinner {
              display: inline-block;
-             width: 16px;
-             height: 16px;
-             border: 2px solid #d1d5db;
-             border-radius: 50%;
+             width: 20px; height: 20px;
+             border: 3px solid #e5e7eb; 
+             border-radius: 50%; 
              border-top-color: #4f46e5;
-             animation: spin 0.8s linear infinite;
-             margin-left: 8px;
-       }
-       @keyframes spin { to { transform: rotate(360deg); } }
+             animation: spin 0.8s linear infinite; 
+             margin-left: 10px; 
+             vertical-align: middle;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        /* Skeleton animation */
+        .skeleton-pulse {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+            background-color: #f3f4f6;
+        }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
     </style>
 </head>
-<body class="bg-gray-100" x-data="invoiceAdmin()">
-<div class="flex h-screen">
-  <include file="/_sidebar.html"></include>
+<body class="bg-gray-100 font-sans leading-normal tracking-normal" x-data="adminInvoiceList()">
+
+<div class="flex h-screen overflow-hidden">
+     <include file="/_sidebar.html"></include>
 
     <div class="flex-1 flex flex-col overflow-hidden pl-64">
-        <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-6">
-            <div class="container mx-auto">
-                <h1 class="text-3xl font-bold text-gray-800 mb-6 flex items-center">
-                    Invoice Administration
-                    <span x-show="isUpdating && !loading" class="updating-spinner" title="Updating data..."></span>
-                </h1>
+        <header class="bg-white shadow p-4 border-b border-gray-200 flex justify-between items-center z-10">
+             <div class="flex items-center">
+                <h2 class="text-2xl font-bold text-gray-800">Invoice Administration</h2>
+                <div x-show="isUpdating" class="updating-spinner" title="Refreshing list in background..."></div>
+            </div>
+            <div class="flex items-center space-x-4">
+                 <button @click="fetchData(true)" :disabled="loading || isUpdating" 
+                    class="text-gray-600 hover:text-indigo-600 transition-colors p-2 rounded-full hover:bg-gray-100 focus:outline-none" title="Refresh List">
+                    <i class="fas fa-sync-alt" :class="{'fa-spin': isUpdating}"></i>
+                </button>
+                <div class="text-sm text-gray-600 font-medium" x-text="`Total: ${filteredInvoices.length}`"></div>
+            </div>
+        </header>
 
-                <div class="bg-white p-6 rounded-lg shadow-md mb-8">
-                    <h2 class="text-xl font-semibold mb-4">Generate New Draft Invoice</h2>
-                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                        <input type="text" x-model="generation.accountId" placeholder="Select an account from the sidebar" class="p-2 border rounded bg-gray-50">
-                        <input type="number" x-model.number="generation.year" placeholder="Year (e.g., 2025)" class="p-2 border rounded">
-                        <input type="number" x-model.number="generation.month" placeholder="Month (1-12)" class="p-2 border rounded">
-                        <button @click="generateInvoice()" :disabled="generating || !generation.accountId" class="bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400">
-                            <span x-show="!generating">Generate Draft</span>
-                            <span x-show="generating"><i class="fas fa-spinner fa-spin"></i> Generating...</span>
-                        </button>
+        <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 p-6">
+            <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-200 mb-8">
+                <h3 class="text-lg font-semibold text-gray-800 mb-4 border-b pb-2 flex items-center">
+                    <i class="fas fa-plus-circle text-indigo-500 mr-2"></i> Generate New Draft Invoice
+                </h3>
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Target Account</label>
+                        <div class="block w-full border-gray-200 rounded-md shadow-sm sm:text-sm p-2 border bg-gray-100 text-gray-600 truncate" 
+                             x-text="getSelectedAccountName()" 
+                             title="Selected from sidebar">
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Year</label>
+                        <select x-model.number="generation.year" class="block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm p-2 border bg-gray-50">
+                             <template x-for="y in [2025, 2024, 2023]" :key="y"><option :value="y" x-text="y"></option></template>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Month</label>
+                        <select x-model.number="generation.month" class="block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm p-2 border bg-gray-50">
+                            <template x-for="m in 12" :key="m"><option :value="m" x-text="new Date(0, m-1).toLocaleString('default', {month:'long'})"></option></template>
+                        </select>
+                    </div>
+                    <button @click="generateInvoice()" :disabled="!generation.accountId || generating" 
+                            class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded shadow flex justify-center items-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                        <span x-show="generating"><i class="fas fa-spinner fa-spin mr-2"></i>Processing...</span>
+                        <span x-show="!generating">Generate Draft</span>
+                    </button>
+                </div>
+                <div x-show="!generation.accountId" class="mt-2 text-xs text-red-500">
+                    * Please select an account from the sidebar to generate an invoice.
+                </div>
+            </div>
+
+            <div x-show="updateError && !loading" class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6 rounded-r shadow-sm" role="alert" x-cloak>
+                <div class="flex">
+                    <div class="flex-shrink-0"><i class="fas fa-exclamation-triangle text-yellow-400"></i></div>
+                    <div class="ml-3">
+                        <p class="text-sm text-yellow-700">
+                            <span class="font-bold">Update Failed:</span> <span x-text="updateError"></span>. Showing cached data.
+                        </p>
                     </div>
                 </div>
+            </div>
 
-                <div x-show="loading" class="bg-white rounded-lg shadow-md overflow-hidden animate-pulse">
+            <div x-show="error && !loading && filteredInvoices.length === 0" class="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded-r shadow-sm" role="alert" x-cloak>
+                <div class="flex">
+                    <div class="flex-shrink-0"><i class="fas fa-times-circle text-red-500"></i></div>
+                    <div class="ml-3">
+                        <p class="text-sm text-red-700 font-bold">Error loading invoices</p>
+                        <p class="text-sm text-red-600" x-text="error"></p>
+                        <button @click="fetchData(true)" class="mt-2 text-sm font-medium text-red-800 hover:underline">Try Again</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                
+                <div x-show="loading" class="animate-pulse">
                      <table class="min-w-full divide-y divide-gray-200">
                         <thead class="bg-gray-50">
                             <tr>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"><div class="h-4 bg-gray-300 rounded w-16"></div></th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"><div class="h-4 bg-gray-300 rounded w-32"></div></th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"><div class="h-4 bg-gray-300 rounded w-24"></div></th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"><div class="h-4 bg-gray-300 rounded w-20"></div></th>
-                                <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider"><div class="h-4 bg-gray-300 rounded w-16 mx-auto"></div></th>
-                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider"><div class="h-4 bg-gray-300 rounded w-20 ml-auto"></div></th>
+                                <th class="px-6 py-3"><div class="h-4 bg-gray-300 rounded w-20"></div></th>
+                                <th class="px-6 py-3"><div class="h-4 bg-gray-300 rounded w-32"></div></th>
+                                <th class="px-6 py-3"><div class="h-4 bg-gray-300 rounded w-24"></div></th>
+                                <th class="px-6 py-3"><div class="h-4 bg-gray-300 rounded w-20 ml-auto"></div></th>
+                                <th class="px-6 py-3"><div class="h-4 bg-gray-300 rounded w-16 mx-auto"></div></th>
+                                <th class="px-6 py-3"><div class="h-4 bg-gray-300 rounded w-16 ml-auto"></div></th>
                             </tr>
                         </thead>
                         <tbody class="bg-white divide-y divide-gray-200">
                             <template x-for="i in 5" :key="i">
                                 <tr>
-                                    <td class="px-6 py-4"><div class="h-4 bg-gray-300 rounded w-10"></div></td>
-                                    <td class="px-6 py-4"><div class="h-4 bg-gray-300 rounded w-48"></div></td>
-                                    <td class="px-6 py-4"><div class="h-4 bg-gray-300 rounded w-24"></div></td>
-                                    <td class="px-6 py-4"><div class="h-4 bg-gray-300 rounded w-20"></div></td>
-                                    <td class="px-6 py-4"><div class="h-6 bg-gray-300 rounded-full w-20 mx-auto"></div></td>
-                                    <td class="px-6 py-4"><div class="h-4 bg-gray-300 rounded w-20 ml-auto"></div></td>
+                                    <td class="px-6 py-4"><div class="h-4 bg-gray-200 rounded w-16"></div></td>
+                                    <td class="px-6 py-4">
+                                        <div class="h-4 bg-gray-200 rounded w-40 mb-2"></div>
+                                        <div class="h-3 bg-gray-100 rounded w-24"></div>
+                                    </td>
+                                    <td class="px-6 py-4"><div class="h-4 bg-gray-200 rounded w-24"></div></td>
+                                    <td class="px-6 py-4"><div class="h-4 bg-gray-200 rounded w-20 ml-auto"></div></td>
+                                    <td class="px-6 py-4"><div class="h-6 bg-gray-200 rounded-full w-20 mx-auto"></div></td>
+                                    <td class="px-6 py-4"><div class="h-4 bg-gray-200 rounded w-16 ml-auto"></div></td>
                                 </tr>
                             </template>
                         </tbody>
                     </table>
                 </div>
-                
-                <div x-show="error && !loading" class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6" role="alert">
-                    <strong class="font-bold">Error: </strong>
-                    <span class="block sm:inline" x-text="error"></span>
-                </div>
-                <div x-show="updateError && !loading" class="bg-yellow-50 border border-yellow-200 text-yellow-700 px-4 py-3 rounded-lg mb-6" role="alert">
-                    <strong class="font-bold">Update Warning: </strong>
-                    <span class="block sm:inline" x-text="updateError + ' (showing cached data)'"></span>
-                </div>
 
-
-                <div x-show="!loading" class="bg-white rounded-lg shadow-md overflow-hidden" x-cloak>
-                     <table class="min-w-full divide-y divide-gray-200">
-                        <thead class="bg-gray-50">
-                            <tr>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Invoice #</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Account</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Period</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
-                                <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                <table x-show="!loading" class="min-w-full divide-y divide-gray-200" x-cloak>
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Invoice #</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Account</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Period</th>
+                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                            <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        <template x-for="invoice in filteredInvoices" :key="invoice.id">
+                            <tr class="hover:bg-gray-50 transition duration-150 ease-in-out">
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <a :href="`admin_invoice_detail.html?id=${invoice.id}`" class="text-indigo-600 font-bold hover:text-indigo-900 hover:underline flex items-center">
+                                        <i class="fas fa-file-invoice mr-2 text-gray-400"></i>
+                                        <span x-text="invoice.invoiceNumber"></span>
+                                    </a>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <div class="text-sm font-medium text-gray-900" x-text="invoice.accountName"></div>
+                                    <div class="text-xs text-gray-500" x-text="invoice.awsAccountId"></div>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded border border-gray-200 bg-gray-50 text-gray-600">
+                                        <i class="far fa-calendar-alt mr-1.5 text-gray-400"></i>
+                                        <span x-text="invoice.billingPeriod"></span>
+                                    </span>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-mono font-bold text-gray-900" x-text="formatCurrency(invoice.amount)"></td>
+                                <td class="px-6 py-4 whitespace-nowrap text-center">
+                                    <span class="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full shadow-sm"
+                                          :class="{
+                                            'bg-green-100 text-green-800 border border-green-200': invoice.status === 'FINALIZED',
+                                            'bg-yellow-100 text-yellow-800 border border-yellow-200': invoice.status === 'DRAFT',
+                                            'bg-gray-100 text-gray-800 border border-gray-200': invoice.status === 'VOID'
+                                          }">
+                                          <i class="fas mr-1.5" :class="invoice.status === 'FINALIZED' ? 'fa-check' : 'fa-pencil-alt'"></i>
+                                          <span x-text="invoice.status"></span>
+                                    </span>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                    <a :href="`admin_invoice_detail.html?id=${invoice.id}`" class="text-indigo-600 hover:text-indigo-900 font-semibold bg-indigo-50 px-3 py-1 rounded hover:bg-indigo-100 transition-colors">
+                                        Manage
+                                    </a>
+                                </td>
                             </tr>
-                        </thead>
-                        <tbody class="bg-white divide-y divide-gray-200">
-                            <template x-if="invoices.length === 0">
-                                <tr>
-                                    <td colspan="6" class="text-center py-10 text-gray-500">
-                                        <i class="fas fa-inbox text-3xl text-gray-300"></i>
-                                        <p class="mt-2">No invoices found.</p>
-                                    </td>
-                                </tr>
-                            </template>
-                            <template x-for="invoice in invoices" :key="invoice.id">
-                                <tr>
-                                    <td class="px-6 py-4 whitespace-nowrap">
-                                        <a :href="`admin_invoice_detail.html?id=${invoice.id}`" class="text-indigo-600 hover:underline" x-text="invoice.invoiceNumber"></a>
-                                    </td>
-                                    <td class="px-6 py-4 whitespace-nowrap" x-text="invoice.awsAccountId"></td>
-                                    <td class="px-6 py-4 whitespace-nowrap" x-text="invoice.billingPeriod"></td>
-                                    <td class="px-6 py-4 whitespace-nowrap" x-text="formatCurrency(invoice.amount)"></td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-center">
-                                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full"
-                                              :class="{ 'bg-yellow-100 text-yellow-800': invoice.status === 'DRAFT', 'bg-green-100 text-green-800': invoice.status === 'FINALIZED' }"
-                                              x-text="invoice.status">
-                                        </span>
-                                    </td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                        <a :href="`admin_invoice_detail.html?id=${invoice.id}`" class="text-indigo-600 hover:text-indigo-900">View / Edit</a>
-                                    </td>
-                                </tr>
-                            </template>
-                        </tbody>
-                    </table>
-                </div>
+                        </template>
+                        <tr x-show="!loading && filteredInvoices.length === 0">
+                            <td colspan="6" class="px-6 py-12 text-center text-gray-500">
+                                <i class="fas fa-folder-open text-4xl text-gray-300 mb-3"></i>
+                                <p>No invoices found.</p>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
         </main>
     </div>
 </div>
 
 <script>
-    function invoiceAdmin() {
+    function adminInvoiceList() {
         return {
-            invoices: [],
-            generation: { accountId: '', year: new Date().getFullYear(), month: new Date().getMonth() + 1 },
-            generating: false,
-            // --- START: NEW STATE PROPERTIES ---
             loading: true,
             isUpdating: false,
+            invoices: [],
+            accounts: [],
+            generating: false,
             error: null,
             updateError: null,
-            // --- END: NEW STATE PROPERTIES ---
-            
-            init() {
-                // this.loadSidebar();
-                this.loadInitialData(); // MODIFIED: Call new function
+            generation: {
+                accountId: '',
+                year: new Date().getFullYear(),
+                month: new Date().getMonth() + 1
+            },
 
-                // This code reads the selected account from the browser's session storage,
-                // which is where the sidebar component saves it.
-                const selectedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+            init() {
+                this.fetchAccounts();
                 
-                // If one or more accounts are selected, use the first one for the form.
+                // --- NEW: Auto-select account from sidebar session storage ---
+                const selectedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
                 if (selectedIds.length > 0) {
+                    // Automatically set the account ID from the session storage
                     this.generation.accountId = selectedIds[0];
                 }
+                // -------------------------------------------------------------
+
+                this.fetchData(false);
             },
 
-            // --- START: NEW FUNCTION ---
-            loadInitialData() {
-                this.loading = true;
-                this.isUpdating = false;
-                this.error = null;
-                this.updateError = null;
-
-                fetch('/api/admin/invoices/cached') // Call CACHED endpoint
-                    .then(res => {
-                        if (res.ok) return res.json();
-                        if (res.status === 404) return null; // 404 is OK, means no cache
-                        throw new Error(`Cache check failed with status: ${res.status}`);
-                    })
-                    .then(cachedData => {
-                        if (cachedData) {
-                            console.log('Found cached admin invoices. Displaying and refreshing.');
-                            this.invoices = cachedData.sort((a, b) => b.id - a.id);
-                            this.loading = false; // Show cached data immediately
-                            this.fetchFreshData(); // Refresh in background
-                        } else {
-                            console.log('No cached admin invoices found. Fetching fresh data.');
-                            this.fetchFreshData(); // Fetch fresh, will set loading=false
-                        }
-                    })
-                    .catch(err => {
-                        console.error("Error loading cached invoices:", err.message);
-                        this.error = "Could not load cached data. Trying fresh fetch...";
-                        this.fetchFreshData(); // Fallback to fresh fetch
-                    });
+            // Helper to display name of auto-selected account
+            getSelectedAccountName() {
+                if (!this.generation.accountId) return 'No Account Selected (Please select in Sidebar)';
+                const acc = this.accounts.find(a => a.identifier === this.generation.accountId);
+                return acc ? `${acc.name} (${acc.identifier})` : this.generation.accountId;
             },
-            // --- END: NEW FUNCTION ---
 
-            // --- MODIFIED: Renamed and updated logic ---
-            fetchFreshData() {
-                if (!this.loading) { // Only show background spinner if not initial load
+            get filteredInvoices() {
+                return this.invoices.sort((a, b) => b.id - a.id);
+            },
+
+            fetchAccounts() {
+                fetch('/api/xamops/account-manager/accounts')
+                    .then(res => res.json())
+                    .then(data => {
+                        this.accounts = data.map(a => ({
+                            id: a.id,
+                            name: a.accountName,
+                            provider: a.provider,
+                            identifier: a.provider === 'AWS' ? a.awsAccountId : a.gcpProjectId
+                        }));
+                    })
+                    .catch(err => console.warn("Failed to load accounts list", err));
+            },
+
+            fetchData(forceRefresh) {
+                if (forceRefresh) {
                     this.isUpdating = true;
+                    this.updateError = null;
+                } else {
+                    this.loading = true;
+                    this.error = null;
                 }
-                this.updateError = null; // Clear previous update errors
 
-                fetch('/api/admin/invoices') // Call FRESH endpoint
+                fetch(`/api/admin/invoices?forceRefresh=${forceRefresh}`)
                     .then(res => {
                         if (!res.ok) {
-                           if (res.status === 401 || res.status === 403) window.location.href = '/login';
-                           throw new Error(`Server responded with status: ${res.status}`);
+                             if(res.status === 401 || res.status === 403) window.location.href = '/login';
+                             throw new Error(`Server responded with status: ${res.status}`);
                         }
                         return res.json();
                     })
                     .then(data => {
-                        console.log('Received fresh admin invoices.');
-                        this.invoices = data.sort((a, b) => b.id - a.id);
-                        this.error = null; // Clear any previous error
+                        this.invoices = data;
+                        this.error = null;
+                        this.updateError = null;
                     })
                     .catch(err => {
-                        console.error("An error occurred during fresh fetch:", err.message);
-                        if (this.loading) { // If it was the initial load
-                            this.error = err.message;
-                        } else { // If it was a background refresh
-                            this.updateError = err.message;
+                        console.error("Error fetching invoices:", err);
+                        const msg = err.message || "Failed to load invoices.";
+                        if (forceRefresh) {
+                            this.updateError = msg;
+                        } else {
+                            if (this.invoices.length === 0) {
+                                this.error = msg;
+                            } else {
+                                this.updateError = msg + " (Showing cached data)";
+                            }
                         }
                     })
                     .finally(() => {
@@ -227,9 +300,13 @@
                         this.isUpdating = false;
                     });
             },
-            // --- END: MODIFIED FUNCTION ---
 
             generateInvoice() {
+                if (!this.generation.accountId) {
+                    alert("No account selected. Please select an account from the sidebar.");
+                    return;
+                }
+                
                 this.generating = true;
                 fetch('/api/admin/invoices/generate', {
                     method: 'POST',
@@ -241,21 +318,15 @@
                     return res.json();
                 })
                 .then(() => {
-                    this.fetchFreshData(); // MODIFIED: Call fresh data function
-                    // We keep the selected account ID in the field for convenience
+                    this.fetchData(true);
                 })
                 .catch(err => alert(err.message))
                 .finally(() => this.generating = false);
             },
             
             formatCurrency(value) {
-                if (value === null || value === undefined) return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(0);
-                return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
-            },
-
-            // loadSidebar() {
-            //     ...
-            // }
+                return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value || 0);
+            }
         }
     }
 </script>
