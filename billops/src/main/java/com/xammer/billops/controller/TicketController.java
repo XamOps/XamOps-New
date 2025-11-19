@@ -3,7 +3,7 @@ package com.xammer.billops.controller;
 import com.xammer.billops.dto.TicketDto;
 import com.xammer.billops.dto.TicketReplyDto;
 import com.xammer.billops.service.TicketService;
-import com.xammer.cloud.security.ClientUserDetails; // Import added
+import com.xammer.cloud.security.ClientUserDetails;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -51,20 +51,17 @@ public class TicketController {
 
     @GetMapping("/tickets/cached")
     public ResponseEntity<List<TicketDto>> getCachedAllTickets() {
-        logger.debug("GET /tickets/cached called");
-        Optional<List<TicketDto>> cachedData = ticketService.getCachedAllTickets();
-        return cachedData
-                .map(ResponseEntity::ok)
-                .orElseGet(() -> ResponseEntity.notFound().build());
+        // Redirect to unified endpoint
+        return getAllTickets(false);
     }
 
     @GetMapping("/tickets")
-    public ResponseEntity<List<TicketDto>> getAllTickets() {
-        logger.debug("GET /tickets (fresh) called");
+    public ResponseEntity<List<TicketDto>> getAllTickets(@RequestParam(defaultValue = "false") boolean forceRefresh) {
+        logger.debug("GET /tickets called. ForceRefresh: {}", forceRefresh);
         try {
-            return ResponseEntity.ok(ticketService.getAllTicketsAndCache());
+            return ResponseEntity.ok(ticketService.getAllTickets(forceRefresh));
         } catch (Exception e) {
-            logger.error("Error fetching fresh tickets: {}", e.getMessage(), e);
+            logger.error("Error fetching tickets: {}", e.getMessage(), e);
             return ResponseEntity.internalServerError().build();
         }
     }
@@ -132,27 +129,19 @@ public class TicketController {
 
     @GetMapping("/tickets/category/{category}/cached")
     public ResponseEntity<List<TicketDto>> getCachedTicketsByCategory(@PathVariable String category) {
-        try {
-            String decodedCategory = java.net.URLDecoder.decode(category, java.nio.charset.StandardCharsets.UTF_8);
-            logger.debug("GET /tickets/category/{}/cached called", decodedCategory);
-            Optional<List<TicketDto>> cachedData = ticketService.getCachedTicketsByCategory(decodedCategory);
-            return cachedData
-                    .map(ResponseEntity::ok)
-                    .orElseGet(() -> ResponseEntity.notFound().build());
-        } catch (Exception e) {
-            logger.error("Error fetching cached tickets by category {}: {}", category, e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
+        return getTicketsByCategory(category, false);
     }
 
     @GetMapping("/tickets/category/{category}")
-    public ResponseEntity<List<TicketDto>> getTicketsByCategory(@PathVariable String category) {
+    public ResponseEntity<List<TicketDto>> getTicketsByCategory(
+            @PathVariable String category,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
         try {
             String decodedCategory = java.net.URLDecoder.decode(category, java.nio.charset.StandardCharsets.UTF_8);
-            logger.debug("GET /tickets/category/{} (fresh) called", decodedCategory);
-            return ResponseEntity.ok(ticketService.getTicketsByCategoryAndCache(decodedCategory));
+            logger.debug("GET /tickets/category/{} called. ForceRefresh: {}", decodedCategory, forceRefresh);
+            return ResponseEntity.ok(ticketService.getTicketsByCategory(decodedCategory, forceRefresh));
         } catch (Exception e) {
-            logger.error("Error fetching fresh tickets by category {}: {}", category, e.getMessage(), e);
+            logger.error("Error fetching tickets by category {}: {}", category, e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }

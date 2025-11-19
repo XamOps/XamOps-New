@@ -1,5 +1,6 @@
 package com.xammer.billops.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.xammer.billops.domain.Client;
 import com.xammer.cloud.domain.Ticket;
 import com.xammer.cloud.domain.TicketReply;
@@ -13,9 +14,6 @@ import com.xammer.billops.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.CachePut;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -30,7 +28,12 @@ public class TicketService {
 
     private static final Logger logger = LoggerFactory.getLogger(TicketService.class);
     private static final String ADMIN_TECHNICAL_EMAIL = "sahil@xammer.in";
-    private static final String ADMIN_BILLING_EMAIL = "akshay@xammer.in";
+    private static final String ADMIN_BILLING_EMAIL = "nirbhay@xammer.in";
+    
+    // Cache Keys
+    private static final String TICKETS_ALL_CACHE_KEY = "tickets:all";
+    private static final String TICKETS_CATEGORY_PREFIX = "tickets:category:";
+    private static final long CACHE_TTL_MINUTES = 60;
 
     @Autowired
     private TicketRepository ticketRepository;
@@ -44,9 +47,10 @@ public class TicketService {
     private UserRepository userRepository;
     @Autowired
     private FileStorageService fileStorageService;
+    @Autowired
+    private RedisCacheService redisCache; 
 
     @Transactional
-    @CacheEvict(value = "tickets", allEntries = true)
     public TicketDto createTicket(TicketDto ticketDto) {
         // 1. Validate Creator
         if (ticketDto.getCreatorId() == null) {
@@ -56,10 +60,9 @@ public class TicketService {
         User creator = userRepository.findById(ticketDto.getCreatorId())
                 .orElseThrow(() -> new RuntimeException("Creator (user) not found"));
 
-        // 2. Resolve Client from Creator (Fix for null Client ID)
+        // 2. Resolve Client from Creator
         Client client = creator.getClient();
         if (client == null) {
-            // Fallback: Try to use the ID from DTO if User object doesn't have it loaded
             if (ticketDto.getClientId() != null) {
                 client = clientRepository.findById(ticketDto.getClientId())
                         .orElseThrow(() -> new RuntimeException("Client not found"));
@@ -73,7 +76,7 @@ public class TicketService {
         ticket.setSubject(ticketDto.getSubject());
         ticket.setDescription(ticketDto.getDescription());
         ticket.setStatus("OPEN");
-        ticket.setClient(client); // Set the resolved client
+        ticket.setClient(client);
         ticket.setCategory(ticketDto.getCategory());
         ticket.setService(ticketDto.getService());
         ticket.setSeverity(ticketDto.getSeverity());
@@ -107,28 +110,36 @@ public class TicketService {
         } catch (Exception e) {
             logger.error("Failed to send new ticket notification email for ticket {}", savedTicket.getId(), e);
         }
+        
+        // 5. Evict Cache (Includes the specific category)
+        evictTicketCaches(savedTicket.getCategory());
 
         return convertToDto(savedTicket);
     }
 
+    /**
+     * Unified method to get all tickets.
+     */
     @Transactional(readOnly = true)
-    @Cacheable(value = "tickets", key = "'allTickets'")
-    public Optional<List<TicketDto>> getCachedAllTickets() {
-        logger.debug("Attempting to retrieve CACHED 'allTickets'");
-        return Optional.empty();
-    }
+    public List<TicketDto> getAllTickets(boolean forceRefresh) {
+        if (!forceRefresh) {
+            Optional<List<TicketDto>> cached = redisCache.get(TICKETS_ALL_CACHE_KEY, new TypeReference<List<TicketDto>>() {});
+            if (cached.isPresent()) {
+                logger.debug("Returning CACHED all tickets");
+                return cached.get();
+            }
+        }
 
-    @Transactional(readOnly = true)
-    @CachePut(value = "tickets", key = "'allTickets'")
-    public List<TicketDto> getAllTicketsAndCache() {
-        logger.debug("Fetching FRESH 'allTickets' and updating cache");
-        return ticketRepository.findAllWithRepliesAndAuthors().stream()
+        logger.debug("Fetching FRESH all tickets and updating cache");
+        List<TicketDto> freshData = ticketRepository.findAllWithRepliesAndAuthors().stream()
                 .map(this::convertToDto)
                 .collect(Collectors.toList());
+
+        redisCache.put(TICKETS_ALL_CACHE_KEY, freshData, CACHE_TTL_MINUTES);
+        return freshData;
     }
 
     @Transactional(readOnly = true)
-    @Cacheable(value = "tickets", key = "#ticketId")
     public TicketDto getTicketById(Long ticketId) {
         Ticket ticket = ticketRepository.findByIdWithRepliesAndAuthors(ticketId);
         if (ticket == null) {
@@ -137,24 +148,31 @@ public class TicketService {
         return convertToDto(ticket);
     }
     
+    /**
+     * Unified method to get tickets by category.
+     */
     @Transactional(readOnly = true)
-    @Cacheable(value = "tickets", key = "'category_' + #category")
-    public Optional<List<TicketDto>> getCachedTicketsByCategory(String category) {
-        logger.debug("Attempting to retrieve CACHED tickets for category: {}", category);
-        return Optional.empty();
-    }
+    public List<TicketDto> getTicketsByCategory(String category, boolean forceRefresh) {
+        String cacheKey = TICKETS_CATEGORY_PREFIX + category;
+        
+        if (!forceRefresh) {
+            Optional<List<TicketDto>> cached = redisCache.get(cacheKey, new TypeReference<List<TicketDto>>() {});
+            if (cached.isPresent()) {
+                logger.debug("Returning CACHED tickets for category: {}", category);
+                return cached.get();
+            }
+        }
 
-    @Transactional(readOnly = true)
-    @CachePut(value = "tickets", key = "'category_' + #category")
-    public List<TicketDto> getTicketsByCategoryAndCache(String category) {
         logger.debug("Fetching FRESH tickets for category: {} and updating cache", category);
-        return ticketRepository.findAllByCategoryWithRepliesAndAuthors(category).stream()
+        List<TicketDto> freshData = ticketRepository.findAllByCategoryWithRepliesAndAuthors(category).stream()
                 .map(this::convertToDto)
                 .collect(Collectors.toList());
+
+        redisCache.put(cacheKey, freshData, CACHE_TTL_MINUTES);
+        return freshData;
     }
 
     @Transactional
-    @CacheEvict(value = "tickets", allEntries = true)
     public TicketDto addReplyToTicket(Long ticketId, TicketReplyDto replyDto, MultipartFile file) {
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new RuntimeException("Ticket not found"));
@@ -180,7 +198,6 @@ public class TicketService {
         reply.setMessage(replyDto.getMessage());
         reply.setCreatedAt(java.time.LocalDateTime.now());
 
-        // --- ATTACHMENT LOGIC ---
         if (file != null && !file.isEmpty()) {
             try {
                 String key = fileStorageService.uploadFile(file);
@@ -226,18 +243,46 @@ public class TicketService {
             logger.error("Failed to send reply notification email for ticket {}", ticket.getId(), e);
         }
         
+        // Evict Cache for this specific category + Admin list
+        evictTicketCaches(updatedTicket.getCategory());
+        
         return convertToDto(updatedTicket);
     }
 
     @Transactional
-    @CacheEvict(value = "tickets", allEntries = true)
     public TicketDto closeTicket(Long ticketId) {
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new RuntimeException("Ticket not found"));
 
         ticket.setStatus("CLOSED");
         Ticket updatedTicket = ticketRepository.save(ticket);
+        
+        // Evict Cache for this specific category + Admin list
+        evictTicketCaches(updatedTicket.getCategory());
+        
         return convertToDto(updatedTicket);
+    }
+
+    // --- Helper Methods ---
+    
+    /**
+     * Evicts the global "All Tickets" list (for Admins) AND the specific category cache (for Users).
+     * @param category The category of the ticket that was modified. Can be null if unknown.
+     */
+    public void evictTicketCaches(String category) {
+        // 1. Evict Admin List (Always)
+        redisCache.evict(TICKETS_ALL_CACHE_KEY);
+        
+        // 2. Evict Specific Category Cache (If known)
+        if (category != null && !category.isEmpty()) {
+            // RedisCacheService typically expects exact keys unless pattern deletion is implemented.
+            // Assuming we match the key format used in getTicketsByCategory:
+            String categoryKey = TICKETS_CATEGORY_PREFIX + category;
+            redisCache.evict(categoryKey);
+            logger.info("Evicted ticket caches: {} AND {}", TICKETS_ALL_CACHE_KEY, categoryKey);
+        } else {
+            logger.info("Evicted ticket cache: {}", TICKETS_ALL_CACHE_KEY);
+        }
     }
 
     private TicketDto convertToDto(Ticket ticket) {

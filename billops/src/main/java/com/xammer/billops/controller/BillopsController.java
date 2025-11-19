@@ -31,6 +31,9 @@ import java.util.Optional;
              methods = {RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.DELETE, RequestMethod.OPTIONS},
              allowCredentials = "true")
 public class BillopsController {
+
+    private static final Logger logger = LoggerFactory.getLogger(BillopsController.class);
+
     private final BillingService billingService;
     private final CostService costService;
     private final ResourceService resourceService;
@@ -38,10 +41,8 @@ public class BillopsController {
     private final CloudAccountRepository cloudAccountRepository;
     private final ExcelExportService excelExportService;
     private final CreditRequestService creditRequestService;
-    // TicketService removed from here as it's now in TicketController
     private final DashboardService dashboardService;
     private final GcpCostService gcpCostService;
-    private static final Logger logger = LoggerFactory.getLogger(BillopsController.class);
 
     public BillopsController(BillingService billingService,
                              CostService costService,
@@ -63,75 +64,68 @@ public class BillopsController {
         this.gcpCostService = gcpCostService;
     }
 
-    // --- NEW Endpoint to get CACHED summary billing data ---
+    /**
+     * High-performance endpoint for Billing Summary.
+     * Returns cached data immediately if available (latency < 50ms).
+     * Fetches from AWS in parallel if forceRefresh=true or data is missing.
+     */
+    @GetMapping("/billing")
+    public ResponseEntity<BillingDashboardDto> getBillingData(
+            @RequestParam List<String> accountIds,
+            @RequestParam(required = false) Integer year,
+            @RequestParam(required = false) Integer month,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+        
+        logger.debug("GET /billing called. Accounts: {}, Period: {}-{}, ForceRefresh: {}", accountIds, year, month, forceRefresh);
+        try {
+            BillingDashboardDto data = billingService.getBillingData(accountIds, year, month, forceRefresh);
+            return ResponseEntity.ok(data);
+        } catch (Exception e) {
+            logger.error("Error fetching billing data for accounts {}: {}", accountIds, e.getMessage(), e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    /**
+     * High-performance endpoint for Detailed Breakdown.
+     * Uses parallel processing for multi-account requests to reduce wait times.
+     */
+    @GetMapping("/detailed-breakdown")
+    public ResponseEntity<List<ServiceCostDetailDto>> getDetailedBillingReport(
+            @RequestParam List<String> accountIds,
+            @RequestParam(required = false) Integer year,
+            @RequestParam(required = false) Integer month,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+        
+        logger.debug("GET /detailed-breakdown called. ForceRefresh: {}", forceRefresh);
+        try {
+            List<ServiceCostDetailDto> data = billingService.getDetailedBillingReport(accountIds, year, month, forceRefresh);
+            return ResponseEntity.ok(data);
+        } catch (Exception e) {
+            logger.error("Error fetching detailed breakdown for accounts {}: {}", accountIds, e.getMessage(), e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    // --- Backward Compatibility / Legacy Endpoints ---
+    
+    // Redirects legacy "cached" endpoint to the new smart endpoint
     @GetMapping("/billing/cached")
     public ResponseEntity<BillingDashboardDto> getCachedBillingData(
             @RequestParam List<String> accountIds,
             @RequestParam(required = false) Integer year,
             @RequestParam(required = false) Integer month) {
-        logger.debug("GET /billing/cached called for accounts: {}, period: {}-{}", accountIds, year, month);
-        Optional<BillingDashboardDto> cachedData = billingService.getCachedBillingData(accountIds, year, month);
-        return cachedData
-                .map(ResponseEntity::ok) // If present, return 200 OK with data
-                .orElseGet(() -> ResponseEntity.notFound().build()); // If not present, return 404 Not Found
+        return getBillingData(accountIds, year, month, false);
     }
 
-    // --- MODIFIED Endpoint to get FRESH summary billing data (and update cache) ---
-    @GetMapping("/billing")
-    public ResponseEntity<BillingDashboardDto> getFreshBillingData(
-            @RequestParam List<String> accountIds,
-            @RequestParam(required = false) Integer year,
-            @RequestParam(required = false) Integer month) {
-         logger.debug("GET /billing called for accounts: {}, period: {}-{}", accountIds, year, month);
-        try {
-            Optional<BillingDashboardDto> data = billingService.getBillingDataAndCache(accountIds, year, month);
-            return data.map(ResponseEntity::ok)
-                       .orElseGet(() -> {
-                            logger.error("Billing service returned empty Optional unexpectedly for accounts: {}", accountIds);
-                             return ResponseEntity.ok(new BillingDashboardDto());
-                       });
-        } catch (Exception e) {
-            logger.error("Error fetching fresh billing data for accounts {}: {}", accountIds, e.getMessage(), e);
-             e.printStackTrace();
-            return ResponseEntity.internalServerError().build();
-        }
-    }
-
-    // --- NEW Endpoint to get CACHED detailed billing data ---
+    // Redirects legacy "cached" endpoint to the new smart endpoint
     @GetMapping("/detailed-breakdown/cached")
-    public ResponseEntity<List<ServiceCostDetailDto>> getCachedDetailedBillingReport(
+    public ResponseEntity<List<ServiceCostDetailDto>> getCachedDetailedReport(
             @RequestParam List<String> accountIds,
             @RequestParam(required = false) Integer year,
             @RequestParam(required = false) Integer month) {
-        logger.debug("GET /detailed-breakdown/cached called for accounts: {}, period: {}-{}", accountIds, year, month);
-        Optional<List<ServiceCostDetailDto>> cachedData = billingService.getCachedDetailedBillingReport(accountIds, year, month);
-        return cachedData
-                .map(ResponseEntity::ok)
-                .orElseGet(() -> ResponseEntity.notFound().build());
+        return getDetailedBillingReport(accountIds, year, month, false);
     }
-
-
-    // --- MODIFIED Endpoint to get FRESH detailed billing data (and update cache) ---
-    @GetMapping("/detailed-breakdown")
-    public ResponseEntity<List<ServiceCostDetailDto>> getFreshDetailedBillingReport(
-            @RequestParam List<String> accountIds,
-            @RequestParam(required = false) Integer year,
-            @RequestParam(required = false) Integer month) {
-        logger.debug("GET /detailed-breakdown called for accounts: {}, period: {}-{}", accountIds, year, month);
-        try {
-            Optional<List<ServiceCostDetailDto>> data = billingService.getDetailedBillingReportAndCache(accountIds, year, month);
-             return data.map(ResponseEntity::ok)
-                       .orElseGet(() -> {
-                           logger.error("Detailed billing service returned empty Optional unexpectedly for accounts: {}", accountIds);
-                            return ResponseEntity.ok(Collections.emptyList());
-                       });
-        } catch (Exception e) {
-            logger.error("Error fetching fresh detailed billing data for accounts {}: {}", accountIds, e.getMessage(), e);
-             e.printStackTrace();
-            return ResponseEntity.internalServerError().build();
-        }
-    }
-
 
     @Deprecated
     @GetMapping("/billing/{accountId}")
@@ -139,7 +133,7 @@ public class BillopsController {
             @PathVariable String accountId,
             @RequestParam(required = false) Integer year,
             @RequestParam(required = false) Integer month) {
-        return getFreshBillingData(Collections.singletonList(accountId), year, month);
+        return getBillingData(Collections.singletonList(accountId), year, month, false);
     }
 
      @Deprecated
@@ -148,9 +142,10 @@ public class BillopsController {
             @PathVariable String accountId,
             @RequestParam(required = false) Integer year,
             @RequestParam(required = false) Integer month) {
-        return getFreshDetailedBillingReport(Collections.singletonList(accountId), year, month); 
+        return getDetailedBillingReport(Collections.singletonList(accountId), year, month, false); 
     }
 
+    // --- Standard Endpoints (Unchanged) ---
 
     @GetMapping("/health")
     public ResponseEntity<String> health() {
@@ -177,7 +172,6 @@ public class BillopsController {
             return ResponseEntity.internalServerError().build();
         }
     }
-
 
     @GetMapping("/billing/gcp/dashboard/cached")
     public ResponseEntity<GcpBillingDashboardDto> getCachedGcpBillingDashboard(

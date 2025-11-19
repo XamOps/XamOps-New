@@ -232,7 +232,7 @@
                                     </template>
                                 </select>
                                 
-                                <button @click="fetchFreshData(true)" class="refresh-button" :disabled="loading || isUpdating">
+                                <button @click="fetchData(true)" class="refresh-button" :disabled="loading || isUpdating">
                                     <i class="fas" :class="{ 'fa-sync-alt fa-spin': isUpdating, 'fa-sync-alt': !isUpdating }"></i>
                                     <span class="ml-2" x-text="isUpdating ? 'Refreshing...' : 'Refresh'"></span>
                                 </button>
@@ -306,7 +306,7 @@
                     <i class="fas fa-exclamation-circle mr-2"></i> <span x-text="updateError"></span>
                 </div>
 
-                <div x-show="!loading && (hasData || isUpdating)" class="space-y-8">
+                <div x-show="!loading && (hasData || isUpdating)" class="space-y-8" x-cloak>
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         <div class="dashboard-card">
                             <div class="p-6 border-b border-gray-100">
@@ -451,7 +451,6 @@
             accountId: null,
             selectedYear: new Date().getFullYear(),
             selectedMonth: new Date().getMonth() + 1,
-            cacheKey: '', 
             
             availableYears: [new Date().getFullYear(), new Date().getFullYear() - 1],
             availableMonths: [
@@ -489,96 +488,71 @@
                     return;
                 }
 
-                // 1. Generate cache key
-                this.updateCacheKey();
-
-                // 2. Attempt Instant Load from LocalStorage
-                const loadedFromCache = this.loadFromLocalStorage();
-                
-                if (loadedFromCache) {
-                    console.log("✅ Instant load successful");
-                } else {
-                    console.log("⏳ No cache found, waiting for network...");
-                }
-
-                // 3. Trigger Background Sync
-                this.fetchFreshData();
+                // Initial Load: Force Refresh = FALSE (Prefer Cache)
+                this.fetchData(false);
             },
             
-            updateCacheKey() {
-                this.cacheKey = `billops_data_${this.accountId}_${this.selectedYear}_${this.selectedMonth}`;
-            },
-
-            loadFromLocalStorage() {
-                try {
-                    const cached = localStorage.getItem(this.cacheKey);
-                    if (cached) {
-                        const parsed = JSON.parse(cached);
-                        console.log('⚡ [Cache] Loaded data from LocalStorage');
-                        
-                        this.billingData = parsed.summary || { costHistory: [], serviceBreakdown: [] };
-                        this.detailedBreakdown = parsed.details || [];
-                        
-                        // CRITICAL: Hide skeleton immediately
-                        this.loading = false;
-                        
-                        this.$nextTick(() => {
-                            this.renderOrUpdateCharts(this.billingData.costHistory, this.billingData.serviceBreakdown);
-                        });
-                        return true; // Data loaded successfully
-                    }
-                } catch (e) {
-                    console.warn('Error parsing local storage:', e);
-                }
-                return false; // No valid data loaded
-            },
-
-            fetchFreshData(manualRefresh = false) {
-                if (manualRefresh) console.log('🖱️ Manual refresh triggered');
-                
-                this.isUpdating = true; 
-                this.updateError = null;
-
-                // Only show skeleton if we have NO data on screen
-                if (!this.hasData) {
+            // Unified data fetching method
+            fetchData(forceRefresh = false) {
+                // 1. Set Loading States
+                if (forceRefresh) {
+                    this.isUpdating = true; 
+                    this.updateError = null;
+                } else {
                     this.loading = true;
+                    this.error = null;
                 }
 
-                console.log(`🔄 [Network] Fetching fresh data for ${this.selectedYear}-${this.selectedMonth}...`);
+                console.log(`🔄 [Billing] Fetching data. Period: ${this.selectedYear}-${this.selectedMonth}, ForceRefresh: ${forceRefresh}`);
                 
-                const freshSummaryUrl = `/api/billops/billing?accountIds=${this.accountId}&year=${this.selectedYear}&month=${this.selectedMonth}`;
-                const freshDetailedUrl = `/api/billops/detailed-breakdown?accountIds=${this.accountId}&year=${this.selectedYear}&month=${this.selectedMonth}`;
+                // 2. Construct URLs with new Unified Endpoint structure
+                const params = new URLSearchParams({
+                    accountIds: this.accountId,
+                    year: this.selectedYear,
+                    month: this.selectedMonth,
+                    forceRefresh: forceRefresh
+                });
 
+                const summaryUrl = `/api/billops/billing?${params.toString()}`;
+                const detailedUrl = `/api/billops/detailed-breakdown?${params.toString()}`;
+
+                // 3. Fetch Data
                 Promise.all([
-                    fetch(freshSummaryUrl).then(res => res.ok ? res.json() : Promise.reject('Summary fetch failed')),
-                    fetch(freshDetailedUrl).then(res => res.ok ? res.json() : Promise.reject('Detailed fetch failed'))
+                    fetch(summaryUrl).then(res => {
+                        if (!res.ok) throw new Error(`Summary fetch failed: ${res.status}`);
+                        return res.json();
+                    }),
+                    fetch(detailedUrl).then(res => {
+                         if (!res.ok) throw new Error(`Detailed fetch failed: ${res.status}`);
+                         return res.json();
+                    })
                 ])
-                .then(([freshSummary, freshDetailed]) => {
-                    console.log('✅ [Network] Fresh data received');
+                .then(([summaryData, detailedData]) => {
+                    console.log('✅ [Billing] Data received successfully');
 
-                    this.billingData = freshSummary || { costHistory: [], serviceBreakdown: [] };
-                    this.detailedBreakdown = freshDetailed || [];
+                    this.billingData = summaryData || { costHistory: [], serviceBreakdown: [] };
+                    this.detailedBreakdown = detailedData || [];
                     
+                    // Render charts after DOM update
                     this.$nextTick(() => {
                         this.renderOrUpdateCharts(this.billingData.costHistory, this.billingData.serviceBreakdown);
                     });
 
-                    const dataToCache = {
-                        timestamp: new Date().getTime(),
-                        summary: freshSummary,
-                        details: freshDetailed
-                    };
-                    localStorage.setItem(this.cacheKey, JSON.stringify(dataToCache));
                     this.error = null;
                 })
                 .catch(err => {
                     console.error("Network error:", err);
-                    const msg = "Failed to refresh data. Please check your connection.";
+                    const msg = "Failed to load billing data. Please check your connection.";
                     
-                    if (!this.hasData) { 
-                        this.error = msg; 
+                    if (forceRefresh) {
+                        this.updateError = "Failed to refresh data. Please try again.";
                     } else {
-                        this.updateError = msg; 
+                         // Only show critical error if we have no data to display
+                        if (!this.hasData) {
+                             this.error = msg;
+                        } else {
+                             this.updateError = msg;
+                        }
                     }
                 })
                 .finally(() => {
@@ -588,25 +562,14 @@
             },
 
             handleFilterChange() {
-                this.updateCacheKey();
-                
                 this.expandedServices = {};
                 this.expandedRegions = {};
                 this.error = null;
                 this.updateError = null;
 
-                // Try to switch to cached data for the NEW date immediately
-                if (!this.loadFromLocalStorage()) {
-                    // If new unseen month, show skeleton
-                    this.loading = true;
-                    this.billingData = { costHistory: [], serviceBreakdown: [] };
-                    this.detailedBreakdown = [];
-                    // Destroy charts to avoid artifacts
-                    if (this.costHistoryChart) { this.costHistoryChart.destroy(); this.costHistoryChart = null; }
-                    if (this.serviceBreakdownChart) { this.serviceBreakdownChart.destroy(); this.serviceBreakdownChart = null; }
-                }
-
-                this.fetchFreshData();
+                // On filter change, we trigger a standard load (prefer cache)
+                // The UI will show the skeleton briefly because loading=true is set in fetchData(false)
+                this.fetchData(false);
             },
 
             renderOrUpdateCharts(history, services) {
