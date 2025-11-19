@@ -3,211 +3,356 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>XamOps - Ticket Details</title>
+    <title>Ticket Details</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    
+    <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+    
     <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
     <link rel="apple-touch-icon" href="/icons/XamOps.png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>[x-cloak] { display: none !important; }</style>
+    
+    <style>
+        [x-cloak] { display: none !important; }
+        
+        /* Quill Overrides */
+        .ql-editor { min-height: 120px; font-family: 'Inter', sans-serif; font-size: 0.95rem; }
+        .ql-toolbar { border-radius: 0.5rem 0.5rem 0 0; border-color: #e5e7eb !important; background-color: #f9fafb; }
+        .ql-container { border-radius: 0 0 0.5rem 0.5rem; border-color: #e5e7eb !important; font-size: 1rem; }
+        .ql-editor ul { list-style-type: disc !important; padding-left: 1.5em !important; }
+        .ql-editor ol { list-style-type: decimal !important; padding-left: 1.5em !important; }
+        
+        /* Chat Bubble Content Styling */
+        .prose-chat { max-width: none; font-size: 0.95rem; line-height: 1.5; }
+        .prose-chat p { margin-bottom: 0.5em; }
+        .prose-chat p:last-child { margin-bottom: 0; }
+        .prose-chat ul, .prose-chat ol { margin-top: 0.5em; margin-bottom: 0.5em; }
+        
+        /* Inverse prose for user bubbles (white text) */
+        .prose-chat-inverse { color: white; }
+        .prose-chat-inverse a { color: #bfdbfe; text-decoration: underline; }
+        .prose-chat-inverse strong { color: white; font-weight: 700; }
+        .prose-chat-inverse code { color: #1e40af; background-color: #dbeafe; border-radius: 0.25rem; padding: 0.125rem 0.25rem; }
+    </style>
 </head>
-<body class="bg-gray-100" x-data="ticketDetailApp()">
-<div class="flex h-screen">
+<body class="bg-gray-100 font-sans" x-data="ticketDetailApp()">
+
+<div class="flex h-screen overflow-hidden">
     <div id="sidebar-container" class="flex-shrink-0"></div>
 
-    <div class="flex-1 flex flex-col overflow-hidden pl-64">
-        <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-6">
-            <div x-show="loading" class="text-center p-10"><i class="fas fa-spinner fa-spin text-3xl text-indigo-500"></i></div>
-            <div x-show="error" class="text-center p-10 bg-red-50 rounded-lg"><p class="text-red-700" x-text="error"></p></div>
-            
-            <div x-show="!loading && ticket" class="container mx-auto" x-cloak>
-                <a href="javascript:history.back()" class="text-indigo-600 hover:text-indigo-800 mb-4 inline-block"><i class="fas fa-arrow-left mr-2"></i>Back</a>
+    <div class="flex-1 flex flex-col min-w-0 overflow-hidden pl-64">
+        <header class="bg-white shadow-sm z-10 border-b border-gray-200 px-6 py-4">
+            <div class="max-w-5xl mx-auto flex justify-between items-center">
+                <div class="flex items-center gap-4">
+                    <a href="/tickets.html" class="text-gray-500 hover:text-indigo-600 transition">
+                        <i class="fas fa-arrow-left"></i>
+                    </a>
+                    <div>
+                        <h1 class="text-xl font-bold text-gray-900 flex items-center gap-3">
+                            <span x-text="ticket ? ticket.subject : 'Loading...'"></span>
+                            <span x-show="ticket" class="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide"
+                                  :class="{
+                                      'bg-green-100 text-green-800': ticket && ticket.status === 'OPEN',
+                                      'bg-yellow-100 text-yellow-800': ticket && ticket.status === 'IN_PROGRESS',
+                                      'bg-gray-100 text-gray-800': ticket && ticket.status === 'CLOSED'
+                                  }"
+                                  x-text="ticket ? ticket.status : ''">
+                            </span>
+                        </h1>
+                        <p class="text-xs text-gray-500 mt-1" x-show="ticket">
+                            <span x-text="'#' + ticket.id"></span> &bull;
+                            <span x-text="ticket.service"></span> &bull;
+                            <span x-text="formatDate(ticket.createdAt)"></span>
+                        </p>
+                    </div>
+                </div>
+                <button x-show="ticket && ticket.status !== 'CLOSED'" 
+                        @click="closeTicket()"
+                        class="text-gray-500 hover:text-red-600 text-sm font-medium transition flex items-center gap-2">
+                    <i class="far fa-times-circle"></i> Close Ticket
+                </button>
+            </div>
+        </header>
+
+        <main class="flex-1 overflow-y-auto bg-gray-100 p-6 scroll-smooth" id="chat-container">
+            <div class="max-w-5xl mx-auto space-y-6 pb-6">
                 
-                <div class="bg-white rounded-lg shadow-md">
-                    <div class="p-6 border-b">
-                        <div class="flex justify-between items-start">
-                            <div>
-                                <h1 class="text-2xl font-bold text-gray-800" x-text="ticket.subject"></h1>
-                                <p class="text-sm text-gray-600" x-text="`Category: ${ticket.category} | Service: ${ticket.service} | Severity: ${ticket.severity}`"></p>
+                <div x-show="loading" class="flex justify-center py-10">
+                    <i class="fas fa-spinner fa-spin text-3xl text-indigo-600"></i>
+                </div>
+
+                <div x-show="!loading && ticket" x-cloak class="space-y-8">
+                    
+                    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 relative overflow-hidden">
+                        <div class="absolute top-0 left-0 w-1 h-full bg-indigo-500"></div>
+                        <div class="flex items-start gap-4">
+                            <div class="flex-shrink-0">
+                                <div class="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold">
+                                    <i class="fas fa-ticket-alt"></i>
+                                </div>
                             </div>
-                            <span class="px-3 py-1 text-sm font-semibold rounded-full"
-                                  :class="{ 'bg-blue-100 text-blue-800': ticket.status === 'OPEN', 'bg-yellow-100 text-yellow-800': ticket.status === 'IN_PROGRESS', 'bg-gray-200 text-gray-800': ticket.status === 'CLOSED' }"
-                                  x-text="ticket.status"></span>
+                            <div class="flex-1 min-w-0">
+                                <div class="flex justify-between items-baseline mb-2">
+                                    <h3 class="text-sm font-semibold text-gray-900">Ticket Description</h3>
+                                    <span class="text-xs text-gray-400">Original Request</span>
+                                </div>
+                                <div class="prose prose-sm max-w-none text-gray-700" x-text="ticket.description"></div>
+                            </div>
                         </div>
                     </div>
-                    
-                    <div class="p-6 space-y-6">
-                        <div class="flex items-start space-x-4">
-                            <div class="flex-shrink-0 w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center"><i class="fas fa-user text-gray-500"></i></div>
-                            <div class="flex-1">
-                                <p class="font-semibold text-gray-800" x-text="ticket.creatorId === currentUser.id ? 'You' : (ticket.replies.length > 0 ? 'Original Poster' : 'User')"></p>
-                                <div class="bg-gray-50 rounded-lg p-4 mt-1"><p class="text-gray-700 whitespace-pre-wrap" x-text="ticket.description"></p></div>
-                                <p class="text-xs text-gray-400 mt-1" x-text="`Posted on: ${new Date(ticket.createdAt).toLocaleString()}`"></p>
-                            </div>
-                        </div>
 
-                        <template x-for="reply in ticket.replies" :key="reply.id">
-                            <div class="flex items-start space-x-4" :class="reply.authorId === currentUser.id ? 'justify-end' : ''">
-                                <div x-show="reply.authorId !== currentUser.id" class="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center" 
-                                     :class="reply.authorUsername.includes('admin') ? 'bg-indigo-500' : 'bg-gray-200'">
-                                    <i class="fas text-white" :class="reply.authorUsername.includes('admin') ? 'fa-user-shield' : 'fa-user'"></i>
+                    <div class="relative flex items-center justify-center py-2">
+                        <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-gray-300"></div></div>
+                        <span class="relative bg-gray-100 px-4 text-xs text-gray-500 font-medium uppercase tracking-widest">Discussion History</span>
+                    </div>
+
+                    <template x-for="reply in ticket.replies" :key="reply.id">
+                        <div class="flex w-full" :class="isMe(reply) ? 'justify-end' : 'justify-start'">
+                            
+                            <div class="flex max-w-[85%] md:max-w-[75%] gap-3" :class="isMe(reply) ? 'flex-row-reverse' : 'flex-row'">
+                                
+                                <div class="flex-shrink-0 mt-auto">
+                                    <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shadow-sm"
+                                         :class="reply.admin ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-200 text-gray-600'">
+                                         <template x-if="reply.admin">
+                                             <i class="fas fa-headset"></i>
+                                         </template>
+                                         <template x-if="!reply.admin">
+                                            <span x-text="getInitials(reply.authorUsername)"></span>
+                                         </template>
+                                    </div>
                                 </div>
 
-                                <div class="flex-1 max-w-3xl">
-                                    <p class="font-semibold text-gray-800" :class="reply.authorId === currentUser.id ? 'text-right' : ''" x-text="reply.authorId === currentUser.id ? 'You' : reply.authorUsername"></p>
-                                    
-                                    <div class="rounded-lg p-4 mt-1 shadow-sm" 
-                                         :class="reply.authorId === currentUser.id ? 'bg-indigo-50 ml-auto' : 'bg-gray-50'">
-                                        <p class="text-gray-700 whitespace-pre-wrap" x-text="reply.message"></p>
+                                <div>
+                                    <div class="flex items-center gap-2 mb-1 px-1" :class="isMe(reply) ? 'justify-end' : 'justify-start'">
+                                        <span class="text-xs font-semibold text-gray-600" x-text="reply.admin ? 'Support Agent' : reply.authorUsername"></span>
+                                        <span class="text-[10px] text-gray-400" x-text="formatDateSimple(reply.createdAt)"></span>
+                                    </div>
 
-                                        <template x-if="reply.attachmentUrl">
-                                            <div class="mt-3 pt-3 border-t border-gray-200">
-                                                <template x-if="reply.attachmentType && reply.attachmentType.startsWith('image/')">
-                                                    <a :href="reply.attachmentUrl" target="_blank" class="block relative group w-fit">
-                                                        <img :src="reply.attachmentUrl" alt="Attachment" class="max-h-48 rounded-md border border-gray-300 hover:opacity-90 transition">
-                                                        <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition bg-black bg-opacity-20 rounded-md">
-                                                            <i class="fas fa-external-link-alt text-white"></i>
-                                                        </div>
-                                                    </a>
-                                                </template>
-                                                <template x-if="!reply.attachmentType || !reply.attachmentType.startsWith('image/')">
-                                                    <a :href="reply.attachmentUrl" target="_blank" class="flex items-center space-x-2 text-indigo-600 hover:text-indigo-800 p-2 bg-white rounded border w-fit">
-                                                        <i class="fas" :class="reply.attachmentType === 'application/pdf' ? 'fa-file-pdf text-red-500' : 'fa-paperclip'"></i>
-                                                        <span class="text-sm underline truncate max-w-xs" x-text="reply.attachmentName || 'View Attachment'"></span>
-                                                    </a>
-                                                </template>
+                                    <div class="shadow-sm px-5 py-3 relative"
+                                         :class="isMe(reply) 
+                                            ? 'bg-indigo-600 text-white rounded-2xl rounded-tr-none' 
+                                            : 'bg-white text-gray-800 border border-gray-200 rounded-2xl rounded-tl-none'">
+                                        
+                                        <div class="prose-chat ql-editor !p-0 !min-h-0" 
+                                             :class="isMe(reply) ? 'prose-chat-inverse' : ''"
+                                             x-html="reply.message"></div>
+
+                                        <template x-if="reply.attachmentUrl || reply.fileName">
+                                            <div class="mt-3 flex items-center p-2 rounded-lg transition-colors cursor-pointer"
+                                                 :class="isMe(reply) ? 'bg-white/20 border border-white/30 hover:bg-white/30' : 'bg-gray-50 border border-gray-200 hover:bg-gray-100'"
+                                                 @click="window.open(reply.attachmentUrl, '_blank')">
+                                                
+                                                <div class="p-2 rounded mr-3" :class="isMe(reply) ? 'bg-white/20 text-white' : 'bg-white text-indigo-600 shadow-sm'">
+                                                    <i class="fas fa-file-alt text-lg"></i>
+                                                </div>
+                                                <div class="flex-1 min-w-0 overflow-hidden">
+                                                    <p class="text-sm font-medium truncate" x-text="reply.fileName || 'Attached File'"></p>
+                                                    <p class="text-xs opacity-80">Click to view</p>
+                                                </div>
+                                                <div class="ml-2"><i class="fas fa-download opacity-70"></i></div>
                                             </div>
                                         </template>
                                     </div>
-                                    <p class="text-xs text-gray-400 mt-1" :class="reply.authorId === currentUser.id ? 'text-right' : ''" x-text="`Posted on: ${new Date(reply.createdAt).toLocaleString()}`"></p>
-                                </div>
-
-                                <div x-show="reply.authorId === currentUser.id" class="flex-shrink-0 w-10 h-10 rounded-full bg-indigo-500 flex items-center justify-center ml-2">
-                                    <i class="fas fa-user text-white"></i>
                                 </div>
                             </div>
-                        </template>
-
-                        <div x-show="ticket.status !== 'CLOSED'" class="pt-6 border-t">
-                             <div class="relative">
-                                 <textarea x-model="newReply" rows="4" class="w-full p-3 border rounded-md focus:ring-2 focus:ring-indigo-500" placeholder="Type your reply here..."></textarea>
-                                 
-                                 <div x-show="selectedFile" class="absolute bottom-3 right-3 bg-gray-100 border rounded px-2 py-1 flex items-center text-xs text-gray-600">
-                                     <i class="fas fa-file mr-1"></i>
-                                     <span x-text="selectedFile?.name.length > 20 ? selectedFile.name.substring(0, 17) + '...' : selectedFile.name"></span>
-                                     <button @click="clearFile()" class="ml-2 text-red-500 hover:text-red-700"><i class="fas fa-times"></i></button>
-                                 </div>
-                             </div>
-                             
-                             <div class="mt-4 flex justify-between items-center">
-                                 <div class="flex items-center space-x-2">
-                                     <input type="file" x-ref="fileInput" class="hidden" @change="handleFileSelect($event)">
-                                     <button @click="$refs.fileInput.click()" class="text-gray-500 hover:text-indigo-600 transition" title="Attach File">
-                                         <i class="fas fa-paperclip text-xl"></i>
-                                     </button>
-                                     <span class="text-xs text-gray-400" x-show="!selectedFile">Attach image or PDF</span>
-                                 </div>
-
-                                 <div class="flex space-x-3">
-                                     <button x-show="currentUser.roles && currentUser.roles.some(role => role.includes('ADMIN'))" @click="closeTicket()" class="px-4 py-2 bg-red-100 text-red-700 rounded-md hover:bg-red-200">Close Ticket</button>
-                                     <button @click="submitReply()" :disabled="(!newReply.trim() && !selectedFile) || isSubmitting" class="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center">
-                                         <span x-show="!isSubmitting">Send Reply</span>
-                                         <span x-show="isSubmitting"><i class="fas fa-spinner fa-spin mr-2"></i>Sending...</span>
-                                     </button>
-                                 </div>
-                             </div>
                         </div>
+                    </template>
 
-                        <div x-show="ticket.status === 'CLOSED'" class="text-center text-gray-500 py-4 border-t bg-gray-50 rounded-lg">
-                            <i class="fas fa-lock mr-2"></i> This ticket has been closed. You can no longer reply.
-                        </div>
+                    <div x-show="ticket.replies.length === 0" class="text-center py-10">
+                        <p class="text-gray-400 text-sm italic">No replies yet. Start the conversation below.</p>
                     </div>
+
                 </div>
             </div>
         </main>
+
+        <footer class="bg-white border-t border-gray-200 p-6" x-show="ticket && ticket.status !== 'CLOSED'">
+            <div class="max-w-5xl mx-auto">
+                <form @submit.prevent="submitReply">
+                    <div class="mb-4 relative">
+                        <div x-ref="quillEditor" class="bg-white"></div>
+                        
+                        <div x-show="attachment" class="absolute bottom-2 right-2 bg-indigo-50 border border-indigo-100 text-indigo-700 px-3 py-1 rounded-full text-xs flex items-center shadow-sm z-10">
+                            <i class="fas fa-paperclip mr-2"></i>
+                            <span x-text="fileName" class="max-w-[150px] truncate"></span>
+                            <button type="button" @click="clearFile" class="ml-2 text-indigo-400 hover:text-indigo-900"><i class="fas fa-times"></i></button>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-between items-center">
+                        <div class="flex items-center">
+                            <label class="cursor-pointer text-gray-500 hover:text-indigo-600 transition flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-50">
+                                <i class="fas fa-paperclip text-lg"></i>
+                                <span class="text-sm font-medium">Attach File</span>
+                                <input type="file" class="hidden" @change="handleFileSelect">
+                            </label>
+                        </div>
+                        
+                        <button type="submit" 
+                                class="bg-indigo-600 text-white px-6 py-2.5 rounded-lg font-semibold shadow-md hover:bg-indigo-700 hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                                :disabled="isSubmitting || (!newReplyHasContent && !attachment)">
+                            <span x-show="!isSubmitting">Send Reply <i class="fas fa-paper-plane ml-1"></i></span>
+                            <span x-show="isSubmitting">
+                                <i class="fas fa-circle-notch fa-spin"></i> Sending...
+                            </span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </footer>
+        
+        <div x-show="ticket && ticket.status === 'CLOSED'" class="bg-gray-50 border-t border-gray-200 p-6 text-center">
+            <div class="inline-flex items-center gap-2 text-gray-500 font-medium bg-white px-4 py-2 rounded-full shadow-sm border border-gray-200">
+                <i class="fas fa-lock"></i> This ticket is closed.
+            </div>
+        </div>
     </div>
 </div>
+
+<script src="https://cdn.quilljs.com/1.3.6/quill.js"></script>
 
 <script>
     function ticketDetailApp() {
         return {
-            ticket: null,
             loading: true,
-            error: null,
-            ticketId: null,
-            newReply: '',
-            currentUser: { id: null, username: '', roles: [] },
-            selectedFile: null,
             isSubmitting: false,
+            ticket: null,
+            newReply: '',
+            newReplyHasContent: false,
+            attachment: null,
+            fileName: '',
+            ticketId: null,
+            quillInstance: null,
+            currentUser: { id: null, username: '' },
 
             init() {
-                this.loadSidebar();
                 const urlParams = new URLSearchParams(window.location.search);
                 this.ticketId = urlParams.get('id');
-                if (!this.ticketId) {
-                    this.error = "No Ticket ID provided.";
-                    this.loading = false;
-                    return;
+
+                this.loadSidebar();
+
+                if (this.ticketId) {
+                    this.fetchCurrentUser().then(() => {
+                        this.fetchTicketDetails();
+                    });
+                } else {
+                    window.location.href = '/tickets.html';
                 }
-                this.fetchCurrentUser().then(() => this.fetchTicketDetails());
             },
 
             async fetchCurrentUser() {
                 try {
                     const response = await fetch('/api/billops/profile', { credentials: 'include' });
-                    if (!response.ok) throw new Error('Not logged in');
-                    this.currentUser = await response.json();
-                } catch (e) {
-                    console.error('Could not fetch user profile', e);
-                    this.error = 'Could not identify user. Please log in.';
+                    if (response.ok) {
+                        this.currentUser = await response.json();
+                    }
+                } catch (e) { console.error("User profile error", e); }
+            },
+
+            initQuill() {
+                if (this.quillInstance) return;
+
+                this.$nextTick(() => {
+                    if (this.$refs.quillEditor) {
+                        this.quillInstance = new Quill(this.$refs.quillEditor, {
+                            theme: 'snow',
+                            placeholder: 'Type your message here...',
+                            modules: {
+                                toolbar: [
+                                    ['bold', 'italic', 'underline', 'strike'],
+                                    ['blockquote', 'code-block'],
+                                    [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                                    ['clean']
+                                ]
+                            }
+                        });
+
+                        this.quillInstance.on('text-change', () => {
+                            this.newReply = this.quillInstance.root.innerHTML;
+                            const text = this.quillInstance.getText().trim();
+                            this.newReplyHasContent = text.length > 0;
+                        });
+                    }
+                });
+            },
+
+            async fetchTicketDetails() {
+                try {
+                    const response = await fetch(`/api/billops/tickets/${this.ticketId}`, { credentials: 'include' });
+                    if (!response.ok) throw new Error('Failed to fetch ticket');
+                    this.ticket = await response.json();
+                    
+                    if (this.ticket.status !== 'CLOSED') {
+                        this.initQuill();
+                    }
+                    // Auto-scroll to bottom
+                    this.$nextTick(() => {
+                        const container = document.getElementById('chat-container');
+                        if(container) container.scrollTop = container.scrollHeight;
+                    });
+
+                } catch (error) {
+                    console.error('Error:', error);
+                    alert('Could not load ticket details.');
+                } finally {
+                    this.loading = false;
                 }
             },
 
-            fetchTicketDetails() {
-                if (!this.ticketId) return;
-                fetch(`/api/billops/tickets/${this.ticketId}`, { credentials: 'include' })
-                    .then(res => res.ok ? res.json() : Promise.reject('Ticket not found.'))
-                    .then(data => { this.ticket = data; })
-                    .catch(err => { this.error = err; })
-                    .finally(() => { this.loading = false; });
+            isMe(reply) {
+                // If user ID matches, it's "Me". 
+                // Fallback: If I am NOT admin and the reply IS admin, it's THEM.
+                if (this.currentUser.id) {
+                    return reply.authorId === this.currentUser.id;
+                }
+                return false; 
             },
 
             handleFileSelect(event) {
                 const file = event.target.files[0];
                 if (file) {
-                    if (file.size > 5 * 1024 * 1024) { // 5MB limit
-                        alert("File is too large. Max size is 5MB.");
-                        this.clearFile();
+                    if (file.size > 10 * 1024 * 1024) {
+                        alert("File is too large. Max size is 10MB.");
                         return;
                     }
-                    this.selectedFile = file;
+                    this.attachment = file;
+                    this.fileName = file.name;
                 }
             },
 
             clearFile() {
-                this.selectedFile = null;
-                if (this.$refs.fileInput) {
-                    this.$refs.fileInput.value = '';
-                }
+                this.attachment = null;
+                this.fileName = '';
             },
 
             async submitReply() {
-                if ((!this.newReply.trim() && !this.selectedFile) || !this.currentUser.id) {
-                    alert('Cannot send empty reply.');
+                // Strip HTML tags to check real content
+                const textContent = this.quillInstance.getText().trim();
+                
+                if (!textContent && !this.attachment) {
                     return;
                 }
 
                 this.isSubmitting = true;
 
-                const formData = new FormData();
-                formData.append('message', this.newReply || ' ');
-                formData.append('authorId', this.currentUser.id);
-                
-                if (this.selectedFile) {
-                    formData.append('file', this.selectedFile);
-                }
-
                 try {
+                    const formData = new FormData();
+                    formData.append('message', this.newReply);
+                    formData.append('ticketId', this.ticketId); // Redundant but safe
+                    
+                    // Ensure authorId is sent if backend requires it manually
+                    if (this.currentUser.id) {
+                        formData.append('authorId', this.currentUser.id);
+                    }
+
+                    if (this.attachment) {
+                        formData.append('file', this.attachment);
+                    }
+
+                    // FIXED ENDPOINT: Plural 'replies' based on controller
                     const response = await fetch(`/api/billops/tickets/${this.ticketId}/replies`, {
                         credentials: 'include',
                         method: 'POST',
@@ -218,11 +363,21 @@
                     
                     const updatedTicket = await response.json();
                     this.ticket = updatedTicket;
+                    
+                    // Reset UI
+                    this.quillInstance.root.innerHTML = '';
                     this.newReply = '';
                     this.clearFile();
+                    
+                    // Scroll to bottom
+                    this.$nextTick(() => {
+                        const container = document.getElementById('chat-container');
+                        container.scrollTop = container.scrollHeight;
+                    });
+
                 } catch (err) {
                     console.error('Error submitting reply:', err);
-                    alert('Error: ' + err.message);
+                    alert('Error sending reply. Please try again.');
                 } finally {
                     this.isSubmitting = false;
                 }
@@ -232,7 +387,9 @@
                 if(confirm('Are you sure you want to close this ticket?')) {
                     fetch(`/api/billops/tickets/${this.ticketId}/close`, { method: 'POST', credentials: 'include' })
                     .then(res => res.json())
-                    .then(updatedTicket => { this.ticket = updatedTicket; });
+                    .then(updatedTicket => { 
+                        this.ticket = updatedTicket; 
+                    });
                 }
             },
             
@@ -243,9 +400,39 @@
                         document.getElementById('sidebar-container').innerHTML = html;
                         if (window.Alpine) Alpine.start();
                     });
+            },
+
+            formatDate(dateString) {
+                if (!dateString) return '';
+                return new Date(dateString).toLocaleString('en-US', {
+                    month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit'
+                });
+            },
+
+            formatDateSimple(dateString) {
+                if (!dateString) return '';
+                // Returns "10:30 AM" or "Oct 24, 10:30 AM"
+                const date = new Date(dateString);
+                const today = new Date();
+                const isToday = date.toDateString() === today.toDateString();
+                
+                if (isToday) {
+                    return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+                }
+                return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ', ' + 
+                       date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+            },
+
+            getInitials(name) {
+                if (!name) return 'U';
+                return name.charAt(0).toUpperCase();
             }
         };
     }
+    
+    document.addEventListener('alpine:init', () => {
+        Alpine.data('ticketDetailApp', ticketDetailApp);
+    });
 </script>
 </body>
 </html>
