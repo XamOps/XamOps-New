@@ -255,7 +255,12 @@
                     }
                 }
                 
-                fetch('/api/billops/tickets', { credentials: 'include' })
+                // FIX: Append the query parameter based on the isRefresh flag
+                const url = isRefresh 
+                    ? '/api/billops/tickets?forceRefresh=true' 
+                    : '/api/billops/tickets';
+
+                fetch(url, { credentials: 'include' })
                     .then(res => {
                         if (!res.ok) {
                            if (res.status === 401 || res.status === 403) window.location.href = '/login';

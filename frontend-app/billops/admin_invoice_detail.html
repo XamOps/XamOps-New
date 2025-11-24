@@ -247,6 +247,18 @@
                                             <td class="px-6 py-2 text-right text-red-700 font-medium text-sm" x-text="formatCurrency(calculateDiscountAmount(discount))"></td>
                                         </tr>
                                     </template>
+
+                                    <tr class="border-t border-gray-200 bg-gray-50">
+                                        <td colspan="3" class="px-6 py-2 text-right text-gray-500 font-medium text-sm">Taxable Value</td>
+                                        <td class="px-6 py-2 text-right text-gray-700 font-medium text-sm" 
+                                            x-text="formatCurrency(invoice.preDiscountTotal - (invoice.discountAmount || 0))">
+                                        </td>
+                                    </tr>
+
+                                    <tr class="bg-gray-50">
+                                        <td colspan="3" class="px-6 py-2 text-right text-gray-500 font-medium text-sm">IGST (18%)</td>
+                                        <td class="px-6 py-2 text-right text-gray-700 font-medium text-sm" x-text="formatCurrency(invoice.taxAmount)"></td>
+                                    </tr>
                                     
                                     <tr class="border-t-2 border-indigo-100 bg-indigo-50">
                                         <td colspan="3" class="px-6 py-4 text-right text-indigo-900 font-bold text-lg">TOTAL DUE</td>
@@ -326,7 +338,9 @@
                         });
                     }
                     const service = serviceMap.get(item.serviceName);
-                    service.totalCost += item.cost;
+                    // Handle String cost if necessary, though API usually returns number in BigDecimal
+                    const cost = typeof item.cost === 'string' ? parseFloat(item.cost) : item.cost;
+                    service.totalCost += cost;
 
                     // 2. Region Level
                     if (!service.regionCosts.has(item.regionName)) {
@@ -337,15 +351,15 @@
                         });
                     }
                     const region = service.regionCosts.get(item.regionName);
-                    region.cost += item.cost;
+                    region.cost += cost;
 
                     // 3. Resource Level
                     region.resources.push({
-                        resourceId: `${item.serviceName}-${item.regionName}-${item.resourceName}-${item.cost}`, // Unique key for loop
+                        resourceId: `${item.serviceName}-${item.regionName}-${item.resourceName}-${item.cost}`, 
                         resourceName: item.resourceName,
                         usageQuantity: item.usageQuantity,
                         unit: item.unit,
-                        cost: item.cost
+                        cost: cost
                     });
                 }
                 
@@ -411,8 +425,14 @@
                     
                     if (discount.serviceName === 'ALL') {
                         amount = new Big(this.invoice.preDiscountTotal).times(percentage);
+                    } else if (discount.serviceName === 'AWS Consumption Charge') {
+                        // --- NEW LOGIC: Sum up non-CloudFront items ---
+                        // Note: We do NOT exclude 'Tax' here because you want the discount to apply to the $799.91
+                        const standardTotal = this.detailedBreakdown
+                            .filter(s => s.serviceName !== 'Amazon CloudFront')
+                            .reduce((sum, s) => sum.plus(new Big(s.totalCost)), new Big(0));
+                        amount = standardTotal.times(percentage);
                     } else {
-                        // Sum costs of matching services from the detailed view to ensure accuracy
                         const service = this.detailedBreakdown.find(s => s.serviceName === discount.serviceName);
                         if (service) {
                             amount = new Big(service.totalCost).times(percentage);
@@ -467,4 +487,4 @@
     });
 </script>
 </body>
-</html>
+</html>  

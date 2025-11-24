@@ -170,18 +170,17 @@
                             <label class="block text-sm font-semibold text-gray-700 mb-2">Description</label>
                             <textarea x-model="form.description" maxlength="8000" rows="4" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" placeholder="Describe your question or issue in detail" required></textarea>
                         </div>
-                        <template x-if="form.category === 'Account and Billing'"> 
-                            <div class="grid grid-cols-2 gap-6">
-                                <div>
-                                    <label class="block text-sm font-semibold text-gray-700 mb-2">AWS Account ID</label>
-                                    <input type="text" x-model="form.accountId" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" placeholder="e.g. 1234-5678-9012" />
-                                </div>
-                                <div>
-                                    <label class="block text-sm font-semibold text-gray-700 mb-2">Region</label>
-                                    <input type="text" x-model="form.region" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" placeholder="e.g. us-east-1" />
-                                </div>
+                        
+                        <div class="grid grid-cols-2 gap-6">
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">AWS Account ID</label>
+                                <input type="text" x-model="form.accountId" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" placeholder="e.g. 1234-5678-9012" />
                             </div>
-                        </template>
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">Region</label>
+                                <input type="text" x-model="form.region" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" placeholder="e.g. us-east-1" />
+                            </div>
+                        </div>
                     </div>
 
                     <div class="mt-8 flex justify-end">
@@ -210,7 +209,7 @@
             isUpdating: false,
             userLoading: true,
             error: null,
-            cacheKey: 'xamops_technical_tickets_v1', // Unique key for this page
+            cacheKey: 'xamops_technical_tickets_v1',
 
             currentUser: { id: null, username: '', roles: [] }, 
             form: {
@@ -323,10 +322,16 @@
                     return;
                 }
                 this.isSubmitting = true;
+
+                // --- MODIFIED: Get selected account ID from session storage ---
+                const selectedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                const autoAccountId = selectedIds.length > 0 ? selectedIds[0] : '';
                 
                 const payload = { 
                     ...this.form, 
-                    creatorId: this.currentUser.id 
+                    creatorId: this.currentUser.id,
+                    // Use user-entered ID if available, otherwise auto-fill from session
+                    accountId: this.form.accountId || autoAccountId
                 };
 
                 try {
@@ -353,13 +358,17 @@
             },
 
             resetForm() {
+                // --- MODIFIED: Pre-fill Account ID from session storage ---
+                const selectedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                const defaultAccountId = selectedIds.length > 0 ? selectedIds[0] : '';
+
                 this.form = {
                     category: 'Technical',
                     service: this.serviceOptions['Technical'][0],
                     severity: '',
                     subject: '',
                     description: '',
-                    accountId: '',
+                    accountId: defaultAccountId, // Pre-filled
                     region: '',
                 };
             },
