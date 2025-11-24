@@ -18,7 +18,7 @@ public class CloudDashboardApplication {
         SpringApplication.run(CloudDashboardApplication.class, args);
     }
 
-
+    
 
     @Bean
     public ObjectMapper objectMapper() {
@@ -28,4 +28,4 @@ public class CloudDashboardApplication {
         mapper.configure(com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false); 
         return mapper;
     }
-}
+}  

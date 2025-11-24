@@ -6,6 +6,7 @@
     <title>XamOps - Detailed Invoice</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/big.js@6.0.3/big.min.js"></script>
     <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
     <link rel="apple-touch-icon" href="/icons/XamOps.png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -307,6 +308,37 @@
                                     </td>
                                 </tr>
                                 </tbody>
+                                
+                                <tfoot class="bg-gray-50 text-sm">
+                                    <tr class="border-t-2 border-gray-200">
+                                        <td colspan="3" class="px-6 py-2 text-right text-gray-600 font-medium">Subtotal</td>
+                                        <td class="px-6 py-2 text-right text-gray-800 font-bold" x-text="formatCurrency(selectedInvoice.preDiscountTotal)"></td>
+                                    </tr>
+                                    
+                                    <template x-for="discount in selectedInvoice.discounts" :key="discount.id">
+                                        <tr class="bg-red-50">
+                                            <td colspan="3" class="px-6 py-2 text-right text-red-600 text-xs">
+                                                <span x-text="discount.description"></span>
+                                            </td>
+                                            <td class="px-6 py-2 text-right text-red-700 font-medium" x-text="formatCurrency(calculateDiscountAmount(discount))"></td>
+                                        </tr>
+                                    </template>
+
+                                    <tr class="border-t border-gray-200 bg-gray-50">
+                                        <td colspan="3" class="px-6 py-2 text-right text-gray-500">Taxable Value</td>
+                                        <td class="px-6 py-2 text-right text-gray-700" x-text="formatCurrency(selectedInvoice.preDiscountTotal - selectedInvoice.discountAmount)"></td>
+                                    </tr>
+
+                                    <tr class="bg-gray-50">
+                                        <td colspan="3" class="px-6 py-2 text-right text-gray-500">IGST (18%)</td>
+                                        <td class="px-6 py-2 text-right text-gray-700" x-text="formatCurrency(selectedInvoice.taxAmount)"></td>
+                                    </tr>
+                                    
+                                    <tr class="border-t-2 border-indigo-100 bg-indigo-50">
+                                        <td colspan="3" class="px-6 py-4 text-right text-indigo-900 font-bold text-lg">TOTAL DUE</td>
+                                        <td class="px-6 py-4 text-right text-indigo-700 font-bold text-xl" x-text="formatCurrency(selectedInvoice.amount)"></td>
+                                    </tr>
+                                </tfoot>
                             </table>
                         </div>
                         </div>
@@ -460,44 +492,49 @@
 
             transformToDrilldown(lineItems) {
                 if (!lineItems || lineItems.length === 0) return [];
+                
                 const serviceMap = new Map();
-
+                
                 for (const item of lineItems) {
+                    // 1. Service Level
                     if (!serviceMap.has(item.serviceName)) {
-                        serviceMap.set(item.serviceName, {
-                            serviceName: item.serviceName,
-                            totalCost: 0,
-                            regionCosts: new Map()
+                        serviceMap.set(item.serviceName, { 
+                            serviceName: item.serviceName, 
+                            totalCost: 0, 
+                            regionCosts: new Map() 
                         });
                     }
                     const service = serviceMap.get(item.serviceName);
                     service.totalCost += item.cost;
 
+                    // 2. Region Level
                     if (!service.regionCosts.has(item.regionName)) {
-                        service.regionCosts.set(item.regionName, {
-                            regionName: item.regionName,
-                            cost: 0,
-                            resources: []
+                        service.regionCosts.set(item.regionName, { 
+                            regionName: item.regionName, 
+                            cost: 0, 
+                            resources: [] 
                         });
                     }
                     const region = service.regionCosts.get(item.regionName);
                     region.cost += item.cost;
 
+                    // 3. Resource Level
                     region.resources.push({
-                        resourceId: `${item.serviceName}-${item.regionName}-${item.resourceName}-${item.cost}`, 
+                        resourceId: `${item.serviceName}-${item.regionName}-${item.resourceName}-${item.cost}`, // Unique key for loop
                         resourceName: item.resourceName,
                         usageQuantity: item.usageQuantity,
                         unit: item.unit,
                         cost: item.cost
                     });
                 }
-
+                
+                // Convert Maps to Arrays for Alpine x-for
                 const result = [];
                 for (const service of serviceMap.values()) {
                     service.regionCosts = Array.from(service.regionCosts.values());
                     result.push(service);
                 }
-                return result;
+                return result.sort((a, b) => b.totalCost - a.totalCost); // Sort by cost desc
             },
 
             downloadInvoice() {
@@ -527,6 +564,23 @@
                     console.error('Download error:', err);
                     alert('Could not download the invoice PDF.');
                 });
+            },
+            
+            calculateDiscountAmount(discount) {
+                try {
+                    let amount = 0;
+                    const percentage = new Big(discount.percentage).div(100);
+                    
+                    if (discount.serviceName === 'ALL') {
+                        amount = new Big(this.selectedInvoice.preDiscountTotal).times(percentage);
+                    } else {
+                        const service = this.detailedBreakdown.find(s => s.serviceName === discount.serviceName);
+                        if (service) {
+                            amount = new Big(service.totalCost).times(percentage);
+                        }
+                    }
+                    return amount.times(-1).toNumber();
+                } catch(e) { return 0; }
             },
 
             formatCurrency(value) {

@@ -30,6 +30,30 @@
             background-color: #f3f4f6;
         }
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+
+        .type-badge {
+            font-size: 0.7rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 700;
+            text-transform: uppercase;
+            margin-right: 6px;
+        }
+        .type-standard { background-color: #e0e7ff; color: #3730a3; }
+        .type-cloudfront { background-color: #f3e8ff; color: #6b21a8; border: 1px solid #e9d5ff; }
+
+        /* Custom Checkbox Style */
+        .custom-checkbox {
+            width: 1.25rem;
+            height: 1.25rem;
+            border-radius: 0.25rem;
+            border: 1px solid #d1d5db;
+            cursor: pointer;
+        }
+        .custom-checkbox:checked {
+            background-color: #4f46e5;
+            border-color: #4f46e5;
+        }
     </style>
 </head>
 <body class="bg-gray-100 font-sans leading-normal tracking-normal" x-data="adminInvoiceList()">
@@ -53,6 +77,7 @@
         </header>
 
         <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 p-6">
+            
             <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-200 mb-8">
                 <h3 class="text-lg font-semibold text-gray-800 mb-4 border-b pb-2 flex items-center">
                     <i class="fas fa-plus-circle text-indigo-500 mr-2"></i> Generate New Draft Invoice
@@ -81,7 +106,7 @@
                     <button @click="generateInvoice()" :disabled="!generation.accountId || generating" 
                             class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded shadow flex justify-center items-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                         <span x-show="generating"><i class="fas fa-spinner fa-spin mr-2"></i>Processing...</span>
-                        <span x-show="!generating">Generate Draft</span>
+                        <span x-show="!generating">Generate Standard Draft</span>
                     </button>
                 </div>
                 <div x-show="!generation.accountId" class="mt-2 text-xs text-red-500">
@@ -111,41 +136,47 @@
                 </div>
             </div>
 
+            <div x-show="mergeSuccess" class="bg-green-50 border-l-4 border-green-500 p-4 mb-6 rounded-r shadow-sm" x-transition x-cloak>
+                <div class="flex items-center">
+                    <i class="fas fa-check-circle text-green-500 mr-2"></i>
+                    <p class="text-sm text-green-700 font-bold">Invoices Merged Successfully!</p>
+                </div>
+            </div>
+
+            <div x-show="selectedIds.length > 0" class="bg-indigo-50 border border-indigo-100 p-4 rounded-lg mb-6 shadow-sm flex justify-between items-center" x-transition x-cloak>
+                <div class="flex items-center">
+                    <span class="bg-indigo-100 text-indigo-800 text-xs font-semibold mr-2 px-2.5 py-0.5 rounded border border-indigo-200">
+                        <span x-text="selectedIds.length"></span> Selected
+                    </span>
+                    <span class="text-sm text-gray-600" :class="{'text-red-600': !canMergeSelection}">
+                        <span x-show="selectedIds.length !== 2">Select exactly 2 drafts to enable merging.</span>
+                        <span x-show="selectedIds.length === 2 && !canMergeSelection">Incompatible selection (Check Account/Period/Status).</span>
+                    </span>
+                </div>
+                
+                <div>
+                    <button @click="mergeSelectedInvoices()" 
+                            :disabled="!canMergeSelection"
+                            class="flex items-center px-4 py-2 rounded text-sm font-medium transition-colors duration-150"
+                            :class="canMergeSelection ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-md' : 'bg-gray-300 text-gray-500 cursor-not-allowed'">
+                        <i class="fas fa-code-branch mr-2"></i>
+                        <span x-text="mergeButtonText">Merge Selected</span>
+                    </button>
+                </div>
+            </div>
+
             <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
                 
-                <div x-show="loading" class="animate-pulse">
-                     <table class="min-w-full divide-y divide-gray-200">
-                        <thead class="bg-gray-50">
-                            <tr>
-                                <th class="px-6 py-3"><div class="h-4 bg-gray-300 rounded w-20"></div></th>
-                                <th class="px-6 py-3"><div class="h-4 bg-gray-300 rounded w-32"></div></th>
-                                <th class="px-6 py-3"><div class="h-4 bg-gray-300 rounded w-24"></div></th>
-                                <th class="px-6 py-3"><div class="h-4 bg-gray-300 rounded w-20 ml-auto"></div></th>
-                                <th class="px-6 py-3"><div class="h-4 bg-gray-300 rounded w-16 mx-auto"></div></th>
-                                <th class="px-6 py-3"><div class="h-4 bg-gray-300 rounded w-16 ml-auto"></div></th>
-                            </tr>
-                        </thead>
-                        <tbody class="bg-white divide-y divide-gray-200">
-                            <template x-for="i in 5" :key="i">
-                                <tr>
-                                    <td class="px-6 py-4"><div class="h-4 bg-gray-200 rounded w-16"></div></td>
-                                    <td class="px-6 py-4">
-                                        <div class="h-4 bg-gray-200 rounded w-40 mb-2"></div>
-                                        <div class="h-3 bg-gray-100 rounded w-24"></div>
-                                    </td>
-                                    <td class="px-6 py-4"><div class="h-4 bg-gray-200 rounded w-24"></div></td>
-                                    <td class="px-6 py-4"><div class="h-4 bg-gray-200 rounded w-20 ml-auto"></div></td>
-                                    <td class="px-6 py-4"><div class="h-6 bg-gray-200 rounded-full w-20 mx-auto"></div></td>
-                                    <td class="px-6 py-4"><div class="h-4 bg-gray-200 rounded w-16 ml-auto"></div></td>
-                                </tr>
-                            </template>
-                        </tbody>
-                    </table>
+                <div x-show="loading" class="animate-pulse p-6">
+                    <div class="h-4 bg-gray-200 rounded w-full mb-4"></div>
+                    <div class="h-4 bg-gray-200 rounded w-full mb-4"></div>
+                    <div class="h-4 bg-gray-200 rounded w-full mb-4"></div>
                 </div>
 
                 <table x-show="!loading" class="min-w-full divide-y divide-gray-200" x-cloak>
                     <thead class="bg-gray-50">
                         <tr>
+                            <th class="px-4 py-3 w-10"></th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Invoice #</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Account</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Period</th>
@@ -156,12 +187,24 @@
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200">
                         <template x-for="invoice in filteredInvoices" :key="invoice.id">
-                            <tr class="hover:bg-gray-50 transition duration-150 ease-in-out">
+                            <tr class="hover:bg-gray-50 transition duration-150 ease-in-out" :class="{'bg-indigo-50': selectedIds.includes(String(invoice.id))}">
+                                <td class="px-4 py-4 whitespace-nowrap text-center">
+                                    <input type="checkbox" 
+                                           :value="invoice.id" 
+                                           x-model="selectedIds"
+                                           :disabled="invoice.status !== 'DRAFT'"
+                                           class="custom-checkbox focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded disabled:opacity-50">
+                                </td>
                                 <td class="px-6 py-4 whitespace-nowrap">
-                                    <a :href="`admin_invoice_detail.html?id=${invoice.id}`" class="text-indigo-600 font-bold hover:text-indigo-900 hover:underline flex items-center">
-                                        <i class="fas fa-file-invoice mr-2 text-gray-400"></i>
-                                        <span x-text="invoice.invoiceNumber"></span>
-                                    </a>
+                                    <div class="flex items-center">
+                                        <span class="type-badge" 
+                                              :class="isCloudFront(invoice) ? 'type-cloudfront' : 'type-standard'"
+                                              x-text="isCloudFront(invoice) ? 'CF' : 'STD'">
+                                        </span>
+                                        <a :href="`admin_invoice_detail.html?id=${invoice.id}`" class="text-indigo-600 font-bold hover:text-indigo-900 hover:underline">
+                                            <span x-text="invoice.invoiceNumber"></span>
+                                        </a>
+                                    </div>
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap">
                                     <div class="text-sm font-medium text-gray-900" x-text="invoice.accountName"></div>
@@ -186,16 +229,22 @@
                                     </span>
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                    <a :href="`admin_invoice_detail.html?id=${invoice.id}`" class="text-indigo-600 hover:text-indigo-900 font-semibold bg-indigo-50 px-3 py-1 rounded hover:bg-indigo-100 transition-colors">
-                                        Manage
-                                    </a>
+                                    <div class="flex justify-end items-center space-x-2">
+                                        <button @click="downloadPreview(invoice)" class="text-gray-500 hover:text-indigo-600" title="Download Preview PDF">
+                                            <i class="fas fa-file-pdf fa-lg"></i>
+                                        </button>
+
+                                        <a :href="`admin_invoice_detail.html?id=${invoice.id}`" class="text-indigo-600 hover:text-indigo-900 font-semibold bg-indigo-50 px-3 py-1 rounded hover:bg-indigo-100 transition-colors">
+                                            Manage
+                                        </a>
+                                    </div>
                                 </td>
                             </tr>
                         </template>
                         <tr x-show="!loading && filteredInvoices.length === 0">
-                            <td colspan="6" class="px-6 py-12 text-center text-gray-500">
+                            <td colspan="7" class="px-6 py-12 text-center text-gray-500">
                                 <i class="fas fa-folder-open text-4xl text-gray-300 mb-3"></i>
-                                <p>No invoices found.</p>
+                                <p x-text="filterIds.length > 0 ? 'No invoices found for the selected account.' : 'No invoices found.'"></p>
                             </td>
                         </tr>
                     </tbody>
@@ -215,49 +264,90 @@
             generating: false,
             error: null,
             updateError: null,
+            mergeSuccess: false,
+            
+            // Selection State
+            selectedIds: [],
+            filterIds: [],
+            
             generation: {
-                accountId: '',
+                accountId: '', 
                 year: new Date().getFullYear(),
                 month: new Date().getMonth() + 1
             },
 
             init() {
-                this.fetchAccounts();
-                
-                // --- NEW: Auto-select account from sidebar session storage ---
-                const selectedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-                if (selectedIds.length > 0) {
-                    // Automatically set the account ID from the session storage
-                    this.generation.accountId = selectedIds[0];
-                }
-                // -------------------------------------------------------------
+                const urlParams = new URLSearchParams(window.location.search);
+                const urlIds = urlParams.get('accountIds') || urlParams.get('accountId');
 
+                if (urlIds) {
+                    this.filterIds = urlIds.split(',');
+                } else {
+                    const storageIds = sessionStorage.getItem('selectedAccountIds');
+                    if (storageIds) {
+                        this.filterIds = JSON.parse(storageIds);
+                    }
+                }
+
+                if (this.filterIds.length > 0) {
+                    this.generation.accountId = this.filterIds[0];
+                }
+
+                this.fetchAccounts();
                 this.fetchData(false);
+                
+                // Watcher to validate selection whenever it changes
+                this.$watch('selectedIds', () => {
+                    this.validateMergeSelection();
+                });
             },
 
-            // Helper to display name of auto-selected account
             getSelectedAccountName() {
-                if (!this.generation.accountId) return 'No Account Selected (Please select in Sidebar)';
+                if (!this.generation.accountId) return 'No Account Selected';
                 const acc = this.accounts.find(a => a.identifier === this.generation.accountId);
                 return acc ? `${acc.name} (${acc.identifier})` : this.generation.accountId;
             },
 
             get filteredInvoices() {
-                return this.invoices.sort((a, b) => b.id - a.id);
+                let result = this.invoices;
+                if (this.filterIds.length > 0) {
+                    result = result.filter(inv => 
+                        this.filterIds.some(id => 
+                            String(id) === String(inv.cloudAccountId) ||
+                            (inv.awsAccountId && String(id) === String(inv.awsAccountId)) ||
+                            (inv.gcpProjectId && String(id) === String(inv.gcpProjectId))
+                        )
+                    );
+                }
+                return result.sort((a, b) => b.id - a.id);
             },
 
             fetchAccounts() {
-                fetch('/api/xamops/account-manager/accounts')
+                fetch('/api/accounts')
                     .then(res => res.json())
                     .then(data => {
                         this.accounts = data.map(a => ({
-                            id: a.id,
+                            id: a.id,             
                             name: a.accountName,
                             provider: a.provider,
                             identifier: a.provider === 'AWS' ? a.awsAccountId : a.gcpProjectId
                         }));
+                        this.syncSelectionFromSidebar();
                     })
                     .catch(err => console.warn("Failed to load accounts list", err));
+            },
+            
+            syncSelectionFromSidebar() {
+                if (this.filterIds.length > 0) {
+                    const selectedId = this.filterIds[0];
+                    const account = this.accounts.find(a => 
+                        String(a.id) === String(selectedId) || 
+                        String(a.identifier) === String(selectedId)
+                    );
+                    if (account) {
+                        this.generation.accountId = account.identifier;
+                    }
+                }
             },
 
             fetchData(forceRefresh) {
@@ -268,6 +358,9 @@
                     this.loading = true;
                     this.error = null;
                 }
+                
+                // Clear selection on refresh to avoid stale data
+                this.selectedIds = [];
 
                 fetch(`/api/admin/invoices?forceRefresh=${forceRefresh}`)
                     .then(res => {
@@ -322,6 +415,115 @@
                 })
                 .catch(err => alert(err.message))
                 .finally(() => this.generating = false);
+            },
+            
+            isCloudFront(invoice) {
+                return invoice.invoiceNumber && invoice.invoiceNumber.startsWith('CF-');
+            },
+
+            // --- Selection & Merge Logic ---
+
+            get canMergeSelection() {
+                if (this.selectedIds.length !== 2) return false;
+                
+                // FIX 1: Type-safe finding using String conversion
+                const inv1 = this.invoices.find(i => String(i.id) === String(this.selectedIds[0]));
+                const inv2 = this.invoices.find(i => String(i.id) === String(this.selectedIds[1]));
+                
+                if (!inv1 || !inv2) return false;
+                
+                // Validation Rules
+                // FIX 2: Compare AWS Account String instead of DB ID to handle duplicate DB entries
+                const sameAccount = inv1.awsAccountId === inv2.awsAccountId;
+                
+                const samePeriod = inv1.billingPeriod === inv2.billingPeriod;
+                const bothDraft = inv1.status === 'DRAFT' && inv2.status === 'DRAFT';
+                
+                return sameAccount && samePeriod && bothDraft;
+            },
+
+            get mergeButtonText() {
+                if (this.selectedIds.length !== 2) return "Select 2 Invoices";
+                if (!this.canMergeSelection) return "Incompatible Selection";
+                
+                const { target, source } = this.determineMergeOrder();
+                return `Merge ${source.invoiceNumber} → ${target.invoiceNumber}`;
+            },
+            
+            determineMergeOrder() {
+                 const inv1 = this.invoices.find(i => String(i.id) === String(this.selectedIds[0]));
+                 const inv2 = this.invoices.find(i => String(i.id) === String(this.selectedIds[1]));
+                 
+                 let target, source;
+                 
+                 // Priority: Standard Invoice is Target. CloudFront is Source.
+                 if (!this.isCloudFront(inv1) && this.isCloudFront(inv2)) {
+                     target = inv1; source = inv2;
+                 } else if (this.isCloudFront(inv1) && !this.isCloudFront(inv2)) {
+                     target = inv2; source = inv1;
+                 } else {
+                     // Fallback: Lower ID (older) is target
+                     if (inv1.id < inv2.id) { target = inv1; source = inv2; }
+                     else { target = inv2; source = inv1; }
+                 }
+                 return { target, source };
+            },
+            
+            validateMergeSelection() {
+                // Optional: Trigger any UI updates or console logs here if needed
+            },
+
+            mergeSelectedInvoices() {
+                if (!this.canMergeSelection) return;
+                
+                const { target, source } = this.determineMergeOrder();
+
+                if(!confirm(`Are you sure you want to merge:\nSource: ${source.invoiceNumber} (${this.formatCurrency(source.amount)})\nTarget: ${target.invoiceNumber} (${this.formatCurrency(target.amount)})\n\nThis will combine line items and DELETE the source invoice.`)) {
+                    return;
+                }
+
+                this.isUpdating = true;
+                fetch(`/api/admin/invoices/merge?targetInvoiceId=${target.id}&sourceInvoiceId=${source.id}`, {
+                    method: 'POST'
+                })
+                .then(res => {
+                    if (!res.ok) throw new Error('Merge failed');
+                    return res.json();
+                })
+                .then(() => {
+                    this.mergeSuccess = true;
+                    this.selectedIds = []; // Clear selection
+                    setTimeout(() => this.mergeSuccess = false, 4000);
+                    this.fetchData(true);
+                })
+                .catch(err => {
+                    alert("Merge failed: " + err.message);
+                    this.isUpdating = false;
+                });
+            },
+
+            downloadPreview(invoice) {
+                fetch(`/api/admin/invoices/${invoice.id}`)
+                    .then(res => res.json())
+                    .then(fullDto => {
+                        return fetch('/api/billops/invoices/download-preview', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(fullDto)
+                        });
+                    })
+                    .then(res => res.blob())
+                    .then(blob => {
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.style.display = 'none';
+                        a.href = url;
+                        a.download = `preview-${invoice.invoiceNumber}.pdf`;
+                        document.body.appendChild(a);
+                        a.click();
+                        window.URL.revokeObjectURL(url);
+                    })
+                    .catch(err => alert("Preview failed: " + err.message));
             },
             
             formatCurrency(value) {

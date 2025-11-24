@@ -11,7 +11,7 @@ import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 @EnableCaching
 @EntityScan(basePackages = {"com.xammer.billops", "com.xammer.cloud.domain"}) // 2. ADD THIS LINE
 public class BillopsApplication {
-
+ 
     public static void main(String[] args) {
         SpringApplication.run(BillopsApplication.class, args);
     }
