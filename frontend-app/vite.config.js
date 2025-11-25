@@ -139,8 +139,12 @@ export default defineConfig({
         'gcp_devops_in_the_box.html': resolve(__dirname, 'gcp_devops_in_the_box.html'),
         'cicd_pipelines.html': resolve(__dirname, 'cicd_pipelines.html'),
         security: resolve(__dirname, 'security.html'),
-        'add-github-config.html': resolve(__dirname,'add-github-config.html'),
-        'sonarqube.html': resolve(__dirname,'sonarqube.html'),
+        'add-github-config.html': resolve(__dirname, 'add-github-config.html'),
+        'sonarqube.html': resolve(__dirname, 'sonarqube.html'),
+        'aiops.html': resolve(__dirname, 'aiops.html'),
+        'complianceops.html': resolve(__dirname, 'complianceops.html'),
+        'dataops.html': resolve(__dirname, 'dataops.html'),
+        'spot-automation.html': resolve(__dirname, 'spot-automation.html'),
 
         // Admin subdir files
         'admin_credits': resolve(__dirname, 'billops/admin_credits.html'),
@@ -152,8 +156,10 @@ export default defineConfig({
         'ticket_detail': resolve(__dirname, 'billops/ticket_detail.html'),
         'credits': resolve(__dirname, 'billops/credits.html'),
         'invoices': resolve(__dirname, 'billops/invoices.html'),
-        'admin_cloudfront_billing': resolve(__dirname, 'billops/admin_cloudfront_billing.html'), 
-
+        'admin_cloudfront_billing': resolve(__dirname, 'billops/admin_cloudfront_billing.html'),
+        'marketplace-purchases': resolve(__dirname, 'billops/marketplace-purchases.html'),
+        'thirdparty-tools': resolve(__dirname, 'billops/thirdparty-tools.html'),
+        'workspace-licenses': resolve(__dirname, 'billops/workspace-licenses.html'),
 
         // GCP subdir files
         'gcp_cloudlist': resolve(__dirname, 'gcp_cloudlist.html'),
