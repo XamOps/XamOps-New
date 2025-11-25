@@ -37,7 +37,7 @@ public class CloudFrontUsageService {
     private static final Logger logger = LoggerFactory.getLogger(CloudFrontUsageService.class);
 
     public CloudFrontUsageService(AwsClientProvider awsClientProvider,
-                                  CloudAccountRepository cloudAccountRepository) {
+            CloudAccountRepository cloudAccountRepository) {
         this.awsClientProvider = awsClientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
     }
@@ -47,16 +47,16 @@ public class CloudFrontUsageService {
      */
     public List<CloudFrontUsageDto> getUsageFromAws(String accountId, YearMonth period) {
         logger.info("Fetching CloudFront usage from AWS Cost Explorer for account: {}, period: {}", accountId, period);
-        
+
         CloudAccount cloudAccount = cloudAccountRepository.findByAwsAccountId(accountId)
                 .stream().findFirst()
                 .orElseThrow(() -> new RuntimeException("Cloud account not found: " + accountId));
-        
+
         CostExplorerClient client = awsClientProvider.getCostExplorerClient(cloudAccount);
 
         String start = period.atDay(1).toString();
         String end = period.atEndOfMonth().toString();
-        
+
         logger.debug("Querying Cost Explorer from {} to {}", start, end);
 
         GetCostAndUsageRequest request = GetCostAndUsageRequest.builder()
@@ -71,8 +71,7 @@ public class CloudFrontUsageService {
                 .metrics("UsageQuantity", "BlendedCost")
                 .groupBy(
                         GroupDefinition.builder().type(GroupDefinitionType.DIMENSION).key("REGION").build(),
-                        GroupDefinition.builder().type(GroupDefinitionType.DIMENSION).key("USAGE_TYPE").build()
-                )
+                        GroupDefinition.builder().type(GroupDefinitionType.DIMENSION).key("USAGE_TYPE").build())
                 .build();
 
         GetCostAndUsageResponse response = client.getCostAndUsage(request);
@@ -86,195 +85,167 @@ public class CloudFrontUsageService {
                 double cost = Double.parseDouble(group.metrics().get("BlendedCost").amount());
                 String unit = group.metrics().get("UsageQuantity").unit();
 
-                if (cost > 0) {
+                if (cost >= 0) {
                     usageList.add(new CloudFrontUsageDto(region, usageType, quantity, unit, cost));
                     logger.debug("AWS Usage: {} | {} | {} {} | ${}", region, usageType, quantity, unit, cost);
                 }
             }
         }
-        
+
         logger.info("Retrieved {} CloudFront usage records from AWS", usageList.size());
         return usageList;
     }
 
     /**
-     * Method 2: Parses usage from an uploaded AWS Cost and Usage Report (CUR) CSV file.
+     * Method 2: Parses usage from an uploaded AWS Cost and Usage Report (CUR) CSV
+     * file.
+     * UPDATED: Supports both standard AWS keys (lineItem/ProductCode) and
+     * snake_case keys (line_item_product_code).
      */
     public List<CloudFrontUsageDto> getUsageFromBill(MultipartFile file) {
         logger.info("=======================================================");
         logger.info("STARTING CSV PARSING");
         logger.info("File: {}", file.getOriginalFilename());
-        logger.info("Size: {} bytes", file.getSize());
-        logger.info("=======================================================");
-        
+
         List<CloudFrontUsageDto> parsedUsage = new ArrayList<>();
-        
-        String productCodeColName = "lineItem/ProductCode";
-        String usageTypeColName = "lineItem/UsageType";
-        String usageAmountColName = "lineItem/UsageAmount";
-        String costColName = "lineItem/UnblendedCost";
-        String regionColName = "product/region";
-        String usageUnitColName = "pricing/unit";
-    
-        // Create CSV parser with explicit configuration (NOT in try-with-resources)
+
+        // Define possible column names for each required field to support multiple
+        // formats
+        String[][] productCodeCandidates = {
+                { "lineItem/ProductCode", "line_item_product_code", "product_servicecode" } };
+        String[][] usageTypeCandidates = { { "lineItem/UsageType", "line_item_usage_type" } };
+        String[][] usageAmountCandidates = { { "lineItem/UsageAmount", "line_item_usage_amount" } };
+        String[][] costCandidates = { { "lineItem/UnblendedCost", "line_item_unblended_cost" } };
+        String[][] regionCandidates = { { "product/region", "product_region", "product.2.2" } }; // Added product.2.2
+                                                                                                 // for your specific
+                                                                                                 // file
+        String[][] unitCandidates = { { "pricing/unit", "pricing_unit" } };
+
+        // Create CSV parser with explicit configuration
         CSVParser parser = new CSVParserBuilder()
-            .withSeparator(',')
-            .withIgnoreQuotations(false)
-            .build();
-        
-        logger.debug("CSV Parser configured with comma separator");
+                .withSeparator(',')
+                .withIgnoreQuotations(false)
+                .build();
 
         try (
-            InputStreamReader reader = new InputStreamReader(file.getInputStream(), StandardCharsets.UTF_8);
-            CSVReader csvReader = new CSVReaderBuilder(reader)
-                .withSkipLines(0)
-                .withCSVParser(parser)
-                .build()
-        ) {
-            logger.debug("CSV Reader initialized successfully");
-            
+                InputStreamReader reader = new InputStreamReader(file.getInputStream(), StandardCharsets.UTF_8);
+                CSVReader csvReader = new CSVReaderBuilder(reader)
+                        .withSkipLines(0)
+                        .withCSVParser(parser)
+                        .build()) {
             String[] headers = csvReader.readNext();
             if (headers == null) {
-                logger.error("CSV file is empty - no header row found");
                 throw new RuntimeException("CSV file is empty or header row is missing.");
             }
-    
-            logger.info("CSV has {} columns", headers.length);
-            logger.debug("Header columns: {}", String.join(", ", headers));
-    
+
+            // Map header names to their indices
             Map<String, Integer> headerMap = new HashMap<>();
             for (int i = 0; i < headers.length; i++) {
-                headerMap.put(headers[i].trim(), i);
-                logger.trace("Column {}: '{}'", i, headers[i].trim());
+                // Clean up potential BOM or whitespace
+                headerMap.put(headers[i].trim().replaceAll("^\\uFEFF", ""), i);
             }
-    
-            // Validation check
-            logger.debug("Validating required columns...");
-            if (!headerMap.containsKey(productCodeColName)) {
-                logger.error("Missing required column: {}", productCodeColName);
+
+            // Helper to find index using the candidates arrays
+            int productCodeIdx = findColumnIndex(headerMap, productCodeCandidates[0]);
+            int usageTypeIdx = findColumnIndex(headerMap, usageTypeCandidates[0]);
+            int usageAmountIdx = findColumnIndex(headerMap, usageAmountCandidates[0]);
+            int costIdx = findColumnIndex(headerMap, costCandidates[0]);
+            int regionIdx = findColumnIndex(headerMap, regionCandidates[0]);
+            int unitIdx = findColumnIndex(headerMap, unitCandidates[0]);
+
+            // Check mandatory fields
+            if (productCodeIdx == -1 || usageTypeIdx == -1 || usageAmountIdx == -1 || costIdx == -1) {
+                logger.error("Missing required columns. Headers found: {}", headerMap.keySet());
+                throw new RuntimeException(
+                        "Invalid CUR file format. Missing standard columns (e.g., lineItem/ProductCode or line_item_product_code)");
             }
-            if (!headerMap.containsKey(usageTypeColName)) {
-                logger.error("Missing required column: {}", usageTypeColName);
-            }
-            if (!headerMap.containsKey(usageAmountColName)) {
-                logger.error("Missing required column: {}", usageAmountColName);
-            }
-            if (!headerMap.containsKey(regionColName)) {
-                logger.error("Missing required column: {}", regionColName);
-            }
-            if (!headerMap.containsKey(costColName)) {
-                logger.error("Missing required column: {}", costColName);
-            }
-            
-            if (!headerMap.containsKey(productCodeColName) || !headerMap.containsKey(usageTypeColName) ||
-                !headerMap.containsKey(usageAmountColName) || !headerMap.containsKey(regionColName) || 
-                !headerMap.containsKey(costColName)) {
-                logger.error("CSV file is missing one or more required columns. Found headers: {}", headerMap.keySet());
-                throw new RuntimeException("Invalid CUR file format. Missing required columns (e.g., " + productCodeColName + ")");
-            }
-            
-            logger.info("All required columns found ✓");
-    
-            int productCodeIdx = headerMap.get(productCodeColName);
-            int usageTypeIdx = headerMap.get(usageTypeColName);
-            int usageAmountIdx = headerMap.get(usageAmountColName);
-            int regionIdx = headerMap.get(regionColName);
-            int costIdx = headerMap.get(costColName);
-            Integer unitIdx = headerMap.get(usageUnitColName);
-    
-            logger.debug("Column indices - ProductCode: {}, UsageType: {}, Amount: {}, Region: {}, Cost: {}, Unit: {}", 
-                productCodeIdx, usageTypeIdx, usageAmountIdx, regionIdx, costIdx, unitIdx);
-    
+
             String[] record;
             int rowCount = 0;
-            int cloudFrontRowCount = 0;
-            int includedRowCount = 0;
-            int skippedRowCount = 0;
-            
-            logger.info("Starting row-by-row parsing...");
-            
+
             while ((record = csvReader.readNext()) != null) {
                 rowCount++;
-                
-                if (rowCount % 10 == 0) {
-                    logger.debug("Processed {} rows so far...", rowCount);
-                }
-                
+                // Safety check for short rows
+                if (record.length <= Math.max(productCodeIdx, Math.max(usageTypeIdx, costIdx)))
+                    continue;
+
                 String pCode = record[productCodeIdx];
-                
+
+                // Check for CloudFront product code in various formats
                 if ("AmazonCloudFront".equalsIgnoreCase(pCode) || "Amazon CloudFront".equalsIgnoreCase(pCode)) {
-                    cloudFrontRowCount++;
-                    
                     try {
-                        String region = record[regionIdx];
-                        if (region == null || region.isEmpty() || region.isBlank()) {
-                            region = "Global";
-                            logger.trace("Row {}: Empty region, defaulting to 'Global'", rowCount);
-                        }
-                        
                         String usageType = record[usageTypeIdx];
-                        double quantity = Double.parseDouble(record[usageAmountIdx]);
-                        double cost = Double.parseDouble(record[costIdx]);
-                        
+                        double quantity = 0.0;
+                        double cost = 0.0;
+
+                        // Handle potential empty or non-numeric strings safely
+                        if (record[usageAmountIdx] != null && !record[usageAmountIdx].isEmpty()) {
+                            quantity = Double.parseDouble(record[usageAmountIdx]);
+                        }
+                        if (record[costIdx] != null && !record[costIdx].isEmpty()) {
+                            cost = Double.parseDouble(record[costIdx]);
+                        }
+
+                        // Extract Region
+                        String region = "Global";
+                        if (regionIdx != -1 && record.length > regionIdx) {
+                            String rawRegion = record[regionIdx];
+                            // Handle the specific format in Xid-90.xlsx:
+                            // "product_name:...,region:af-south-1,..."
+                            if (rawRegion != null && rawRegion.contains("region:")) {
+                                java.util.regex.Matcher m = java.util.regex.Pattern.compile("region:([a-z0-9-]+)")
+                                        .matcher(rawRegion);
+                                if (m.find()) {
+                                    region = m.group(1);
+                                }
+                            } else if (rawRegion != null && !rawRegion.isBlank()) {
+                                region = rawRegion;
+                            }
+                        }
+
+                        // Determine Unit
                         String unit = "GB";
-                        if (unitIdx != null && record.length > unitIdx) {
+                        if (unitIdx != -1 && record.length > unitIdx && record[unitIdx] != null
+                                && !record[unitIdx].isEmpty()) {
                             unit = record[unitIdx];
                         } else {
-                            if (usageType.contains("Requests")) unit = "Requests";
-                            else if (usageType.contains("Bytes")) unit = "GB";
+                            // Fallback unit detection
+                            if (usageType.contains("Requests"))
+                                unit = "Requests";
+                            else if (usageType.contains("Bytes"))
+                                unit = "GB";
                         }
-    
-                        // UPDATED: Include rows with cost > 0 OR quantity > 0 (to show free tier usage)
-                        if (cost > 0 || quantity > 0) {
+
+                        // Add if there is usage or cost (changed to >= 0 to catch free tier or zero
+                        // cost items)
+                        if (cost >= 0 || quantity > 0) {
                             parsedUsage.add(new CloudFrontUsageDto(region, usageType, quantity, unit, cost));
-                            includedRowCount++;
-                            logger.debug("✓ Row {}: {} | {} | {} {} | ${}", rowCount, region, usageType, quantity, unit, cost);
-                        } else {
-                            skippedRowCount++;
-                            logger.trace("✗ Row {}: Skipped (cost=0, quantity=0) - {} | {}", rowCount, region, usageType);
                         }
-                    } catch (NumberFormatException e) {
-                        skippedRowCount++;
-                        logger.warn("✗ Row {}: Skipping bad row - Could not parse usage/cost: {}", rowCount, e.getMessage());
-                    } catch (ArrayIndexOutOfBoundsException e) {
-                        skippedRowCount++;
-                        logger.warn("✗ Row {}: Skipping bad row - Column index out of bounds (expected {} columns, got {})", 
-                            rowCount, headers.length, record.length);
                     } catch (Exception e) {
-                        skippedRowCount++;
-                        logger.warn("✗ Row {}: Skipping row due to unexpected error: {}", rowCount, e.getMessage());
+                        logger.warn("Skipping row {} due to parsing error: {}", rowCount, e.getMessage());
                     }
-                } else {
-                    logger.trace("Row {}: Not CloudFront (ProductCode: {})", rowCount, pCode);
                 }
             }
-            
-            logger.info("=======================================================");
-            logger.info("CSV PARSING COMPLETED");
-            logger.info("Total rows processed: {}", rowCount);
-            logger.info("CloudFront rows found: {}", cloudFrontRowCount);
-            logger.info("Rows included in result: {}", includedRowCount);
-            logger.info("Rows skipped: {}", skippedRowCount);
-            logger.info("Final parsed items: {}", parsedUsage.size());
-            logger.info("=======================================================");
-    
-        } catch (IOException e) {
-            logger.error("=======================================================");
-            logger.error("FATAL: IOException while reading CSV file");
-            logger.error("Error message: {}", e.getMessage());
-            logger.error("=======================================================", e);
-            throw new RuntimeException("Failed to read CSV file: " + e.getMessage());
         } catch (Exception e) {
-            logger.error("=======================================================");
-            logger.error("FATAL: Unexpected error during CSV parsing");
-            logger.error("Error type: {}", e.getClass().getName());
-            logger.error("Error message: {}", e.getMessage());
-            logger.error("=======================================================", e);
+            logger.error("Error parsing CSV", e);
             throw new RuntimeException("Failed to process file: " + e.getMessage());
         }
-    
-        logger.info("Successfully parsed {} CloudFront line items from CUR file.", parsedUsage.size());
+
+        logger.info("Successfully parsed {} CloudFront line items.", parsedUsage.size());
         return parsedUsage;
+    }
+
+    /**
+     * Helper method to find the first matching column index from a list of
+     * candidates.
+     */
+    private int findColumnIndex(Map<String, Integer> headerMap, String[] candidates) {
+        for (String candidate : candidates) {
+            if (headerMap.containsKey(candidate)) {
+                return headerMap.get(candidate);
+            }
+        }
+        return -1;
     }
 
     /**
@@ -283,11 +254,11 @@ public class CloudFrontUsageService {
     public List<CloudFrontUsageDto> parseUsageFromFile(MultipartFile file) {
         String filename = file.getOriginalFilename();
         logger.info("Parsing file: {}", filename);
-        
+
         if (filename == null) {
             throw new RuntimeException("Invalid file: no filename");
         }
-        
+
         if (filename.toLowerCase().endsWith(".csv")) {
             logger.info("File type: CSV");
             return getUsageFromBill(file);
@@ -307,25 +278,25 @@ public class CloudFrontUsageService {
         logger.info("Starting PDF parsing for: {}", file.getOriginalFilename());
         logger.info("File size: {} bytes", file.getSize());
         logger.info("=================================================");
-        
+
         List<CloudFrontUsageDto> parsedUsage = new ArrayList<>();
         File tempFile = null;
         PDDocument document = null;
-        
+
         try {
             tempFile = Files.createTempFile("cloudfront-bill-", ".pdf").toFile();
             file.transferTo(tempFile);
             logger.info("Created temporary file: {}", tempFile.getAbsolutePath());
-            
+
             document = Loader.loadPDF(tempFile);
             logger.info("PDF loaded successfully. Pages: {}", document.getNumberOfPages());
-            
+
             PDFTextStripper stripper = new PDFTextStripper();
             String text = stripper.getText(document);
             logger.info("Text extracted. Total characters: {}", text.length());
-            
+
             parsedUsage = extractCloudFrontUsageFromPdfText(text);
-            
+
         } catch (IOException e) {
             logger.error("Failed to parse PDF file: {}", e.getMessage(), e);
             throw new RuntimeException("Failed to parse PDF file: " + e.getMessage());
@@ -337,7 +308,7 @@ public class CloudFrontUsageService {
                     logger.warn("Error closing PDF document", e);
                 }
             }
-            
+
             if (tempFile != null && tempFile.exists()) {
                 try {
                     Files.delete(tempFile.toPath());
@@ -346,11 +317,11 @@ public class CloudFrontUsageService {
                 }
             }
         }
-        
+
         double totalCost = parsedUsage.stream().mapToDouble(CloudFrontUsageDto::getCost).sum();
         logger.info("=================================================");
-        logger.info("PDF parsing complete. Extracted {} line items totaling ${}", 
-            parsedUsage.size(), String.format("%.2f", totalCost));
+        logger.info("PDF parsing complete. Extracted {} line items totaling ${}",
+                parsedUsage.size(), String.format("%.2f", totalCost));
         logger.info("=================================================");
         return parsedUsage;
     }
@@ -360,11 +331,11 @@ public class CloudFrontUsageService {
      */
     private List<CloudFrontUsageDto> extractCloudFrontUsageFromPdfText(String text) {
         String[] lines = text.split("\\n");
-        
+
         // Detect format by looking for key indicators
         boolean isAwsNativeFormat = text.contains("Charges by service") || text.contains("Usage Quantity");
         boolean isDistributorFormat = text.contains("Amazon Internet Services");
-        
+
         if (isAwsNativeFormat) {
             return parseAwsNativeFormat(lines);
         } else if (isDistributorFormat) {
@@ -380,40 +351,45 @@ public class CloudFrontUsageService {
 
     private List<CloudFrontUsageDto> parseAwsNativeFormat(String[] lines) {
         List<CloudFrontUsageDto> usageList = new ArrayList<>();
-        
+
         String currentRegion = "Global";
         String currentService = null;
-        
-        Pattern regionPattern = Pattern.compile("^(Africa \\(Cape Town\\)|Asia Pacific \\((Mumbai|Singapore|Sydney|Tokyo|Hong Kong|Seoul)\\)|" +
-            "Canada \\(Central\\)|EU \\(Ireland\\)|Middle East \\(Bahrain\\)|" +
-            "South America \\(Sao Paulo\\)|US East \\(N\\. Virginia\\)|US West \\(Oregon\\)|Global)$");
-        
-        Pattern servicePattern = Pattern.compile("^(?:Amazon CloudFront )?([A-Z]{2}-[A-Za-z-]+|Bandwidth|Invalidations?)");
-        
+
+        Pattern regionPattern = Pattern.compile(
+                "^(Africa \\(Cape Town\\)|Asia Pacific \\((Mumbai|Singapore|Sydney|Tokyo|Hong Kong|Seoul)\\)|" +
+                        "Canada \\(Central\\)|EU \\(Ireland\\)|Middle East \\(Bahrain\\)|" +
+                        "South America \\(Sao Paulo\\)|US East \\(N\\. Virginia\\)|US West \\(Oregon\\)|Global)$");
+
+        Pattern servicePattern = Pattern
+                .compile("^(?:Amazon CloudFront )?([A-Z]{2}-[A-Za-z-]+|Bandwidth|Invalidations?)");
+
         // Pattern to match lines like "693.163 GB USD 5.65"
-        Pattern costLinePattern = Pattern.compile("([0-9,]+(?:\\.[0-9]+)?)\\s+(GB|Requests|URL)\\s+USD\\s+([0-9,]+\\.[0-9]{2})");
+        Pattern costLinePattern = Pattern
+                .compile("([0-9,]+(?:\\.[0-9]+)?)\\s+(GB|Requests|URL)\\s+USD\\s+([0-9,]+\\.[0-9]{2})");
 
         for (String line : lines) {
             line = line.trim();
-            if (line.isEmpty()) continue;
-            
+            if (line.isEmpty())
+                continue;
+
             Matcher regionMatcher = regionPattern.matcher(line);
             if (regionMatcher.find()) {
                 currentRegion = regionMatcher.group(1);
                 continue;
             }
-            
+
             Matcher serviceMatcher = servicePattern.matcher(line);
             if (serviceMatcher.find()) {
                 currentService = serviceMatcher.group(1);
                 continue;
             }
-            
+
             if (currentService != null && line.contains("USD")) {
                 Matcher costMatcher = costLinePattern.matcher(line);
                 if (costMatcher.find()) {
                     double cost = Double.parseDouble(costMatcher.group(3).replace(",", ""));
-                    if (cost > 0) {
+                    // Changed from cost > 0 to cost >= 0 to include zero-cost items if listed
+                    if (cost >= 0) {
                         double quantity = Double.parseDouble(costMatcher.group(1).replace(",", ""));
                         String unit = costMatcher.group(2);
                         usageList.add(new CloudFrontUsageDto(currentRegion, currentService, quantity, unit, cost));
@@ -427,57 +403,66 @@ public class CloudFrontUsageService {
     private List<CloudFrontUsageDto> parseDistributorFormat(String[] lines) {
         List<CloudFrontUsageDto> usageList = new ArrayList<>();
         String currentRegion = "Global";
-        
-        Pattern regionPattern = Pattern.compile("^(Africa \\(Cape Town\\)|Asia Pacific \\((Mumbai|Singapore|Sydney|Tokyo|Hong Kong|Seoul)\\)|" +
-            "Canada \\(Central\\)|EU \\(Ireland\\)|Middle East \\(Bahrain\\)|" +
-            "South America \\(Sao Paulo\\)|US East \\(N\\. Virginia\\)|US West \\(Oregon\\)|" +
-            "Global|HTTP or HTTPS GET Request Additional Charges)");
-        
+
+        // REMOVED "HTTP or HTTPS GET Request Additional Charges" from here so it is NOT
+        // treated as a region.
+        // It will now be processed as a usage line item.
+        Pattern regionPattern = Pattern.compile(
+                "^(Africa \\(Cape Town\\)|Asia Pacific \\((Mumbai|Singapore|Sydney|Tokyo|Hong Kong|Seoul)\\)|" +
+                        "Canada \\(Central\\)|EU \\(Ireland\\)|Middle East \\(Bahrain\\)|" +
+                        "South America \\(Sao Paulo\\)|US East \\(N\\. Virginia\\)|US West \\(Oregon\\)|" +
+                        "Global)");
+
         Pattern costPattern = Pattern.compile("\\$([0-9,]+\\.[0-9]{2})$");
-        
+
         for (int i = 0; i < lines.length; i++) {
             String line = lines[i].trim();
-            if (line.isEmpty()) continue;
-            
+            if (line.isEmpty())
+                continue;
+
             Matcher regionMatcher = regionPattern.matcher(line);
             if (regionMatcher.find()) {
                 currentRegion = regionMatcher.group(1);
                 continue;
             }
-            
+
             Matcher costMatcher = costPattern.matcher(line);
             if (costMatcher.find()) {
                 double cost = Double.parseDouble(costMatcher.group(1).replace(",", ""));
-                
-                if (cost > 0.001) {
+
+                // Changed from cost > 0.001 to cost >= 0 to catch everything including 0.00
+                // items
+                if (cost >= 0) {
                     String usageType = "";
                     double quantity = 0;
                     String unit = "GB";
-                    
+
                     Pattern qtyPattern = Pattern.compile("([0-9,]+\\.?[0-9]*)\\s+(GB|Requests|URL|Bytes|-)\\s+\\$");
                     Matcher qtyMatcher = qtyPattern.matcher(line);
-                    
+
                     if (qtyMatcher.find()) {
                         quantity = Double.parseDouble(qtyMatcher.group(1).replace(",", ""));
                         unit = qtyMatcher.group(2).equals("-") ? "Requests" : qtyMatcher.group(2);
                         usageType = line.substring(0, qtyMatcher.start()).trim()
-                            .replaceAll("\\$\\s*[0-9.]+.*", "").trim();
+                                .replaceAll("\\$\\s*[0-9.]+.*", "").trim();
                     }
-                    
+
                     if (quantity == 0) {
                         // Fallback: look at previous lines
                         for (int j = Math.max(0, i - 3); j < i; j++) {
                             String prevLine = lines[j].trim();
-                            Pattern prevQtyPattern = Pattern.compile("([0-9,]+\\.?[0-9]*)\\s+(GB|Requests|URL|Bytes|-)$");
+                            Pattern prevQtyPattern = Pattern
+                                    .compile("([0-9,]+\\.?[0-9]*)\\s+(GB|Requests|URL|Bytes|-)$");
                             Matcher prevQtyMatcher = prevQtyPattern.matcher(prevLine);
-                            
+
                             if (prevQtyMatcher.find()) {
                                 quantity = Double.parseDouble(prevQtyMatcher.group(1).replace(",", ""));
                                 unit = prevQtyMatcher.group(2).equals("-") ? "Requests" : prevQtyMatcher.group(2);
-                                
+
                                 for (int k = Math.max(0, j - 2); k < j; k++) {
                                     String typeLine = lines[k].trim();
-                                    if (!typeLine.contains("$") && !typeLine.matches(".*[0-9,]+.*") && typeLine.length() > 2) {
+                                    if (!typeLine.contains("$") && !typeLine.matches(".*[0-9,]+.*")
+                                            && typeLine.length() > 2) {
                                         usageType = typeLine;
                                         break;
                                     }
@@ -486,8 +471,9 @@ public class CloudFrontUsageService {
                             }
                         }
                     }
-                    
-                    if (usageType.isEmpty()) usageType = "CloudFront Service";
+
+                    if (usageType.isEmpty())
+                        usageType = "CloudFront Service";
                     usageList.add(new CloudFrontUsageDto(currentRegion, usageType, quantity, unit, cost));
                 }
             }
@@ -510,16 +496,44 @@ public class CloudFrontUsageService {
             this.cost = cost;
         }
 
-        public String getRegion() { return region; }
-        public String getUsageType() { return usageType; }
-        public double getQuantity() { return quantity; }
-        public String getUnit() { return unit; }
-        public double getCost() { return cost; }
+        public String getRegion() {
+            return region;
+        }
 
-        public void setRegion(String region) { this.region = region; }
-        public void setUsageType(String usageType) { this.usageType = usageType; }
-        public void setQuantity(double quantity) { this.quantity = quantity; }
-        public void setUnit(String unit) { this.unit = unit; }
-        public void setCost(double cost) { this.cost = cost; }
+        public String getUsageType() {
+            return usageType;
+        }
+
+        public double getQuantity() {
+            return quantity;
+        }
+
+        public String getUnit() {
+            return unit;
+        }
+
+        public double getCost() {
+            return cost;
+        }
+
+        public void setRegion(String region) {
+            this.region = region;
+        }
+
+        public void setUsageType(String usageType) {
+            this.usageType = usageType;
+        }
+
+        public void setQuantity(double quantity) {
+            this.quantity = quantity;
+        }
+
+        public void setUnit(String unit) {
+            this.unit = unit;
+        }
+
+        public void setCost(double cost) {
+            this.cost = cost;
+        }
     }
 }
