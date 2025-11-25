@@ -27,6 +27,7 @@ public class InvoiceDto {
     private String gcpProjectId;
     private BigDecimal preDiscountTotal;
     private BigDecimal discountAmount;
+    private BigDecimal taxAmount; // New Field
     private BigDecimal amount;
     private List<LineItemDto> lineItems;
     private List<DiscountDto> discounts;
@@ -46,7 +47,7 @@ public class InvoiceDto {
             dto.setClientName(invoice.getClient().getName());
         }
         
-        // Cloud account info with error handling
+        // Cloud account info
         try {
             if (invoice.getCloudAccount() != null) {
                 dto.setCloudAccountId(invoice.getCloudAccount().getId());
@@ -55,7 +56,6 @@ public class InvoiceDto {
                 dto.setGcpProjectId(invoice.getCloudAccount().getGcpProjectId());
             }
         } catch (javax.persistence.EntityNotFoundException e) {
-            // If the CloudAccount is not found, set placeholder values
             dto.setAccountName("Unknown/Deleted Account");
             dto.setAwsAccountId("N/A");
             dto.setGcpProjectId("N/A");
@@ -63,6 +63,7 @@ public class InvoiceDto {
         
         dto.setPreDiscountTotal(invoice.getPreDiscountTotal());
         dto.setDiscountAmount(invoice.getDiscountAmount());
+        dto.setTaxAmount(invoice.getTaxAmount()); // Map tax
         dto.setAmount(invoice.getAmount());
         
         // Convert line items (only non-hidden items)
@@ -88,49 +89,39 @@ public class InvoiceDto {
     // Getters and Setters
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
-    
     public String getInvoiceNumber() { return invoiceNumber; }
     public void setInvoiceNumber(String invoiceNumber) { this.invoiceNumber = invoiceNumber; }
-    
     public LocalDate getInvoiceDate() { return invoiceDate; }
     public void setInvoiceDate(LocalDate invoiceDate) { this.invoiceDate = invoiceDate; }
-    
     public String getBillingPeriod() { return billingPeriod; }
     public void setBillingPeriod(String billingPeriod) { this.billingPeriod = billingPeriod; }
-    
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
-    
     public Long getClientId() { return clientId; }
     public void setClientId(Long clientId) { this.clientId = clientId; }
-    
     public String getClientName() { return clientName; }
     public void setClientName(String clientName) { this.clientName = clientName; }
-    
     public Long getCloudAccountId() { return cloudAccountId; }
     public void setCloudAccountId(Long cloudAccountId) { this.cloudAccountId = cloudAccountId; }
-    
     public String getAccountName() { return accountName; }
     public void setAccountName(String accountName) { this.accountName = accountName; }
-    
     public String getAwsAccountId() { return awsAccountId; }
     public void setAwsAccountId(String awsAccountId) { this.awsAccountId = awsAccountId; }
-    
     public String getGcpProjectId() { return gcpProjectId; }
     public void setGcpProjectId(String gcpProjectId) { this.gcpProjectId = gcpProjectId; }
-    
     public BigDecimal getPreDiscountTotal() { return preDiscountTotal; }
     public void setPreDiscountTotal(BigDecimal preDiscountTotal) { this.preDiscountTotal = preDiscountTotal; }
-    
     public BigDecimal getDiscountAmount() { return discountAmount; }
     public void setDiscountAmount(BigDecimal discountAmount) { this.discountAmount = discountAmount; }
     
+    public BigDecimal getTaxAmount() { return taxAmount; }
+    public void setTaxAmount(BigDecimal taxAmount) { this.taxAmount = taxAmount; }
+
     public BigDecimal getAmount() { return amount; }
     public void setAmount(BigDecimal amount) { this.amount = amount; }
     
     public List<LineItemDto> getLineItems() { return lineItems; }
     public void setLineItems(List<LineItemDto> lineItems) { this.lineItems = lineItems; }
-    
     public List<DiscountDto> getDiscounts() { return discounts; }
     public void setDiscounts(List<DiscountDto> discounts) { this.discounts = discounts; }
     
@@ -144,8 +135,6 @@ public class InvoiceDto {
         private String unit;
         private BigDecimal cost;
         private boolean hidden;
-        
-        // Extracted for editing
         private BigDecimal quantity;
         private BigDecimal unitRate;
         
@@ -160,12 +149,9 @@ public class InvoiceDto {
             dto.setCost(item.getCost());
             dto.setHidden(item.isHidden());
             
-            // Parse quantity from usageQuantity string
             try {
                 String[] parts = item.getUsageQuantity().split(" ");
                 dto.setQuantity(new BigDecimal(parts[0].replace(",", "")));
-                
-                // Calculate unit rate
                 if (dto.getQuantity().compareTo(BigDecimal.ZERO) > 0) {
                     dto.setUnitRate(item.getCost().divide(dto.getQuantity(), 10, RoundingMode.HALF_UP));
                 } else {
@@ -175,38 +161,27 @@ public class InvoiceDto {
                 dto.setQuantity(BigDecimal.ONE);
                 dto.setUnitRate(item.getCost());
             }
-            
             return dto;
         }
-
-        // Getters and Setters
+        // Getters/Setters omitted for brevity, same as before...
         public Long getId() { return id; }
         public void setId(Long id) { this.id = id; }
-        
         public String getServiceName() { return serviceName; }
         public void setServiceName(String serviceName) { this.serviceName = serviceName; }
-        
         public String getRegionName() { return regionName; }
         public void setRegionName(String regionName) { this.regionName = regionName; }
-        
         public String getResourceName() { return resourceName; }
         public void setResourceName(String resourceName) { this.resourceName = resourceName; }
-        
         public String getUsageQuantity() { return usageQuantity; }
         public void setUsageQuantity(String usageQuantity) { this.usageQuantity = usageQuantity; }
-        
         public String getUnit() { return unit; }
         public void setUnit(String unit) { this.unit = unit; }
-        
         public BigDecimal getCost() { return cost; }
         public void setCost(BigDecimal cost) { this.cost = cost; }
-        
         public boolean isHidden() { return hidden; }
         public void setHidden(boolean hidden) { this.hidden = hidden; }
-        
         public BigDecimal getQuantity() { return quantity; }
         public void setQuantity(BigDecimal quantity) { this.quantity = quantity; }
-        
         public BigDecimal getUnitRate() { return unitRate; }
         public void setUnitRate(BigDecimal unitRate) { this.unitRate = unitRate; }
     }
@@ -226,17 +201,13 @@ public class InvoiceDto {
             dto.setDescription(discount.getDescription());
             return dto;
         }
-        
-        // Getters and Setters
+        // Getters/Setters
         public Long getId() { return id; }
         public void setId(Long id) { this.id = id; }
-        
         public String getServiceName() { return serviceName; }
         public void setServiceName(String serviceName) { this.serviceName = serviceName; }
-        
         public BigDecimal getPercentage() { return percentage; }
         public void setPercentage(BigDecimal percentage) { this.percentage = percentage; }
-        
         public String getDescription() { return description; }
         public void setDescription(String description) { this.description = description; }
     }
