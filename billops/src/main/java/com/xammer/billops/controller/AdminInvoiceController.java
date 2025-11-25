@@ -29,7 +29,7 @@ public class AdminInvoiceController {
     public ResponseEntity<InvoiceDto> generateDraftInvoice(@RequestBody Map<String, Object> payload) {
         String accountId = (String) payload.get("accountId");
         
-        // FIX: Safely parse integers from the payload to handle both String ("2025") and Integer (2025) inputs
+        // Safely parse integers from the payload
         int year = Integer.parseInt(String.valueOf(payload.get("year")));
         int month = Integer.parseInt(String.valueOf(payload.get("month")));
 
@@ -63,7 +63,6 @@ public class AdminInvoiceController {
 
     @GetMapping("/{id}")
     public ResponseEntity<InvoiceDto> getInvoiceById(@PathVariable Long id) {
-        // Uses the service method that returns DTO directly (cache-safe)
         InvoiceDto invoiceDto = invoiceManagementService.getInvoiceForAdmin(id);
         return ResponseEntity.ok(invoiceDto);
     }
@@ -90,5 +89,24 @@ public class AdminInvoiceController {
     public ResponseEntity<InvoiceDto> removeDiscount(@PathVariable Long invoiceId, @PathVariable Long discountId) {
         Invoice updatedInvoice = invoiceManagementService.removeDiscountFromInvoice(invoiceId, discountId);
         return ResponseEntity.ok(InvoiceDto.fromEntity(updatedInvoice));
+    }
+
+    /**
+     * NEW: Merge two draft invoices into one.
+     * Moves items from the 'source' invoice (e.g., CloudFront) into the 'target' invoice (e.g., Standard Bill).
+     */
+    @PostMapping("/merge")
+    public ResponseEntity<InvoiceDto> mergeInvoices(
+            @RequestParam Long targetInvoiceId, 
+            @RequestParam Long sourceInvoiceId) {
+        
+        logger.info("Request to merge invoice {} into invoice {}", sourceInvoiceId, targetInvoiceId);
+        try {
+            Invoice mergedInvoice = invoiceManagementService.mergeDraftInvoices(targetInvoiceId, sourceInvoiceId);
+            return ResponseEntity.ok(InvoiceDto.fromEntity(mergedInvoice));
+        } catch (Exception e) {
+            logger.error("Error merging invoices: {}", e.getMessage(), e);
+            return ResponseEntity.badRequest().build(); // Or return specific error message DTO
+        }
     }
 }

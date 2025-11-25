@@ -4,17 +4,21 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>XamOps - EKS Cluster Details</title>
-        <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
-<link rel="apple-touch-icon" href="/icons/XamOps.png">
-    <script src="https.cdn.tailwindcss.com"></script>
+    <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
+    <link rel="apple-touch-icon" href="/icons/XamOps.png">
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    
     <link
             rel="stylesheet"
             href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
     />
+    
     <script
-            src="https.cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"
+            src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"
             defer
     ></script>
+    
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     
     <script type="module" src="/src/main.js"></script>
@@ -213,7 +217,6 @@
                                 <thead>
                                     <tr>
                                         <th>Name</th>
-                                        <th>Ready</th>
                                         <th>Status</th>
                                         <th>Restarts</th>
                                         <th>Age</th>
@@ -224,10 +227,9 @@
                                     <template x-for="pod in pods" :key="pod.name">
                                         <tr>
                                             <td x-text="pod.name"></td>
-                                            <td x-text="pod.ready"></td>
                                             <td x-text="pod.status"></td>
                                             <td x-text="pod.restarts"></td>
-                                            <td x-text="pod.age"></td>
+                                            <td x-text="pod.age || 'N/A'"></td>
                                             <td x-text="pod.nodeName || 'N/A'"></td>
                                         </tr>
                                     </template>
@@ -258,7 +260,7 @@
                                             <td x-text="dep.ready"></td>
                                             <td x-text="dep.upToDate"></td>
                                             <td x-text="dep.available"></td>
-                                            <td x-text="dep.age"></td>
+                                            <td x-text="dep.age || 'N/A'"></td>
                                         </tr>
                                     </template>
                                 </tbody>
@@ -355,14 +357,15 @@
             }
         },
 
-        // --- FUNCTION TO INITIALIZE CHARTS (FIXED) ---
+        // --- FUNCTION TO INITIALIZE CHARTS ---
         initCharts() {
             if (this.nodes.length === 0) return;
 
-            // Parse data for charts (USING CORRECTED PROPERTY NAMES)
+            // Parse data for charts
             const labels = this.nodes.map(n => n.name.substring(0, 25) + (n.name.length > 25 ? '...' : ''));
-            const cpuData = this.nodes.map(n => parseFloat(n.cpuUsage) || 0);     // <-- FIX
-            const memoryData = this.nodes.map(n => parseFloat(n.memUsage) || 0);  // <-- FIX
+            // parseFloat handles "15.50 %" correctly by extracting the leading number
+            const cpuData = this.nodes.map(n => parseFloat(n.cpuUsage) || 0);
+            const memoryData = this.nodes.map(n => parseFloat(n.memUsage) || 0);
             
             // --- Create CPU Chart ---
             const cpuCtx = document.getElementById('nodeCpuChart');

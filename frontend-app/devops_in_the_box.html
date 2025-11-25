@@ -6,8 +6,8 @@
     <title>XamOps - DevOps-in-the-Box</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-        <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
-<link rel="apple-touch-icon" href="/icons/XamOps.png">
+    <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
+    <link rel="apple-touch-icon" href="/icons/XamOps.png">
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.0/dist/cdn.min.js"></script>
     <script type="module" src="/src/main.js"></script>
 
@@ -42,12 +42,13 @@
         .bash-badge { background: #4EAA2520; color: #4EAA25; }
         .python-badge { background: #306998; color: white; }
         .ansible-badge { background: #EE000020; color: #EE0000; }
+        
+        [x-cloak] { display: none !important; }
     </style>
 </head>
 <body class="bg-gray-50">
     <div class="flex h-screen overflow-hidden">
         <include file="/_sidebar.html"></include>
-
 
         <div class="flex-1 flex flex-col overflow-hidden pl-64">
             <main class="flex-1 overflow-y-auto p-8" x-data="devopsBox()">
@@ -63,8 +64,8 @@
                             </div>
                         </div>
                         <button @click="refreshScripts()" class="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-md">
-                            <i class="fas fa-sync-alt" :class="{ 'fa-spin': isLoading }"></i>
-                            <span>Refresh</span>
+                            <i class="fas fa-filter"></i>
+                            <span>Reset Filters</span>
                         </button>
                     </div>
                 </header>
@@ -103,14 +104,7 @@
                     </div>
                 </div>
 
-                <div x-show="isLoading" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                     <template x-for="i in 6" :key="i">
-                        <div class="animate-pulse bg-gray-200 h-48 rounded-xl"></div>
-                    </template>
-                </div>
-
-
-                <div x-show="!isLoading" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     <template x-for="script in filteredScripts" :key="script.id">
                         <div class="script-card rounded-xl p-6 cursor-pointer"
                              :class="getCategoryColor(script.category)"
@@ -138,12 +132,12 @@
                     </template>
                 </div>
 
-                <div x-show="!isLoading && filteredScripts.length === 0" class="text-center py-16">
+                <div x-show="filteredScripts.length === 0" class="text-center py-16" x-cloak>
                     <div class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
                         <i class="fas fa-search text-gray-400 text-2xl"></i>
                     </div>
                     <h3 class="text-xl font-bold text-gray-800 mb-2">No Scripts Found</h3>
-                    <p class="text-gray-600">Your search or filter returned no results. Try fetching from the backend.</p>
+                    <p class="text-gray-600">Your search or filter returned no results.</p>
                 </div>
 
                 <div x-show="selectedScript"
@@ -228,66 +222,80 @@
 
     <script>
         function devopsBox() {
-            // Define a key for sessionStorage
-            const STORAGE_KEY = 'devopsBoxScripts';
-
             return {
-                isLoading: true,
                 searchTerm: '',
                 filterCategory: 'all',
                 selectedScript: null,
-                scripts: [], // Start with empty array
-
-                // Helper function to fetch data
-                fetchScripts() {
-                    this.isLoading = true;
-                    fetch('http://localhost:8080/api/devops-scripts') // Fetch from your backend API
-                        .then(response => {
-                            if (!response.ok) {
-                                throw new Error('Network response was not ok');
-                            }
-                            return response.json();
-                        })
-                        .then(data => {
-                            // Map 'usageInstructions' to 'usage'
-                            this.scripts = data.map(script => {
-                                return { ...script, usage: script.usageInstructions };
-                            });
-
-                            // *** NEW: Save fetched data to sessionStorage ***
-                            try {
-                                sessionStorage.setItem(STORAGE_KEY, JSON.stringify(this.scripts));
-                                console.log('Scripts saved to sessionStorage.');
-                            } catch (e) {
-                                console.error('Error saving scripts to sessionStorage:', e);
-                            }
-
-                            this.isLoading = false;
-                        })
-                        .catch(error => {
-                            console.error('Error fetching scripts:', error);
-                            this.isLoading = false;
-                        });
-                },
-
-                // init() now checks sessionStorage first
-                init() {
-                    const cachedScripts = sessionStorage.getItem(STORAGE_KEY);
-                    if (cachedScripts) {
-                        console.log('Loading scripts from sessionStorage.');
-                        try {
-                            this.scripts = JSON.parse(cachedScripts);
-                            this.isLoading = false;
-                        } catch (e) {
-                            console.error('Error parsing scripts from sessionStorage:', e);
-                            sessionStorage.removeItem(STORAGE_KEY);
-                            this.fetchScripts();
-                        }
-                    } else {
-                        console.log('No scripts in sessionStorage, fetching from API.');
-                        this.fetchScripts();
+                
+                // Static Data - No Fetching Required
+                scripts: [
+                    {
+                        "id": 1,
+                        "name": "AWS EC2 Provisioning",
+                        "description": "Terraform script to launch a standardized t2.micro EC2 instance with security groups and IAM roles attached.",
+                        "category": "terraform",
+                        "code": "resource \"aws_instance\" \"web\" {\n  ami           = \"ami-0c55b159cbfafe1f0\"\n  instance_type = \"t2.micro\"\n\n  tags = {\n    Name = \"XamOps-Web-Server\"\n  }\n}",
+                        "downloads": 124,
+                        "lastUpdated": "2023-11-15",
+                        "version": "1.2.0",
+                        "usage": "<p>1. Configure AWS credentials.</p><p>2. Run <code>terraform init</code>.</p><p>3. Run <code>terraform apply</code>.</p>"
+                    },
+                    {
+                        "id": 2,
+                        "name": "Log Rotation Automation",
+                        "description": "Bash script to automatically rotate, compress, and archive application logs older than 7 days.",
+                        "category": "bash",
+                        "code": "#!/bin/bash\n# Rotate logs older than 7 days\nfind /var/log/myapp -name '*.log' -mtime +7 -exec gzip {} \\;",
+                        "downloads": 89,
+                        "lastUpdated": "2023-10-30",
+                        "version": "2.1.0",
+                        "usage": "<p>Add to crontab to run daily: <code>0 0 * * * /path/to/script.sh</code></p>"
+                    },
+                    {
+                        "id": 3,
+                        "name": "S3 Bucket Cleanup",
+                        "description": "Python utility to identify and clean up empty S3 buckets or buckets with incomplete multipart uploads.",
+                        "category": "python",
+                        "code": "import boto3\n\ns3 = boto3.client('s3')\nresponse = s3.list_buckets()\n\nfor bucket in response['Buckets']:\n    print(f'Checking {bucket[\"Name\"]}')",
+                        "downloads": 210,
+                        "lastUpdated": "2023-12-01",
+                        "version": "3.0.1",
+                        "usage": "<p>Requires <code>boto3</code> installed.</p><p>Run with: <code>python cleanup_s3.py</code></p>"
+                    },
+                    {
+                        "id": 4,
+                        "name": "K8s Namespace Setup",
+                        "description": "Ansible playbook to initialize Kubernetes namespaces with default quotas and limit ranges.",
+                        "category": "ansible",
+                        "code": "- name: Create Namespace\n  k8s:\n    name: production\n    api_version: v1\n    kind: Namespace\n    state: present",
+                        "downloads": 56,
+                        "lastUpdated": "2023-09-20",
+                        "version": "1.0.0",
+                        "usage": "<p>Run via ansible-playbook: <code>ansible-playbook setup_k8s.yaml</code></p>"
+                    },
+                    {
+                        "id": 5,
+                        "name": "Database Backup Script",
+                        "description": "Automated shell script for PostgreSQL database backups with S3 upload capability.",
+                        "category": "bash",
+                        "code": "#!/bin/bash\npg_dump mydatabase > backup.sql\naws s3 cp backup.sql s3://my-backup-bucket/",
+                        "downloads": 145,
+                        "lastUpdated": "2023-11-28",
+                        "version": "1.5.0",
+                        "usage": "<p>Ensure <code>pg_dump</code> and <code>aws-cli</code> are configured.</p>"
+                    },
+                    {
+                        "id": 6,
+                        "name": "GCP VM Instance",
+                        "description": "Terraform configuration for deploying a Google Compute Engine instance with network tags.",
+                        "category": "terraform",
+                        "code": "resource \"google_compute_instance\" \"default\" {\n  name         = \"test\"\n  machine_type = \"e2-medium\"\n  zone         = \"us-central1-a\"\n}",
+                        "downloads": 92,
+                        "lastUpdated": "2023-10-05",
+                        "version": "1.1.0",
+                        "usage": "<p>Authenticate via gcloud auth login before running.</p>"
                     }
-                },
+                ],
 
                 get filteredScripts() {
                     let filtered = this.scripts;
@@ -307,11 +315,9 @@
                     return filtered;
                 },
 
-                // refreshScripts() now clears storage before fetching
                 refreshScripts() {
-                    console.log('Clearing sessionStorage and refreshing scripts from API.');
-                    sessionStorage.removeItem(STORAGE_KEY);
-                    this.fetchScripts();
+                    this.filterCategory = 'all';
+                    this.searchTerm = '';
                 },
 
                 viewScript(script) {
@@ -356,7 +362,7 @@
                     switch (script.category) {
                         case 'python': return `${name}.py`;
                         case 'bash': return `${name}.sh`;
-                        case 'terraform': return `main.tf`; // Consistent for Terraform
+                        case 'terraform': return `main.tf`;
                         default: return `${name}.txt`;
                     }
                 },

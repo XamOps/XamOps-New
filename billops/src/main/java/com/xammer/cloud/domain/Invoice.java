@@ -11,7 +11,6 @@ import javax.persistence.Id;
 import javax.persistence.JoinColumn;
 import javax.persistence.ManyToOne;
 import javax.persistence.OneToMany;
-import javax.persistence.SequenceGenerator;
 import javax.persistence.Table;
 import com.xammer.billops.domain.Client;
 import com.xammer.billops.domain.CloudAccount;
@@ -43,34 +42,32 @@ public class Invoice {
     @Column(precision = 19, scale = 4)
     private BigDecimal discountAmount;
 
-    // --- FIX: Reverted 'finalTotal' to 'amount' ---
+    // --- NEW FIELD: Tax Amount ---
     @Column(precision = 19, scale = 4)
-    private BigDecimal amount;
-    // --- END FIX ---
+    private BigDecimal taxAmount;
+    // -----------------------------
 
-    // --- FIX: Changed FetchType to LAZY to prevent LazyInitializationException ---
+    @Column(precision = 19, scale = 4)
+    private BigDecimal amount; // Grand Total (Taxable + Tax)
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "cloud_account_id", nullable = false)
     private CloudAccount cloudAccount;
-    // --- END FIX ---
 
-    // --- FIX: Changed FetchType to LAZY ---
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "client_id", nullable = false)
     private Client client;
-    // --- END FIX ---
 
-    // --- FIX: Changed FetchType to LAZY ---
     @OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private List<InvoiceLineItem> lineItems = new ArrayList<>();
-    // --- END FIX ---
 
     @OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private List<Discount> discounts = new ArrayList<>();
 
     public enum InvoiceStatus {
         DRAFT,
-        FINALIZED
+        FINALIZED,
+        VOID
     }
 
     // Getters and Setters
@@ -89,10 +86,13 @@ public class Invoice {
     public BigDecimal getDiscountAmount() { return discountAmount; }
     public void setDiscountAmount(BigDecimal discountAmount) { this.discountAmount = discountAmount; }
     
-    // --- FIX: Updated getters and setters for renamed field ---
+    // --- NEW GETTER/SETTER ---
+    public BigDecimal getTaxAmount() { return taxAmount; }
+    public void setTaxAmount(BigDecimal taxAmount) { this.taxAmount = taxAmount; }
+    // -------------------------
+
     public BigDecimal getAmount() { return this.amount; }
     public void setAmount(BigDecimal amount) { this.amount = amount; }
-    // --- END FIX ---
     public CloudAccount getCloudAccount() { return cloudAccount; }
     public void setCloudAccount(CloudAccount cloudAccount) { this.cloudAccount = cloudAccount; }
     public List<InvoiceLineItem> getLineItems() { return lineItems; }

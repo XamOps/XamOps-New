@@ -1,10 +1,22 @@
 package com.xammer.cloud.config;
 
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
 @Configuration
 @EnableScheduling
 public class SchedulingConfig {
-    // This class enables the @Scheduled annotation to work.
+
+    @Bean
+    public ThreadPoolTaskScheduler taskScheduler() {
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        // Set pool size to 5 to allow multiple refresh jobs (Cost, Security, Dashboard) 
+        // to run in parallel if their schedules overlap.
+        scheduler.setPoolSize(5); 
+        scheduler.setThreadNamePrefix("scheduled-task-");
+        scheduler.initialize();
+        return scheduler;
+    }
 }
