@@ -1,4 +1,4 @@
-package com.xammer.cloud.config;
+package com.xammer.billops.config;
 
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.xammer.cloud.security.ClientUserDetails;
