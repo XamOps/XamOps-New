@@ -114,4 +114,19 @@ public class EksController {
         
         return ResponseEntity.ok(deployments);
     }
+
+    // --- NEW ENDPOINT FOR SECURITY ALERTS ---
+    @GetMapping("/{clusterName}/security")
+    public ResponseEntity<List<Map<String, String>>> getClusterSecurityAlerts(
+            @PathVariable String clusterName,
+            @RequestParam String accountId,
+            @RequestParam String region) {
+        
+        CloudAccount account = getAccount(accountId);
+        
+        // Fetch alerts via the service
+        List<Map<String, String>> alerts = eksAutomationService.getFalcoAlerts(account, clusterName, region);
+        
+        return ResponseEntity.ok(alerts);
+    }
 }

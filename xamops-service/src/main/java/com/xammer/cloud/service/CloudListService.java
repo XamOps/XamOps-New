@@ -160,8 +160,6 @@ public class CloudListService {
     }
 
     private void loadRegionCoordinates() {
-        // Using the class-level objectMapper if possible, but creating new here to
-        // avoid initialization order issues in constructor
         ObjectMapper mapper = new ObjectMapper();
         try {
             URL url = new URL(
@@ -183,6 +181,13 @@ public class CloudListService {
             }
         } catch (IOException e) {
             logger.error("Failed to load region coordinates from external source. Map data will be unavailable.", e);
+        }
+
+        // --- FIX: Manually add missing regions (Hyderabad) ---
+        // This ensures ap-south-2 passes the "containsKey" check later in the code
+        if (!this.regionCoordinates.containsKey("ap-south-2")) {
+            this.regionCoordinates.put("ap-south-2", new double[] { 17.3850, 78.4867 });
+            logger.info("Manually added region coordinates for ap-south-2 (Hyderabad)");
         }
     }
 
@@ -1392,20 +1397,30 @@ public class CloudListService {
         }, "EventBridge Buses");
     }
 
-    private CompletableFuture<List<ResourceDto>> fetchDataZoneDomainsForCloudlist(CloudAccount account,
+
+  // In xamops-service/src/main/java/com/xammer/cloud/service/CloudListService.java
+
+private CompletableFuture<List<ResourceDto>> fetchDataZoneDomainsForCloudlist(CloudAccount account,
             List<DashboardData.RegionStatus> activeRegions) {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
-            DataZoneClient dataZoneClient = awsClientProvider.getDataZoneClient(account, regionId);
-            return dataZoneClient.listDomains(ListDomainsRequest.builder().build()).items().stream()
-                    .map(domain -> new ResourceDto(
-                            domain.id(),
-                            domain.name(),
-                            "DataZone Domain",
-                            regionId,
-                            domain.status().toString(),
-                            domain.createdAt(),
-                            Collections.emptyMap()))
-                    .collect(Collectors.toList());
+            try {
+                // Wrap this client creation and call in try-catch
+                DataZoneClient dataZoneClient = awsClientProvider.getDataZoneClient(account, regionId);
+                return dataZoneClient.listDomains(ListDomainsRequest.builder().build()).items().stream()
+                        .map(domain -> new ResourceDto(
+                                domain.id(),
+                                domain.name(),
+                                "DataZone Domain",
+                                regionId,
+                                domain.status().toString(),
+                                domain.createdAt(),
+                                Collections.emptyMap()))
+                        .collect(Collectors.toList());
+            } catch (Exception e) {
+                // Log as debug so it doesn't clutter logs for regions where service isn't supported
+                logger.debug("DataZone not available or accessible in region {}: {}", regionId, e.getMessage());
+                return Collections.emptyList();
+            }
         }, "DataZone Domains");
     }
 }
