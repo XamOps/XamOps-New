@@ -501,7 +501,6 @@
 </head>
 <body x-data="dashboardApp()">
 
-    <!-- SVG Filter for CloudMap Button -->
     <div style="height: 0; width: 0; position: absolute; visibility: hidden;">
         <svg height="0" width="0">
             <filter id="land">
@@ -521,10 +520,7 @@
             </filter>
         </svg>
     </div>
-    <!-- End SVG Filter -->
-
-<!-- Multi-Account Mode Banner -->
-<div x-show="isMultiAccountMode && dashboardData.selectedAccount" 
+    <div x-show="isMultiAccountMode && dashboardData.selectedAccount" 
      x-cloak
      class="bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
@@ -617,7 +613,6 @@
                     </div>
                 </div>
                 <div class="flex items-center space-x-4">
-                    <!-- NEW Animated CloudMap Button -->
                     <a :href="getLink('/cloudmap.html')" class="my-auto" :class="{'opacity-50 pointer-events-none': selectedAccountIds.length === 0}">
                         <div class="map-btn-wrapper">
                             <div class="map-btn">CloudMap</div>
@@ -630,8 +625,6 @@
                             </div>
                         </div>
                     </a>
-                    <!-- END NEW CloudMap Button -->
-
                     <button
                             @click="saveLayout()"
                             x-show="layoutChanged"
@@ -790,10 +783,6 @@
         </main>
     </div>
 </div>
-
-<button class="floating-action tooltip" data-tooltip="Quick Actions" @click="showQuickActions = !showQuickActions">
-    <i class="fas fa-bolt"></i>
-</button>
 
 
 <script>
@@ -1349,7 +1338,8 @@
                                     </tbody>
                                 </table>
                             </div>
-                        `;
+                        </div>
+                    `;
                 };
 
                 container.innerHTML = `
@@ -1737,5 +1727,152 @@
     }
 
 </script>
+
+<div id="xamops-chatbot" class="fixed bottom-6 right-6 z-50 font-sans" 
+     x-data="{ 
+        open: false, 
+        newMessage: '', 
+        isLoading: false,
+        messages: [
+            { text: 'Hello! I am XamOps AI. I can analyze your AWS costs and find idle resources. How can I help?', isUser: false }
+        ],
+        
+        // 1. SMART URL DETECTOR: Works on Localhost AND Production automatically
+        get backendUrl() {
+            return window.location.port === '5173' ? 'http://localhost:8080' : '';
+        },
+        
+        async sendMessage() {
+            if (this.newMessage.trim() === '') return;
+            
+            this.messages.push({ text: this.newMessage, isUser: true });
+            const userMsg = this.newMessage;
+            this.newMessage = '';
+            this.isLoading = true;
+            this.scrollToBottom();
+
+            try {
+                // 2. GET CSRF TOKEN (Required for Spring Security)
+                const csrfToken = document.cookie
+                    .split('; ')
+                    .find(row => row.startsWith('XSRF-TOKEN='))
+                    ?.split('=')[1];
+
+                // 3. DYNAMIC FETCH (Uses the smart backendUrl)
+                const response = await fetch(`${this.backendUrl}/api/ai/chat`, {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'X-XSRF-TOKEN': csrfToken
+                    },
+                    body: JSON.stringify({ message: userMsg })
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('Server Error:', response.status, errorText);
+                    throw new Error(`Server error: ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                this.messages.push({ text: data.response, isUser: false });
+
+            } catch (error) {
+                console.error('Chat Error:', error);
+                this.messages.push({ text: '⚠️ I cannot reach the brain. If you are on local, ensure Spring Boot is running on port 8080.', isUser: false });
+            } finally {
+                this.isLoading = false;
+                this.scrollToBottom();
+            }
+        },
+
+        scrollToBottom() {
+            this.$nextTick(() => {
+                const container = document.getElementById('chat-history');
+                if(container) container.scrollTop = container.scrollHeight;
+            });
+        }
+     }">
+
+  <button 
+    @click="open = !open; if(open) scrollToBottom()" 
+    class="w-14 h-14 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-full shadow-2xl flex items-center justify-center hover:scale-110 transition-all duration-300 focus:outline-none z-50"
+    title="Ask XamOps AI">
+    <i class="fas fa-robot text-white text-2xl"></i>
+    <span class="absolute -top-1 -right-1 flex h-4 w-4">
+      <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+      <span class="relative inline-flex rounded-full h-4 w-4 bg-green-500"></span>
+    </span>
+  </button>
+
+  <div 
+    x-show="open" 
+    x-cloak
+    x-transition:enter="transition ease-out duration-300"
+    x-transition:enter-start="opacity-0 transform scale-95 translate-y-10"
+    x-transition:enter-end="opacity-100 transform scale-100 translate-y-0"
+    x-transition:leave="transition ease-in duration-200"
+    x-transition:leave-start="opacity-100 transform scale-100 translate-y-0"
+    x-transition:leave-end="opacity-0 transform scale-95 translate-y-10"
+    class="absolute bottom-20 right-0 w-96 h-[500px] bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col overflow-hidden z-40">
+    
+    <div class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-4 flex items-center justify-between shadow-md">
+      <div class="flex items-center space-x-3">
+        <div class="w-8 h-8 bg-white bg-opacity-20 rounded-full flex items-center justify-center backdrop-blur-sm">
+            <i class="fas fa-robot text-sm"></i>
+        </div>
+        <div>
+          <h3 class="font-bold text-sm">XamOps AI Assistant</h3>
+          <p class="text-xs opacity-80 flex items-center gap-1">
+            <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span> Online
+          </p>
+        </div>
+      </div>
+      <button @click="open = false" class="hover:bg-white hover:bg-opacity-20 rounded-lg p-2 transition-colors">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+
+    <div id="chat-history" class="flex-1 p-4 overflow-y-auto bg-gray-50 space-y-4 custom-scrollbar">
+        <template x-for="(msg, index) in messages" :key="index">
+            <div :class="msg.isUser ? 'flex justify-end' : 'flex justify-start'">
+                <div :class="msg.isUser ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-white text-gray-800 border border-gray-200 rounded-bl-none'" 
+                     class="max-w-[85%] rounded-2xl px-4 py-3 shadow-sm text-sm leading-relaxed">
+                    <p x-text="msg.text"></p>
+                </div>
+            </div>
+        </template>
+
+        <div x-show="isLoading" class="flex justify-start">
+            <div class="bg-white border border-gray-200 text-gray-500 rounded-2xl rounded-bl-none px-4 py-3 text-xs flex items-center shadow-sm">
+                <i class="fas fa-circle-notch fa-spin mr-2 text-indigo-500"></i> 
+                Thinking...
+            </div>
+        </div>
+    </div>
+
+    <div class="p-4 bg-white border-t border-gray-100">
+        <div class="relative flex items-center">
+            <input 
+                type="text" 
+                x-model="newMessage" 
+                @keydown.enter="sendMessage()"
+                placeholder="Ask about costs, instances, or alerts..." 
+                class="w-full bg-gray-100 text-gray-800 text-sm rounded-xl pl-4 pr-12 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all border-0"
+            >
+            <button 
+                @click="sendMessage()"
+                :disabled="isLoading || newMessage.trim() === ''"
+                class="absolute right-2 p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm">
+                <i class="fas fa-paper-plane text-xs"></i>
+            </button>
+        </div>
+        <div class="text-center mt-2">
+             <p class="text-[10px] text-gray-400">AI generated responses can be inaccurate.</p>
+        </div>
+    </div>
+  </div>
+</div>
 </body>
 </html>
