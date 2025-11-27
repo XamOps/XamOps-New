@@ -62,7 +62,7 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("/ws/**"),
                                 new AntPathRequestMatcher("/azure_*.html"),
                                 new AntPathRequestMatcher("/cloudlist.html"),
-
+                                new AntPathRequestMatcher("/api/ai/**"),
                                 new AntPathRequestMatcher("/api/cicd/github/runs"),
                                 new AntPathRequestMatcher("/api/cicd/config/**"),
 

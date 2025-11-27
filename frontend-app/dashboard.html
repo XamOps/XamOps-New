@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -45,7 +46,9 @@
             min-height: 100vh;
         }
 
-        [x-cloak] { display: none !important; }
+        [x-cloak] {
+            display: none !important;
+        }
 
         .skeleton {
             animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
@@ -55,8 +58,13 @@
         }
 
         @keyframes shimmer {
-            0% { background-position: -200% 0; }
-            100% { background-position: 200% 0; }
+            0% {
+                background-position: -200% 0;
+            }
+
+            100% {
+                background-position: 200% 0;
+            }
         }
 
         .glass-card {
@@ -112,7 +120,10 @@
 
         .kpi-card .sparkline-container {
             position: absolute;
-            top: 0; left: 0; right: 0; bottom: 0;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
             opacity: 0;
             transition: opacity 0.3s ease-in-out;
             pointer-events: none;
@@ -145,9 +156,9 @@
 
         .sortable-ghost {
             background: linear-gradient(45deg, #eef2ff 25%, transparent 25%),
-                        linear-gradient(-45deg, #eef2ff 25%, transparent 25%),
-                        linear-gradient(45deg, transparent 75%, #eef2ff 75%),
-                        linear-gradient(-45deg, transparent 75%, #eef2ff 75%);
+                linear-gradient(-45deg, #eef2ff 25%, transparent 25%),
+                linear-gradient(45deg, transparent 75%, #eef2ff 75%),
+                linear-gradient(-45deg, transparent 75%, #eef2ff 75%);
             background-size: 20px 20px;
             border: 2px dashed #818cf8;
             opacity: 0.7;
@@ -187,8 +198,15 @@
         }
 
         @keyframes pulse-dot {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
         }
 
         .fade-in {
@@ -196,8 +214,15 @@
         }
 
         @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         .slide-in {
@@ -205,8 +230,15 @@
         }
 
         @keyframes slideIn {
-            from { transform: translateX(-100%); opacity: 0; }
-            to { transform: translateX(0); opacity: 1; }
+            from {
+                transform: translateX(-100%);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
         }
 
         .chart-container {
@@ -260,10 +292,21 @@
             animation: pulse 2s infinite;
         }
 
-        .status-active::before { background: #10b981; }
-        .status-warning::before { background: #f59e0b; }
-        .status-error::before { background: #ef4444; }
-        .status-inactive::before { background: #6b7280; }
+        .status-active::before {
+            background: #10b981;
+        }
+
+        .status-warning::before {
+            background: #f59e0b;
+        }
+
+        .status-error::before {
+            background: #ef4444;
+        }
+
+        .status-inactive::before {
+            background: #6b7280;
+        }
 
         .scroll-smooth {
             scroll-behavior: smooth;
@@ -302,8 +345,13 @@
         }
 
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
         }
 
         .tooltip {
@@ -392,6 +440,7 @@
                 0px -32px 32px rgba(3, 7, 18, 0.06);
             transition: transform var(--transition-dur) ease;
         }
+
         .map-btn {
             cursor: pointer;
             padding: 0.85em 1.5em 0.85em 3.5em;
@@ -405,6 +454,7 @@
                 color var(--transition-dur) ease-in-out,
                 background-color var(--transition-dur) ease-in-out;
         }
+
         .pinpoint {
             pointer-events: none;
             position: absolute;
@@ -423,6 +473,7 @@
                 border-radius calc(var(--transition-dur) + 0.1s) ease;
             z-index: 1;
         }
+
         .map-container {
             pointer-events: none;
             position: absolute;
@@ -437,6 +488,7 @@
             opacity: 0;
             z-index: 0;
         }
+
         .map {
             position: absolute;
             bottom: 100px;
@@ -446,6 +498,7 @@
             background-image: linear-gradient(to bottom, #fff2, 30%, #0000);
             transform-origin: left bottom;
         }
+
         .map::after {
             content: "";
             top: -40;
@@ -458,15 +511,39 @@
             box-shadow: inset 0 0 48px 24px var(--veg-color);
             z-index: 0;
         }
-        .fold-1, .fold-2, .fold-3, .fold-4 {
+
+        .fold-1,
+        .fold-2,
+        .fold-3,
+        .fold-4 {
             mask-image: linear-gradient(to top, #fff, 97%, #0000);
             overflow: hidden;
         }
-        .fold-1 { left: -60px; transform: rotateY(10deg) translateZ(30px); }
-        .fold-2 { left: 60px; transform: rotateY(-10deg) translateZ(10px); }
-        .fold-3 { left: -169px; transform: rotateY(-15deg) translateZ(-1px); }
-        .fold-4 { left: 166px; transform: rotateY(15deg) translateZ(31px); }
-        .fold-1::before, .fold-2::before, .fold-3::before, .fold-4::before {
+
+        .fold-1 {
+            left: -60px;
+            transform: rotateY(10deg) translateZ(30px);
+        }
+
+        .fold-2 {
+            left: 60px;
+            transform: rotateY(-10deg) translateZ(10px);
+        }
+
+        .fold-3 {
+            left: -169px;
+            transform: rotateY(-15deg) translateZ(-1px);
+        }
+
+        .fold-4 {
+            left: 166px;
+            transform: rotateY(15deg) translateZ(31px);
+        }
+
+        .fold-1::before,
+        .fold-2::before,
+        .fold-3::before,
+        .fold-4::before {
             content: "";
             position: absolute;
             top: 0;
@@ -476,47 +553,53 @@
             box-shadow: inset 0 10px 16px 3px #0004;
             z-index: 1;
         }
-        .map-btn-wrapper:has(.map-btn:hover) { transform: scale(1.05); }
-        .map-btn:hover { background-color: var(--text-color); color: #00000025; }
-        .map-btn:hover + .pinpoint {
+
+        .map-btn-wrapper:has(.map-btn:hover) {
+            transform: scale(1.05);
+        }
+
+        .map-btn:hover {
+            background-color: var(--text-color);
+            color: #00000025;
+        }
+
+        .map-btn:hover+.pinpoint {
             background-color: var(--btn-color);
             border-radius: 50% 50% 0 50%;
             transform: rotateZ(45deg) translate(-0.3em, -0.3em);
         }
-        .map-btn:hover ~ .map-container {
+
+        .map-btn:hover~.map-container {
             transform: perspective(100px) rotateX(35deg) scaleX(0.85);
             opacity: 1;
         }
-        .map-btn-wrapper:has(.map-btn:active) { transform: scale(1.02) translateY(0.2em); }
-        .map-btn:active + .pinpoint {
+
+        .map-btn-wrapper:has(.map-btn:active) {
+            transform: scale(1.02) translateY(0.2em);
+        }
+
+        .map-btn:active+.pinpoint {
             transform: rotateZ(45deg) translate(0em, 0em);
             transition-duration: calc(var(--transition-dur) * 0.5);
         }
-        .map-btn:active ~ .map-container {
+
+        .map-btn:active~.map-container {
             transform: perspective(95px) rotateX(35deg) scaleX(0.85);
             transition-duration: calc(var(--transition-dur) * 0.5);
         }
+
         /* --- End of CloudMap Button Styles --- */
     </style>
 </head>
+
 <body x-data="dashboardApp()">
 
     <div style="height: 0; width: 0; position: absolute; visibility: hidden;">
         <svg height="0" width="0">
             <filter id="land">
-                <feTurbulence
-                    result="turb"
-                    numOctaves="7"
-                    baseFrequency="0.006"
-                    type="fractalNoise"
-                ></feTurbulence>
-                <feDisplacementMap
-                    yChannelSelector="G"
-                    xChannelSelector="R"
-                    scale="700"
-                    in="SourceGraphic"
-                    in2="turb"
-                ></feDisplacementMap>
+                <feTurbulence result="turb" numOctaves="7" baseFrequency="0.006" type="fractalNoise"></feTurbulence>
+                <feDisplacementMap yChannelSelector="G" xChannelSelector="R" scale="700" in="SourceGraphic" in2="turb">
+                </feDisplacementMap>
             </filter>
         </svg>
     </div>
@@ -566,33 +649,36 @@
 </div>
 
 
-<div id="errorState" class="hidden fixed inset-0 flex items-center justify-center bg-red-50 text-red-700 z-50">
-    <div class="bg-white p-8 rounded-lg shadow-xl max-w-md w-full mx-4">
-        <div class="flex items-center justify-center w-16 h-16 mx-auto mb-4 bg-red-100 rounded-full">
-            <i class="fas fa-exclamation-triangle text-red-600 text-2xl"></i>
+    <div id="errorState" class="hidden fixed inset-0 flex items-center justify-center bg-red-50 text-red-700 z-50">
+        <div class="bg-white p-8 rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div class="flex items-center justify-center w-16 h-16 mx-auto mb-4 bg-red-100 rounded-full">
+                <i class="fas fa-exclamation-triangle text-red-600 text-2xl"></i>
+            </div>
+            <h2 class="text-2xl font-bold text-center mb-4 text-gray-800">Connection Error</h2>
+            <p id="errorMessage" class="text-center text-gray-600 mb-6"></p>
+            <button onclick="location.reload()"
+                class="w-full bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 transition-colors">
+                Try Again
+            </button>
         </div>
-        <h2 class="text-2xl font-bold text-center mb-4 text-gray-800">Connection Error</h2>
-        <p id="errorMessage" class="text-center text-gray-600 mb-6"></p>
-        <button onclick="location.reload()" class="w-full bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 transition-colors">
-            Try Again
-        </button>
     </div>
-</div>
 
-<div id="loadingNotification" class="notification bg-white border border-gray-200 shadow-lg rounded-lg p-4 flex items-center space-x-3">
-    <div class="loading-spinner"></div>
-    <span class="text-sm text-gray-600">Updating dashboard...</span>
-</div>
-
-<div id="successNotification" class="notification bg-green-50 border border-green-200 shadow-lg rounded-lg p-4 flex items-center space-x-3">
-    <div class="w-5 h-5 bg-green-500 rounded-full flex items-center justify-center">
-        <i class="fas fa-check text-white text-xs"></i>
+    <div id="loadingNotification"
+        class="notification bg-white border border-gray-200 shadow-lg rounded-lg p-4 flex items-center space-x-3">
+        <div class="loading-spinner"></div>
+        <span class="text-sm text-gray-600">Updating dashboard...</span>
     </div>
-    <span class="text-sm text-green-800">Dashboard updated successfully!</span>
-</div>
 
-<div id="appBody" class="flex">
-   <include file="/_sidebar.html"></include>
+    <div id="successNotification"
+        class="notification bg-green-50 border border-green-200 shadow-lg rounded-lg p-4 flex items-center space-x-3">
+        <div class="w-5 h-5 bg-green-500 rounded-full flex items-center justify-center">
+            <i class="fas fa-check text-white text-xs"></i>
+        </div>
+        <span class="text-sm text-green-800">Dashboard updated successfully!</span>
+    </div>
+
+    <div id="appBody" class="flex">
+        <include file="/_sidebar.html"></include>
 
 
     <div class="flex-1 pl-64">
@@ -630,114 +716,118 @@
                             x-show="layoutChanged"
                             x-cloak
                             class="flex items-center text-sm font-semibold text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 px-6 py-2.5 rounded-lg shadow-md transition-all transform hover:scale-105 hover:shadow-lg">
-                        <i class="fas fa-save mr-2"></i> Save Layout
-                    </button>
-                    <button
-                            id="refreshButton"
-                            @click="loadDashboardData(true)"
+                            <i class="fas fa-save mr-2"></i> Save Layout
+                        </button>
+                        <button id="refreshButton" @click="loadDashboardData(true)"
                             class="flex items-center text-sm text-indigo-600 hover:text-indigo-800 px-4 py-2 rounded-lg hover:bg-indigo-50 transition-all"
                             :disabled="isRefreshing">
-                        <i class="fas fa-sync-alt mr-2" :class="{'fa-spin': isRefreshing}"></i>
-                        <span x-text="isRefreshing ? 'Refreshing...' : 'Refresh'"></span>
-                    </button>
-                </div>
-            </header>
-
-            <div x-show="selectedAccountIds.length === 0 && !isLoading" id="noAccountState" class="text-center py-32 fade-in" x-cloak>
-                <div class="max-w-md mx-auto">
-                    <div class="w-24 h-24 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-6">
-                        <i class="fas fa-plus-circle text-white text-3xl"></i>
+                            <i class="fas fa-sync-alt mr-2" :class="{'fa-spin': isRefreshing}"></i>
+                            <span x-text="isRefreshing ? 'Refreshing...' : 'Refresh'"></span>
+                        </button>
                     </div>
-                    <h3 class="text-2xl font-bold text-gray-800 mb-4">Get Started with XamOps</h3>
-                    <p class="text-gray-600 mb-8">It looks like you don't have any cloud accounts connected yet. Add your first account to begin monitoring your infrastructure.</p>
-                    <a href="/account-manager.html" class="inline-block bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold py-3 px-8 rounded-xl shadow-lg hover:shadow-xl transition-all transform hover:scale-105">
-                        <i class="fas fa-users-cog mr-2"></i> Go to Account Manager
-                    </a>
-                </div>
-            </div>
+                </header>
 
-            <div x-show="isLoading" id="dashboardSkeleton" class="space-y-6 fade-in">
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                    <div class="glass-card p-6 rounded-xl h-32 skeleton"></div>
-                    <div class="glass-card p-6 rounded-xl h-32 skeleton"></div>
-                    <div class="glass-card p-6 rounded-xl h-32 skeleton"></div>
-                    <div class="glass-card p-6 rounded-xl h-32 skeleton"></div>
+                <div x-show="selectedAccountIds.length === 0 && !isLoading" id="noAccountState"
+                    class="text-center py-32 fade-in" x-cloak>
+                    <div class="max-w-md mx-auto">
+                        <div
+                            class="w-24 h-24 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                            <i class="fas fa-plus-circle text-white text-3xl"></i>
+                        </div>
+                        <h3 class="text-2xl font-bold text-gray-800 mb-4">Get Started with XamOps</h3>
+                        <p class="text-gray-600 mb-8">It looks like you don't have any cloud accounts connected yet. Add
+                            your first account to begin monitoring your infrastructure.</p>
+                        <a href="/account-manager.html"
+                            class="inline-block bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold py-3 px-8 rounded-xl shadow-lg hover:shadow-xl transition-all transform hover:scale-105">
+                            <i class="fas fa-users-cog mr-2"></i> Go to Account Manager
+                        </a>
+                    </div>
                 </div>
-                <div class="glass-card p-6 rounded-xl h-96 skeleton"></div>
-                <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                    <div class="lg:col-span-2 glass-card p-6 rounded-xl h-48 skeleton"></div>
-                    <div class="glass-card p-6 rounded-xl h-48 skeleton"></div>
+
+                <div x-show="isLoading" id="dashboardSkeleton" class="space-y-6 fade-in">
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                        <div class="glass-card p-6 rounded-xl h-32 skeleton"></div>
+                        <div class="glass-card p-6 rounded-xl h-32 skeleton"></div>
+                        <div class="glass-card p-6 rounded-xl h-32 skeleton"></div>
+                        <div class="glass-card p-6 rounded-xl h-32 skeleton"></div>
+                    </div>
+                    <div class="glass-card p-6 rounded-xl h-96 skeleton"></div>
+                    <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                        <div class="lg:col-span-2 glass-card p-6 rounded-xl h-48 skeleton"></div>
+                        <div class="glass-card p-6 rounded-xl h-48 skeleton"></div>
+                    </div>
+                    <div class="glass-card p-6 rounded-xl h-64 skeleton"></div>
                 </div>
-                <div class="glass-card p-6 rounded-xl h-64 skeleton"></div>
-            </div>
 
-            <div x-show="!isLoading && selectedAccountIds.length > 0" id="dashboardContent" x-cloak>
-                <div id="widgets-container" class="space-y-8">
+                <div x-show="!isLoading && selectedAccountIds.length > 0" id="dashboardContent" x-cloak>
+                    <div id="widgets-container" class="space-y-8">
 
-                    <div id="widget-kpi" class="widget fade-in">
-                        <div class="flex items-center justify-between mb-6">
-                            <div class="flex items-center text-gray-600">
-                                <i class="fas fa-arrows-alt widget-handle mr-3 text-lg"></i>
-                                <h2 class="text-lg font-bold">Key Performance Indicators</h2>
+                        <div id="widget-kpi" class="widget fade-in">
+                            <div class="flex items-center justify-between mb-6">
+                                <div class="flex items-center text-gray-600">
+                                    <i class="fas fa-arrows-alt widget-handle mr-3 text-lg"></i>
+                                    <h2 class="text-lg font-bold">Key Performance Indicators</h2>
+                                </div>
+                                <div class="flex items-center space-x-2 text-sm text-gray-500">
+                                    <i class="fas fa-chart-line"></i>
+                                    <span>Live metrics</span>
+                                </div>
                             </div>
-                            <div class="flex items-center space-x-2 text-sm text-gray-500">
-                                <i class="fas fa-chart-line"></i>
-                                <span>Live metrics</span>
+                            <div id="kpi-cards" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"></div>
+                        </div>
+
+                        <div id="widget-map" class="widget grid gap-6 lg:grid-cols-5 fade-in">
+                            <div class="lg:col-span-3 chart-container p-6 rounded-xl">
+                                <div class="flex items-center justify-between mb-6">
+                                    <h3 class="text-lg font-bold text-gray-800 flex items-center">
+                                        <i class="fas fa-arrows-alt widget-handle mr-3 text-gray-400"></i>
+                                        <i class="fas fa-globe-americas mr-2 text-blue-500"></i>
+                                        Active Regions
+                                    </h3>
+                                    <div class="flex items-center space-x-4 text-sm">
+                                        <div class="flex items-center space-x-1">
+                                            <div class="w-3 h-3 bg-blue-500 rounded-full"></div>
+                                            <span class="text-gray-600">Active</span>
+                                        </div>
+                                        <div class="flex items-center space-x-1">
+                                            <div class="w-3 h-3 bg-green-500 rounded-full"></div>
+                                            <span class="text-gray-600">Sustainable</span>
+                                        </div>
+                                        <div class="flex items-center space-x-1">
+                                            <div class="w-3 h-3 bg-red-500 rounded-full"></div>
+                                            <span class="text-gray-600">Issues</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div id="highcharts-map-container" style="height: 400px;"
+                                    class="rounded-lg overflow-hidden"></div>
+                            </div>
+                            <div class="lg:col-span-2 chart-container p-6 rounded-xl">
+                                <div class="flex items-center justify-between mb-6">
+                                    <h3 class="text-lg font-bold text-gray-800 flex items-center">
+                                        <i class="fas fa-arrows-alt widget-handle mr-3 text-gray-400"></i>
+                                        <i class="fas fa-server mr-2 text-purple-500"></i>
+                                        Resource Inventory
+                                    </h3>
+                                    <div class="text-sm text-gray-500">
+                                        <i class="fas fa-sync-alt"></i>
+                                    </div>
+                                </div>
+                                <div id="resourceInventory" class="grid grid-cols-1 gap-3 custom-scrollbar"
+                                    style="max-height: 400px; overflow-y: auto;"></div>
                             </div>
                         </div>
-                        <div id="kpi-cards" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"></div>
-                    </div>
 
-                    <div id="widget-map" class="widget grid gap-6 lg:grid-cols-5 fade-in">
-                        <div class="lg:col-span-3 chart-container p-6 rounded-xl">
+                        <div id="widget-optimization" class="widget chart-container p-6 rounded-xl fade-in">
                             <div class="flex items-center justify-between mb-6">
                                 <h3 class="text-lg font-bold text-gray-800 flex items-center">
                                     <i class="fas fa-arrows-alt widget-handle mr-3 text-gray-400"></i>
-                                    <i class="fas fa-globe-americas mr-2 text-blue-500"></i>
-                                    Active Regions
+                                    <i class="fas fa-lightbulb mr-2 text-yellow-500"></i>
+                                    Optimization Hub
                                 </h3>
-                                <div class="flex items-center space-x-4 text-sm">
-                                    <div class="flex items-center space-x-1">
-                                        <div class="w-3 h-3 bg-blue-500 rounded-full"></div>
-                                        <span class="text-gray-600">Active</span>
-                                    </div>
-                                    <div class="flex items-center space-x-1">
-                                        <div class="w-3 h-3 bg-green-500 rounded-full"></div>
-                                        <span class="text-gray-600">Sustainable</span>
-                                    </div>
-                                    <div class="flex items-center space-x-1">
-                                        <div class="w-3 h-3 bg-red-500 rounded-full"></div>
-                                        <span class="text-gray-600">Issues</span>
-                                    </div>
-                                </div>
                             </div>
-                            <div id="highcharts-map-container" style="height: 400px;" class="rounded-lg overflow-hidden"></div>
+                            <div id="optimizationHub"></div>
                         </div>
-                        <div class="lg:col-span-2 chart-container p-6 rounded-xl">
-                            <div class="flex items-center justify-between mb-6">
-                                <h3 class="text-lg font-bold text-gray-800 flex items-center">
-                                    <i class="fas fa-arrows-alt widget-handle mr-3 text-gray-400"></i>
-                                    <i class="fas fa-server mr-2 text-purple-500"></i>
-                                    Resource Inventory
-                                </h3>
-                                <div class="text-sm text-gray-500">
-                                    <i class="fas fa-sync-alt"></i>
-                                </div>
-                            </div>
-                            <div id="resourceInventory" class="grid grid-cols-1 gap-3 custom-scrollbar" style="max-height: 400px; overflow-y: auto;"></div>
-                        </div>
-                    </div>
-
-                    <div id="widget-optimization" class="widget chart-container p-6 rounded-xl fade-in">
-                        <div class="flex items-center justify-between mb-6">
-                            <h3 class="text-lg font-bold text-gray-800 flex items-center">
-                                <i class="fas fa-arrows-alt widget-handle mr-3 text-gray-400"></i>
-                                <i class="fas fa-lightbulb mr-2 text-yellow-500"></i>
-                                Optimization Hub
-                            </h3>
-                        </div>
-                        <div id="optimizationHub"></div>
-                    </div>
 
                     <div id="widget-costs" class="widget grid gap-6 lg:grid-cols-3 fade-in">
                         <div class="lg:col-span-2 chart-container p-6 rounded-xl">
@@ -785,396 +875,396 @@
 </div>
 
 
-<script>
-    function dashboardApp() {
-        return {
-            isLoading: true,
-            isRefreshing: false,
-            stompClient: null,
-            layoutChanged: false,
-            showQuickActions: false,
-            selectedAccountIds: [],
-            dashboardData: {},
-            userRoles: [],
-            accounts: [],
+    <script>
+        function dashboardApp() {
+            return {
+                isLoading: true,
+                isRefreshing: false,
+                stompClient: null,
+                layoutChanged: false,
+                showQuickActions: false,
+                selectedAccountIds: [],
+                dashboardData: {},
+                userRoles: [],
+                accounts: [],
 
-            init() {
-                console.log('[Dashboard] Initializing dashboardApp...');
+                init() {
+                    console.log('[Dashboard] Initializing dashboardApp...');
 
-                if (window.Highcharts) {
-                    console.log('[Map Debug] Highcharts object found on window.', window.Highcharts);
-                } else {
-                    console.error('[Map Debug] CRITICAL: Highcharts object NOT found on window.');
-                }
+                    if (window.Highcharts) {
+                        console.log('[Map Debug] Highcharts object found on window.', window.Highcharts);
+                    } else {
+                        console.error('[Map Debug] CRITICAL: Highcharts object NOT found on window.');
+                    }
 
-                const urlParams = new URLSearchParams(window.location.search);
-                const accountIdsParam = urlParams.get('accountId') || urlParams.get('accountIds');
-                const multiAccountParam = urlParams.get('multiAccount') === 'true';
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const accountIdsParam = urlParams.get('accountId') || urlParams.get('accountIds');
+                    const multiAccountParam = urlParams.get('multiAccount') === 'true';
 
-                if (accountIdsParam) {
-                    this.selectedAccountIds = accountIdsParam.split(',');
-                    sessionStorage.setItem('selectedAccountIds', JSON.stringify(this.selectedAccountIds));
-                    sessionStorage.setItem('multiAccountMode', multiAccountParam.toString());
-                } else {
-                    this.selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-                }
+                    if (accountIdsParam) {
+                        this.selectedAccountIds = accountIdsParam.split(',');
+                        sessionStorage.setItem('selectedAccountIds', JSON.stringify(this.selectedAccountIds));
+                        sessionStorage.setItem('multiAccountMode', multiAccountParam.toString());
+                    } else {
+                        this.selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                    }
 
-                this.isMultiAccountMode = this.selectedAccountIds.length > 1 || 
-                                          sessionStorage.getItem('multiAccountMode') === 'true';
-                this.selectedAccountId = this.selectedAccountIds.length > 0 ? this.selectedAccountIds[0] : null;
+                    this.isMultiAccountMode = this.selectedAccountIds.length > 1 ||
+                        sessionStorage.getItem('multiAccountMode') === 'true';
+                    this.selectedAccountId = this.selectedAccountIds.length > 0 ? this.selectedAccountIds[0] : null;
 
-                console.log('[Dashboard] Selected accounts:', this.selectedAccountIds);
-                console.log('[Dashboard] Multi-account mode:', this.isMultiAccountMode);
+                    console.log('[Dashboard] Selected accounts:', this.selectedAccountIds);
+                    console.log('[Dashboard] Multi-account mode:', this.isMultiAccountMode);
 
-                this.fetchUserRoles();
-                this.fetchAccounts();
+                    this.fetchUserRoles();
+                    this.fetchAccounts();
 
-                // Event listeners for sidebar account changes
-                window.addEventListener('multi-account-selection-changed', (event) => {
-                    console.log('[Dashboard] Multi-account selection changed:', event.detail.accountIds);
-                    this.selectedAccountIds = event.detail.accountIds;
-                    this.isMultiAccountMode = this.selectedAccountIds.length > 1;
-                    sessionStorage.setItem('selectedAccountIds', JSON.stringify(this.selectedAccountIds));
-                    sessionStorage.setItem('multiAccountMode', 'true');
+                    // Event listeners for sidebar account changes
+                    window.addEventListener('multi-account-selection-changed', (event) => {
+                        console.log('[Dashboard] Multi-account selection changed:', event.detail.accountIds);
+                        this.selectedAccountIds = event.detail.accountIds;
+                        this.isMultiAccountMode = this.selectedAccountIds.length > 1;
+                        sessionStorage.setItem('selectedAccountIds', JSON.stringify(this.selectedAccountIds));
+                        sessionStorage.setItem('multiAccountMode', 'true');
+                        this.loadDashboardData(false);
+                    });
+
+                    window.addEventListener('account-changed', (event) => {
+                        console.log('[Dashboard] Single account changed:', event.detail.accountId);
+                        this.selectedAccountIds = [event.detail.accountId];
+                        this.isMultiAccountMode = false;
+                        this.selectedAccountId = event.detail.accountId;
+                        sessionStorage.setItem('selectedAccountIds', JSON.stringify(this.selectedAccountIds));
+                        sessionStorage.setItem('multiAccountMode', 'false');
+                        this.loadDashboardData(false);
+                    });
+
+                    window.addEventListener('storage', (event) => {
+                        if (event.key === 'selectedAccountIds') {
+                            window.location.reload();
+                        }
+                    });
+
+                    this.initializeDashboardLayout();
                     this.loadDashboardData(false);
-                });
+                },
 
-                window.addEventListener('account-changed', (event) => {
-                    console.log('[Dashboard] Single account changed:', event.detail.accountId);
-                    this.selectedAccountIds = [event.detail.accountId];
-                    this.isMultiAccountMode = false;
-                    this.selectedAccountId = event.detail.accountId;
-                    sessionStorage.setItem('selectedAccountIds', JSON.stringify(this.selectedAccountIds));
-                    sessionStorage.setItem('multiAccountMode', 'false');
-                    this.loadDashboardData(false);
-                });
+                async apiFetch(url, options = {}) {
+                    const csrfToken = document.cookie
+                        .split('; ')
+                        .find(row => row.startsWith('XSRF-TOKEN='))
+                        ?.split('=')[1];
 
-                window.addEventListener('storage', (event) => {
-                    if (event.key === 'selectedAccountIds') {
-                        window.location.reload();
-                    }
-                });
-
-                this.initializeDashboardLayout();
-                this.loadDashboardData(false);
-            },
-
-            async apiFetch(url, options = {}) {
-                const csrfToken = document.cookie
-                    .split('; ')
-                    .find(row => row.startsWith('XSRF-TOKEN='))
-                    ?.split('=')[1];
-
-                const response = await fetch(url, {
-                    ...options,
-                    credentials: 'include',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-XSRF-TOKEN': csrfToken,
-                        ...options.headers
-                    }
-                });
-
-                if (!response.ok) {
-                    console.error('API Error:', response.status, await response.text());
-                    throw new Error(`HTTP ${response.status}`);
-                }
-                return response;
-            },
-
-            fetchUserRoles() {
-                this.apiFetch('/api/xamops/user/profile')
-                    .then(res => res.json())
-                    .then(data => {
-                        this.userRoles = data.roles || [];
-                    })
-                    .catch(err => {
-                        console.error('Could not fetch user profile:', err);
-                    });
-            },
-
-            fetchAccounts() {
-                this.apiFetch('/api/xamops/account-manager/accounts')
-                    .then(res => res.json())
-                    .then(data => {
-                        this.accounts = data.filter(acc => acc.status === 'CONNECTED');
-                    })
-                    .catch(err => {
-                        console.error('Failed to fetch accounts:', err);
-                        this.accounts = [];
-                    });
-            },
-
-            hasAnyRole(requiredRoles) {
-                if (!Array.isArray(requiredRoles)) {
-                    requiredRoles = [requiredRoles];
-                }
-                return requiredRoles.some(role => this.userRoles.includes(role));
-            },
-
-            getLink(basePath) {
-                const selectedIds = this.selectedAccountIds;
-                if (selectedIds.length === 0) {
-                    if (basePath.includes('account-manager.html') || basePath.includes('dashboard.html') || basePath.includes('Xamops_user_management.html')) {
-                        return basePath;
-                    }
-                    return '#';
-                }
-
-                const firstAccountId = selectedIds[0];
-                const account = this.accounts.find(a => a.id === firstAccountId);
-                const provider = account ? account.provider : 'AWS';
-
-                let finalPath = basePath;
-                
-                if (basePath.includes('/billops/')) {
-                    if (basePath.includes('billing.html')) {
-                        switch (provider) {
-                            case 'GCP':
-                                finalPath = '/billops/gcp-billing.html';
-                                break;
-                            case 'AZURE':
-                                finalPath = '/billops/azure-billing.html';
-                                break;
-                            case 'AWS':
-                            default:
-                                finalPath = '/billops/billing.html';
-                                break;
-                        }
-                    }
-                } 
-                else {
-                    if (provider === 'GCP') {
-                        if (basePath === '/reservation.html') finalPath = '/gcp_reservations.html';
-                        else if (basePath === '/cloudmap.html') finalPath = '/gcp_cloudmap.html';
-                        else if (basePath === '/dashboard.html') finalPath = '/gcp_dashboard.html';
-                        else if (basePath.startsWith('/') && !basePath.startsWith('/gcp_') && !basePath.includes('account-manager.html') && !basePath.includes('Xamops_user_management.html')) {
-                            finalPath = basePath.replace('.html', '').replace('/', '/gcp_') + '.html';
-                        }
-                    } else if (provider === 'AZURE') {
-                        if (basePath.startsWith('/') && !basePath.includes('account-manager.html') && !basePath.includes('Xamops_user_management.html')) {
-                            finalPath = '/azure_dashboard.html';
-                        }
-                    }
-                }
-
-                const url = new URL(window.location.origin + finalPath);
-                url.searchParams.append('accountIds', selectedIds.join(','));
-                return url.toString();
-            },
-
-            connectWebSocket() {
-                if (!this.selectedAccountId || this.stompClient) return;
-
-                const socket = new SockJS('/ws');
-                this.stompClient = Stomp.over(socket);
-                this.stompClient.debug = null;
-                this.stompClient.connect({}, (frame) => {
-                    this.stompClient.subscribe(`/topic/dashboard/${this.selectedAccountId}/inventory`, (message) => {
-                        this.populateResourceInventory(JSON.parse(message.body));
-                    });
-                });
-            },
-
-            loadDashboardData(forceRefresh = false) {
-                if (!this.selectedAccountIds || this.selectedAccountIds.length === 0) {
-                    console.warn('[Dashboard] No accounts selected');
-                    this.isLoading = false;
-                    return;
-                }
-
-                const isMultiAccount = this.selectedAccountIds.length > 1;
-                
-                console.log('[Dashboard] Loading data for:', this.selectedAccountIds);
-                console.log('[Dashboard] Multi-account mode:', isMultiAccount);
-
-                if (forceRefresh) {
-                    this.isRefreshing = true;
-                } else {
-                    this.isLoading = true;
-                }
-
-                let apiUrl;
-                if (isMultiAccount) {
-                    const accountIdsParam = this.selectedAccountIds.join(',');
-                    apiUrl = `/api/xamops/dashboard/data/multi-account?accountIds=${accountIdsParam}&forceRefresh=${forceRefresh}`;
-                    console.log('[Dashboard] Using multi-account endpoint:', apiUrl);
-                } else {
-                    apiUrl = `/api/xamops/dashboard/data?accountId=${this.selectedAccountIds[0]}&forceRefresh=${forceRefresh}`;
-                    console.log('[Dashboard] Using single-account endpoint:', apiUrl);
-                }
-
-                fetch(apiUrl)
-                    .then(res => {
-                        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-                        return res.json();
-                    })
-                    .then(data => {
-                        console.log('[Dashboard] Data received:', data);
-                        
-                        if (data && data.selectedAccount) {
-                            this.dashboardData = data;
-                            this.isMultiAccountMode = data.isMultiAccountView || false;
-                            
-                            setTimeout(() => {
-                                this.populatePage(data.selectedAccount);
-                                this.renderAllCharts(data.selectedAccount);
-                                
-                                if (!this.isMultiAccountMode) {
-                                    this.connectWebSocket();
-                                }
-                            }, 0);
-                        } else {
-                            console.error('[Dashboard] Invalid data structure:', data);
-                            this.showNotification('error', 'Received invalid data from server.');
-                        }
-                    })
-                    .catch(error => {
-                        console.error('[Dashboard] Failed to load dashboard data:', error);
-                        this.showNotification('error', 'Failed to load dashboard: ' + error.message);
-                    })
-                    .finally(() => {
-                        this.isLoading = false;
-                        this.isRefreshing = false;
-                        if (forceRefresh) {
-                            this.showNotification('success', 'Dashboard refreshed successfully!');
+                    const response = await fetch(url, {
+                        ...options,
+                        credentials: 'include',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-XSRF-TOKEN': csrfToken,
+                            ...options.headers
                         }
                     });
-            },
 
-            showNotification(type, message) {
-                const notification = document.getElementById(type + 'Notification');
-                 if (notification.querySelector('span')) {
-                    notification.querySelector('span').textContent = message;
-                }
-                if (notification) {
-                    notification.classList.add('show');
-                    setTimeout(() => {
-                        notification.classList.remove('show');
-                    }, 3000);
-                }
-            },
+                    if (!response.ok) {
+                        console.error('API Error:', response.status, await response.text());
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+                    return response;
+                },
 
-            initializeDashboardLayout() {
-                const container = document.getElementById('widgets-container');
-                fetch('/api/xamops/dashboard/layout')
-                    .then(res => res.json())
-                    .then(layout => {
-                        if (layout && layout.layoutConfig) {
-                            const widgetOrder = JSON.parse(layout.layoutConfig);
-                            if (widgetOrder && widgetOrder.length > 0) {
-                                widgetOrder.forEach(widgetId => {
-                                    const widget = document.getElementById(widgetId);
-                                    if (widget) container.appendChild(widget);
-                                });
+                fetchUserRoles() {
+                    this.apiFetch('/api/xamops/user/profile')
+                        .then(res => res.json())
+                        .then(data => {
+                            this.userRoles = data.roles || [];
+                        })
+                        .catch(err => {
+                            console.error('Could not fetch user profile:', err);
+                        });
+                },
+
+                fetchAccounts() {
+                    this.apiFetch('/api/xamops/account-manager/accounts')
+                        .then(res => res.json())
+                        .then(data => {
+                            this.accounts = data.filter(acc => acc.status === 'CONNECTED');
+                        })
+                        .catch(err => {
+                            console.error('Failed to fetch accounts:', err);
+                            this.accounts = [];
+                        });
+                },
+
+                hasAnyRole(requiredRoles) {
+                    if (!Array.isArray(requiredRoles)) {
+                        requiredRoles = [requiredRoles];
+                    }
+                    return requiredRoles.some(role => this.userRoles.includes(role));
+                },
+
+                getLink(basePath) {
+                    const selectedIds = this.selectedAccountIds;
+                    if (selectedIds.length === 0) {
+                        if (basePath.includes('account-manager.html') || basePath.includes('dashboard.html') || basePath.includes('Xamops_user_management.html')) {
+                            return basePath;
+                        }
+                        return '#';
+                    }
+
+                    const firstAccountId = selectedIds[0];
+                    const account = this.accounts.find(a => a.id === firstAccountId);
+                    const provider = account ? account.provider : 'AWS';
+
+                    let finalPath = basePath;
+
+                    if (basePath.includes('/billops/')) {
+                        if (basePath.includes('billing.html')) {
+                            switch (provider) {
+                                case 'GCP':
+                                    finalPath = '/billops/gcp-billing.html';
+                                    break;
+                                case 'AZURE':
+                                    finalPath = '/billops/azure-billing.html';
+                                    break;
+                                case 'AWS':
+                                default:
+                                    finalPath = '/billops/billing.html';
+                                    break;
                             }
                         }
-                        new Sortable(container, {
-                            animation: 200,
-                            ghostClass: 'sortable-ghost',
-                            chosenClass: 'sortable-chosen',
-                            handle: '.widget-handle',
-                            onEnd: () => { this.layoutChanged = true; }
-                        });
-                    }).catch(err => {
-                        console.error("Failed to load layout, using default.", err);
-                        new Sortable(container, {
-                            animation: 200,
-                            ghostClass: 'sortable-ghost',
-                            chosenClass: 'sortable-chosen',
-                            handle: '.widget-handle',
-                            onEnd: () => { this.layoutChanged = true; }
+                    }
+                    else {
+                        if (provider === 'GCP') {
+                            if (basePath === '/reservation.html') finalPath = '/gcp_reservations.html';
+                            else if (basePath === '/cloudmap.html') finalPath = '/gcp_cloudmap.html';
+                            else if (basePath === '/dashboard.html') finalPath = '/gcp_dashboard.html';
+                            else if (basePath.startsWith('/') && !basePath.startsWith('/gcp_') && !basePath.includes('account-manager.html') && !basePath.includes('Xamops_user_management.html')) {
+                                finalPath = basePath.replace('.html', '').replace('/', '/gcp_') + '.html';
+                            }
+                        } else if (provider === 'AZURE') {
+                            if (basePath.startsWith('/') && !basePath.includes('account-manager.html') && !basePath.includes('Xamops_user_management.html')) {
+                                finalPath = '/azure_dashboard.html';
+                            }
+                        }
+                    }
+
+                    const url = new URL(window.location.origin + finalPath);
+                    url.searchParams.append('accountIds', selectedIds.join(','));
+                    return url.toString();
+                },
+
+                connectWebSocket() {
+                    if (!this.selectedAccountId || this.stompClient) return;
+
+                    const socket = new SockJS('/ws');
+                    this.stompClient = Stomp.over(socket);
+                    this.stompClient.debug = null;
+                    this.stompClient.connect({}, (frame) => {
+                        this.stompClient.subscribe(`/topic/dashboard/${this.selectedAccountId}/inventory`, (message) => {
+                            this.populateResourceInventory(JSON.parse(message.body));
                         });
                     });
-            },
+                },
 
-            saveLayout() {
-                const container = document.getElementById('widgets-container');
-                const widgetOrder = [...container.children].map(w => w.id);
-                fetch('/api/xamops/dashboard/layout', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(widgetOrder)
-                }).then(res => {
-                    if (res.ok) {
-                        this.layoutChanged = false;
-                        this.showNotification('success', 'Layout saved successfully!');
+                loadDashboardData(forceRefresh = false) {
+                    if (!this.selectedAccountIds || this.selectedAccountIds.length === 0) {
+                        console.warn('[Dashboard] No accounts selected');
+                        this.isLoading = false;
+                        return;
+                    }
+
+                    const isMultiAccount = this.selectedAccountIds.length > 1;
+
+                    console.log('[Dashboard] Loading data for:', this.selectedAccountIds);
+                    console.log('[Dashboard] Multi-account mode:', isMultiAccount);
+
+                    if (forceRefresh) {
+                        this.isRefreshing = true;
                     } else {
-                        alert('Failed to save layout.');
+                        this.isLoading = true;
                     }
-                });
-            },
 
-           renderAllCharts(account) {
-                console.log('[Map Debug] renderAllCharts called.');
-                if (!account) {
-                    console.warn('[Map Debug] renderAllCharts called with no account data. Aborting.');
-                    return;
-                }
-                this.renderCostHistoryChart(account.costHistory);
-
-                console.log('[Map Debug] Preparing to render map with regionStatus:', account.regionStatus);
-                this.renderHighchartMap(account.regionStatus);
-            },
-
-            populatePage(data) {
-                if (!data) return;
-                document.getElementById('updateTime').textContent = `Updated ${new Date().toLocaleTimeString()}`;
-                this.populateKpiCards(data);
-                this.populateResourceInventory(data.resourceInventory);
-                this.populateOptimizationHub(data.optimizationSummary, data.costAnomalies, data.ec2Recommendations, data.ebsRecommendations, data.lambdaRecommendations);
-                this.populateBillingSummary(data.billingSummary);
-            },
-
-            populateKpiCards(account) {
-                const kpiContainer = document.getElementById('kpi-cards');
-                if (!kpiContainer || !account || !account.costHistory) return;
-
-                const costHistory = account.costHistory;
-                const mtdSpend = costHistory.costs.length > 0 ? costHistory.costs[costHistory.costs.length - 1] : 0;
-                const lastMonthSpend = costHistory.costs.length > 1 ? costHistory.costs[costHistory.costs.length - 2] : 0;
-                const forecastedSpend = (mtdSpend / new Date().getDate()) * new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
-
-                const kpis = [
-                    {
-                        id: 'mtdSpend',
-                        title: 'Month-to-Date Spend',
-                        value: this.formatCurrency(mtdSpend),
-                        icon: 'fa-dollar-sign',
-                        color: { iconClass: 'text-blue-500', chartColor: '#3b82f6', gradientClass: 'from-blue-500 to-blue-600' },
-                        trendData: costHistory.costs,
-                        change: lastMonthSpend > 0 ? ((mtdSpend - lastMonthSpend) / lastMonthSpend * 100) : 0
-                    },
-                    {
-                        id: 'forecastedSpend',
-                        title: 'Forecasted Spend',
-                        value: this.formatCurrency(forecastedSpend),
-                        icon: 'fa-chart-line',
-                        color: { iconClass: 'text-yellow-500', chartColor: '#f59e0b', gradientClass: 'from-yellow-500 to-yellow-600' },
-                        trendData: [...costHistory.costs, forecastedSpend],
-                        change: mtdSpend > 0 ? ((forecastedSpend - mtdSpend) / mtdSpend * 100) : 0
-                    },
-                    {
-                        id: 'lastMonthSpend',
-                        title: 'Last Month Spend',
-                        value: this.formatCurrency(lastMonthSpend),
-                        icon: 'fa-calendar-alt',
-                        color: { iconClass: 'text-gray-500', chartColor: '#6b7280', gradientClass: 'from-gray-500 to-gray-600' },
-                        trendData: costHistory.costs.slice(0, -1),
-                        change: costHistory.costs.length > 2 ? ((lastMonthSpend - costHistory.costs[costHistory.costs.length - 3]) / costHistory.costs[costHistory.costs.length - 3] * 100) : 0
-                    },
-                    {
-                        id: 'potentialSavings',
-                        title: 'Potential Savings',
-                        value: this.formatCurrency(account.optimizationSummary.totalPotentialSavings),
-                        icon: 'fa-piggy-bank',
-                        color: { iconClass: 'text-green-500', chartColor: '#22c55e', gradientClass: 'from-green-500 to-green-600' },
-                        trendData: [0, account.optimizationSummary.totalPotentialSavings],
-                        change: 100
+                    let apiUrl;
+                    if (isMultiAccount) {
+                        const accountIdsParam = this.selectedAccountIds.join(',');
+                        apiUrl = `/api/xamops/dashboard/data/multi-account?accountIds=${accountIdsParam}&forceRefresh=${forceRefresh}`;
+                        console.log('[Dashboard] Using multi-account endpoint:', apiUrl);
+                    } else {
+                        apiUrl = `/api/xamops/dashboard/data?accountId=${this.selectedAccountIds[0]}&forceRefresh=${forceRefresh}`;
+                        console.log('[Dashboard] Using single-account endpoint:', apiUrl);
                     }
-                ];
 
-                kpiContainer.innerHTML = kpis.map(kpi => `
+                    fetch(apiUrl)
+                        .then(res => {
+                            if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                            return res.json();
+                        })
+                        .then(data => {
+                            console.log('[Dashboard] Data received:', data);
+
+                            if (data && data.selectedAccount) {
+                                this.dashboardData = data;
+                                this.isMultiAccountMode = data.isMultiAccountView || false;
+
+                                setTimeout(() => {
+                                    this.populatePage(data.selectedAccount);
+                                    this.renderAllCharts(data.selectedAccount);
+
+                                    if (!this.isMultiAccountMode) {
+                                        this.connectWebSocket();
+                                    }
+                                }, 0);
+                            } else {
+                                console.error('[Dashboard] Invalid data structure:', data);
+                                this.showNotification('error', 'Received invalid data from server.');
+                            }
+                        })
+                        .catch(error => {
+                            console.error('[Dashboard] Failed to load dashboard data:', error);
+                            this.showNotification('error', 'Failed to load dashboard: ' + error.message);
+                        })
+                        .finally(() => {
+                            this.isLoading = false;
+                            this.isRefreshing = false;
+                            if (forceRefresh) {
+                                this.showNotification('success', 'Dashboard refreshed successfully!');
+                            }
+                        });
+                },
+
+                showNotification(type, message) {
+                    const notification = document.getElementById(type + 'Notification');
+                    if (notification.querySelector('span')) {
+                        notification.querySelector('span').textContent = message;
+                    }
+                    if (notification) {
+                        notification.classList.add('show');
+                        setTimeout(() => {
+                            notification.classList.remove('show');
+                        }, 3000);
+                    }
+                },
+
+                initializeDashboardLayout() {
+                    const container = document.getElementById('widgets-container');
+                    fetch('/api/xamops/dashboard/layout')
+                        .then(res => res.json())
+                        .then(layout => {
+                            if (layout && layout.layoutConfig) {
+                                const widgetOrder = JSON.parse(layout.layoutConfig);
+                                if (widgetOrder && widgetOrder.length > 0) {
+                                    widgetOrder.forEach(widgetId => {
+                                        const widget = document.getElementById(widgetId);
+                                        if (widget) container.appendChild(widget);
+                                    });
+                                }
+                            }
+                            new Sortable(container, {
+                                animation: 200,
+                                ghostClass: 'sortable-ghost',
+                                chosenClass: 'sortable-chosen',
+                                handle: '.widget-handle',
+                                onEnd: () => { this.layoutChanged = true; }
+                            });
+                        }).catch(err => {
+                            console.error("Failed to load layout, using default.", err);
+                            new Sortable(container, {
+                                animation: 200,
+                                ghostClass: 'sortable-ghost',
+                                chosenClass: 'sortable-chosen',
+                                handle: '.widget-handle',
+                                onEnd: () => { this.layoutChanged = true; }
+                            });
+                        });
+                },
+
+                saveLayout() {
+                    const container = document.getElementById('widgets-container');
+                    const widgetOrder = [...container.children].map(w => w.id);
+                    fetch('/api/xamops/dashboard/layout', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(widgetOrder)
+                    }).then(res => {
+                        if (res.ok) {
+                            this.layoutChanged = false;
+                            this.showNotification('success', 'Layout saved successfully!');
+                        } else {
+                            alert('Failed to save layout.');
+                        }
+                    });
+                },
+
+                renderAllCharts(account) {
+                    console.log('[Map Debug] renderAllCharts called.');
+                    if (!account) {
+                        console.warn('[Map Debug] renderAllCharts called with no account data. Aborting.');
+                        return;
+                    }
+                    this.renderCostHistoryChart(account.costHistory);
+
+                    console.log('[Map Debug] Preparing to render map with regionStatus:', account.regionStatus);
+                    this.renderHighchartMap(account.regionStatus);
+                },
+
+                populatePage(data) {
+                    if (!data) return;
+                    document.getElementById('updateTime').textContent = `Updated ${new Date().toLocaleTimeString()}`;
+                    this.populateKpiCards(data);
+                    this.populateResourceInventory(data.resourceInventory);
+                    this.populateOptimizationHub(data.optimizationSummary, data.costAnomalies, data.ec2Recommendations, data.ebsRecommendations, data.lambdaRecommendations);
+                    this.populateBillingSummary(data.billingSummary);
+                },
+
+                populateKpiCards(account) {
+                    const kpiContainer = document.getElementById('kpi-cards');
+                    if (!kpiContainer || !account || !account.costHistory) return;
+
+                    const costHistory = account.costHistory;
+                    const mtdSpend = costHistory.costs.length > 0 ? costHistory.costs[costHistory.costs.length - 1] : 0;
+                    const lastMonthSpend = costHistory.costs.length > 1 ? costHistory.costs[costHistory.costs.length - 2] : 0;
+                    const forecastedSpend = (mtdSpend / new Date().getDate()) * new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
+
+                    const kpis = [
+                        {
+                            id: 'mtdSpend',
+                            title: 'Month-to-Date Spend',
+                            value: this.formatCurrency(mtdSpend),
+                            icon: 'fa-dollar-sign',
+                            color: { iconClass: 'text-blue-500', chartColor: '#3b82f6', gradientClass: 'from-blue-500 to-blue-600' },
+                            trendData: costHistory.costs,
+                            change: lastMonthSpend > 0 ? ((mtdSpend - lastMonthSpend) / lastMonthSpend * 100) : 0
+                        },
+                        {
+                            id: 'forecastedSpend',
+                            title: 'Forecasted Spend',
+                            value: this.formatCurrency(forecastedSpend),
+                            icon: 'fa-chart-line',
+                            color: { iconClass: 'text-yellow-500', chartColor: '#f59e0b', gradientClass: 'from-yellow-500 to-yellow-600' },
+                            trendData: [...costHistory.costs, forecastedSpend],
+                            change: mtdSpend > 0 ? ((forecastedSpend - mtdSpend) / mtdSpend * 100) : 0
+                        },
+                        {
+                            id: 'lastMonthSpend',
+                            title: 'Last Month Spend',
+                            value: this.formatCurrency(lastMonthSpend),
+                            icon: 'fa-calendar-alt',
+                            color: { iconClass: 'text-gray-500', chartColor: '#6b7280', gradientClass: 'from-gray-500 to-gray-600' },
+                            trendData: costHistory.costs.slice(0, -1),
+                            change: costHistory.costs.length > 2 ? ((lastMonthSpend - costHistory.costs[costHistory.costs.length - 3]) / costHistory.costs[costHistory.costs.length - 3] * 100) : 0
+                        },
+                        {
+                            id: 'potentialSavings',
+                            title: 'Potential Savings',
+                            value: this.formatCurrency(account.optimizationSummary.totalPotentialSavings),
+                            icon: 'fa-piggy-bank',
+                            color: { iconClass: 'text-green-500', chartColor: '#22c55e', gradientClass: 'from-green-500 to-green-600' },
+                            trendData: [0, account.optimizationSummary.totalPotentialSavings],
+                            change: 100
+                        }
+                    ];
+
+                    kpiContainer.innerHTML = kpis.map(kpi => `
                     <div class="kpi-card rounded-xl p-6 group" @mouseenter="renderSparkline('sparkline-${kpi.id}', [${kpi.trendData.join(',')}], '${kpi.color.chartColor}')">
                         <div class="main-content">
                             <div class="flex justify-between items-start">
@@ -1200,27 +1290,27 @@
                         </div>
                     </div>
                 `).join('');
-            },
+                },
 
-            populateResourceInventory(inv) {
-                if (!inv) return;
-                const container = document.getElementById('resourceInventory');
-                const resources = [
-                    { name: 'EC2 Instances', count: inv.ec2, type: 'EC2 Instance', icon: 'ec2-instances.png' },
-                    { name: 'S3 Buckets', count: inv.s3Buckets, type: 'S3 Bucket', icon: 's3-bucket.png' },
-                    { name: 'RDS Instances', count: inv.rdsInstances, type: 'RDS Instance', icon: 'rds-instance.png' },
-                    { name: 'VPC Networks', count: inv.vpc, type: 'VPC', icon: 'vpc.png' },
-                    { name: 'Lambda Functions', count: inv.lambdas, type: 'Lambda Function', icon: 'aws-lambda.png' },
-                    { name: 'EBS Volumes', count: inv.ebsVolumes, type: 'EBS Volume', icon: 'aws-ebs.png' },
-                    { name: 'Route 53 Zones', count: inv.route53Zones, type: 'Route 53 Zone', icon: 'aws-route53.png' },
-                    { name: 'Load Balancers', count: inv.loadBalancers, type: 'Load Balancer', icon: 'load-balanceraws.png' },
-                    { name: 'ECS Clusters', count: inv.ecs, type: 'ECS', icon: 'aws-ecs.png' },
-                    { name: 'EKS Clusters', count: inv.kubernetes, type: 'EKS', icon: 'aws-eks.png' },
-                    { name: 'Lightsail Instances', count: inv.lightsail, type: 'Lightsail Instance', icon: 'lightsail.png' },
-                    { name: 'Amplify Apps', count: inv.amplify, type: 'Amplify App', icon: 'amplify.png' }
-                ];
+                populateResourceInventory(inv) {
+                    if (!inv) return;
+                    const container = document.getElementById('resourceInventory');
+                    const resources = [
+                        { name: 'EC2 Instances', count: inv.ec2, type: 'EC2 Instance', icon: 'ec2-instances.png' },
+                        { name: 'S3 Buckets', count: inv.s3Buckets, type: 'S3 Bucket', icon: 's3-bucket.png' },
+                        { name: 'RDS Instances', count: inv.rdsInstances, type: 'RDS Instance', icon: 'rds-instance.png' },
+                        { name: 'VPC Networks', count: inv.vpc, type: 'VPC', icon: 'vpc.png' },
+                        { name: 'Lambda Functions', count: inv.lambdas, type: 'Lambda Function', icon: 'aws-lambda.png' },
+                        { name: 'EBS Volumes', count: inv.ebsVolumes, type: 'EBS Volume', icon: 'aws-ebs.png' },
+                        { name: 'Route 53 Zones', count: inv.route53Zones, type: 'Route 53 Zone', icon: 'aws-route53.png' },
+                        { name: 'Load Balancers', count: inv.loadBalancers, type: 'Load Balancer', icon: 'load-balanceraws.png' },
+                        { name: 'ECS Clusters', count: inv.ecs, type: 'ECS', icon: 'aws-ecs.png' },
+                        { name: 'EKS Clusters', count: inv.kubernetes, type: 'EKS', icon: 'aws-eks.png' },
+                        { name: 'Lightsail Instances', count: inv.lightsail, type: 'Lightsail Instance', icon: 'lightsail.png' },
+                        { name: 'Amplify Apps', count: inv.amplify, type: 'Amplify App', icon: 'amplify.png' }
+                    ];
 
-                container.innerHTML = resources.map(res => `
+                    container.innerHTML = resources.map(res => `
                         <a href="/cloudlist.html?service=${encodeURIComponent(res.type)}" class="resource-card flex items-center gap-4 p-4 rounded-xl hover:shadow-md transition-all group">                        <div class="resource-icon w-10 h-10 flex-shrink-0">
                             <img src="/icons/${res.icon}" alt="${res.name}" class="w-full h-full rounded-xl object-cover">
                         </div>
@@ -1234,29 +1324,29 @@
                         </div>
                     </a>
                 `).join('');
-            },
+                },
 
-            populateOptimizationHub(summary, anomalies, ec2Recs, ebsRecs, lambdaRecs) {
-                const container = document.getElementById('optimizationHub');
-                if(!summary || !container) return;
+                populateOptimizationHub(summary, anomalies, ec2Recs, ebsRecs, lambdaRecs) {
+                    const container = document.getElementById('optimizationHub');
+                    if (!summary || !container) return;
 
-                if (this.isMultiAccountMode) {
-                    container.innerHTML = `
+                    if (this.isMultiAccountMode) {
+                        container.innerHTML = `
                         <div class="bg-blue-50 border-2 border-dashed border-blue-200 rounded-lg p-8 text-center">
                             <i class="fas fa-eye-slash text-blue-400 text-4xl mb-3"></i>
                             <h3 class="text-lg font-semibold text-gray-700 mb-2">Account-Specific Insights Hidden</h3>
                             <p class="text-gray-600 text-sm max-w-md mx-auto">
-                                Detailed resource recommendations (EC2, EBS, Lambda optimizations and cost anomalies) are only available in single-account view. 
+                                Detailed resource recommendations (EC2, EBS, Lambda optimizations and cost anomalies) are only available in single-account view.
                                 Please select a single account from the sidebar to view these insights.
                             </p>
                         </div>
                     `;
-                    return;
-                }
+                        return;
+                    }
 
-                const recsHtml = (title, recs, icon, color, gradientClass) => {
-                    if (!recs || recs.length === 0) return '';
-                    return `
+                    const recsHtml = (title, recs, icon, color, gradientClass) => {
+                        if (!recs || recs.length === 0) return '';
+                        return `
                         <div class="optimization-card rounded-xl p-6 border-t-4 border-${color}-500 mt-6">
                             <div class="flex items-center justify-between mb-4">
                                 <h4 class="font-bold text-lg text-gray-800 flex items-center">
@@ -1303,11 +1393,11 @@
                             ` : ''}
                         </div>
                     `;
-                };
+                    };
 
-                const anomaliesHtml = (anomalies) => {
-                    if (!anomalies || anomalies.length === 0) return '';
-                    return `
+                    const anomaliesHtml = (anomalies) => {
+                        if (!anomalies || anomalies.length === 0) return '';
+                        return `
                         <div class="anomaly-card rounded-xl p-6 border-t-4 border-red-500 mt-6">
                             <div class="flex items-center justify-between mb-4">
                                 <h4 class="font-bold text-lg text-gray-800 flex items-center">
@@ -1342,7 +1432,7 @@
                     `;
                 };
 
-                container.innerHTML = `
+                    container.innerHTML = `
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                         <div class="bg-gradient-to-br from-green-50 to-green-100 border border-green-200 p-6 rounded-xl text-center">
                             <div class="flex items-center justify-center mb-3">
@@ -1370,13 +1460,13 @@
                     ${recsHtml('Lambda Function Optimization', lambdaRecs, 'fa-bolt', 'yellow', 'from-yellow-500 to-yellow-600')}
                     ${anomaliesHtml(anomalies)}
                 `;
-            },
+                },
 
-            populateBillingSummary(summary) {
-                const container = document.getElementById('billingSummary');
-                if (!container || !summary) return;
-                if (summary.length > 0) {
-                    container.innerHTML = summary.sort((a,b) => b.monthToDateCost - a.monthToDateCost).map((item, index) => `
+                populateBillingSummary(summary) {
+                    const container = document.getElementById('billingSummary');
+                    if (!container || !summary) return;
+                    if (summary.length > 0) {
+                        container.innerHTML = summary.sort((a, b) => b.monthToDateCost - a.monthToDateCost).map((item, index) => `
                         <tr class="border-b hover:bg-gray-50 transition-colors">
                             <th class="px-4 py-4 font-semibold text-gray-800 text-left">
                                 <div class="flex items-center space-x-2">
@@ -1389,8 +1479,8 @@
                             </td>
                         </tr>
                     `).join('');
-                } else {
-                    container.innerHTML = `
+                    } else {
+                        container.innerHTML = `
                         <tr>
                             <td colspan="2" class="px-4 py-8 text-center text-gray-500">
                                 <i class="fas fa-receipt text-2xl mb-2"></i>
@@ -1398,309 +1488,309 @@
                             </td>
                         </tr>
                     `;
-                }
-            },
-
-            renderCostHistoryChart(costHistory) {
-                if (!costHistory || !costHistory.labels) return;
-                const ctx = document.getElementById('costHistoryChart');
-                if(!ctx) return;
-                if (window.costHistoryChartInstance) window.costHistoryChartInstance.destroy();
-
-                const backgroundColors = costHistory.anomalies.map(isAnomaly =>
-                    isAnomaly ? 'rgba(239, 68, 68, 0.8)' : 'rgba(79, 70, 229, 0.8)'
-                );
-                const borderColors = costHistory.anomalies.map(isAnomaly =>
-                    isAnomaly ? 'rgba(220, 38, 38, 1)' : 'rgba(79, 70, 229, 1)'
-                );
-
-                window.costHistoryChartInstance = new Chart(ctx, {
-                    type: 'bar',
-                    data: {
-                        labels: costHistory.labels,
-                        datasets: [{
-                            label: 'Monthly Cost',
-                            data: costHistory.costs,
-                            backgroundColor: backgroundColors,
-                            borderColor: borderColors,
-                            borderWidth: 2,
-                            borderRadius: 8,
-                            borderSkipped: false
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            legend: { display: false },
-                            tooltip: {
-                                backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                                titleColor: 'white',
-                                bodyColor: 'white',
-                                borderColor: 'rgba(79, 70, 229, 0.8)',
-                                borderWidth: 1,
-                                cornerRadius: 8,
-                                callbacks: {
-                                    label: (c) => `Cost: ${this.formatCurrency(c.parsed.y)}`,
-                                    afterLabel: (c) => costHistory.anomalies[c.dataIndex] ? 'Anomaly detected!' : ''
-                                }
-                            }
-                        },
-                        scales: {
-                            y: {
-                                beginAtZero: true,
-                                ticks: {
-                                    callback: v => this.formatCurrency(v),
-                                    color: '#6b7280'
-                                },
-                                grid: {
-                                    color: 'rgba(0, 0, 0, 0.05)'
-                                }
-                            },
-                            x: {
-                                ticks: {
-                                    color: '#6b7280'
-                                },
-                                grid: {
-                                    display: false
-                                }
-                            }
-                        },
-                        onClick: (evt, elements) => {
-                            if (elements.length > 0) {
-                                const index = elements[0].index;
-                                if (costHistory.anomalies[index]) {
-                                    alert(`Cost Anomaly Detected!\n\nMonth: ${costHistory.labels[index]}\nCost: ${this.formatCurrency(costHistory.costs[index])}\n\nThis cost is significantly higher than expected. Consider investigating your resource usage for this period.`);
-                                }
-                            }
-                        }
                     }
-                });
-            },
+                },
 
-            renderHighchartMap(regionStatus) {
-                if (!regionStatus || !document.getElementById('highcharts-map-container')) {
-                    console.warn('Map container or region data not available');
-                    return;
-                }
+                renderCostHistoryChart(costHistory) {
+                    if (!costHistory || !costHistory.labels) return;
+                    const ctx = document.getElementById('costHistoryChart');
+                    if (!ctx) return;
+                    if (window.costHistoryChartInstance) window.costHistoryChartInstance.destroy();
 
-                const statusColors = {
-                    'ACTIVE': '#3b82f6',
-                    'SEMI_ACTIVE': '#ef4444',
-                    'SUSTAINABLE': '#22c55e',
-                    'NON_ACTIVE': '#6b7280'
-                };
+                    const backgroundColors = costHistory.anomalies.map(isAnomaly =>
+                        isAnomaly ? 'rgba(239, 68, 68, 0.8)' : 'rgba(79, 70, 229, 0.8)'
+                    );
+                    const borderColors = costHistory.anomalies.map(isAnomaly =>
+                        isAnomaly ? 'rgba(220, 38, 38, 1)' : 'rgba(79, 70, 229, 1)'
+                    );
 
-                const regionPoints = regionStatus.map(r => ({
-                    name: r.regionId,
-                    fullName: `${r.regionId} (${r.status})`,
-                    lat: r.latitude,
-                    lon: r.longitude,
-                    color: statusColors[r.status] || '#6b7280',
-                    id: r.regionId,
-                    status: r.status
-                }));
-
-                console.log('Rendering map with', regionPoints.length, 'regions');
-
-                fetch('https://code.highcharts.com/mapdata/custom/world.topo.json')
-                    .then(response => {
-                        if (!response.ok) {
-                            throw new Error('Failed to fetch world map data');
-                        }
-                        return response.json();
-                    })
-                    .then(worldMap => {
-                        console.log('World map data loaded successfully');
-
-                        Highcharts.mapChart('highcharts-map-container', {
-                            chart: {
-                                map: worldMap,
-                                backgroundColor: 'transparent',
-                                style: {
-                                    fontFamily: 'Inter, sans-serif'
-                                }
-                            },
-                            title: { text: null },
-                            credits: { enabled: false },
-                            mapNavigation: {
-                                enabled: true,
-                                enableMouseWheelZoom: true,
-                                buttonOptions: {
-                                    verticalAlign: 'bottom',
-                                    theme: {
-                                        'stroke-width': 1,
-                                        stroke: '#FF9900',
-                                        r: 4,
-                                        fill: 'white'
-                                    }
-                                }
-                            },
-                            tooltip: {
-                                useHTML: true,
-                                backgroundColor: 'rgba(0, 0, 0, 0.85)',
-                                borderColor: 'rgba(255, 153, 0, 0.8)',
+                    window.costHistoryChartInstance = new Chart(ctx, {
+                        type: 'bar',
+                        data: {
+                            labels: costHistory.labels,
+                            datasets: [{
+                                label: 'Monthly Cost',
+                                data: costHistory.costs,
+                                backgroundColor: backgroundColors,
+                                borderColor: borderColors,
+                                borderWidth: 2,
                                 borderRadius: 8,
-                                style: {
-                                    color: 'white',
-                                    fontSize: '12px'
-                                },
-                                pointFormat: '<div style="padding: 4px;">' +
-                                             '<b>{point.fullName}</b><br/>' +
-                                             '<span style="font-size: 10px;">Click to filter dashboard</span>' +
-                                             '</div>'
-                            },
-                            plotOptions: {
-                                mappoint: {
-                                    point: {
-                                        events: {
-                                            click: (e) => {
-                                                console.log('Region clicked:', e.point.id);
-                                                if (this.filterByRegion) {
-                                                    this.filterByRegion(e.point.id);
-                                                }
-                                            }
-                                        }
+                                borderSkipped: false
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: { display: false },
+                                tooltip: {
+                                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                                    titleColor: 'white',
+                                    bodyColor: 'white',
+                                    borderColor: 'rgba(79, 70, 229, 0.8)',
+                                    borderWidth: 1,
+                                    cornerRadius: 8,
+                                    callbacks: {
+                                        label: (c) => `Cost: ${this.formatCurrency(c.parsed.y)}`,
+                                        afterLabel: (c) => costHistory.anomalies[c.dataIndex] ? 'Anomaly detected!' : ''
                                     }
                                 }
                             },
-                            series: [
-                                {
-                                    type: 'map',
-                                    name: 'World',
-                                    mapData: worldMap,
-                                    color: '#f1f5f9',
-                                    nullColor: '#e5e7eb',
-                                    enableMouseTracking: false,
-                                    states: {
-                                        hover: {
-                                            color: '#e2e8f0',
-                                            brightness: 0.05
-                                        }
+                            scales: {
+                                y: {
+                                    beginAtZero: true,
+                                    ticks: {
+                                        callback: v => this.formatCurrency(v),
+                                        color: '#6b7280'
                                     },
-                                    borderColor: '#cbd5e1',
-                                    borderWidth: 0.5,
-                                    dataLabels: {
-                                        enabled: false
+                                    grid: {
+                                        color: 'rgba(0, 0, 0, 0.05)'
                                     }
                                 },
-                                {
-                                    type: 'mappoint',
-                                    name: 'AWS Regions',
-                                    data: regionPoints,
-                                    marker: {
-                                        lineWidth: 2,
-                                        lineColor: '#ffffff',
-                                        radius: 8,
-                                        symbol: 'circle',
-                                        states: {
-                                            hover: {
-                                                lineWidth: 3,
-                                                radius: 12,
-                                                animation: {
-                                                    duration: 200
-                                                }
-                                            }
-                                        }
+                                x: {
+                                    ticks: {
+                                        color: '#6b7280'
                                     },
-                                    cursor: 'pointer',
-                                    dataLabels: {
-                                        enabled: true,
-                                        format: '{point.name}',
-                                        style: {
-                                            color: '#1f2937',
-                                            fontSize: '10px',
-                                            fontWeight: 'bold',
-                                            textOutline: '2px white'
-                                        },
-                                        y: -15
+                                    grid: {
+                                        display: false
                                     }
                                 }
-                            ]
-                        });
-
-                        console.log('Map rendered successfully');
-                    })
-                    .catch(error => {
-                        console.error('Failed to load world map:', error);
-                        const container = document.getElementById('highcharts-map-container');
-                        if (container) {
-                            container.innerHTML =
-                                '<div class="flex items-center justify-center h-full">' +
-                                '<div class="text-center p-8">' +
-                                '<i class="fas fa-exclamation-triangle text-red-500 text-4xl mb-4"></i>' +
-                                '<p class="text-red-600 font-semibold">Failed to load world map</p>' +
-                                '<p class="text-sm text-gray-500 mt-2">' + error.message + '</p>' +
-                                '</div></div>';
+                            },
+                            onClick: (evt, elements) => {
+                                if (elements.length > 0) {
+                                    const index = elements[0].index;
+                                    if (costHistory.anomalies[index]) {
+                                        alert(`Cost Anomaly Detected!\n\nMonth: ${costHistory.labels[index]}\nCost: ${this.formatCurrency(costHistory.costs[index])}\n\nThis cost is significantly higher than expected. Consider investigating your resource usage for this period.`);
+                                    }
+                                }
+                            }
                         }
                     });
-            },
+                },
 
-            hexToRgba(hex, alpha) {
-                const r = parseInt(hex.slice(1, 3), 16);
-                const g = parseInt(hex.slice(3, 5), 16);
-                const b = parseInt(hex.slice(5, 7), 16);
-                return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-            },
-
-            renderSparkline(canvasId, data, chartColor) {
-                const ctx = document.getElementById(canvasId);
-                if (!ctx || !data) return;
-                if (window[canvasId+'_instance']) window[canvasId+'_instance'].destroy();
-
-                window[canvasId+'_instance'] = new Chart(ctx, {
-                    type: 'line',
-                    data: {
-                        labels: data.map((_, i) => i),
-                        datasets: [{
-                            data: data,
-                            borderColor: chartColor,
-                            backgroundColor: this.hexToRgba(chartColor, 0.1),
-                            borderWidth: 3,
-                            pointRadius: 0,
-                            pointHoverRadius: 6,
-                            pointHoverBackgroundColor: chartColor,
-                            pointHoverBorderColor: '#ffffff',
-                            pointHoverBorderWidth: 2,
-                            tension: 0.4,
-                            fill: true
-                        }]
-                    },
-                    
-                      options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        scales: {
-                            x: { display: false },
-                            y: { display: false }
-                        },
-                        plugins: {
-                            legend: { display: false },
-                            tooltip: {
-                                enabled: true,
-                                backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                                titleColor: 'white',
-                                bodyColor: 'white',
-                                borderColor: chartColor,
-                                borderWidth: 1,
-                                cornerRadius: 6,
-                                callbacks: {
-                                    label: (context) => `Value: ${context.parsed.y}`
-                                }
-                            }
-                        },
-                        interaction: {
-                            intersect: false,
-                            mode: 'index'
-                        }
+                renderHighchartMap(regionStatus) {
+                    if (!regionStatus || !document.getElementById('highcharts-map-container')) {
+                        console.warn('Map container or region data not available');
+                        return;
                     }
-                });
-            },
 
-            filterByRegion(regionId) {
-                const notification = document.createElement('div');
-                notification.className = 'fixed top-4 right-4 bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded-lg shadow-lg z-50 max-w-sm';
-                notification.innerHTML = `
+                    const statusColors = {
+                        'ACTIVE': '#3b82f6',
+                        'SEMI_ACTIVE': '#ef4444',
+                        'SUSTAINABLE': '#22c55e',
+                        'NON_ACTIVE': '#6b7280'
+                    };
+
+                    const regionPoints = regionStatus.map(r => ({
+                        name: r.regionId,
+                        fullName: `${r.regionId} (${r.status})`,
+                        lat: r.latitude,
+                        lon: r.longitude,
+                        color: statusColors[r.status] || '#6b7280',
+                        id: r.regionId,
+                        status: r.status
+                    }));
+
+                    console.log('Rendering map with', regionPoints.length, 'regions');
+
+                    fetch('https://code.highcharts.com/mapdata/custom/world.topo.json')
+                        .then(response => {
+                            if (!response.ok) {
+                                throw new Error('Failed to fetch world map data');
+                            }
+                            return response.json();
+                        })
+                        .then(worldMap => {
+                            console.log('World map data loaded successfully');
+
+                            Highcharts.mapChart('highcharts-map-container', {
+                                chart: {
+                                    map: worldMap,
+                                    backgroundColor: 'transparent',
+                                    style: {
+                                        fontFamily: 'Inter, sans-serif'
+                                    }
+                                },
+                                title: { text: null },
+                                credits: { enabled: false },
+                                mapNavigation: {
+                                    enabled: true,
+                                    enableMouseWheelZoom: true,
+                                    buttonOptions: {
+                                        verticalAlign: 'bottom',
+                                        theme: {
+                                            'stroke-width': 1,
+                                            stroke: '#FF9900',
+                                            r: 4,
+                                            fill: 'white'
+                                        }
+                                    }
+                                },
+                                tooltip: {
+                                    useHTML: true,
+                                    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+                                    borderColor: 'rgba(255, 153, 0, 0.8)',
+                                    borderRadius: 8,
+                                    style: {
+                                        color: 'white',
+                                        fontSize: '12px'
+                                    },
+                                    pointFormat: '<div style="padding: 4px;">' +
+                                        '<b>{point.fullName}</b><br/>' +
+                                        '<span style="font-size: 10px;">Click to filter dashboard</span>' +
+                                        '</div>'
+                                },
+                                plotOptions: {
+                                    mappoint: {
+                                        point: {
+                                            events: {
+                                                click: (e) => {
+                                                    console.log('Region clicked:', e.point.id);
+                                                    if (this.filterByRegion) {
+                                                        this.filterByRegion(e.point.id);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                series: [
+                                    {
+                                        type: 'map',
+                                        name: 'World',
+                                        mapData: worldMap,
+                                        color: '#f1f5f9',
+                                        nullColor: '#e5e7eb',
+                                        enableMouseTracking: false,
+                                        states: {
+                                            hover: {
+                                                color: '#e2e8f0',
+                                                brightness: 0.05
+                                            }
+                                        },
+                                        borderColor: '#cbd5e1',
+                                        borderWidth: 0.5,
+                                        dataLabels: {
+                                            enabled: false
+                                        }
+                                    },
+                                    {
+                                        type: 'mappoint',
+                                        name: 'AWS Regions',
+                                        data: regionPoints,
+                                        marker: {
+                                            lineWidth: 2,
+                                            lineColor: '#ffffff',
+                                            radius: 8,
+                                            symbol: 'circle',
+                                            states: {
+                                                hover: {
+                                                    lineWidth: 3,
+                                                    radius: 12,
+                                                    animation: {
+                                                        duration: 200
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        cursor: 'pointer',
+                                        dataLabels: {
+                                            enabled: true,
+                                            format: '{point.name}',
+                                            style: {
+                                                color: '#1f2937',
+                                                fontSize: '10px',
+                                                fontWeight: 'bold',
+                                                textOutline: '2px white'
+                                            },
+                                            y: -15
+                                        }
+                                    }
+                                ]
+                            });
+
+                            console.log('Map rendered successfully');
+                        })
+                        .catch(error => {
+                            console.error('Failed to load world map:', error);
+                            const container = document.getElementById('highcharts-map-container');
+                            if (container) {
+                                container.innerHTML =
+                                    '<div class="flex items-center justify-center h-full">' +
+                                    '<div class="text-center p-8">' +
+                                    '<i class="fas fa-exclamation-triangle text-red-500 text-4xl mb-4"></i>' +
+                                    '<p class="text-red-600 font-semibold">Failed to load world map</p>' +
+                                    '<p class="text-sm text-gray-500 mt-2">' + error.message + '</p>' +
+                                    '</div></div>';
+                            }
+                        });
+                },
+
+                hexToRgba(hex, alpha) {
+                    const r = parseInt(hex.slice(1, 3), 16);
+                    const g = parseInt(hex.slice(3, 5), 16);
+                    const b = parseInt(hex.slice(5, 7), 16);
+                    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+                },
+
+                renderSparkline(canvasId, data, chartColor) {
+                    const ctx = document.getElementById(canvasId);
+                    if (!ctx || !data) return;
+                    if (window[canvasId + '_instance']) window[canvasId + '_instance'].destroy();
+
+                    window[canvasId + '_instance'] = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: data.map((_, i) => i),
+                            datasets: [{
+                                data: data,
+                                borderColor: chartColor,
+                                backgroundColor: this.hexToRgba(chartColor, 0.1),
+                                borderWidth: 3,
+                                pointRadius: 0,
+                                pointHoverRadius: 6,
+                                pointHoverBackgroundColor: chartColor,
+                                pointHoverBorderColor: '#ffffff',
+                                pointHoverBorderWidth: 2,
+                                tension: 0.4,
+                                fill: true
+                            }]
+                        },
+
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            scales: {
+                                x: { display: false },
+                                y: { display: false }
+                            },
+                            plugins: {
+                                legend: { display: false },
+                                tooltip: {
+                                    enabled: true,
+                                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                                    titleColor: 'white',
+                                    bodyColor: 'white',
+                                    borderColor: chartColor,
+                                    borderWidth: 1,
+                                    cornerRadius: 6,
+                                    callbacks: {
+                                        label: (context) => `Value: ${context.parsed.y}`
+                                    }
+                                }
+                            },
+                            interaction: {
+                                intersect: false,
+                                mode: 'index'
+                            }
+                        }
+                    });
+                },
+
+                filterByRegion(regionId) {
+                    const notification = document.createElement('div');
+                    notification.className = 'fixed top-4 right-4 bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded-lg shadow-lg z-50 max-w-sm';
+                    notification.innerHTML = `
                     <div class="flex items-center space-x-2">
                         <i class="fas fa-filter text-blue-600"></i>
                         <div>
@@ -1709,22 +1799,22 @@
                         </div>
                     </div>
                 `;
-                document.body.appendChild(notification);
+                    document.body.appendChild(notification);
 
-                setTimeout(() => {
-                    notification.remove();
-                }, 4000);
-            },
+                    setTimeout(() => {
+                        notification.remove();
+                    }, 4000);
+                },
 
 
-            formatCurrency(num) {
-                return '$' + (num != null ? num.toLocaleString('en-US', {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2
-                }) : '0.00');
-            },
+                formatCurrency(num) {
+                    return '$' + (num != null ? num.toLocaleString('en-US', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2
+                    }) : '0.00');
+                },
+            }
         }
-    }
 
 </script>
 
@@ -1875,4 +1965,5 @@
   </div>
 </div>
 </body>
+
 </html>
