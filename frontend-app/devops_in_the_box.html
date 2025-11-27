@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -38,14 +39,32 @@
             font-weight: 600;
         }
 
-        .terraform-badge { background: #7B42BC20; color: #7B42BC; }
-        .bash-badge { background: #4EAA2520; color: #4EAA25; }
-        .python-badge { background: #306998; color: white; }
-        .ansible-badge { background: #EE000020; color: #EE0000; }
-        
-        [x-cloak] { display: none !important; }
+        .terraform-badge {
+            background: #7B42BC20;
+            color: #7B42BC;
+        }
+
+        .bash-badge {
+            background: #4EAA2520;
+            color: #4EAA25;
+        }
+
+        .python-badge {
+            background: #306998;
+            color: white;
+        }
+
+        .ansible-badge {
+            background: #EE000020;
+            color: #EE0000;
+        }
+
+        [x-cloak] {
+            display: none !important;
+        }
     </style>
 </head>
+
 <body class="bg-gray-50">
     <div class="flex h-screen overflow-hidden">
         <include file="/_sidebar.html"></include>
@@ -55,7 +74,8 @@
                 <header class="mb-8">
                     <div class="flex items-center justify-between">
                         <div class="flex items-center space-x-4">
-                            <div class="w-12 h-12 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-xl flex items-center justify-center">
+                            <div
+                                class="w-12 h-12 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-xl flex items-center justify-center">
                                 <i class="fas fa-toolbox text-white text-2xl"></i>
                             </div>
                             <div>
@@ -63,7 +83,8 @@
                                 <p class="text-sm text-gray-600">Automation scripts and infrastructure tools</p>
                             </div>
                         </div>
-                        <button @click="refreshScripts()" class="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-md">
+                        <button @click="refreshScripts()"
+                            class="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-md">
                             <i class="fas fa-filter"></i>
                             <span>Reset Filters</span>
                         </button>
@@ -74,41 +95,49 @@
                     <div class="flex-1">
                         <div class="relative">
                             <i class="fas fa-search absolute left-4 top-3.5 text-gray-400"></i>
-                            <input type="text"
-                                   x-model="searchTerm"
-                                   placeholder="Search scripts..."
-                                   class="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                            <input type="text" x-model="searchTerm" placeholder="Search scripts..."
+                                class="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
                         </div>
                     </div>
                     <div class="flex gap-2">
                         <button @click="filterCategory = 'all'; searchTerm = ''"
-                                class="px-4 py-2 rounded-lg font-medium transition-colors"
-                                :class="filterCategory === 'all' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'">
+                            class="px-4 py-2 rounded-lg font-medium transition-colors"
+                            :class="filterCategory === 'all' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'">
                             All
                         </button>
                         <button @click="filterCategory = 'terraform'; searchTerm = ''"
-                                class="px-4 py-2 rounded-lg font-medium transition-colors"
-                                :class="filterCategory === 'terraform' ? 'bg-purple-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'">
+                            class="px-4 py-2 rounded-lg font-medium transition-colors"
+                            :class="filterCategory === 'terraform' ? 'bg-purple-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'">
                             <i class="fab fa-terraform mr-2"></i>Terraform
                         </button>
                         <button @click="filterCategory = 'bash'; searchTerm = ''"
-                                class="px-4 py-2 rounded-lg font-medium transition-colors"
-                                :class="filterCategory === 'bash' ? 'bg-green-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'">
+                            class="px-4 py-2 rounded-lg font-medium transition-colors"
+                            :class="filterCategory === 'bash' ? 'bg-green-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'">
                             <i class="fas fa-terminal mr-2"></i>Bash
                         </button>
                         <button @click="filterCategory = 'python'; searchTerm = ''"
-                                class="px-4 py-2 rounded-lg font-medium transition-colors"
-                                :class="filterCategory === 'python' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'">
+                            class="px-4 py-2 rounded-lg font-medium transition-colors"
+                            :class="filterCategory === 'python' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'">
                             <i class="fab fa-python mr-2"></i>Python
                         </button>
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div x-show="error"
+                    class="mb-6 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert"
+                    x-cloak>
+                    <strong class="font-bold">Error!</strong>
+                    <span class="block sm:inline" x-text="error"></span>
+                </div>
+
+                <div x-show="isLoading" class="flex justify-center py-12" x-cloak>
+                    <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+                </div>
+
+                <div x-show="!isLoading" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     <template x-for="script in filteredScripts" :key="script.id">
                         <div class="script-card rounded-xl p-6 cursor-pointer"
-                             :class="getCategoryColor(script.category)"
-                             @click="viewScript(script)">
+                            :class="getCategoryColor(script.category)" @click="viewScript(script)">
                             <div class="flex items-start justify-between mb-4">
                                 <div class="flex-1">
                                     <h3 class="text-lg font-bold text-gray-900 mb-2" x-text="script.name"></h3>
@@ -121,8 +150,10 @@
                             </div>
                             <div class="flex items-center justify-between text-sm text-gray-500">
                                 <div class="flex items-center space-x-4">
-                                    <span><i class="fas fa-download mr-1"></i><span x-text="script.downloads"></span></span>
-                                    <span><i class="far fa-clock mr-1"></i><span x-text="script.lastUpdated"></span></span>
+                                    <span><i class="fas fa-download mr-1"></i><span
+                                            x-text="script.downloads"></span></span>
+                                    <span><i class="far fa-clock mr-1"></i><span
+                                            x-text="script.lastUpdated"></span></span>
                                 </div>
                                 <button class="text-indigo-600 hover:text-indigo-800 font-medium">
                                     View <i class="fas fa-arrow-right ml-1"></i>
@@ -132,7 +163,7 @@
                     </template>
                 </div>
 
-                <div x-show="filteredScripts.length === 0" class="text-center py-16" x-cloak>
+                <div x-show="!isLoading && filteredScripts.length === 0" class="text-center py-16" x-cloak>
                     <div class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
                         <i class="fas fa-search text-gray-400 text-2xl"></i>
                     </div>
@@ -140,25 +171,24 @@
                     <p class="text-gray-600">Your search or filter returned no results.</p>
                 </div>
 
-                <div x-show="selectedScript"
-                     @keydown.escape.window="selectedScript = null"
-                     class="fixed inset-0 z-50 overflow-y-auto bg-black bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4"
-                     x-cloak
-                     x-transition>
+                <div x-show="selectedScript" @keydown.escape.window="selectedScript = null"
+                    class="fixed inset-0 z-50 overflow-y-auto bg-black bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4"
+                    x-cloak x-transition>
                     <div class="relative bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden"
-                         @click.away="selectedScript = null"
-                         x-transition>
-                        <div class="sticky top-0 z-10 bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 px-8 py-6 text-white">
+                        @click.away="selectedScript = null" x-transition>
+                        <div
+                            class="sticky top-0 z-10 bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 px-8 py-6 text-white">
                             <div class="flex items-center justify-between">
                                 <div class="flex items-center space-x-3">
                                     <i :class="getIcon(selectedScript?.category)" class="text-2xl"></i>
                                     <div>
                                         <h2 class="text-2xl font-bold" x-text="selectedScript?.name"></h2>
-                                        <p class="text-sm text-white text-opacity-90" x-text="selectedScript?.description"></p>
+                                        <p class="text-sm text-white text-opacity-90"
+                                            x-text="selectedScript?.description"></p>
                                     </div>
                                 </div>
                                 <button @click="selectedScript = null"
-                                        class="w-10 h-10 rounded-full bg-white bg-opacity-20 hover:bg-opacity-30 transition-all flex items-center justify-center">
+                                    class="w-10 h-10 rounded-full bg-white bg-opacity-20 hover:bg-opacity-30 transition-all flex items-center justify-center">
                                     <i class="fas fa-times text-xl"></i>
                                 </button>
                             </div>
@@ -187,8 +217,10 @@
 
                                 <div class="bg-gray-900 rounded-lg p-6 overflow-x-auto">
                                     <div class="flex items-center justify-between mb-4">
-                                        <span class="text-gray-400 text-sm font-mono" x-text="getFileName(selectedScript)">main.tf</span>
-                                        <button @click="copyCode()" class="text-gray-400 hover:text-white transition-colors">
+                                        <span class="text-gray-400 text-sm font-mono"
+                                            x-text="getFileName(selectedScript)">main.tf</span>
+                                        <button @click="copyCode()"
+                                            class="text-gray-400 hover:text-white transition-colors">
                                             <i class="fas fa-copy"></i> Copy
                                         </button>
                                     </div>
@@ -205,12 +237,15 @@
                             </div>
                         </div>
 
-                        <div class="sticky bottom-0 bg-white border-t border-gray-200 px-8 py-4 flex items-center justify-between">
-                            <button @click="downloadScript()" class="flex items-center space-x-2 px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium shadow-md">
+                        <div
+                            class="sticky bottom-0 bg-white border-t border-gray-200 px-8 py-4 flex items-center justify-between">
+                            <button @click="downloadScript()"
+                                class="flex items-center space-x-2 px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium shadow-md">
                                 <i class="fas fa-download"></i>
                                 <span>Download Script</span>
                             </button>
-                            <button @click="selectedScript = null" class="px-6 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium">
+                            <button @click="selectedScript = null"
+                                class="px-6 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium">
                                 Close
                             </button>
                         </div>
@@ -226,82 +261,69 @@
                 searchTerm: '',
                 filterCategory: 'all',
                 selectedScript: null,
-                
-                // Static Data - No Fetching Required
-                scripts: [
-                    {
-                        "id": 1,
-                        "name": "AWS EC2 Provisioning",
-                        "description": "Terraform script to launch a standardized t2.micro EC2 instance with security groups and IAM roles attached.",
-                        "category": "terraform",
-                        "code": "resource \"aws_instance\" \"web\" {\n  ami           = \"ami-0c55b159cbfafe1f0\"\n  instance_type = \"t2.micro\"\n\n  tags = {\n    Name = \"XamOps-Web-Server\"\n  }\n}",
-                        "downloads": 124,
-                        "lastUpdated": "2023-11-15",
-                        "version": "1.2.0",
-                        "usage": "<p>1. Configure AWS credentials.</p><p>2. Run <code>terraform init</code>.</p><p>3. Run <code>terraform apply</code>.</p>"
-                    },
-                    {
-                        "id": 2,
-                        "name": "Log Rotation Automation",
-                        "description": "Bash script to automatically rotate, compress, and archive application logs older than 7 days.",
-                        "category": "bash",
-                        "code": "#!/bin/bash\n# Rotate logs older than 7 days\nfind /var/log/myapp -name '*.log' -mtime +7 -exec gzip {} \\;",
-                        "downloads": 89,
-                        "lastUpdated": "2023-10-30",
-                        "version": "2.1.0",
-                        "usage": "<p>Add to crontab to run daily: <code>0 0 * * * /path/to/script.sh</code></p>"
-                    },
-                    {
-                        "id": 3,
-                        "name": "S3 Bucket Cleanup",
-                        "description": "Python utility to identify and clean up empty S3 buckets or buckets with incomplete multipart uploads.",
-                        "category": "python",
-                        "code": "import boto3\n\ns3 = boto3.client('s3')\nresponse = s3.list_buckets()\n\nfor bucket in response['Buckets']:\n    print(f'Checking {bucket[\"Name\"]}')",
-                        "downloads": 210,
-                        "lastUpdated": "2023-12-01",
-                        "version": "3.0.1",
-                        "usage": "<p>Requires <code>boto3</code> installed.</p><p>Run with: <code>python cleanup_s3.py</code></p>"
-                    },
-                    {
-                        "id": 4,
-                        "name": "K8s Namespace Setup",
-                        "description": "Ansible playbook to initialize Kubernetes namespaces with default quotas and limit ranges.",
-                        "category": "ansible",
-                        "code": "- name: Create Namespace\n  k8s:\n    name: production\n    api_version: v1\n    kind: Namespace\n    state: present",
-                        "downloads": 56,
-                        "lastUpdated": "2023-09-20",
-                        "version": "1.0.0",
-                        "usage": "<p>Run via ansible-playbook: <code>ansible-playbook setup_k8s.yaml</code></p>"
-                    },
-                    {
-                        "id": 5,
-                        "name": "Database Backup Script",
-                        "description": "Automated shell script for PostgreSQL database backups with S3 upload capability.",
-                        "category": "bash",
-                        "code": "#!/bin/bash\npg_dump mydatabase > backup.sql\naws s3 cp backup.sql s3://my-backup-bucket/",
-                        "downloads": 145,
-                        "lastUpdated": "2023-11-28",
-                        "version": "1.5.0",
-                        "usage": "<p>Ensure <code>pg_dump</code> and <code>aws-cli</code> are configured.</p>"
-                    },
-                    {
-                        "id": 6,
-                        "name": "GCP VM Instance",
-                        "description": "Terraform configuration for deploying a Google Compute Engine instance with network tags.",
-                        "category": "terraform",
-                        "code": "resource \"google_compute_instance\" \"default\" {\n  name         = \"test\"\n  machine_type = \"e2-medium\"\n  zone         = \"us-central1-a\"\n}",
-                        "downloads": 92,
-                        "lastUpdated": "2023-10-05",
-                        "version": "1.1.0",
-                        "usage": "<p>Authenticate via gcloud auth login before running.</p>"
+                scripts: [],
+                isLoading: false,
+                error: null,
+
+                async init() {
+                    // Alpine automatically calls this when the component is initialized
+                    await this.fetchScripts();
+                },
+
+                getApiUrl() {
+                    const hostname = window.location.hostname;
+
+                    // Logic: If local, point to port 8080 explicitly
+                    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+                        return 'http://localhost:8080/api/devops-scripts';
+                    } else {
+                        // For live.xamops.com or uat.xamops.com
+                        // This uses a relative path, which assumes your Nginx/LoadBalancer
+                        // routes /api requests to the backend service.
+                        return '/api/devops-scripts';
                     }
-                ],
+                },
+
+                async fetchScripts() {
+                    this.isLoading = true;
+                    this.error = null;
+                    const url = this.getApiUrl();
+
+                    console.log("XamOps: Fetching scripts from:", url);
+
+                    try {
+                        const response = await fetch(url, {
+                            method: 'GET',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                // If you have auth tokens, uncomment and use:
+                                // 'Authorization': 'Bearer ' + localStorage.getItem('token') 
+                            }
+                        });
+
+                        if (!response.ok) {
+                            throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+                        }
+
+                        this.scripts = await response.json();
+
+                    } catch (err) {
+                        console.error("XamOps Fetch Error:", err);
+                        this.error = "Failed to load scripts. Please check your connection. " + err.message;
+                        // Optional: fallback to empty list or static data if needed
+                        this.scripts = [];
+                    } finally {
+                        this.isLoading = false;
+                    }
+                },
 
                 get filteredScripts() {
                     let filtered = this.scripts;
 
                     if (this.filterCategory !== 'all') {
-                        filtered = filtered.filter(s => s.category === this.filterCategory);
+                        filtered = filtered.filter(s =>
+                            s.category && s.category.toLowerCase() === this.filterCategory.toLowerCase()
+                        );
                     }
 
                     if (this.searchTerm) {
@@ -318,6 +340,7 @@
                 refreshScripts() {
                     this.filterCategory = 'all';
                     this.searchTerm = '';
+                    this.fetchScripts();
                 },
 
                 viewScript(script) {
@@ -358,8 +381,10 @@
 
                 getFileName(script) {
                     if (!script) return 'script.txt';
-                    const name = script.name.replace(/\s+/g, '-').toLowerCase();
-                    switch (script.category) {
+                    const name = script.name ? script.name.replace(/\s+/g, '-').toLowerCase() : 'script';
+                    const cat = script.category ? script.category.toLowerCase() : '';
+
+                    switch (cat) {
                         case 'python': return `${name}.py`;
                         case 'bash': return `${name}.sh`;
                         case 'terraform': return `main.tf`;
@@ -376,7 +401,7 @@
                 downloadScript() {
                     if (!this.selectedScript?.code) return;
                     const element = document.createElement('a');
-                    const file = new Blob([this.selectedScript.code], {type: 'text/plain'});
+                    const file = new Blob([this.selectedScript.code], { type: 'text/plain' });
                     element.href = URL.createObjectURL(file);
                     element.download = this.getFileName(this.selectedScript);
                     document.body.appendChild(element);
@@ -387,4 +412,5 @@
         }
     </script>
 </body>
+
 </html>
