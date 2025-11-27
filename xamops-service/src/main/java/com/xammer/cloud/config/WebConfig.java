@@ -8,8 +8,8 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
 
-    // The CORS configuration has been moved to SecurityConfig.java
-    // to centralize security settings and resolve conflicts.
+    // Removed view controller - frontend is served by Vite dev server on port 5173
+    // Backend on port 8080 only handles API requests and authentication
 
     @Bean
     public ForwardedHeaderFilter forwardedHeaderFilter() {
