@@ -171,93 +171,302 @@
                                 <i class="fas fa-rocket text-white text-xl"></i>
                             </div>
                             <div>
-                                <h3 class="font-bold text-xl text-gray-800">EKS Monitoring Setup Guide</h3>
-                                <p class="text-sm text-gray-600">Follow these steps to connect a new EKS cluster.</p>
+                                <h3 class="font-bold text-xl text-gray-800">COMPLETE OBSERVABILITY GUIDE</h3>
+                                <p class="text-sm text-gray-600">Install Falco + OTel Collector on EKS Forward Metrics → EC2 → Prometheus</p>
                             </div>
                         </div>
                         <button @click="isHelpModalOpen = false" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
                     </div>
                     <div class="space-y-6 mt-6">
                         <div>
-                            <h4 class="font-semibold text-gray-800"><span class="text-blue-600 font-bold">Step 1:</span> Check for an Existing Node Group</h4>
-                            <p class="text-sm text-gray-600 mt-1">Before deploying the monitoring agent, ensure your EKS cluster has a node group where the agent can run. You can check for existing node groups with the following command:</p>
-                            <div class="code-block mt-2 text-sm">
-                                <code>eksctl get nodegroup --cluster=<span class="placeholder-highlight">your-cluster-name</span> --region=<span class="placeholder-highlight">your-region</span></code>
-                            </div>
-                            <p class="text-sm text-gray-600 mt-2">
-                                <strong>Replace:</strong><br>
-                                • <span class="placeholder-highlight">your-cluster-name</span> - Your actual EKS cluster name<br>
-                                • <span class="placeholder-highlight">your-region</span> - AWS region where your cluster is deployed (e.g., ap-south-1, us-east-1)
-                            </p>
-                            <p class="text-sm text-gray-600 mt-1">If no node group is found, you will need to create one using eksctl or AWS Console.</p>
+                            <h4 class="font-semibold text-gray-800 mb-4">Version: Production Standard<br>Supported: EKS 1.24 and above<br>Components: Falco (Security Events), Node Exporter, Kube State Metrics, OTel Collector (DaemonSet), OTel Gateway (EC2), Prometheus (EC2)</h4>
                         </div>
                         <div>
-                            <h4 class="font-semibold text-gray-800"><span class="text-blue-600 font-bold">Step 2:</span> Attach Required IAM Policy</h4>
-                            <p class="text-sm text-gray-600 mt-1">The worker nodes in your cluster need permission to send metrics to CloudWatch. Attach the <code>CloudWatchAgentServerPolicy</code> to your node instance role using the AWS CLI:</p>
-                            <div class="code-block mt-2 text-sm">
-                                <pre><code>aws iam attach-role-policy \
---policy-arn arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy \
---role-name <span class="placeholder-highlight">your-node-instance-role-name</span></code></pre>
-                            </div>
-                            <p class="text-sm text-gray-600 mt-2">
-                                <strong>Replace:</strong><br>
-                                • <span class="placeholder-highlight">your-node-instance-role-name</span> - Your EKS node instance role name (typically starts with "eksctl-")
-                            </p>
-                            <p class="text-sm text-gray-600 mt-1">You can find your node instance role name in the AWS console under <strong>IAM > Roles</strong> or by checking your node group configuration.</p>
+                            <h4 class="font-semibold text-gray-800"><span class="text-blue-600 font-bold">✅ 1. OVERVIEW</span></h4>
+                            <p class="text-sm text-gray-600 mt-1">This guide explains how to:</p>
+                            <ul class="text-sm text-gray-600 mt-1 list-disc list-inside space-y-1">
+                                <li>Install Falco, Node Exporter, Kube State Metrics in your EKS cluster</li>
+                                <li>Deploy OpenTelemetry Agent inside the cluster</li>
+                                <li>Deploy an OTel Gateway + Prometheus EC2 instance</li>
+                                <li>Forward all cluster metrics securely to Prometheus</li>
+                            </ul>
+                            <p class="text-sm text-gray-600 mt-2">You'll get metrics for: Node CPU, RAM, Disk; Pod/Deployment Health; Security alerts from Falco; Entire cluster view</p>
                         </div>
                         <div>
-                            <h4 class="font-semibold text-gray-800"><span class="text-blue-600 font-bold">Step 3:</span> Deploy the CloudWatch Agent and Fluent Bit</h4>
-                            <p class="text-sm text-gray-600 mt-1">Next, download and deploy the necessary monitoring agents to your cluster. This is done by applying a pre-configured YAML file from AWS.</p>
-                            <p class="text-sm text-gray-600 mt-1">First, set your cluster name and region as environment variables:</p>
+                            <h4 class="font-semibold text-gray-800"><span class="text-blue-600 font-bold">✅ 2. PREREQUISITES (IMPORTANT)</span></h4>
+                            <p class="text-sm text-gray-600 mt-1">The client must ensure:</p>
+                            <h5 class="font-semibold text-gray-700 mt-3">2.1 Tools Needed (run from CloudShell or local PC)</h5>
+                            <table class="w-full text-sm table-enhanced rounded-lg overflow-hidden mt-2">
+                                <thead>
+                                    <tr><th class="px-4 py-2 text-left">Tool</th><th class="px-4 py-2 text-left">Required</th><th class="px-4 py-2 text-left">Install Command</th></tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td class="px-4 py-2">kubectl</td><td>YES</td><td>Pre-installed in AWS CloudShell</td></tr>
+                                    <tr><td class="px-4 py-2">helm v3+</td><td>YES</td><td><code>curl -s https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3</code></td></tr>
+                                    <tr><td class="px-4 py-2">aws cli v2</td><td>YES</td><td>CloudShell already has</td></tr>
+                                    <tr><td class="px-4 py-2">Docker + Docker Compose</td><td>Only on EC2</td><td>Installed later</td></tr>
+                                </tbody>
+                            </table>
+                            <h5 class="font-semibold text-gray-700 mt-3">2.2 Inputs Client Must Provide</h5>
+                            <table class="w-full text-sm table-enhanced rounded-lg overflow-hidden mt-2">
+                                <thead>
+                                    <tr><th class="px-4 py-2 text-left">Name</th><th class="px-4 py-2 text-left">Description</th><th class="px-4 py-2 text-left">Example</th></tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td class="px-4 py-2">EKS_CLUSTER_NAME</td><td class="px-4 py-2">Name of target EKS cluster</td><td class="px-4 py-2"><span class="placeholder-highlight">prod-cluster</span></td></tr>
+                                    <tr><td class="px-4 py-2">AWS_REGION</td><td class="px-4 py-2">Required for AWS CLI</td><td class="px-4 py-2"><span class="placeholder-highlight">ap-south-1</span></td></tr>
+                                    <tr><td class="px-4 py-2">PROMETHEUS_EC2_PUBLIC_IP</td><td class="px-4 py-2">Public IP of EC2 monitoring instance</td><td class="px-4 py-2"><span class="placeholder-highlight">18.X.X.X</span></td></tr>
+                                    <tr><td class="px-4 py-2">VPC / Subnet</td><td class="px-4 py-2">EC2 instance must be in same VPC or peered</td><td class="px-4 py-2">—</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-gray-800"><span class="text-blue-600 font-bold">✅ 3. STEP 1 — Create the Prometheus + OTel Gateway EC2 Instance</span></h4>
+                            <p class="text-sm text-gray-600 mt-1">Create EC2 (t3.medium recommended)<br>AMI: Amazon Linux 2023<br>Ports to open (Inbound):</p>
+                            <table class="w-full text-sm table-enhanced rounded-lg overflow-hidden mt-2">
+                                <thead>
+                                    <tr><th class="px-4 py-2 text-left">Port</th><th class="px-4 py-2 text-left">Purpose</th></tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td class="px-4 py-2">9090</td><td class="px-4 py-2">Prometheus UI</td></tr>
+                                    <tr><td class="px-4 py-2">8889</td><td class="px-4 py-2">Prometheus scrape endpoint</td></tr>
+                                    <tr><td class="px-4 py-2">4318</td><td class="px-4 py-2">OTel HTTP ingest</td></tr>
+                                    <tr><td class="px-4 py-2">4317</td><td class="px-4 py-2">OTel gRPC ingest</td></tr>
+                                </tbody>
+                            </table>
+                            <p class="text-sm text-gray-600 mt-1">SSH into EC2: <code>ssh -i your-key.pem ec2-user@<span class="placeholder-highlight">PROMETHEUS_EC2_PUBLIC_IP</span></code></p>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-gray-800"><span class="text-blue-600 font-bold">✅ 4. STEP 2 — Install Docker + Docker Compose on EC2</span></h4>
                             <div class="code-block mt-2 text-sm">
-                                <pre><code>ClusterName='<span class="placeholder-highlight">your-cluster-name</span>'
-RegionName='<span class="placeholder-highlight">your-region</span>'
-HttpServer='On'
-HttpPort='2020'
-ReadHead='Off'
-ReadTail='On'</code></pre>
-                            </div>
-                            <p class="text-sm text-gray-600 mt-2">
-                                <strong>Replace:</strong><br>
-                                • <span class="placeholder-highlight">your-cluster-name</span> - Your actual EKS cluster name<br>
-                                • <span class="placeholder-highlight">your-region</span> - AWS region where your cluster is deployed
-                            </p>
-                            <p class="text-sm text-gray-600 mt-1">Then, download, configure, and apply the manifest (clean up any old file first):</p>
-                            <div class="code-block mt-2 text-sm">
-                                <pre><code># Clean up any old file
-rm -f cwagent-fluent-bit-quickstart.yaml
-
-# Download the latest manifest
-curl -O https://raw.githubusercontent.com/aws-samples/amazon-cloudwatch-container-insights/latest/k8s-deployment-manifest-templates/deployment-mode/daemonset/container-insights-monitoring/quickstart/cwagent-fluent-bit-quickstart.yaml
-
-# Apply substitutions
-sed -i -e "s/{{cluster_name}}/$ClusterName/g" -e "s/{{region_name}}/$RegionName/g" -e "s/{{http_server_toggle}}/\"$HttpServer\"/g" -e "s/{{http_server_port}}/\"$HttpPort\"/g" -e "s/{{read_from_head}}/\"$ReadHead\"/g" -e "s/{{read_from_tail}}/\"$ReadTail\"/g" cwagent-fluent-bit-quickstart.yaml
-
-# Apply the configured manifest
-kubectl apply -f cwagent-fluent-bit-quickstart.yaml</code></pre>
+<pre><code>sudo yum update -y
+sudo yum install docker -y
+sudo systemctl enable docker
+sudo systemctl start docker
+sudo usermod -aG docker ec2-user
+newgrp docker
+sudo curl -L "https://github.com/docker/compose/releases/download/v2.24.5/docker-compose-linux-x86_64" \
+  -o /usr/local/bin/docker-compose
+sudo chmod +x /usr/local/bin/docker-compose</code></pre>
                             </div>
                         </div>
                         <div>
-                            <h4 class="font-semibold text-gray-800"><span class="text-blue-600 font-bold">Step 4:</span> Patch the Agent Configuration</h4>
-                            <p class="text-sm text-gray-600 mt-1">After deploying the agents, you need to patch the <code>cwagentconfig</code> ConfigMap to ensure the correct cluster name is being used. This is a crucial step for the monitoring data to appear in the correct CloudWatch Log Group.</p>
-                            <p class="text-sm text-gray-600 mt-1">Execute the following <code>kubectl patch</code> command:</p>
+                            <h4 class="font-semibold text-gray-800"><span class="text-blue-600 font-bold">✅ 5. STEP 3 — Create Monitoring Directory on EC2</span></h4>
                             <div class="code-block mt-2 text-sm">
-                                <pre><code>kubectl patch configmap cwagentconfig -n amazon-cloudwatch -p '{"data":{"cwagentconfig.json":"{\n  \"agent\": {\n    \"region\": \"<span class="placeholder-highlight">your-region</span>\"\n  },\n  \"logs\": {\n    \"metrics_collected\": {\n      \"kubernetes\": {\n        \"cluster_name\": \"<span class="placeholder-highlight">your-cluster-name</span>\",\n        \"metrics_collection_interval\": 60\n      }\n    },\n    \"force_flush_interval\": 5\n  }\n}"}}'</code></pre>
+<code>mkdir ~/monitoring
+cd ~/monitoring</code>
                             </div>
-                            <p class="text-sm text-gray-600 mt-2">
-                                <strong>Replace:</strong><br>
-                                • <span class="placeholder-highlight">your-region</span> - AWS region where your cluster is deployed<br>
-                                • <span class="placeholder-highlight">your-cluster-name</span> - Your actual EKS cluster name
-                            </p>
                         </div>
                         <div>
-                            <h4 class="font-semibold text-gray-800"><span class="text-blue-600 font-bold">Step 5:</span> Restart the DaemonSet</h4>
-                            <p class="text-sm text-gray-600 mt-1">Finally, restart the <code>cloudwatch-agent</code> DaemonSet to apply the configuration changes and the new IAM role permissions:</p>
+                            <h4 class="font-semibold text-gray-800"><span class="text-blue-600 font-bold">✅ 6. STEP 4 — Create the Required Files on EC2</span></h4>
+                            <p class="text-sm text-gray-600 mt-1">Create 3 files exactly as below:</p>
+                            <h5 class="font-semibold text-gray-700 mt-3">6.1 File 1 — docker-compose.yml</h5>
                             <div class="code-block mt-2 text-sm">
-                                <code>kubectl rollout restart daemonset cloudwatch-agent -n amazon-cloudwatch</code>
+<pre><code>version: '3.8'
+services:
+  otel-gateway:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: otel-gateway
+    volumes:
+      - ./otel-gateway-config.yaml:/etc/otelcol/config.yaml
+    ports:
+      - "4318:4318"
+      - "4317:4317"
+      - "8889:8889"
+    command: ["--config=/etc/otelcol/config.yaml"]
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+volumes:
+  prometheus-data:</code></pre>
                             </div>
-                            <p class="text-sm text-gray-600 mt-2">After completing these steps, it may take a few minutes for the monitoring data to start appearing in your CloudWatch console and on the XamOps dashboard.</p>
-                            <p class="text-sm text-blue-600 font-semibold mt-2">Note: Make sure your kubectl context is configured to point to your EKS cluster before running these commands.</p>
+                            <h5 class="font-semibold text-gray-700 mt-3">6.2 File 2 — otel-gateway-config.yaml</h5>
+                            <div class="code-block mt-2 text-sm">
+<pre><code>receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: "0.0.0.0:4317"
+      http:
+        endpoint: "0.0.0.0:4318"
+exporters:
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+    namespace: xamops_eks
+processors:
+  batch:
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus]</code></pre>
+                            </div>
+                            <h5 class="font-semibold text-gray-700 mt-3">6.3 File 3 — prometheus.yml</h5>
+                            <div class="code-block mt-2 text-sm">
+<pre><code>global:
+  scrape_interval: 15s
+rule_files:
+  - 'rules.yml'
+scrape_configs:
+  - job_name: 'otel-gateway'
+    static_configs:
+      - targets: ['localhost:8889']
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']</code></pre>
+                            </div>
+                            <h5 class="font-semibold text-gray-700 mt-3">(Optional) File 4 — rules.yml</h5>
+                            <div class="code-block mt-2 text-sm">
+<pre><code>Custom recording rule example:
+groups:
+- name: xamops_rules
+  rules:
+  - record: xamops_eks_node_cpu_usage_percentage
+    expr: 100 - (avg by (hostname, cluster_name) (irate(xamops_eks_node_cpu_seconds_total{mode="idle"}[5m])))</code></pre>
+                            </div>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-gray-800"><span class="text-blue-600 font-bold">✅ 7. STEP 5 — RUN GATEWAY + PROMETHEUS ON EC2</span></h4>
+                            <div class="code-block mt-2 text-sm">
+<pre><code>cd ~/monitoring
+docker-compose up -d
+docker ps</code></pre>
+                            </div>
+                            <p class="text-sm text-gray-600 mt-1">Prometheus → 📌 http://<span class="placeholder-highlight">PROMETHEUS_EC2_PUBLIC_IP</span>:9090</p>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-gray-800"><span class="text-blue-600 font-bold">✅ 8. STEP 6 — Connect to EKS Cluster</span></h4>
+                            <p class="text-sm text-gray-600 mt-1">From CloudShell:</p>
+                            <div class="code-block mt-2 text-sm">
+<pre><code>aws eks update-kubeconfig \
+  --region <span class="placeholder-highlight">AWS_REGION</span> \
+  --name <span class="placeholder-highlight">EKS_CLUSTER_NAME</span>
+kubectl get nodes</code></pre>
+                            </div>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-gray-800"><span class="text-blue-600 font-bold">✅ 9. STEP 7 — Install Dependencies in Cluster (Helm)</span></h4>
+                            <p class="text-sm text-gray-600 mt-1">Add Repositories</p>
+                            <div class="code-block mt-2 text-sm">
+<pre><code>helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo add falcosecurity https://falcosecurity.github.io/charts
+helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts
+helm repo update</code></pre>
+                            </div>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-gray-800"><span class="text-blue-600 font-bold">✅ 10. STEP 8 — Deploy Metrics Sources in Cluster</span></h4>
+                            <h5 class="font-semibold text-gray-700 mt-3">10.1 Install Node Exporter</h5>
+                            <div class="code-block mt-2 text-sm">
+<code>helm upgrade --install node-exporter prometheus-community/prometheus-node-exporter \
+  --namespace default --create-namespace</code>
+                            </div>
+                            <h5 class="font-semibold text-gray-700 mt-3">10.2 Install Kube State Metrics</h5>
+                            <div class="code-block mt-2 text-sm">
+<code>helm upgrade --install kube-state-metrics prometheus-community/kube-state-metrics \
+  --namespace kube-system</code>
+                            </div>
+                            <h5 class="font-semibold text-gray-700 mt-3">10.3 Install Falco + Sidekick</h5>
+                            <div class="code-block mt-2 text-sm">
+<code>helm upgrade --install falco falcosecurity/falco \
+  --namespace falco \
+  --create-namespace \
+  --set falcosidekick.enabled=true \
+  --set falcosidekick.config.prometheus.enabled=true</code>
+                            </div>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-gray-800"><span class="text-blue-600 font-bold">✅ 11. STEP 9 — Deploy OpenTelemetry Agent (DaemonSet)</span></h4>
+                            <p class="text-sm text-gray-600 mt-1">Create file: otel-agent-values.yaml</p>
+                            <div class="code-block mt-2 text-sm">
+<pre><code>mode: daemonset
+image:
+  repository: otel/opentelemetry-collector-contrib
+  tag: "0.88.0"
+config:
+  receivers:
+    prometheus:
+      config:
+        scrape_configs:
+          - job_name: 'falco-sidekick'
+            scrape_interval: 15s
+            static_configs:
+              - targets: ['falco-falcosidekick.falco.svc.cluster.local:2801']
+          - job_name: 'kube-state-metrics'
+            scrape_interval: 15s
+            static_configs:
+              - targets: ['kube-state-metrics.kube-system.svc.cluster.local:8080']
+          - job_name: 'node-exporter'
+            scrape_interval: 15s
+            static_configs:
+              - targets: ['node-exporter-prometheus-node-exporter.default.svc.cluster.local:9100']
+  processors:
+    batch: {}
+    memory_limiter:
+      check_interval: 5s
+      limit_percentage: 80
+      spike_limit_percentage: 25
+    attributes:
+      actions:
+        - key: cluster_name
+          action: insert
+          value: "<span class="placeholder-highlight">YOUR_CLUSTER_NAME</span>"
+  exporters:
+    otlphttp:
+      endpoint: "http://<span class="placeholder-highlight">PROMETHEUS_EC2_PUBLIC_IP</span>:4318"
+      tls:
+        insecure: true
+  service:
+    pipelines:
+      metrics:
+        receivers: [prometheus]
+        processors: [batch, attributes]
+        exporters: [otlphttp]</code></pre>
+                            </div>
+                            <p class="text-sm text-gray-600 mt-1">Install OTel Collector</p>
+                            <div class="code-block mt-2 text-sm">
+<code>helm upgrade --install otel-agent open-telemetry/opentelemetry-collector \
+  --namespace default \
+  -f otel-agent-values.yaml</code>
+                            </div>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-gray-800"><span class="text-blue-600 font-bold">✅ 12. STEP 10 — Validate Metric Flow</span></h4>
+                            <p class="text-sm text-gray-600 mt-1">From CloudShell:</p>
+                            <div class="code-block mt-2 text-sm">
+<pre><code>kubectl get pods -A | grep otel
+kubectl logs <span class="placeholder-highlight">otel-agent-pod-name</span></code></pre>
+                            </div>
+                            <p class="text-sm text-gray-600 mt-1">From EC2:</p>
+                            <div class="code-block mt-2 text-sm">
+<code>curl http://localhost:8889/metrics</code>
+                            </div>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-gray-800"><span class="text-blue-600 font-bold">✅ 13. STEP 11 — Access Prometheus Dashboard</span></h4>
+                            <p class="text-sm text-gray-600 mt-1">URL: http://<span class="placeholder-highlight">PROMETHEUS_EC2_PUBLIC_IP</span>:9090</p>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-gray-800"><span class="text-blue-600 font-bold">🎯 14. PROMETHEUS QUERIES (READY TO USE)</span></h4>
+                            <!-- <p class="text-sm text-gray-600 mt-1">(Cluster name removed as requested)</p> -->
+                            <ul class="text-sm text-gray-600 mt-1 list-disc list-inside space-y-1">
+                                <li><strong>Falco Security Events</strong>: xamops_eks_falcosecurity_falcosidekick_falco_events_total</li>
+                                <li><strong>Falco Events (Any Cluster)</strong>: xamops_eks_falcosecurity_falcosidekick_falco_events_total{}</li>
+                                <li><strong>Pod Information</strong>: xamops_eks_kube_pod_info</li>
+                                <li><strong>Deployment Health</strong>: xamops_eks_kube_deployment_status_replicas_available</li>
+                                <li><strong>Node CPU Usage</strong>: xamops_eks_node_cpu_seconds_total</li>
+                                <li><strong>All Metrics From Cluster</strong>: {__name__=~"xamops_eks_.*"}</li>
+                            </ul>
+                        </div>
+                        
                         </div>
                     </div>
                 </div>
