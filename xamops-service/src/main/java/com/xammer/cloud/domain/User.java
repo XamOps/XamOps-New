@@ -47,4 +47,9 @@ public class User {
     }
     @Column(nullable = true)
     private String email;
+
+    public void setEnabled(boolean b) {
+        // TODO Auto-generated method stub
+        throw new UnsupportedOperationException("Unimplemented method 'setEnabled'");
+    }
 }

@@ -18,6 +18,9 @@ import org.springframework.data.redis.serializer.StringRedisSerializer;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.databind.jsontype.impl.LaissezFaireSubTypeValidator;
 
+// CRITICAL FIX: Import the module that teaches Jackson how to handle Spring Security classes
+import org.springframework.security.jackson2.CoreJackson2Module;
+
 import java.time.Duration;
 
 @Configuration
@@ -26,8 +29,7 @@ public class CacheConfig {
 
     /**
      * This bean creates the Cache Manager.
-     * It now defines its OWN ObjectMapper for Redis to solve
-     * the LinkedHashMap error.
+     * It defines its OWN ObjectMapper for Redis to solve deserialization errors.
      */
     @Bean
     public RedisCacheManager cacheManager(RedisConnectionFactory connectionFactory) {
@@ -36,6 +38,10 @@ public class CacheConfig {
         // This is separate from the primary ObjectMapper to avoid conflicts
         ObjectMapper objectMapper = new ObjectMapper()
             .registerModule(new JavaTimeModule()) 
+            // --- FIX START: Register Spring Security Module ---
+            // This fixes the "Cannot construct instance of SimpleGrantedAuthority" error
+            .registerModule(new CoreJackson2Module()) 
+            // --- FIX END ---
             .configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false) 
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
             

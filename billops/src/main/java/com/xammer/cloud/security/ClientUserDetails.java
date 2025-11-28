@@ -2,13 +2,13 @@ package com.xammer.cloud.security;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.userdetails.User;
+
 import java.util.Collection;
 
 public class ClientUserDetails extends User {
-    
+
     private final Long clientId;
     private final Long id;
 

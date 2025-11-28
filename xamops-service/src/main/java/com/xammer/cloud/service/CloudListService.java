@@ -145,7 +145,7 @@ public class CloudListService {
         return accounts.get(0);
     }
 
-    private void loadRegionCoordinates() {
+private void loadRegionCoordinates() {
         ObjectMapper mapper = new ObjectMapper();
         try {
             URL url = new URL("https://raw.githubusercontent.com/sunshower-io/provider-lists/master/aws/output/regions.json");
@@ -165,6 +165,13 @@ public class CloudListService {
             }
         } catch (IOException e) {
             logger.error("Failed to load region coordinates from external source. Map data will be unavailable.", e);
+        }
+
+        // --- FIX: Manually add missing regions (Hyderabad) ---
+        // This ensures ap-south-2 passes the "containsKey" check later in the code
+        if (!this.regionCoordinates.containsKey("ap-south-2")) {
+            this.regionCoordinates.put("ap-south-2", new double[]{17.3850, 78.4867});
+            logger.info("Manually added region coordinates for ap-south-2 (Hyderabad)");
         }
     }
 

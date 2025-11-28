@@ -108,5 +108,10 @@ public class User implements UserDetails { // --- IMPLEMENT UserDetails ---
     public boolean isEnabled() {
         return true;
     }
+
+    public void setEnabled(boolean b) {
+        // TODO Auto-generated method stub
+        throw new UnsupportedOperationException("Unimplemented method 'setEnabled'");
+    }
     // --- END: IMPLEMENTED UserDetails METHODS ---
 }
