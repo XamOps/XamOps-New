@@ -1,6 +1,10 @@
 package com.xammer.cloud.service;
 
+import com.xammer.cloud.domain.CloudAccount;
+import com.xammer.cloud.domain.KubernetesCluster;
 import com.xammer.cloud.dto.k8s.ClusterUsageDto;
+import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.repository.KubernetesClusterRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -13,42 +17,38 @@ public class EksClusterUsageService {
     private static final Logger logger = LoggerFactory.getLogger(EksClusterUsageService.class);
     
     private final PrometheusService prometheusService;
+    private final CloudAccountRepository cloudAccountRepository;
+    private final KubernetesClusterRepository kubernetesClusterRepository;
 
-    public EksClusterUsageService(PrometheusService prometheusService) {
+    public EksClusterUsageService(PrometheusService prometheusService,
+                                  CloudAccountRepository cloudAccountRepository,
+                                  KubernetesClusterRepository kubernetesClusterRepository) {
         this.prometheusService = prometheusService;
+        this.cloudAccountRepository = cloudAccountRepository;
+        this.kubernetesClusterRepository = kubernetesClusterRepository;
     }
 
-    /**
-     * Fetches aggregated cluster usage statistics from Prometheus.
-     * * @param accountId   Legacy parameter (unused in Prometheus impl but kept for interface compatibility)
-     * @param clusterName The name of the EKS cluster
-     * @param region      Legacy parameter (unused in Prometheus impl)
-     * @return CompletableFuture containing the Usage DTO
-     */
     public CompletableFuture<ClusterUsageDto> getClusterUsage(String accountId, String clusterName, String region) {
         logger.info("Fetching EKS cluster usage from Prometheus for cluster {}", clusterName);
 
         return CompletableFuture.supplyAsync(() -> {
             ClusterUsageDto dto = new ClusterUsageDto();
             try {
-                // 1. CPU Usage %
-                double cpuUsage = prometheusService.getClusterCpuUsage(clusterName);
+                // 1. Resolve Prometheus URL dynamically (just like AutomationService does)
+                String prometheusUrl = resolvePrometheusUrl(accountId, clusterName);
+
+                // 2. Fetch Metrics using the URL
+                double cpuUsage = prometheusService.getClusterCpuUsage(prometheusUrl, clusterName);
                 dto.setCpuUsage(cpuUsage);
 
-                // 2. Memory Usage %
-                double memUsage = prometheusService.getClusterMemoryUsage(clusterName);
+                double memUsage = prometheusService.getClusterMemoryUsage(prometheusUrl, clusterName);
                 dto.setMemoryUsage(memUsage);
 
-                // 3. Node Count
-                int nodeCount = prometheusService.getClusterNodeCount(clusterName);
+                int nodeCount = prometheusService.getClusterNodeCount(prometheusUrl, clusterName);
                 dto.setNodeCount(nodeCount);
 
-                // 4. Pod Count
-                // Currently set to 0 as we don't have a direct 'kube_pod_info' metric mapped yet.
-                // The frontend list will still populate individual pods via EksAutomationService.
+                // Defaults
                 dto.setPodCount(0); 
-
-                // Set placeholders for fields not currently tracked in Prometheus
                 dto.setCpuTotal(0);
                 dto.setCpuRequests(0);
                 dto.setCpuLimits(0);
@@ -58,9 +58,20 @@ public class EksClusterUsageService {
 
             } catch (Exception e) {
                 logger.error("Failed to fetch cluster usage from Prometheus for cluster {}", clusterName, e);
-                // Return empty DTO on failure to avoid breaking the UI
             }
             return dto;
         });
+    }
+
+    private String resolvePrometheusUrl(String awsAccountId, String clusterName) {
+        // Find account 
+        CloudAccount account = cloudAccountRepository.findByAwsAccountId(awsAccountId)
+                .stream().findFirst()
+                .orElseThrow(() -> new RuntimeException("Cloud Account not found for ID: " + awsAccountId));
+
+        // Find cluster configuration
+        return kubernetesClusterRepository.findByCloudAccountAndClusterName(account, clusterName)
+                .map(KubernetesCluster::getPrometheusUrl)
+                .orElseThrow(() -> new RuntimeException("Prometheus URL configuration not found for cluster: " + clusterName));
     }
 }
