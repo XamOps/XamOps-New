@@ -65,7 +65,7 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("/api/ai/**"),
                                 new AntPathRequestMatcher("/api/cicd/github/runs"),
                                 new AntPathRequestMatcher("/api/cicd/config/**"),
-
+                                new AntPathRequestMatcher("/api/cicd/**"),
                                 new AntPathRequestMatcher("/cloudk8s.html"),
                                 new AntPathRequestMatcher("/eks-details.html"),
                                 new AntPathRequestMatcher("/api/xamops/k8s/**"),
