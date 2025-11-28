@@ -144,6 +144,7 @@ public class DashboardData {
     private CostHistory costHistory;
     private List<BillingSummary> billingSummary;
     private IamResources iamResources;
+    private IamDetail iamDetails; // Added field for detailed IAM info
     private SavingsSummary savingsSummary;
     private List<OptimizationRecommendation> ec2Recommendations;
     private List<CostAnomaly> costAnomalies;
@@ -456,5 +457,49 @@ public class DashboardData {
       this.actualSpend = actualSpend;
       this.forecastedSpend = forecastedSpend;
     }
+  }
+
+  // --- NEW IAM DETAILS CLASSES ---
+
+  @Data
+  @AllArgsConstructor
+  @NoArgsConstructor
+  public static class IamDetail {
+    private List<IamUserDetail> users;
+    private List<IamRoleDetail> roles;
+  }
+
+  @Data
+  @AllArgsConstructor
+  @NoArgsConstructor
+  public static class IamUserDetail {
+    private String userName;
+    private String userId;
+    private String arn;
+    private String createDate;
+    private String passwordLastUsed;
+    private List<String> groups;
+    private List<IamPolicyDetail> attachedPolicies;
+  }
+
+  @Data
+  @AllArgsConstructor
+  @NoArgsConstructor
+  public static class IamRoleDetail {
+    private String roleName;
+    private String roleId;
+    private String arn;
+    private String createDate;
+    private String description;
+    private List<IamPolicyDetail> attachedPolicies;
+  }
+
+  @Data
+  @AllArgsConstructor
+  @NoArgsConstructor
+  public static class IamPolicyDetail {
+    private String policyName;
+    private String policyArn; // Null for inline policies
+    private String type; // "Managed" or "Inline"
   }
 }
