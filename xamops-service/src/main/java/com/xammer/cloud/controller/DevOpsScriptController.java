@@ -1,8 +1,7 @@
 package com.xammer.cloud.controller;
 
 import com.xammer.cloud.domain.DevOpsScript;
-import com.xammer.cloud.repository.DevOpsScriptRepository; // <-- CHANGE BACK TO THIS
-// import com.xammer.cloud.service.GitScriptService; // <-- Remove Git service
+import com.xammer.cloud.service.DevOpsScriptService; // Import the new service
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -17,11 +16,11 @@ import java.util.List;
 public class DevOpsScriptController {
 
     @Autowired
-    private DevOpsScriptRepository devOpsScriptRepository; // <-- Inject the repository again
+    private DevOpsScriptService devOpsScriptService; // Inject Service instead of Repository
 
     @GetMapping
     public List<DevOpsScript> getAllScripts() {
-        // Fetch from the database via the repository
-        return devOpsScriptRepository.findAll();
+        // Call the service method which handles the caching
+        return devOpsScriptService.getAllScripts();
     }
 }

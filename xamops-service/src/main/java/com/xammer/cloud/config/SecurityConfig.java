@@ -1,6 +1,7 @@
 package com.xammer.cloud.config;
 
 import com.xammer.cloud.security.CustomAuthenticationSuccessHandler;
+import com.xammer.cloud.security.CustomLogoutSuccessHandler;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
@@ -31,24 +32,26 @@ import static org.springframework.security.config.Customizer.withDefaults;
 public class SecurityConfig {
 
     private final CustomAuthenticationSuccessHandler authenticationSuccessHandler;
+    private final CustomLogoutSuccessHandler logoutSuccessHandler;
 
-    public SecurityConfig(CustomAuthenticationSuccessHandler authenticationSuccessHandler) {
+    public SecurityConfig(CustomAuthenticationSuccessHandler authenticationSuccessHandler,
+            CustomLogoutSuccessHandler logoutSuccessHandler) {
         this.authenticationSuccessHandler = authenticationSuccessHandler;
+        this.logoutSuccessHandler = logoutSuccessHandler;
     }
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-            .cors(withDefaults())
-            .csrf(csrf -> csrf.disable())
-            .exceptionHandling(exceptions -> exceptions
-                .defaultAuthenticationEntryPointFor(
-                    new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
-                    new AntPathRequestMatcher("/api/**")
-                )
-            )
-            .authorizeHttpRequests((requests) -> requests
-                .requestMatchers(new AntPathRequestMatcher("/api/xamops/cloudguard/grafana-ingest", "POST")).permitAll()
+                .cors(withDefaults())
+                .csrf(csrf -> csrf.disable())
+                .exceptionHandling(exceptions -> exceptions
+                        .defaultAuthenticationEntryPointFor(
+                                new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
+                                new AntPathRequestMatcher("/api/**")))
+                .authorizeHttpRequests((requests) -> requests
+                        .requestMatchers(new AntPathRequestMatcher("/api/xamops/cloudguard/grafana-ingest", "POST"))
+                        .permitAll()
                         .requestMatchers(
                                 new AntPathRequestMatcher("/"),
                                 new AntPathRequestMatcher("/index.html"),
@@ -63,37 +66,38 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("/ws/**"),
                                 new AntPathRequestMatcher("/azure_*.html"),
                                 new AntPathRequestMatcher("/cloudlist.html"),
-                                
-                                new AntPathRequestMatcher("/api/cicd/github/runs"), 
+                                new AntPathRequestMatcher("/api/ai/**"),
+                                new AntPathRequestMatcher("/api/cicd/github/runs"),
                                 new AntPathRequestMatcher("/api/cicd/config/**"),
-                                
+                                new AntPathRequestMatcher("/api/cicd/**"),
                                 new AntPathRequestMatcher("/cloudk8s.html"),
                                 new AntPathRequestMatcher("/eks-details.html"),
                                 new AntPathRequestMatcher("/api/xamops/k8s/**"),
                                 new AntPathRequestMatcher("/sonarqube.html"),
                                 new AntPathRequestMatcher("/user-manager.html"),
-                                new AntPathRequestMatcher("/api/devops-scripts/**")
-                                // ** ADD NEW RULE FOR FINOPS SCHEDULES (will be caught by anyRequest().authenticated()) **
-                                // No explicit permitAll needed, it should be authenticated.
+                                new AntPathRequestMatcher("/api/devops-scripts/**"),
+                                // 👇 ADD THIS LINE HERE 👇
+                                new AntPathRequestMatcher("/api/ai/**")
+                        // ** ADD NEW RULE FOR FINOPS SCHEDULES (will be caught by
+                        // anyRequest().authenticated()) **
+                        // No explicit permitAll needed, it should be authenticated.
                         ).permitAll()
                         .anyRequest().authenticated() // <-- This line correctly secures the new endpoints
                 )
                 .formLogin((form) -> form
                         .loginPage("/login")
                         .successHandler(authenticationSuccessHandler)
-                        .permitAll()
-                )
+                        .permitAll())
                 .logout((logout) -> logout
                         .logoutUrl("/logout")
-                        .logoutSuccessUrl("/login?logout")
+                        .logoutSuccessHandler(logoutSuccessHandler)
                         .invalidateHttpSession(true)
                         .deleteCookies("JSESSIONID")
-                        .permitAll()
-                );
+                        .permitAll());
 
         return http.build();
     }
-    
+
     // === FIX: ALLOW PRODUCTION ORIGIN ===
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
@@ -101,16 +105,15 @@ public class SecurityConfig {
         // FIX APPLIED: Added the production HTTPS domain.
         configuration.setAllowedOrigins(Arrays.asList(
                 "http://localhost:5173",
-                "https://live.xamops.com" ,
-                "https://uat.xamops.com"
-        ));
+                "https://live.xamops.com",
+                "https://uat.xamops.com"));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("*"));
         // This is necessary for Spring Security to handle cookies (JSESSIONID)
-        configuration.setAllowCredentials(true); 
-        
+        configuration.setAllowCredentials(true);
+
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", configuration); 
+        source.registerCorsConfiguration("/**", configuration);
         return source;
     }
     // === END OF FIX ===
@@ -131,7 +134,8 @@ public class SecurityConfig {
         return new BCryptPasswordEncoder();
     }
 
-    // ✅ REMOVED: userDetailsService bean (use CustomUserDetailsService @Service instead)
+    // ✅ REMOVED: userDetailsService bean (use CustomUserDetailsService @Service
+    // instead)
 
     @Bean
     public HttpFirewall allowSemicolonHttpFirewall() {

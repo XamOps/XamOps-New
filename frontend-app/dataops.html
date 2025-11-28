@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XamOps - DataOps</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.0/dist/cdn.min.js"></script>
+    <script type="module" src="/src/main.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+        }
+
+        .coming-soon-gradient {
+            background: linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%);
+        }
+
+        .float-animation {
+            animation: float 6s ease-in-out infinite;
+        }
+
+        @keyframes float {
+
+            0%,
+            100% {
+                transform: translateY(0px);
+            }
+
+            50% {
+                transform: translateY(-20px);
+            }
+        }
+
+        .glow-effect {
+            box-shadow: 0 0 20px rgba(14, 165, 233, 0.3);
+        }
+
+        .feature-card {
+            background: white;
+            border-left: 4px solid;
+            transition: all 0.3s ease;
+        }
+
+        .feature-card:hover {
+            transform: translateX(4px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+
+<body class="bg-gray-50">
+    <div class="flex h-screen overflow-hidden">
+        <include file="/_sidebar.html"></include>
+
+        <div class="ml-64 flex-1 flex flex-col h-screen overflow-hidden">
+
+            <main class="flex-1 overflow-y-auto p-8">
+
+                <div class="max-w-6xl mx-auto w-full">
+                    <div class="relative overflow-hidden bg-white rounded-2xl shadow-xl p-10">
+                        <div class="absolute inset-0 opacity-5">
+                            <div class="absolute inset-0"
+                                style="background-image: repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(14, 165, 233, 0.1) 10px, rgba(14, 165, 233, 0.1) 20px);">
+                            </div>
+                        </div>
+                        <div class="relative z-10 text-center">
+                            <div class="mb-8 flex justify-center">
+                                <div class="relative">
+                                    <div
+                                        class="w-24 h-24 coming-soon-gradient rounded-full flex items-center justify-center float-animation glow-effect">
+                                        <i class="fas fa-database text-white text-4xl"></i>
+                                    </div>
+                                </div>
+                            </div>
+                            <h2 class="text-4xl font-bold text-gray-800 mb-3">
+                                <span
+                                    class="bg-gradient-to-r from-sky-500 to-blue-600 bg-clip-text text-transparent">Coming
+                                    Soon</span>
+                            </h2>
+                            <p class="text-xl text-gray-800 mb-2 font-semibold">DataOps - Database Reliability &
+                                Automation</p>
+                            <p class="text-gray-600 mb-10 max-w-3xl mx-auto text-base leading-relaxed">
+                                The all-in-one database management and optimization platform.
+                                Unify observability across your entire fleet, detect bottlenecks in real-time, and
+                                automate
+                                complex fixes like query rewriting and caching without any code changes.
+                            </p>
+
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mb-10 text-left max-w-4xl mx-auto">
+                                <div class="feature-card p-5 rounded-xl border-sky-500 shadow-sm">
+                                    <div class="flex items-start space-x-4">
+                                        <div
+                                            class="flex-shrink-0 w-12 h-12 bg-sky-100 rounded-xl flex items-center justify-center">
+                                            <i class="fas fa-search-location text-sky-600 text-xl"></i>
+                                        </div>
+                                        <div class="flex-1">
+                                            <h3 class="font-bold text-gray-900 text-base mb-1">Deep Observability</h3>
+                                            <p class="text-sm text-gray-600">Non-intrusive monitoring for thousands of
+                                                instances. Pinpoint problematic queries and analyze execution patterns
+                                                down to the second.</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="feature-card p-5 rounded-xl border-blue-500 shadow-sm">
+                                    <div class="flex items-start space-x-4">
+                                        <div
+                                            class="flex-shrink-0 w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
+                                            <i class="fas fa-robot text-blue-600 text-xl"></i>
+                                        </div>
+                                        <div class="flex-1">
+                                            <h3 class="font-bold text-gray-900 text-base mb-1">Automated Remediation
+                                            </h3>
+                                            <p class="text-sm text-gray-600">A rule-based engine that automatically
+                                                fixes bottlenecks via intelligent caching, rate limiting, throttling,
+                                                and query rewriting.</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="feature-card p-5 rounded-xl border-indigo-500 shadow-sm">
+                                    <div class="flex items-start space-x-4">
+                                        <div
+                                            class="flex-shrink-0 w-12 h-12 bg-indigo-100 rounded-xl flex items-center justify-center">
+                                            <i class="fas fa-bolt text-indigo-600 text-xl"></i>
+                                        </div>
+                                        <div class="flex-1">
+                                            <h3 class="font-bold text-gray-900 text-base mb-1">Smart Caching</h3>
+                                            <p class="text-sm text-gray-600">Automatically cache frequently executed
+                                                queries to drastically cut response times and improve database
+                                                performance.</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="feature-card p-5 rounded-xl border-cyan-500 shadow-sm">
+                                    <div class="flex items-start space-x-4">
+                                        <div
+                                            class="flex-shrink-0 w-12 h-12 bg-cyan-100 rounded-xl flex items-center justify-center">
+                                            <i class="fas fa-hand-holding-usd text-cyan-600 text-xl"></i>
+                                        </div>
+                                        <div class="flex-1">
+                                            <h3 class="font-bold text-gray-900 text-base mb-1">Cost Optimization</h3>
+                                            <p class="text-sm text-gray-600">Identify over-provisioned instances and
+                                                inefficient queries to safely downgrade resources and reduce spend by up
+                                                to 75%.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div
+                                class="inline-flex items-center px-6 py-3 bg-gradient-to-r from-sky-500 to-blue-500 text-white rounded-full shadow-lg transform hover:scale-105 transition-transform cursor-default">
+                                <i class="fas fa-rocket mr-2"></i>
+                                <span class="font-semibold">Target Launch: Q1 2026</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+</body>
+
+</html>

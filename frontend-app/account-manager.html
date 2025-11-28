@@ -1,13 +1,14 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>XamOps - Account Manager</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-        <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
-<link rel="apple-touch-icon" href="/icons/XamOps.png">
+    <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
+    <link rel="apple-touch-icon" href="/icons/XamOps.png">
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
     <script type="module" src="/src/main.js"></script>
 
@@ -29,7 +30,9 @@
             min-height: 100vh;
         }
 
-        [x-cloak] { display: none !important; }
+        [x-cloak] {
+            display: none !important;
+        }
 
         .glass-card {
             background: var(--glass-bg);
@@ -82,8 +85,13 @@
         }
 
         @keyframes shimmer {
-            0% { background-position: -200% 0; }
-            100% { background-position: 200% 0; }
+            0% {
+                background-position: -200% 0;
+            }
+
+            100% {
+                background-position: 200% 0;
+            }
         }
 
         .header-gradient {
@@ -239,8 +247,15 @@
         }
 
         @keyframes pulse-dot {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
         }
 
         .loading-spinner {
@@ -253,8 +268,13 @@
         }
 
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
         }
 
         .fade-in {
@@ -262,8 +282,15 @@
         }
 
         @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         .gradient-text {
@@ -276,14 +303,18 @@
         .aws-icon {
             background: linear-gradient(135deg, #ff9900 0%, #ff6600 100%);
         }
+
         .gcp-icon {
-             background: linear-gradient(135deg, #4285F4 0%, #34A853 100%);
+            background: linear-gradient(135deg, #4285F4 0%, #34A853 100%);
         }
+
         .azure-icon {
             background: linear-gradient(135deg, #0089D6 0%, #0072C6 100%);
         }
+
         .github-icon {
-            background: #24292e; /* GitHub Dark Background */
+            background: #24292e;
+            /* GitHub Dark Background */
         }
 
         /* Enhanced styles for Help Modal */
@@ -298,6 +329,7 @@
             max-height: 40vh;
             overflow-y: auto;
         }
+
         .accordion-header {
             background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
             border-bottom: 1px solid #e5e7eb;
@@ -305,323 +337,527 @@
             cursor: pointer;
             transition: background 0.3s ease;
         }
+
         .accordion-header:hover {
             background: #e5e7eb;
         }
+
         .accordion-content {
             padding: 1rem;
         }
     </style>
 </head>
+
 <body class="bg-gray-50">
 
-<div class="flex">
-  <include file="/_sidebar.html"></include>
+    <div class="flex">
+        <include file="/_sidebar.html"></include>
 
-    <div class="flex-1 pl-64">
-        <main class="flex-1 flex flex-col min-h-screen" x-data="accountManager()">
-            <header class="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-10">
-                <div class="flex items-center space-x-4">
-                    <div class="w-12 h-12 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center">
-                        <i class="fas fa-users-cog text-white text-xl"></i>
-                    </div>
-                    <div>
-                        <h1 class="text-2xl font-bold text-gray-800">Account Manager</h1>
-                        <p class="text-sm text-gray-600">Manage your connected cloud accounts and CICD integrations</p>
-                    </div>
-                </div>
-                <div class="flex items-center space-x-4">
-                    <div class="flex items-center space-x-2">
-                        <div class="w-2 h-2 bg-green-500 rounded-full pulse-dot"></div>
-                        <span class="text-sm text-gray-600">Active Monitoring</span>
-                    </div>
-                    <a href="/add-account.html" class="btn-primary px-6 py-3 text-sm font-semibold rounded-lg shadow-md hover:shadow-lg transition-all">
-                        <i class="fas fa-plus mr-2"></i>Add New Cloud Account
-                    </a>
-                </div>
-            </header>
-
-            <div class="flex-1 p-8 space-y-8">
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div class="account-card rounded-2xl p-6 fade-in">
-                        <div class="flex justify-between items-start mb-4">
-                            <div class="flex-1">
-                                <h3 class="text-gray-600 text-sm font-medium mb-2">Total Cloud Accounts</h3>
-                                <p class="text-4xl font-bold gradient-text mb-1" x-text="accounts.length"></p>
-                                <p class="text-xs text-gray-500">connected accounts</p>
-                            </div>
-                            <div class="w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center">
-                                <i class="fas fa-cloud text-white text-xl"></i>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="account-card rounded-2xl p-6 fade-in">
-                        <div class="flex justify-between items-start mb-4">
-                            <div class="flex-1">
-                                <h3 class="text-gray-600 text-sm font-medium mb-2">Active Connections</h3>
-                                <p class="text-4xl font-bold text-green-600 mb-1" x-text="accounts.filter(a => a.status === 'CONNECTED').length"></p>
-                                <p class="text-xs text-gray-500">verified & ready</p>
-                            </div>
-                            <div class="w-14 h-14 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center">
-                                <i class="fas fa-check-circle text-white text-xl"></i>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="account-card rounded-2xl p-6 fade-in">
-                        <div class="flex justify-between items-start mb-4">
-                            <div class="flex-1">
-                                <h3 class="text-gray-600 text-sm font-medium mb-2">GitHub Repositories</h3>
-                                <p class="text-4xl font-bold gradient-text mb-1" x-text="githubConfigs.length"></p>
-                                <p class="text-xs text-gray-500">connected for CICD</p>
-                            </div>
-                            <div class="w-14 h-14 bg-gradient-to-br from-gray-700 to-gray-900 rounded-xl flex items-center justify-center">
-                                <i class="fab fa-github text-white text-xl"></i>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="glass-card rounded-2xl p-8 fade-in">
-                    <div class="flex items-center justify-between mb-8">
-                        <div class="flex items-center space-x-4">
-                            <div class="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center">
-                                <i class="fas fa-cloud text-white text-lg"></i>
-                            </div>
-                            <div>
-                                <h2 class="text-xl font-bold text-gray-800">Connected Cloud Accounts</h2>
-                                <p class="text-sm text-gray-600">View and manage your cloud account connections</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div x-show="isLoading" x-cloak class="table-enhanced">
-                        <div class="h-10 skeleton w-full"></div>
-                        <div class="h-12 skeleton w-full mt-1"></div>
-                        <div class="h-12 skeleton w-full mt-1"></div>
-                        <div class="h-12 skeleton w-full mt-1"></div>
-                    </div>
-
-                    <div x-show="!isLoading && accounts.length === 0" x-cloak class="empty-state text-center py-20 px-8 rounded-2xl">
-                        <i class="fas fa-cloud text-5xl text-gray-400 mb-4"></i>
-                        <h3 class="text-xl font-bold text-gray-800 mb-2">No Cloud Accounts Connected</h3>
-                        <p class="text-gray-600 mb-6">Start by adding your first AWS, GCP, or Azure account.</p>
-                        <a href="/add-account.html" class="btn-primary px-6 py-3 text-sm font-semibold rounded-lg shadow-md hover:shadow-lg transition-all">
-                            <i class="fas fa-plus mr-2"></i>Add New Account
-                        </a>
-                    </div>
-
-                    <div x-show="!isLoading && accounts.length > 0" x-cloak class="table-enhanced">
-                        <table class="w-full text-sm">
-                            <thead class="text-xs text-gray-700 uppercase bg-gradient-to-r from-gray-50 to-gray-100">
-                            <tr>
-                                <th class="px-6 py-4 text-left font-bold">Account Name</th>
-                                <th class="px-6 py-4 text-left font-bold">Provider</th>
-                                <th class="px-6 py-4 text-left font-bold">Account/Project ID</th>
-                                <th class="px-6 py-4 text-left font-bold">Access Level</th>
-                                <th class="px-6 py-4 text-left font-bold">Status</th>
-                                <th class="px-6 py-4 text-center font-bold">Actions</th>
-                            </tr>
-                            </thead>
-                            <tbody class="divide-y divide-gray-200">
-                            <template x-for="account in accounts" :key="account.dbId">
-                                <tr class="hover:bg-gray-50 transition-all" :class="account.status.toLowerCase()">
-                                    <td class="px-6 py-4 account-cell-indicator">
-                                        <div class="flex items-center space-x-3">
-                                            <div class="w-8 h-8 rounded-lg flex items-center justify-center" :class="{ 'aws-icon': account.provider === 'AWS', 'gcp-icon': account.provider === 'GCP', 'azure-icon': account.provider === 'Azure' }">
-                                                <i class="text-white text-sm" :class="{ 'fab fa-aws': account.provider === 'AWS', 'fab fa-google': account.provider === 'GCP', 'fab fa-microsoft': account.provider === 'Azure' }"></i>
-                                            </div>
-                                            <span class="font-semibold text-gray-900" x-text="account.name"></span>
-                                        </div>
-                                    </td>
-                                    <td class="px-6 py-4 text-gray-700" x-text="account.provider"></td>
-                                    <td class="px-6 py-4">
-                                        <span class="font-mono text-sm bg-gray-100 px-2 py-1 rounded" x-text="account.id || account.azureSubscriptionId || 'N/A'"></span>
-                                    </td>
-                                    <td class="px-6 py-4">
-                                        <div class="flex items-center space-x-2">
-                                            <i class="fas fa-key text-gray-400 text-xs"></i>
-                                            <span class="text-gray-700" x-text="account.access || 'Contributor'"></span>
-                                        </div>
-                                    </td>
-                                    <td class="px-6 py-4">
-                                        <span class="status-badge" :class="getStatusColor(account.status, 'badge')" x-text="account.status"></span>
-                                    </td>
-                                    <td class="px-6 py-4 text-center">
-                                        <div class="flex justify-center space-x-2">
-                                            <button x-show="account.status === 'PENDING' && account.provider === 'AWS'" @click="openVerificationModal(account)" class="action-button px-3 py-2 text-xs font-semibold bg-yellow-500 text-white rounded-lg shadow-md hover:bg-yellow-600">
-                                                <i class="fas fa-check mr-1"></i>Verify
-                                            </button>
-                                            <button @click="removeAccount(account)" class="action-button px-3 py-2 text-xs font-semibold bg-red-600 text-white rounded-lg shadow-md hover:bg-red-700">
-                                                <i class="fas fa-trash mr-1"></i>Remove
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            </template>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <div class="glass-card rounded-2xl p-8 fade-in">
-                    <div class="flex items-center justify-between mb-8">
-                        <div class="flex items-center space-x-4">
-                            <div class="w-10 h-10 bg-gray-800 rounded-xl flex items-center justify-center">
-                                <i class="fab fa-github text-white text-lg"></i>
-                            </div>
-                            <div>
-                                <h2 class="text-xl font-bold text-gray-800">Connected GitHub Repositories</h2>
-                                <p class="text-sm text-gray-600">Manage repositories for CICD pipeline tracking</p>
-                            </div>
-                        </div>
-                         <a href="/add-github-config.html" class="px-4 py-2 bg-gray-800 text-white text-xs font-semibold rounded-lg shadow-md hover:bg-gray-900 transition-all">
-                            <i class="fas fa-plus mr-2"></i>Add Repository
-                        </a>
-                    </div>
-
-                    <div x-show="isGithubLoading" x-cloak class="table-enhanced">
-                         <div class="h-10 skeleton w-full"></div>
-                         <div class="h-12 skeleton w-full mt-1"></div>
-                         <div class="h-12 skeleton w-full mt-1"></div>
-                    </div>
-
-                    <div x-show="!isGithubLoading && githubConfigs.length === 0" x-cloak class="empty-state text-center py-20 px-8 rounded-2xl">
-                        <i class="fab fa-github text-5xl text-gray-400 mb-4"></i>
-                        <h3 class="text-xl font-bold text-gray-800 mb-2">No GitHub Repositories Connected</h3>
-                        <p class="text-gray-600 mb-6">Connect a repository to start monitoring its GitHub Actions.</p>
-                        <a href="/add-github-config.html" class="btn-primary px-6 py-3 text-sm font-semibold rounded-lg shadow-md hover:shadow-lg transition-all" style="background: #24292e;">
-                            <i class="fas fa-plus mr-2"></i>Connect Repository
-                        </a>
-                    </div>
-
-                    <div x-show="!isGithubLoading && githubConfigs.length > 0" x-cloak class="table-enhanced">
-                        <table class="w-full text-sm">
-                            <thead class="text-xs text-gray-700 uppercase bg-gradient-to-r from-gray-50 to-gray-100">
-                            <tr>
-                                <th class="px-6 py-4 text-left font-bold">Repository</th>
-                                <th class="px-6 py-4 text-left font-bold">Owner</th>
-                                <th class="px-6 py-4 text-center font-bold">Actions</th>
-                            </tr>
-                            </thead>
-                            <tbody class="divide-y divide-gray-200">
-                            <template x-for="config in githubConfigs" :key="config.id">
-                                <tr class="hover:bg-gray-50 transition-all">
-                                    <td class="px-6 py-4">
-                                        <div class="flex items-center space-x-3">
-                                            <div class="w-8 h-8 rounded-lg flex items-center justify-center github-icon">
-                                                <i class="fab fa-github text-white text-sm"></i>
-                                            </div>
-                                            <span class="font-semibold text-gray-900" x-text="config.repo"></span>
-                                        </div>
-                                    </td>
-                                    <td class="px-6 py-4">
-                                        <span class="font-mono text-sm bg-gray-100 px-2 py-1 rounded" x-text="config.owner"></span>
-                                    </td>
-                                    <td class="px-6 py-4 text-center">
-                                        <button @click="removeGitHubConfig(config)" class="action-button px-3 py-2 text-xs font-semibold bg-red-600 text-white rounded-lg shadow-md hover:bg-red-700">
-                                            <i class="fas fa-trash mr-1"></i>Remove
-                                        </button>
-                                    </td>
-                                </tr>
-                            </template>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-
-            <div x-show="isModalOpen" x-cloak class="modal-overlay fixed inset-0 flex items-center justify-center z-50" @click.away="isModalOpen = false">
-                <div class="modal-content rounded-2xl p-8 w-full max-w-lg mx-4" @click.stop>
-                    <div class="flex items-center space-x-3 mb-6">
-                        <div class="w-10 h-10 bg-gradient-to-br from-yellow-500 to-orange-600 rounded-xl flex items-center justify-center">
-                            <i class="fas fa-check-double text-white text-lg"></i>
-                        </div>
-                        <h3 class="text-xl font-bold text-gray-800">Verify AWS Account Connection</h3>
-                    </div>
-
-                    <p class="text-sm text-gray-600 mb-6">
-                        After deploying the CloudFormation stack in your AWS account, enter the details from the stack's "Outputs" tab to complete the connection.
-                    </p>
-
-                    <form @submit.prevent="verifyAccount" class="space-y-6">
-                        <div>
-                            <label for="awsAccountId" class="block text-sm font-semibold text-gray-700 mb-2">AWS Account ID</label>
-                            <input type="text" id="awsAccountId" x-model="verificationDetails.awsAccountId" placeholder="123456789012" class="form-input w-full px-4 py-3 rounded-xl border-gray-300 shadow-sm" required>
+        <div class="flex-1 pl-64">
+            <main class="flex-1 flex flex-col min-h-screen" x-data="accountManager()">
+                <header class="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-10">
+                    <div class="flex items-center space-x-4">
+                        <div
+                            class="w-12 h-12 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center">
+                            <i class="fas fa-users-cog text-white text-xl"></i>
                         </div>
                         <div>
-                            <label for="roleName" class="block text-sm font-semibold text-gray-700 mb-2">IAM Role Name</label>
-                            <input type="text" id="roleName" x-model="verificationDetails.roleName" placeholder="XamOps-ReadOnly-Role" class="form-input w-full px-4 py-3 rounded-xl border-gray-300 shadow-sm" required>
+                            <h1 class="text-2xl font-bold text-gray-800">Account Manager</h1>
+                            <p class="text-sm text-gray-600">Manage your connected cloud accounts and CICD integrations
+                            </p>
                         </div>
-                        <div x-show="verificationError" class="text-red-500 text-sm mt-2" x-text="verificationError"></div>
-
-                        <div class="flex justify-end space-x-3 mt-8">
-                            <button type="button" @click="isModalOpen = false" class="btn-secondary px-6 py-3 text-sm font-semibold rounded-lg" :disabled="isVerifying">Cancel</button>
-                            <button type="submit" class="btn-primary px-6 py-3 text-sm font-semibold rounded-lg shadow-md" :disabled="isVerifying">
-                                <span x-show="!isVerifying">Verify & Connect</span>
-                                <span x-show="isVerifying" class="flex items-center"><div class="loading-spinner mr-2"></div>Verifying...</span>
-                            </button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-
-            <div @click="isHelpModalOpen = true" class="fixed bottom-8 right-8 w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center text-white text-2xl shadow-lg cursor-pointer hover:scale-110 transition-transform z-30">
-                <i class="fas fa-question"></i>
-            </div>
-
-            <div x-show="isHelpModalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
-                <div @click="isHelpModalOpen = false" class="modal-overlay fixed inset-0"></div>
-                <div class="modal-content rounded-2xl p-8 w-full max-w-4xl mx-auto max-h-[90vh] overflow-y-auto fade-in" @click.stop x-data="{ openAws: false, openGcp: false, openAzure: false }">
-                    <div class="flex items-center justify-between pb-4 border-b">
-                        <h3 class="font-bold text-xl text-gray-800">Xamops Tool Help Desk: Pre-Onboarding Guide</h3>
-                        <button @click="isHelpModalOpen = false" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
                     </div>
-                    <div class="space-y-6 mt-6 text-sm text-gray-700">
-                        <p>Welcome to the Xamops Tool Help Desk! This guide supports clients onboarding to our Managed Partner Account (MPA) under the Partner-Led Billing (PLB) model across AWS, GCP, and Azure. As an MPA, we handle each customer account with utmost care, ensuring isolation, security, and autonomy. Every account is treated as a unique entity, with dedicated organizational units, custom policies, and delegated controls to prevent any cross-client interference or risks. We use zero-trust principles, meaning no shared resources unless explicitly requested and isolated, and all actions are logged and auditable. Our team conducts regular reviews and consultations to adapt to your evolving needs, providing transparency through Xamops dashboards that allow you to monitor billing, security, and compliance in real-time. This approach not only secures your setup but also empowers you with control over your environment while we manage the backend governance and billing.</p>
+                    <div class="flex items-center space-x-4">
+                        <div class="flex items-center space-x-2">
+                            <div class="w-2 h-2 bg-green-500 rounded-full pulse-dot"></div>
+                            <span class="text-sm text-gray-600">Active Monitoring</span>
+                        </div>
+                        <a href="/add-account.html"
+                            class="btn-primary px-6 py-3 text-sm font-semibold rounded-lg shadow-md hover:shadow-lg transition-all">
+                            <i class="fas fa-plus mr-2"></i>Add New Cloud Account
+                        </a>
+                    </div>
+                </header>
 
-                        <p>We collaborate through personalized consultations to customize integrations, ensuring fit for your industry. Xamops differentiates with "+1 level of security": real-time dashboards, simulation tools, and delegated controls for empowerment. Contact support at <a href="mailto:support@xamops.com">support@xamops.com</a>.</p>
-
-                        <p>Explore provider-specific guides below:</p>
-
-                        <div x-data="{ open: false }">
-                            <div class="accordion-header flex items-center justify-between" @click="open = !open">
-                                <h4 class="font-semibold text-lg text-gray-800">AWS Pre-Onboarding Guide</h4>
-                                <i class="fas" :class="{ 'fa-chevron-down': !open, 'fa-chevron-up': open }"></i>
+                <div class="flex-1 p-8 space-y-8">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div class="account-card rounded-2xl p-6 fade-in">
+                            <div class="flex justify-between items-start mb-4">
+                                <div class="flex-1">
+                                    <h3 class="text-gray-600 text-sm font-medium mb-2">Total Cloud Accounts</h3>
+                                    <p class="text-4xl font-bold gradient-text mb-1" x-text="accounts.length"></p>
+                                    <p class="text-xs text-gray-500">connected accounts</p>
+                                </div>
+                                <div
+                                    class="w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center">
+                                    <i class="fas fa-cloud text-white text-xl"></i>
+                                </div>
                             </div>
-                            <div x-show="open" class="accordion-content space-y-4">
-                                <p>At Xamops, we handle each AWS customer account with a structured, secure, and collaborative approach. From the moment you accept our invitation, your account is isolated in a dedicated Organizational Unit (OU) within our AWS Organization. This OU serves as a logical boundary, applying policies specifically to your accounts without affecting others. We ensure that all data, identities, and resources are segregated, using features like AWS RAM for controlled sharing if needed, but by default, everything is private to you. Our MPA role allows us to manage billing and high-level governance, but operational control remains with you through delegated IAM roles and permission sets. We conduct initial assessments to map your workloads, compliance needs, and team structure, then tailor the setup accordingly. Regular check-ins via Xamops ensure ongoing optimization, with tools for you to simulate changes before applying them.</p>
+                        </div>
 
-                                <h5 class="font-semibold text-md">Guided Step 1: Initial Consultation and Connection to Our MPA</h5>
-                                <p>We begin with a personalized consultation via Xamops video or chat to understand your business needs, such as workload types (e.g., web apps, databases) or compliance requirements. This solves questions like "How does this fit my industry?" by customizing the integration early. During this step, we discuss your current AWS setup, if any, and plan the migration or integration to minimize downtime. We also review your team structure to ensure identity federation aligns with your existing processes.</p>
-                                <ul class="list-disc pl-5">
-                                    <li><strong>Invitation and Organization Join</strong>: We send a secure invitation from our MPA's management account for you to join our AWS Organization. Accept via the AWS Management Console, AWS CLI, or SDK—Xamops provides step-by-step tutorials with screenshots. This join is reversible, but we apply policies to prevent accidental exits for stability.</li>
-                                    <li><strong>Creating Your Dedicated Organizational Unit (OU)</strong>: Once joined, we create a top-level OU called `Clients` (if not already present) and a sub-OU just for you (e.g., `YourCompany-OU`). All your AWS accounts (e.g., Production, Development, Testing) will live exclusively here. The OU acts as a policy boundary, ensuring security controls are scoped only to your environment. This prevents any cross-client visibility or "reverse security" risks, where one client could potentially access another's resources. OUs enable hierarchical policy application: organization-wide policies for baseline security, OU-level for client-specific customizations, and account-level for fine-tuning. This structure enhances security by allowing granular control—e.g., denying actions in non-production OUs while allowing them in dev. It also facilitates cost allocation and auditing, as all resources under your OU are tagged and reported separately. In practice, this makes your setup more secure by enforcing least privilege at scale, reducing blast radius of incidents, and enabling quick isolation if needed. As an MPA, we monitor OU integrity but delegate management to you for autonomy.</li>
-                                    <li><strong>Billing Setup</strong>: PLB enables centralized invoicing, with Xamops-integrated AWS Cost Explorer showing your costs via tags (e.g., `Client:YourCompany`). Set up budgets and alerts to avoid surprises. We provide detailed breakdowns and forecasting to help you optimize spend.</li>
-                                    <li><strong>Industry Alignment and Our +1 Security</strong>: Like consultants (e.g., Deloitte's multi-account strategies for enterprise isolation), we ensure OU-based separation. Our +1: Use the Xamops pre-onboarding simulator to preview your OU structure and verify isolation before activation, including policy simulations.</li>
-                                </ul>
+                        <div class="account-card rounded-2xl p-6 fade-in">
+                            <div class="flex justify-between items-start mb-4">
+                                <div class="flex-1">
+                                    <h3 class="text-gray-600 text-sm font-medium mb-2">Active Connections</h3>
+                                    <p class="text-4xl font-bold text-green-600 mb-1"
+                                        x-text="accounts.filter(a => a.status === 'CONNECTED').length"></p>
+                                    <p class="text-xs text-gray-500">verified & ready</p>
+                                </div>
+                                <div
+                                    class="w-14 h-14 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center">
+                                    <i class="fas fa-check-circle text-white text-xl"></i>
+                                </div>
+                            </div>
+                        </div>
 
-                                <h5 class="font-semibold text-md">Guided Step 2: Establishing Your Governed Environment with AWS Control Tower</h5>
-                                <p>In collaborative Xamops sessions, we enable AWS Control Tower to automate a governed landing zone, reducing setup time and misconfigurations. This step involves reviewing your compliance needs (e.g., PCI DSS, SOC 2) and applying baselines accordingly.</p>
-                                <ul class="list-disc pl-5">
-                                    <li><strong>Enabling Control Tower</strong>: Activated at the Organization level, it provisions a Log Archive Account with immutable S3 buckets for CloudTrail logs and an Audit Account for security tools and auditor access.</li>
-                                    <li><strong>Drift Detection for Transparency</strong>: Monitors for unauthorized changes, triggering alerts via EventBridge and SNS to your team. Details include what changed, who, and when, empowering immediate action.</li>
-                                    <li><strong>Custom Options</strong>: Standard shared setup for efficiency or dedicated for ultimate isolation.</li>
-                                </ul>
+                        <div class="account-card rounded-2xl p-6 fade-in">
+                            <div class="flex justify-between items-start mb-4">
+                                <div class="flex-1">
+                                    <h3 class="text-gray-600 text-sm font-medium mb-2">GitHub Repositories</h3>
+                                    <p class="text-4xl font-bold gradient-text mb-1" x-text="githubConfigs.length"></p>
+                                    <p class="text-xs text-gray-500">connected for CICD</p>
+                                </div>
+                                <div
+                                    class="w-14 h-14 bg-gradient-to-br from-gray-700 to-gray-900 rounded-xl flex items-center justify-center">
+                                    <i class="fab fa-github text-white text-xl"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
 
-                                <h5 class="font-semibold text-md">Guided Step 3: Configuring Identity & Access Management – Your Control First</h5>
-                                <p>Using Xamops workflows, we federate identities, ensuring your IdP is the source of truth. We support scenarios with or without an existing IdP, with layers like MFA and ABAC.</p>
-                                <ul class="list-disc pl-5">
-                                    <li><strong>Federation Process (With IdP)</strong>: Exchange SAML metadata, enable SCIM for syncing, map groups to Permission Sets.</li>
-                                    <li><strong>Directory Setup (Without IdP)</strong>: Isolated directory with delegated admin.</li>
-                                    <li><strong>Options</strong>: Direct, account instance, or separate Organization.</li>
-                                </ul>
+                    <div class="glass-card rounded-2xl p-8 fade-in">
+                        <div class="flex items-center justify-between mb-8">
+                            <div class="flex items-center space-x-4">
+                                <div
+                                    class="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center">
+                                    <i class="fas fa-cloud text-white text-lg"></i>
+                                </div>
+                                <div>
+                                    <h2 class="text-xl font-bold text-gray-800">Connected Cloud Accounts</h2>
+                                    <p class="text-sm text-gray-600">View and manage your cloud account connections</p>
+                                </div>
+                            </div>
+                        </div>
 
-                                <h5 class="font-semibold text-md">Guided Step 4: Implementing Preventive Security – Custom Guardrails</h5>
-                                <p>We co-design SCPs attached to your OU, denying risky actions. As an MPA, we allow industry-standard policies like denying IAM user creation, restricting public S3 access, and enforcing encryption. Here are three example SCPs:</p>
-                                <div class="code-block">
-<pre><code>{
+                        <div x-show="isLoading" x-cloak class="table-enhanced">
+                            <div class="h-10 skeleton w-full"></div>
+                            <div class="h-12 skeleton w-full mt-1"></div>
+                            <div class="h-12 skeleton w-full mt-1"></div>
+                            <div class="h-12 skeleton w-full mt-1"></div>
+                        </div>
+
+                        <div x-show="!isLoading && accounts.length === 0" x-cloak
+                            class="empty-state text-center py-20 px-8 rounded-2xl">
+                            <i class="fas fa-cloud text-5xl text-gray-400 mb-4"></i>
+                            <h3 class="text-xl font-bold text-gray-800 mb-2">No Cloud Accounts Connected</h3>
+                            <p class="text-gray-600 mb-6">Start by adding your first AWS, GCP, or Azure account.</p>
+                            <a href="/add-account.html"
+                                class="btn-primary px-6 py-3 text-sm font-semibold rounded-lg shadow-md hover:shadow-lg transition-all">
+                                <i class="fas fa-plus mr-2"></i>Add New Account
+                            </a>
+                        </div>
+
+                        <div x-show="!isLoading && accounts.length > 0" x-cloak class="table-enhanced">
+                            <table class="w-full text-sm">
+                                <thead
+                                    class="text-xs text-gray-700 uppercase bg-gradient-to-r from-gray-50 to-gray-100">
+                                    <tr>
+                                        <th class="px-6 py-4 text-left font-bold">Account Name</th>
+                                        <th class="px-6 py-4 text-left font-bold">Provider</th>
+                                        <th class="px-6 py-4 text-left font-bold">Account/Project ID</th>
+                                        <th class="px-6 py-4 text-left font-bold">Access Level</th>
+                                        <th class="px-6 py-4 text-left font-bold">Status</th>
+                                        <th class="px-6 py-4 text-center font-bold">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200">
+                                    <template x-for="account in accounts" :key="account.dbId">
+                                        <tr class="hover:bg-gray-50 transition-all"
+                                            :class="account.status.toLowerCase()">
+                                            <td class="px-6 py-4 account-cell-indicator">
+                                                <div class="flex items-center space-x-3">
+                                                    <div class="w-8 h-8 rounded-lg flex items-center justify-center"
+                                                        :class="{ 'aws-icon': account.provider === 'AWS', 'gcp-icon': account.provider === 'GCP', 'azure-icon': account.provider === 'Azure' }">
+                                                        <i class="text-white text-sm"
+                                                            :class="{ 'fab fa-aws': account.provider === 'AWS', 'fab fa-google': account.provider === 'GCP', 'fab fa-microsoft': account.provider === 'Azure' }"></i>
+                                                    </div>
+                                                    <span class="font-semibold text-gray-900"
+                                                        x-text="account.name"></span>
+                                                </div>
+                                            </td>
+                                            <td class="px-6 py-4 text-gray-700" x-text="account.provider"></td>
+                                            <td class="px-6 py-4">
+                                                <span class="font-mono text-sm bg-gray-100 px-2 py-1 rounded"
+                                                    x-text="account.id || account.azureSubscriptionId || 'N/A'"></span>
+                                            </td>
+                                            <td class="px-6 py-4">
+                                                <div class="flex items-center space-x-2">
+                                                    <i class="fas fa-key text-gray-400 text-xs"></i>
+                                                    <span class="text-gray-700"
+                                                        x-text="account.access || 'Contributor'"></span>
+                                                </div>
+                                            </td>
+                                            <td class="px-6 py-4">
+                                                <span class="status-badge"
+                                                    :class="getStatusColor(account.status, 'badge')"
+                                                    x-text="account.status"></span>
+                                            </td>
+                                            <td class="px-6 py-4 text-center">
+                                                <div class="flex justify-center space-x-2">
+                                                    <button
+                                                        x-show="account.status === 'PENDING' && account.provider === 'AWS'"
+                                                        @click="openVerificationModal(account)"
+                                                        class="action-button px-3 py-2 text-xs font-semibold bg-yellow-500 text-white rounded-lg shadow-md hover:bg-yellow-600">
+                                                        <i class="fas fa-check mr-1"></i>Verify
+                                                    </button>
+                                                    <button @click="removeAccount(account)"
+                                                        class="action-button px-3 py-2 text-xs font-semibold bg-red-600 text-white rounded-lg shadow-md hover:bg-red-700">
+                                                        <i class="fas fa-trash mr-1"></i>Remove
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="glass-card rounded-2xl p-8 fade-in">
+                        <div class="flex items-center justify-between mb-8">
+                            <div class="flex items-center space-x-4">
+                                <div class="w-10 h-10 bg-gray-800 rounded-xl flex items-center justify-center">
+                                    <i class="fab fa-github text-white text-lg"></i>
+                                </div>
+                                <div>
+                                    <h2 class="text-xl font-bold text-gray-800">Connected GitHub Repositories</h2>
+                                    <p class="text-sm text-gray-600">Manage repositories for CICD pipeline tracking</p>
+                                </div>
+                            </div>
+                            <a href="/add-github-config.html"
+                                class="px-4 py-2 bg-gray-800 text-white text-xs font-semibold rounded-lg shadow-md hover:bg-gray-900 transition-all">
+                                <i class="fas fa-plus mr-2"></i>Add Repository
+                            </a>
+                        </div>
+
+                        <div x-show="isGithubLoading" x-cloak class="table-enhanced">
+                            <div class="h-10 skeleton w-full"></div>
+                            <div class="h-12 skeleton w-full mt-1"></div>
+                            <div class="h-12 skeleton w-full mt-1"></div>
+                        </div>
+
+                        <div x-show="!isGithubLoading && githubConfigs.length === 0" x-cloak
+                            class="empty-state text-center py-20 px-8 rounded-2xl">
+                            <i class="fab fa-github text-5xl text-gray-400 mb-4"></i>
+                            <h3 class="text-xl font-bold text-gray-800 mb-2">No GitHub Repositories Connected</h3>
+                            <p class="text-gray-600 mb-6">Connect a repository to start monitoring its GitHub Actions.
+                            </p>
+                            <a href="/add-github-config.html"
+                                class="btn-primary px-6 py-3 text-sm font-semibold rounded-lg shadow-md hover:shadow-lg transition-all"
+                                style="background: #24292e;">
+                                <i class="fas fa-plus mr-2"></i>Connect Repository
+                            </a>
+                        </div>
+
+                        <div x-show="!isGithubLoading && githubConfigs.length > 0" x-cloak class="table-enhanced">
+                            <table class="w-full text-sm">
+                                <thead
+                                    class="text-xs text-gray-700 uppercase bg-gradient-to-r from-gray-50 to-gray-100">
+                                    <tr>
+                                        <th class="px-6 py-4 text-left font-bold">Repository</th>
+                                        <th class="px-6 py-4 text-left font-bold">Owner</th>
+                                        <th class="px-6 py-4 text-center font-bold">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200">
+                                    <template x-for="config in githubConfigs" :key="config.id">
+                                        <tr class="hover:bg-gray-50 transition-all">
+                                            <td class="px-6 py-4">
+                                                <div class="flex items-center space-x-3">
+                                                    <div
+                                                        class="w-8 h-8 rounded-lg flex items-center justify-center github-icon">
+                                                        <i class="fab fa-github text-white text-sm"></i>
+                                                    </div>
+                                                    <span class="font-semibold text-gray-900"
+                                                        x-text="config.repo"></span>
+                                                </div>
+                                            </td>
+                                            <td class="px-6 py-4">
+                                                <span class="font-mono text-sm bg-gray-100 px-2 py-1 rounded"
+                                                    x-text="config.owner"></span>
+                                            </td>
+                                            <td class="px-6 py-4 text-center">
+                                                <button @click="removeGitHubConfig(config)"
+                                                    class="action-button px-3 py-2 text-xs font-semibold bg-red-600 text-white rounded-lg shadow-md hover:bg-red-700">
+                                                    <i class="fas fa-trash mr-1"></i>Remove
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="glass-card rounded-2xl p-8 fade-in">
+                        <div class="flex items-center justify-between mb-8">
+                            <div class="flex items-center space-x-4">
+                                <div class="w-10 h-10 bg-gray-800 rounded-xl flex items-center justify-center">
+                                    <i class="fab fa-jenkins text-white text-lg"></i>
+                                </div>
+                                <div>
+                                    <h2 class="text-xl font-bold text-gray-800">Connected Jenkins Servers</h2>
+                                    <p class="text-sm text-gray-600">Manage Jenkins instances for pipeline tracking</p>
+                                </div>
+                            </div>
+                            <a href="/add-account.html"
+                                class="px-4 py-2 bg-gray-800 text-white text-xs font-semibold rounded-lg shadow-md hover:bg-gray-900 transition-all">
+                                <i class="fas fa-plus mr-2"></i>Add Server
+                            </a>
+                        </div>
+
+                        <div x-show="isJenkinsLoading" x-cloak class="table-enhanced">
+                            <div class="h-10 skeleton w-full"></div>
+                            <div class="h-12 skeleton w-full mt-1"></div>
+                        </div>
+
+                        <div x-show="!isJenkinsLoading && jenkinsConfigs.length === 0" x-cloak
+                            class="empty-state text-center py-20 px-8 rounded-2xl">
+                            <i class="fab fa-jenkins text-5xl text-gray-400 mb-4"></i>
+                            <h3 class="text-xl font-bold text-gray-800 mb-2">No Jenkins Servers Connected</h3>
+                            <p class="text-gray-600 mb-6">Connect a server to start monitoring build jobs.</p>
+                        </div>
+
+                        <div x-show="!isJenkinsLoading && jenkinsConfigs.length > 0" x-cloak class="table-enhanced">
+                            <table class="w-full text-sm">
+                                <thead
+                                    class="text-xs text-gray-700 uppercase bg-gradient-to-r from-gray-50 to-gray-100">
+                                    <tr>
+                                        <th class="px-6 py-4 text-left font-bold">URL</th>
+                                        <th class="px-6 py-4 text-left font-bold">Username</th>
+                                        <th class="px-6 py-4 text-center font-bold">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200">
+                                    <template x-for="config in jenkinsConfigs" :key="config.id">
+                                        <tr class="hover:bg-gray-50 transition-all">
+                                            <td class="px-6 py-4">
+                                                <div class="flex items-center space-x-3">
+                                                    <div
+                                                        class="w-8 h-8 rounded-lg flex items-center justify-center bg-gray-200">
+                                                        <i class="fab fa-jenkins text-gray-700 text-sm"></i>
+                                                    </div>
+                                                    <span class="font-semibold text-gray-900"
+                                                        x-text="config.jenkinsUrl"></span>
+                                                </div>
+                                            </td>
+                                            <td class="px-6 py-4">
+                                                <span class="font-mono text-sm bg-gray-100 px-2 py-1 rounded"
+                                                    x-text="config.username"></span>
+                                            </td>
+                                            <td class="px-6 py-4 text-center">
+                                                <button @click="removeJenkinsConfig(config)"
+                                                    class="action-button px-3 py-2 text-xs font-semibold bg-red-600 text-white rounded-lg shadow-md hover:bg-red-700">
+                                                    <i class="fas fa-trash mr-1"></i>Remove
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div x-show="isModalOpen" x-cloak
+                    class="modal-overlay fixed inset-0 flex items-center justify-center z-50"
+                    @click.away="isModalOpen = false">
+                    <div class="modal-content rounded-2xl p-8 w-full max-w-lg mx-4" @click.stop>
+                        <div class="flex items-center space-x-3 mb-6">
+                            <div
+                                class="w-10 h-10 bg-gradient-to-br from-yellow-500 to-orange-600 rounded-xl flex items-center justify-center">
+                                <i class="fas fa-check-double text-white text-lg"></i>
+                            </div>
+                            <h3 class="text-xl font-bold text-gray-800">Verify AWS Account Connection</h3>
+                        </div>
+
+                        <p class="text-sm text-gray-600 mb-6">
+                            After deploying the CloudFormation stack in your AWS account, enter the details from the
+                            stack's "Outputs" tab to complete the connection.
+                        </p>
+
+                        <form @submit.prevent="verifyAccount" class="space-y-6">
+                            <div>
+                                <label for="awsAccountId" class="block text-sm font-semibold text-gray-700 mb-2">AWS
+                                    Account ID</label>
+                                <input type="text" id="awsAccountId" x-model="verificationDetails.awsAccountId"
+                                    placeholder="123456789012"
+                                    class="form-input w-full px-4 py-3 rounded-xl border-gray-300 shadow-sm" required>
+                            </div>
+                            <div>
+                                <label for="roleName" class="block text-sm font-semibold text-gray-700 mb-2">IAM Role
+                                    Name</label>
+                                <input type="text" id="roleName" x-model="verificationDetails.roleName"
+                                    placeholder="XamOps-ReadOnly-Role"
+                                    class="form-input w-full px-4 py-3 rounded-xl border-gray-300 shadow-sm" required>
+                            </div>
+                            <div x-show="verificationError" class="text-red-500 text-sm mt-2"
+                                x-text="verificationError"></div>
+
+                            <div class="flex justify-end space-x-3 mt-8">
+                                <button type="button" @click="isModalOpen = false"
+                                    class="btn-secondary px-6 py-3 text-sm font-semibold rounded-lg"
+                                    :disabled="isVerifying">Cancel</button>
+                                <button type="submit"
+                                    class="btn-primary px-6 py-3 text-sm font-semibold rounded-lg shadow-md"
+                                    :disabled="isVerifying">
+                                    <span x-show="!isVerifying">Verify & Connect</span>
+                                    <span x-show="isVerifying" class="flex items-center">
+                                        <div class="loading-spinner mr-2"></div>Verifying...
+                                    </span>
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <div @click="isHelpModalOpen = true"
+                    class="fixed bottom-8 right-8 w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center text-white text-2xl shadow-lg cursor-pointer hover:scale-110 transition-transform z-30">
+                    <i class="fas fa-question"></i>
+                </div>
+
+                <div x-show="isHelpModalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div @click="isHelpModalOpen = false" class="modal-overlay fixed inset-0"></div>
+                    <div class="modal-content rounded-2xl p-8 w-full max-w-4xl mx-auto max-h-[90vh] overflow-y-auto fade-in"
+                        @click.stop x-data="{ openAws: false, openGcp: false, openAzure: false }">
+                        <div class="flex items-center justify-between pb-4 border-b">
+                            <h3 class="font-bold text-xl text-gray-800">Xamops Tool Help Desk: Pre-Onboarding Guide</h3>
+                            <button @click="isHelpModalOpen = false"
+                                class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+                        </div>
+                        <div class="space-y-6 mt-6 text-sm text-gray-700">
+                            <p>Welcome to the Xamops Tool Help Desk! This guide supports clients onboarding to our
+                                Managed Partner Account (MPA) under the Partner-Led Billing (PLB) model across AWS, GCP,
+                                and Azure. As an MPA, we handle each customer account with utmost care, ensuring
+                                isolation, security, and autonomy. Every account is treated as a unique entity, with
+                                dedicated organizational units, custom policies, and delegated controls to prevent any
+                                cross-client interference or risks. We use zero-trust principles, meaning no shared
+                                resources unless explicitly requested and isolated, and all actions are logged and
+                                auditable. Our team conducts regular reviews and consultations to adapt to your evolving
+                                needs, providing transparency through Xamops dashboards that allow you to monitor
+                                billing, security, and compliance in real-time. This approach not only secures your
+                                setup but also empowers you with control over your environment while we manage the
+                                backend governance and billing.</p>
+
+                            <p>We collaborate through personalized consultations to customize integrations, ensuring fit
+                                for your industry. Xamops differentiates with "+1 level of security": real-time
+                                dashboards, simulation tools, and delegated controls for empowerment. Contact support at
+                                <a href="mailto:support@xamops.com">support@xamops.com</a>.
+                            </p>
+
+                            <p>Explore provider-specific guides below:</p>
+
+                            <div x-data="{ open: false }">
+                                <div class="accordion-header flex items-center justify-between" @click="open = !open">
+                                    <h4 class="font-semibold text-lg text-gray-800">AWS Pre-Onboarding Guide</h4>
+                                    <i class="fas" :class="{ 'fa-chevron-down': !open, 'fa-chevron-up': open }"></i>
+                                </div>
+                                <div x-show="open" class="accordion-content space-y-4">
+                                    <p>At Xamops, we handle each AWS customer account with a structured, secure, and
+                                        collaborative approach. From the moment you accept our invitation, your account
+                                        is isolated in a dedicated Organizational Unit (OU) within our AWS Organization.
+                                        This OU serves as a logical boundary, applying policies specifically to your
+                                        accounts without affecting others. We ensure that all data, identities, and
+                                        resources are segregated, using features like AWS RAM for controlled sharing if
+                                        needed, but by default, everything is private to you. Our MPA role allows us to
+                                        manage billing and high-level governance, but operational control remains with
+                                        you through delegated IAM roles and permission sets. We conduct initial
+                                        assessments to map your workloads, compliance needs, and team structure, then
+                                        tailor the setup accordingly. Regular check-ins via Xamops ensure ongoing
+                                        optimization, with tools for you to simulate changes before applying them.</p>
+
+                                    <h5 class="font-semibold text-md">Guided Step 1: Initial Consultation and Connection
+                                        to Our MPA</h5>
+                                    <p>We begin with a personalized consultation via Xamops video or chat to understand
+                                        your business needs, such as workload types (e.g., web apps, databases) or
+                                        compliance requirements. This solves questions like "How does this fit my
+                                        industry?" by customizing the integration early. During this step, we discuss
+                                        your current AWS setup, if any, and plan the migration or integration to
+                                        minimize downtime. We also review your team structure to ensure identity
+                                        federation aligns with your existing processes.</p>
+                                    <ul class="list-disc pl-5">
+                                        <li><strong>Invitation and Organization Join</strong>: We send a secure
+                                            invitation from our MPA's management account for you to join our AWS
+                                            Organization. Accept via the AWS Management Console, AWS CLI, or SDK—Xamops
+                                            provides step-by-step tutorials with screenshots. This join is reversible,
+                                            but we apply policies to prevent accidental exits for stability.</li>
+                                        <li><strong>Creating Your Dedicated Organizational Unit (OU)</strong>: Once
+                                            joined, we create a top-level OU called `Clients` (if not already present)
+                                            and a sub-OU just for you (e.g., `YourCompany-OU`). All your AWS accounts
+                                            (e.g., Production, Development, Testing) will live exclusively here. The OU
+                                            acts as a policy boundary, ensuring security controls are scoped only to
+                                            your environment. This prevents any cross-client visibility or "reverse
+                                            security" risks, where one client could potentially access another's
+                                            resources. OUs enable hierarchical policy application: organization-wide
+                                            policies for baseline security, OU-level for client-specific customizations,
+                                            and account-level for fine-tuning. This structure enhances security by
+                                            allowing granular control—e.g., denying actions in non-production OUs while
+                                            allowing them in dev. It also facilitates cost allocation and auditing, as
+                                            all resources under your OU are tagged and reported separately. In practice,
+                                            this makes your setup more secure by enforcing least privilege at scale,
+                                            reducing blast radius of incidents, and enabling quick isolation if needed.
+                                            As an MPA, we monitor OU integrity but delegate management to you for
+                                            autonomy.</li>
+                                        <li><strong>Billing Setup</strong>: PLB enables centralized invoicing, with
+                                            Xamops-integrated AWS Cost Explorer showing your costs via tags (e.g.,
+                                            `Client:YourCompany`). Set up budgets and alerts to avoid surprises. We
+                                            provide detailed breakdowns and forecasting to help you optimize spend.</li>
+                                        <li><strong>Industry Alignment and Our +1 Security</strong>: Like consultants
+                                            (e.g., Deloitte's multi-account strategies for enterprise isolation), we
+                                            ensure OU-based separation. Our +1: Use the Xamops pre-onboarding simulator
+                                            to preview your OU structure and verify isolation before activation,
+                                            including policy simulations.</li>
+                                    </ul>
+
+                                    <h5 class="font-semibold text-md">Guided Step 2: Establishing Your Governed
+                                        Environment with AWS Control Tower</h5>
+                                    <p>In collaborative Xamops sessions, we enable AWS Control Tower to automate a
+                                        governed landing zone, reducing setup time and misconfigurations. This step
+                                        involves reviewing your compliance needs (e.g., PCI DSS, SOC 2) and applying
+                                        baselines accordingly.</p>
+                                    <ul class="list-disc pl-5">
+                                        <li><strong>Enabling Control Tower</strong>: Activated at the Organization
+                                            level, it provisions a Log Archive Account with immutable S3 buckets for
+                                            CloudTrail logs and an Audit Account for security tools and auditor access.
+                                        </li>
+                                        <li><strong>Drift Detection for Transparency</strong>: Monitors for unauthorized
+                                            changes, triggering alerts via EventBridge and SNS to your team. Details
+                                            include what changed, who, and when, empowering immediate action.</li>
+                                        <li><strong>Custom Options</strong>: Standard shared setup for efficiency or
+                                            dedicated for ultimate isolation.</li>
+                                    </ul>
+
+                                    <h5 class="font-semibold text-md">Guided Step 3: Configuring Identity & Access
+                                        Management – Your Control First</h5>
+                                    <p>Using Xamops workflows, we federate identities, ensuring your IdP is the source
+                                        of truth. We support scenarios with or without an existing IdP, with layers like
+                                        MFA and ABAC.</p>
+                                    <ul class="list-disc pl-5">
+                                        <li><strong>Federation Process (With IdP)</strong>: Exchange SAML metadata,
+                                            enable SCIM for syncing, map groups to Permission Sets.</li>
+                                        <li><strong>Directory Setup (Without IdP)</strong>: Isolated directory with
+                                            delegated admin.</li>
+                                        <li><strong>Options</strong>: Direct, account instance, or separate
+                                            Organization.</li>
+                                    </ul>
+
+                                    <h5 class="font-semibold text-md">Guided Step 4: Implementing Preventive Security –
+                                        Custom Guardrails</h5>
+                                    <p>We co-design SCPs attached to your OU, denying risky actions. As an MPA, we allow
+                                        industry-standard policies like denying IAM user creation, restricting public S3
+                                        access, and enforcing encryption. Here are three example SCPs:</p>
+                                    <div class="code-block">
+                                        <pre><code>{
   "Version": "2012-10-17",
   "Statement": [
     {
@@ -635,10 +871,11 @@
     }
   ]
 }</code></pre>
-                                </div>
-                                <p>This policy prevents creation of long-term IAM users and access keys, forcing federated access for security.</p>
-                                <div class="code-block">
-<pre><code>{
+                                    </div>
+                                    <p>This policy prevents creation of long-term IAM users and access keys, forcing
+                                        federated access for security.</p>
+                                    <div class="code-block">
+                                        <pre><code>{
   "Version": "2012-10-17",
   "Statement": [
     {
@@ -657,10 +894,10 @@
     }
   ]
 }</code></pre>
-                                </div>
-                                <p>This enforces public access blocks on S3 buckets, preventing data exposure.</p>
-                                <div class="code-block">
-<pre><code>{
+                                    </div>
+                                    <p>This enforces public access blocks on S3 buckets, preventing data exposure.</p>
+                                    <div class="code-block">
+                                        <pre><code>{
   "Version": "2012-10-17",
   "Statement": [
     {
@@ -678,168 +915,223 @@
     }
   ]
 }</code></pre>
+                                    </div>
+                                    <p>This requires server-side encryption for S3 objects, ensuring data at rest
+                                        protection.</p>
+                                    <ul class="list-disc pl-5">
+                                        <li><strong>Managing SCPs</strong>: Delegated admin role for modifications.</li>
+                                        <li><strong>Additional Measures</strong>: PrivateLink, customer-managed KMS
+                                            keys.</li>
+                                        <li><strong>Options</strong>: Guided templates, client-managed, or separate.
+                                        </li>
+                                    </ul>
+
+                                    <h5 class="font-semibold text-md">Guided Step 5: Architecture Options</h5>
+                                    <p>Design sessions to choose multi-account, siloed, pooled, hybrid, or serverless
+                                        architectures, tailored to your workloads.</p>
+
+                                    <h5 class="font-semibold text-md">Guided Step 6: Activation and Go-Live</h5>
+                                    <p>Activate services like Security Hub, GuardDuty, with simulations and handover.
+                                    </p>
+
+                                    <h5 class="font-semibold text-md">Special Section: Enhanced Considerations for
+                                        FinTech Clients</h5>
+                                    <p>For FinTech, we add SCIM, stricter SCPs, and PII monitoring, with siloed
+                                        architectures for high-risk data.</p>
+
+                                    <h5 class="font-semibold text-md">Common Client Questions and How We Solve Them</h5>
+                                    <ul class="list-disc pl-5">
+                                        <li><strong>Q: How do you ensure my data is isolated from other
+                                                clients?</strong> A: Through dedicated OUs and SCPs that enforce
+                                            boundaries, preventing cross-account access.</li>
+                                        <li><strong>Q: Can I control my own identities?</strong> A: Yes, via federation
+                                            with your IdP or delegated directory management.</li>
+                                        <li><strong>Q: What if there's a configuration change I didn't
+                                                authorize?</strong> A: Drift detection alerts you immediately with
+                                            details for quick remediation.</li>
+                                        <li><strong>Q: How is billing handled without hidden costs?</strong> A:
+                                            Centralized PLB with tagged cost breakdowns and budgets in Cost Explorer.
+                                        </li>
+                                        <li><strong>Q: Can I customize security policies?</strong> A: Absolutely, with
+                                            delegated roles to modify SCPs in your OU.</li>
+                                        <li><strong>Q: What about compliance for my industry?</strong> A: We align with
+                                            standards like PCI DSS, applying relevant controls during setup.</li>
+                                        <li><strong>Q: How do you prevent backdoors?</strong> A: Zero-trust with
+                                            temporary roles, no persistent access, and auditable logs.</li>
+                                        <li><strong>Q: Can I test changes before applying?</strong> A: Yes, using Xamops
+                                            simulators for policies and architectures.</li>
+                                        <li><strong>Q: What if I need to leave the MPA?</strong> A: Reversible join,
+                                            with policies to ensure smooth exit without data loss.</li>
+                                        <li><strong>Q: How do you handle account monitoring?</strong> A: Real-time
+                                            Xamops dashboards for you to view metrics and alerts.</li>
+                                        <li><strong>Q: Is there support for multiple environments?</strong> A: Yes,
+                                            separate accounts per env (prod/dev) under your OU.</li>
+                                        <li><strong>Q: How secure is encryption?</strong> A: Customer-managed KMS keys,
+                                            with policies enforcing usage.</li>
+                                    </ul>
+
+                                    <p>Final Assurances: Your data and control are paramount—we're your secure
+                                        foundation. Start onboarding or contact support.</p>
                                 </div>
-                                <p>This requires server-side encryption for S3 objects, ensuring data at rest protection.</p>
-                                <ul class="list-disc pl-5">
-                                    <li><strong>Managing SCPs</strong>: Delegated admin role for modifications.</li>
-                                    <li><strong>Additional Measures</strong>: PrivateLink, customer-managed KMS keys.</li>
-                                    <li><strong>Options</strong>: Guided templates, client-managed, or separate.</li>
-                                </ul>
-
-                                <h5 class="font-semibold text-md">Guided Step 5: Architecture Options</h5>
-                                <p>Design sessions to choose multi-account, siloed, pooled, hybrid, or serverless architectures, tailored to your workloads.</p>
-
-                                <h5 class="font-semibold text-md">Guided Step 6: Activation and Go-Live</h5>
-                                <p>Activate services like Security Hub, GuardDuty, with simulations and handover.</p>
-
-                                <h5 class="font-semibold text-md">Special Section: Enhanced Considerations for FinTech Clients</h5>
-                                <p>For FinTech, we add SCIM, stricter SCPs, and PII monitoring, with siloed architectures for high-risk data.</p>
-
-                                <h5 class="font-semibold text-md">Common Client Questions and How We Solve Them</h5>
-                                <ul class="list-disc pl-5">
-                                    <li><strong>Q: How do you ensure my data is isolated from other clients?</strong> A: Through dedicated OUs and SCPs that enforce boundaries, preventing cross-account access.</li>
-                                    <li><strong>Q: Can I control my own identities?</strong> A: Yes, via federation with your IdP or delegated directory management.</li>
-                                    <li><strong>Q: What if there's a configuration change I didn't authorize?</strong> A: Drift detection alerts you immediately with details for quick remediation.</li>
-                                    <li><strong>Q: How is billing handled without hidden costs?</strong> A: Centralized PLB with tagged cost breakdowns and budgets in Cost Explorer.</li>
-                                    <li><strong>Q: Can I customize security policies?</strong> A: Absolutely, with delegated roles to modify SCPs in your OU.</li>
-                                    <li><strong>Q: What about compliance for my industry?</strong> A: We align with standards like PCI DSS, applying relevant controls during setup.</li>
-                                    <li><strong>Q: How do you prevent backdoors?</strong> A: Zero-trust with temporary roles, no persistent access, and auditable logs.</li>
-                                    <li><strong>Q: Can I test changes before applying?</strong> A: Yes, using Xamops simulators for policies and architectures.</li>
-                                    <li><strong>Q: What if I need to leave the MPA?</strong> A: Reversible join, with policies to ensure smooth exit without data loss.</li>
-                                    <li><strong>Q: How do you handle account monitoring?</strong> A: Real-time Xamops dashboards for you to view metrics and alerts.</li>
-                                    <li><strong>Q: Is there support for multiple environments?</strong> A: Yes, separate accounts per env (prod/dev) under your OU.</li>
-                                    <li><strong>Q: How secure is encryption?</strong> A: Customer-managed KMS keys, with policies enforcing usage.</li>
-                                </ul>
-
-                                <p>Final Assurances: Your data and control are paramount—we're your secure foundation. Start onboarding or contact support.</p>
                             </div>
-                        </div>
 
-                        <div x-data="{ open: false }">
-                            <div class="accordion-header flex items-center justify-between" @click="open = !open">
-                                <h4 class="font-semibold text-lg text-gray-800">GCP Pre-Onboarding Guide</h4>
-                                <i class="fas" :class="{ 'fa-chevron-down': !open, 'fa-chevron-up': open }"></i>
-                            </div>
-                            <div x-show="open" class="accordion-content space-y-4">
-                                <p>At Xamops, each GCP customer account is managed with isolation in mind, using dedicated folders within our Google Cloud Organization. This folder structure acts as a policy boundary, similar to AWS OUs, ensuring your projects are segregated. We apply organization policies at the folder level for custom security, while MPA handles billing and governance. Initial assessments map your workloads, and we provide delegated roles for autonomy. Regular Xamops reviews adapt to changes, with dashboards for monitoring.</p>
+                            <div x-data="{ open: false }">
+                                <div class="accordion-header flex items-center justify-between" @click="open = !open">
+                                    <h4 class="font-semibold text-lg text-gray-800">GCP Pre-Onboarding Guide</h4>
+                                    <i class="fas" :class="{ 'fa-chevron-down': !open, 'fa-chevron-up': open }"></i>
+                                </div>
+                                <div x-show="open" class="accordion-content space-y-4">
+                                    <p>At Xamops, each GCP customer account is managed with isolation in mind, using
+                                        dedicated folders within our Google Cloud Organization. This folder structure
+                                        acts as a policy boundary, similar to AWS OUs, ensuring your projects are
+                                        segregated. We apply organization policies at the folder level for custom
+                                        security, while MPA handles billing and governance. Initial assessments map your
+                                        workloads, and we provide delegated roles for autonomy. Regular Xamops reviews
+                                        adapt to changes, with dashboards for monitoring.</p>
 
-                                <h5 class="font-semibold text-md">Guided Step 1: Initial Consultation and Connection to Our MPA</h5>
-                                <p>Personalized consultation to understand needs, plan integration.</p>
-                                <ul class="list-disc pl-5">
-                                    <li><strong>Invitation and Organization Join</strong>: Secure invitation to join our Organization.</li>
-                                    <li><strong>Creating Your Dedicated Folder</strong>: Top-level `Clients` and sub-folder `YourCompany-Folder`. Folders enable hierarchical policy enforcement: org-wide baselines, folder-level customizations, project-level fine-tuning. This secures your setup by scoping policies to your environment, reducing risk spread, and enabling isolated auditing. As MPA, we oversee folder integrity but delegate management.</li>
-                                    <li><strong>Billing Setup</strong>: Centralized with labels for cost tracking.</li>
-                                    <li><strong>Our +1 Security</strong>: Simulator for preview.</li>
-                                </ul>
+                                    <h5 class="font-semibold text-md">Guided Step 1: Initial Consultation and Connection
+                                        to Our MPA</h5>
+                                    <p>Personalized consultation to understand needs, plan integration.</p>
+                                    <ul class="list-disc pl-5">
+                                        <li><strong>Invitation and Organization Join</strong>: Secure invitation to join
+                                            our Organization.</li>
+                                        <li><strong>Creating Your Dedicated Folder</strong>: Top-level `Clients` and
+                                            sub-folder `YourCompany-Folder`. Folders enable hierarchical policy
+                                            enforcement: org-wide baselines, folder-level customizations, project-level
+                                            fine-tuning. This secures your setup by scoping policies to your
+                                            environment, reducing risk spread, and enabling isolated auditing. As MPA,
+                                            we oversee folder integrity but delegate management.</li>
+                                        <li><strong>Billing Setup</strong>: Centralized with labels for cost tracking.
+                                        </li>
+                                        <li><strong>Our +1 Security</strong>: Simulator for preview.</li>
+                                    </ul>
 
-                                <h5 class="font-semibold text-md">Guided Step 2: Establishing Your Governed Environment with Organization Policies</h5>
-                                <p>Set up policies for secure landing zone.</p>
-                                <ul class="list-disc pl-5">
-                                    <li><strong>Enabling Organization Policies</strong>: Constraints and logging sinks.</li>
-                                    <li><strong>Policy Monitoring</strong>: Scanning and alerts.</li>
-                                    <li><strong>Options</strong>: Shared or dedicated.</li>
-                                </ul>
+                                    <h5 class="font-semibold text-md">Guided Step 2: Establishing Your Governed
+                                        Environment with Organization Policies</h5>
+                                    <p>Set up policies for secure landing zone.</p>
+                                    <ul class="list-disc pl-5">
+                                        <li><strong>Enabling Organization Policies</strong>: Constraints and logging
+                                            sinks.</li>
+                                        <li><strong>Policy Monitoring</strong>: Scanning and alerts.</li>
+                                        <li><strong>Options</strong>: Shared or dedicated.</li>
+                                    </ul>
 
-                                <h5 class="font-semibold text-md">Guided Step 3: Configuring Identity & Access Management</h5>
-                                <p>Federate for control.</p>
-                                <ul class="list-disc pl-5">
-                                    <li><strong>With IdP</strong>: SAML/SCIM.</li>
-                                    <li><strong>Without IdP</strong>: Isolated domain.</li>
-                                    <li><strong>Options</strong>: Direct, isolated, separate.</li>
-                                </ul>
+                                    <h5 class="font-semibold text-md">Guided Step 3: Configuring Identity & Access
+                                        Management</h5>
+                                    <p>Federate for control.</p>
+                                    <ul class="list-disc pl-5">
+                                        <li><strong>With IdP</strong>: SAML/SCIM.</li>
+                                        <li><strong>Without IdP</strong>: Isolated domain.</li>
+                                        <li><strong>Options</strong>: Direct, isolated, separate.</li>
+                                    </ul>
 
-                                <h5 class="font-semibold text-md">Guided Step 4: Implementing Preventive Security</h5>
-                                <p>Custom policies. Examples:</p>
-                                <div class="code-block">
-<pre><code>constraint: "constraints/compute.requireShieldedVm"
+                                    <h5 class="font-semibold text-md">Guided Step 4: Implementing Preventive Security
+                                    </h5>
+                                    <p>Custom policies. Examples:</p>
+                                    <div class="code-block">
+                                        <pre><code>constraint: "constraints/compute.requireShieldedVm"
 enforcement: DENY
 </code></pre>
-                                </div>
-                                <p>Requires shielded VMs for integrity.</p>
-                                <div class="code-block">
-<pre><code>constraint: "constraints/iam.disableServiceAccountKeyCreation"
+                                    </div>
+                                    <p>Requires shielded VMs for integrity.</p>
+                                    <div class="code-block">
+                                        <pre><code>constraint: "constraints/iam.disableServiceAccountKeyCreation"
 enforcement: DENY
 </code></pre>
-                                </div>
-                                <p>Prevents long-term key creation.</p>
-                                <div class="code-block">
-<pre><code>constraint: "constraints/storage.publicAccessPrevention"
+                                    </div>
+                                    <p>Prevents long-term key creation.</p>
+                                    <div class="code-block">
+                                        <pre><code>constraint: "constraints/storage.publicAccessPrevention"
 enforcement: DENY
 </code></pre>
+                                    </div>
+                                    <p>Blocks public bucket access.</p>
+                                    <ul class="list-disc pl-5">
+                                        <li><strong>Managing Policies</strong>: Delegated role.</li>
+                                        <li><strong>Additional Measures</strong>: VPC Controls, CMEK.</li>
+                                        <li><strong>Options</strong>: Guided, client-managed, separate.</li>
+                                    </ul>
+
+                                    <h5 class="font-semibold text-md">Guided Step 5: Architecture Options</h5>
+                                    <p>Multi-project, siloed, etc.</p>
+
+                                    <h5 class="font-semibold text-md">Guided Step 6: Activation and Go-Live</h5>
+                                    <p>Activate Security Command Center, etc.</p>
+
+                                    <h5 class="font-semibold text-md">Special Section: FinTech Enhancements</h5>
+                                    <p>Stricter policies, PII monitoring.</p>
+
+                                    <h5 class="font-semibold text-md">Common Client Questions and How We Solve Them</h5>
+                                    <ul class="list-disc pl-5">
+                                        <li><strong>Q: How is my data isolated?</strong> A: Dedicated folders with
+                                            scoped policies.</li>
+                                        <li><strong>Q: Identity control?</strong> A: Federation or delegated domain.
+                                        </li>
+                                        <li><strong>Q: Drift alerts?</strong> A: Continuous monitoring with
+                                            notifications.</li>
+                                        <li><strong>Q: Billing transparency?</strong> A: Labeled costs and budgets.</li>
+                                        <li><strong>Q: Policy customization?</strong> A: Delegated admin.</li>
+                                        <li><strong>Q: Compliance support?</strong> A: Tailored for PCI, SOC 2.</li>
+                                        <li><strong>Q: Backdoor prevention?</strong> A: Short-lived tokens, audits.</li>
+                                        <li><strong>Q: Test changes?</strong> A: Xamops simulators.</li>
+                                        <li><strong>Q: Exit process?</strong> A: Smooth, policy-protected.</li>
+                                        <li><strong>Q: Monitoring?</strong> A: Dashboards for metrics.</li>
+                                        <li><strong>Q: Multiple envs?</strong> A: Separate projects per env.</li>
+                                        <li><strong>Q: Encryption security?</strong> A: CMEK enforcement.</li>
+                                    </ul>
+
+                                    <p>Final Assurances: Secure foundation with your control.</p>
                                 </div>
-                                <p>Blocks public bucket access.</p>
-                                <ul class="list-disc pl-5">
-                                    <li><strong>Managing Policies</strong>: Delegated role.</li>
-                                    <li><strong>Additional Measures</strong>: VPC Controls, CMEK.</li>
-                                    <li><strong>Options</strong>: Guided, client-managed, separate.</li>
-                                </ul>
-
-                                <h5 class="font-semibold text-md">Guided Step 5: Architecture Options</h5>
-                                <p>Multi-project, siloed, etc.</p>
-
-                                <h5 class="font-semibold text-md">Guided Step 6: Activation and Go-Live</h5>
-                                <p>Activate Security Command Center, etc.</p>
-
-                                <h5 class="font-semibold text-md">Special Section: FinTech Enhancements</h5>
-                                <p>Stricter policies, PII monitoring.</p>
-
-                                <h5 class="font-semibold text-md">Common Client Questions and How We Solve Them</h5>
-                                <ul class="list-disc pl-5">
-                                    <li><strong>Q: How is my data isolated?</strong> A: Dedicated folders with scoped policies.</li>
-                                    <li><strong>Q: Identity control?</strong> A: Federation or delegated domain.</li>
-                                    <li><strong>Q: Drift alerts?</strong> A: Continuous monitoring with notifications.</li>
-                                    <li><strong>Q: Billing transparency?</strong> A: Labeled costs and budgets.</li>
-                                    <li><strong>Q: Policy customization?</strong> A: Delegated admin.</li>
-                                    <li><strong>Q: Compliance support?</strong> A: Tailored for PCI, SOC 2.</li>
-                                    <li><strong>Q: Backdoor prevention?</strong> A: Short-lived tokens, audits.</li>
-                                    <li><strong>Q: Test changes?</strong> A: Xamops simulators.</li>
-                                    <li><strong>Q: Exit process?</strong> A: Smooth, policy-protected.</li>
-                                    <li><strong>Q: Monitoring?</strong> A: Dashboards for metrics.</li>
-                                    <li><strong>Q: Multiple envs?</strong> A: Separate projects per env.</li>
-                                    <li><strong>Q: Encryption security?</strong> A: CMEK enforcement.</li>
-                                </ul>
-
-                                <p>Final Assurances: Secure foundation with your control.</p>
                             </div>
-                        </div>
 
-                        <div x-data="{ open: false }">
-                            <div class="accordion-header flex items-center justify-between" @click="open = !open">
-                                <h4 class="font-semibold text-lg text-gray-800">Azure Pre-Onboarding Guide</h4>
-                                <i class="fas" :class="{ 'fa-chevron-down': !open, 'fa-chevron-up': open }"></i>
-                            </div>
-                            <div x-show="open" class="accordion-content space-y-4">
-                                <p>Each Azure account is isolated in a dedicated Management Group within our tenant. This hierarchy scopes policies, ensuring segregation. MPA manages billing, but you control operations via delegated RBAC. Assessments and reviews via Xamops.</p>
+                            <div x-data="{ open: false }">
+                                <div class="accordion-header flex items-center justify-between" @click="open = !open">
+                                    <h4 class="font-semibold text-lg text-gray-800">Azure Pre-Onboarding Guide</h4>
+                                    <i class="fas" :class="{ 'fa-chevron-down': !open, 'fa-chevron-up': open }"></i>
+                                </div>
+                                <div x-show="open" class="accordion-content space-y-4">
+                                    <p>Each Azure account is isolated in a dedicated Management Group within our tenant.
+                                        This hierarchy scopes policies, ensuring segregation. MPA manages billing, but
+                                        you control operations via delegated RBAC. Assessments and reviews via Xamops.
+                                    </p>
 
-                                <h5 class="font-semibold text-md">Guided Step 1: Initial Consultation and Connection to Our MPA</h5>
-                                <p>Consultation to tailor integration.</p>
-                                <ul class="list-disc pl-5">
-                                    <li><strong>Invitation and Management Group Join</strong>: Secure invitation.</li>
-                                    <li><strong>Creating Your Dedicated Management Group</strong>: `Clients` and `YourCompany-MG`. Management Groups provide policy scoping, inheritance for efficiency, and isolation. Secures by limiting scope, reducing risks. MPA oversees but delegates.</li>
-                                    <li><strong>Billing Setup</strong>: Centralized with tags.</li>
-                                    <li><strong>Our +1 Security</strong>: Simulator.</li>
-                                </ul>
+                                    <h5 class="font-semibold text-md">Guided Step 1: Initial Consultation and Connection
+                                        to Our MPA</h5>
+                                    <p>Consultation to tailor integration.</p>
+                                    <ul class="list-disc pl-5">
+                                        <li><strong>Invitation and Management Group Join</strong>: Secure invitation.
+                                        </li>
+                                        <li><strong>Creating Your Dedicated Management Group</strong>: `Clients` and
+                                            `YourCompany-MG`. Management Groups provide policy scoping, inheritance for
+                                            efficiency, and isolation. Secures by limiting scope, reducing risks. MPA
+                                            oversees but delegates.</li>
+                                        <li><strong>Billing Setup</strong>: Centralized with tags.</li>
+                                        <li><strong>Our +1 Security</strong>: Simulator.</li>
+                                    </ul>
 
-                                <h5 class="font-semibold text-md">Guided Step 2: Establishing Your Governed Environment with Azure Policy</h5>
-                                <p>Automate with policies.</p>
-                                <ul class="list-disc pl-5">
-                                    <li><strong>Enabling Azure Policy</strong>: Compliance and logs.</li>
-                                    <li><strong>Monitoring</strong>: Alerts for violations.</li>
-                                    <li><strong>Options</strong>: Shared or dedicated tenant.</li>
-                                </ul>
+                                    <h5 class="font-semibold text-md">Guided Step 2: Establishing Your Governed
+                                        Environment with Azure Policy</h5>
+                                    <p>Automate with policies.</p>
+                                    <ul class="list-disc pl-5">
+                                        <li><strong>Enabling Azure Policy</strong>: Compliance and logs.</li>
+                                        <li><strong>Monitoring</strong>: Alerts for violations.</li>
+                                        <li><strong>Options</strong>: Shared or dedicated tenant.</li>
+                                    </ul>
 
-                                <h5 class="font-semibold text-md">Guided Step 3: Configuring Identity & Access Management</h5>
-                                <p>Integrate for control.</p>
-                                <ul class="list-disc pl-5">
-                                    <li><strong>With IdP</strong>: SAML/SCIM.</li>
-                                    <li><strong>Without IdP</strong>: Isolated directory.</li>
-                                    <li><strong>Options</strong>: Direct, isolated, separate.</li>
-                                </ul>
+                                    <h5 class="font-semibold text-md">Guided Step 3: Configuring Identity & Access
+                                        Management</h5>
+                                    <p>Integrate for control.</p>
+                                    <ul class="list-disc pl-5">
+                                        <li><strong>With IdP</strong>: SAML/SCIM.</li>
+                                        <li><strong>Without IdP</strong>: Isolated directory.</li>
+                                        <li><strong>Options</strong>: Direct, isolated, separate.</li>
+                                    </ul>
 
-                                <h5 class="font-semibold text-md">Guided Step 4: Implementing Preventive Security</h5>
-                                <p>Policies with examples:</p>
-                                <div class="code-block">
-<pre><code>{
+                                    <h5 class="font-semibold text-md">Guided Step 4: Implementing Preventive Security
+                                    </h5>
+                                    <p>Policies with examples:</p>
+                                    <div class="code-block">
+                                        <pre><code>{
   "properties": {
     "policyRule": {
       "if": {
@@ -852,10 +1144,10 @@ enforcement: DENY
     }
   }
 }</code></pre>
-                                </div>
-                                <p>Denies public blob access.</p>
-                                <div class="code-block">
-<pre><code>{
+                                    </div>
+                                    <p>Denies public blob access.</p>
+                                    <div class="code-block">
+                                        <pre><code>{
   "properties": {
     "policyRule": {
       "if": {
@@ -866,10 +1158,10 @@ enforcement: DENY
     }
   }
 }</code></pre>
-                                </div>
-                                <p>Audits security extensions.</p>
-                                <div class="code-block">
-<pre><code>{
+                                    </div>
+                                    <p>Audits security extensions.</p>
+                                    <div class="code-block">
+                                        <pre><code>{
   "properties": {
     "policyRule": {
       "if": {
@@ -880,281 +1172,291 @@ enforcement: DENY
     }
   }
 }</code></pre>
+                                    </div>
+                                    <p>Requires database encryption.</p>
+                                    <ul class="list-disc pl-5">
+                                        <li><strong>Managing Policies</strong>: Custom RBAC role.</li>
+                                        <li><strong>Additional Measures</strong>: Endpoints, CMK.</li>
+                                        <li><strong>Options</strong>: Guided, client-managed, separate.</li>
+                                    </ul>
+
+                                    <h5 class="font-semibold text-md">Guided Step 5: Architecture Options</h5>
+                                    <p>Multi-subscription, etc.</p>
+
+                                    <h5 class="font-semibold text-md">Guided Step 6: Activation and Go-Live</h5>
+                                    <p>Activate Defender, Sentinel.</p>
+
+                                    <h5 class="font-semibold text-md">Special Section: FinTech Enhancements</h5>
+                                    <p>Deny public access, PII monitoring.</p>
+
+                                    <h5 class="font-semibold text-md">Common Client Questions and How We Solve Them</h5>
+                                    <ul class="list-disc pl-5">
+                                        <li><strong>Q: Data isolation?</strong> A: Dedicated Management Groups.</li>
+                                        <li><strong>Q: Identity?</strong> A: Federation or delegated.</li>
+                                        <li><strong>Q: Drift alerts?</strong> A: Monitoring alerts.</li>
+                                        <li><strong>Q: Billing?</strong> A: Tagged costs.</li>
+                                        <li><strong>Q: Customization?</strong> A: Delegated roles.</li>
+                                        <li><strong>Q: Compliance?</strong> A: Tailored controls.</li>
+                                        <li><strong>Q: Backdoors?</strong> A: Conditional access, audits.</li>
+                                        <li><strong>Q: Testing?</strong> A: Simulators.</li>
+                                        <li><strong>Q: Exit process?</strong> A: Smooth process.</li>
+                                        <li><strong>Q: Monitoring?</strong> A: Dashboards.</li>
+                                        <li><strong>Q: Multiple envs?</strong> A: Separate subscriptions.</li>
+                                        <li><strong>Q: Encryption security?</strong> A: CMK enforcement.</li>
+                                    </ul>
+
+                                    <p>Final Assurances: Your secure Azure partner.</p>
                                 </div>
-                                <p>Requires database encryption.</p>
-                                <ul class="list-disc pl-5">
-                                    <li><strong>Managing Policies</strong>: Custom RBAC role.</li>
-                                    <li><strong>Additional Measures</strong>: Endpoints, CMK.</li>
-                                    <li><strong>Options</strong>: Guided, client-managed, separate.</li>
-                                </ul>
-
-                                <h5 class="font-semibold text-md">Guided Step 5: Architecture Options</h5>
-                                <p>Multi-subscription, etc.</p>
-
-                                <h5 class="font-semibold text-md">Guided Step 6: Activation and Go-Live</h5>
-                                <p>Activate Defender, Sentinel.</p>
-
-                                <h5 class="font-semibold text-md">Special Section: FinTech Enhancements</h5>
-                                <p>Deny public access, PII monitoring.</p>
-
-                                <h5 class="font-semibold text-md">Common Client Questions and How We Solve Them</h5>
-                                <ul class="list-disc pl-5">
-                                    <li><strong>Q: Data isolation?</strong> A: Dedicated Management Groups.</li>
-                                    <li><strong>Q: Identity?</strong> A: Federation or delegated.</li>
-                                    <li><strong>Q: Drift alerts?</strong> A: Monitoring alerts.</li>
-                                    <li><strong>Q: Billing?</strong> A: Tagged costs.</li>
-                                    <li><strong>Q: Customization?</strong> A: Delegated roles.</li>
-                                    <li><strong>Q: Compliance?</strong> A: Tailored controls.</li>
-                                    <li><strong>Q: Backdoors?</strong> A: Conditional access, audits.</li>
-                                    <li><strong>Q: Testing?</strong> A: Simulators.</li>
-                                    <li><strong>Q: Exit process?</strong> A: Smooth process.</li>
-                                    <li><strong>Q: Monitoring?</strong> A: Dashboards.</li>
-                                    <li><strong>Q: Multiple envs?</strong> A: Separate subscriptions.</li>
-                                    <li><strong>Q: Encryption security?</strong> A: CMK enforcement.</li>
-                                </ul>
-
-                                <p>Final Assurances: Your secure Azure partner.</p>
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
 
-        </main>
+            </main>
+        </div>
     </div>
-</div>
 
-<script>
-    function accountManager() {
-        return {
-            isLoading: true,
-            accounts: [],
-            isModalOpen: false,
-            isVerifying: false,
-            verificationError: '',
-            verifyingAccount: {},
-            verificationDetails: {
-                awsAccountId: '',
-                roleName: '',
-                externalId: ''
-            },
-            newAccount: {
-                aws: { name: '', roleArn: '' },
-                gcp: { name: '', serviceAccountKey: '' },
-                azure: { name: '', tenantId: '', subscriptionId: '', clientId: '', clientSecret: '' }
-            },
-            providerSelection: null,
-            addAccountModal: false,
-            isHelpModalOpen: false,
-            // === NEW GITHUB PROPERTIES ===
-            isGithubLoading: true,
-            githubConfigs: [],
-
-            init() {
-                console.log("AccountManager component initializing...");
-                this.fetchAccounts();
-                this.fetchGitHubConfigs(); 
-            },
-
-            fetchAccounts() {
-                this.isLoading = true;
-                // *** UPDATED fetch URL and added credentials ***
-                fetch('/api/xamops/account-manager/accounts', { credentials: 'include' })
-                        .then(res => {
-                        if (!res.ok) throw new Error('Failed to load accounts'); // Added error check
-                        return res.json();
-                    })
-                    .then(data => {
-                        this.accounts = data;
-                    })
-                    .catch(err => console.error('Failed to load accounts:', err))
-                    .finally(() => this.isLoading = false);
-            },
-
-            // === NEW FUNCTION TO FETCH GITHUB CONFIGS ===
-            fetchGitHubConfigs() {
-                this.isGithubLoading = true;
-                fetch('/api/cicd/config/github', { credentials: 'include' })
-                .then(res => {
-                        if (!res.ok) {
-                            // *** DEBUG LOG ***
-                            console.error("Fetch accounts response was NOT ok. Status:", res.status, res.statusText);
-                            throw new Error(`Failed to load accounts. Status: ${res.status}`);
-                        }
-                        return res.json();
-                    })
-                    .then(data => {
-                        // *** DEBUG LOG ***
-                        console.log("Successfully fetched and parsed account data:", data);
-                        this.accounts = data;
-                    })
-                    .catch(err => {
-                        // *** DEBUG LOG ***
-                        console.error("CRITICAL: Failed to load accounts. Error:", err);
-                    })
-                    .finally(() => this.isLoading = false);
-            },
-
-            fetchGitHubConfigs() {
-                this.isGithubLoading = true;
-                // *** DEBUG LOG ***
-                console.log("Attempting to fetch GitHub configs from: /api/cicd/config/github");
-                
-                fetch('/api/cicd/config/github', { credentials: 'include' })
-                    .then(res => {
-                        // *** DEBUG LOG ***
-                        console.log("Fetch GitHub configs response received. Status:", res.status);
-                        if (!res.ok) {
-                            if (res.status === 401 || res.status === 403) {
-                                console.error("Not authenticated to fetch GitHub configs. Status:", res.status);
-                            }
-                            throw new Error(`Failed to load GitHub configs. Status: ${res.status}`);
-                        }
-                        return res.json();
-                    })
-                    .then(data => {
-                        // *** DEBUG LOG ***
-                        console.log("Successfully fetched and parsed GitHub configs:", data);
-                        this.githubConfigs = data;
-                    })
-                    .catch(err => {
-                        // *** DEBUG LOG ***
-                        console.error("CRITICAL: Failed to load GitHub configs. Error:", err);
-                    })
-                    .finally(() => this.isGithubLoading = false);
-            },
-
-            // === NEW FUNCTION TO REMOVE GITHUB CONFIG ===
-            removeGitHubConfig(config) {
-                if (!confirm(`Are you sure you want to remove the repository "${config.owner}/${config.repo}"?`)) {
-                    return;
-                }
-                fetch(`/api/cicd/config/github/${config.id}`, {
-                    method: 'DELETE',
-                    credentials: 'include'
-                })
-                .then(res => {
-                    if (!res.ok) {
-                        throw new Error('Failed to remove GitHub config.');
-                    }
-                    this.githubConfigs = this.githubConfigs.filter(c => c.id !== config.id);
-                    alert('Repository connection removed.');
-                })
-                .catch(err => {
-                    alert(`Error: ${err.message}`);
-                    console.error('Failed to remove GitHub config:', err);
-                });
-            },
-
-            openVerificationModal(account) {
-                this.verifyingAccount = account;
-                this.verificationDetails.externalId = account.externalId;
-                this.verificationError = '';
-                this.isModalOpen = true;
-            },
-
-            addAzureAccount() {
-                fetch('/api/xamops/account-manager/azure', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        accountName: this.newAccount.azure.name,
-                        tenantId: this.newAccount.azure.tenantId,
-                        subscriptionId: this.newAccount.azure.subscriptionId,
-                        clientId: this.newAccount.azure.clientId,
-                        clientSecret: this.newAccount.azure.clientSecret,
-                    }),
-                    credentials: 'include'
-                })
-                .then(res => {
-                    if (!res.ok) {
-                        return res.text().then(text => { throw new Error(text) });
-                    }
-                    return res.json();
-                })
-                .then(newAcc => {
-                    this.accounts.push(newAcc);
-                    this.addAccountModal = false;
-                    this.resetNewAccount();
-                    this.fetchAccounts(); // Refresh list
-                })
-                .catch(err => {
-                    alert(`Error adding Azure account: ${err.message}`);
-                    console.error(err);
-                });
-            },
-            
-            resetNewAccount() {
-                this.providerSelection = null;
-                this.newAccount = {
+    <script>
+        function accountManager() {
+            return {
+                isLoading: true,
+                accounts: [],
+                isModalOpen: false,
+                isVerifying: false,
+                verificationError: '',
+                verifyingAccount: {},
+                verificationDetails: {
+                    awsAccountId: '',
+                    roleName: '',
+                    externalId: ''
+                },
+                newAccount: {
                     aws: { name: '', roleArn: '' },
                     gcp: { name: '', serviceAccountKey: '' },
                     azure: { name: '', tenantId: '', subscriptionId: '', clientId: '', clientSecret: '' }
-                };
-            },
+                },
+                providerSelection: null,
+                addAccountModal: false,
+                isHelpModalOpen: false,
+                // === NEW GITHUB PROPERTIES ===
+                isGithubLoading: true,
+                githubConfigs: [],
+                // === NEW JENKINS PROPERTIES ===
+                isJenkinsLoading: true,
+                jenkinsConfigs: [],
 
-            verifyAccount() {
-                this.isVerifying = true;
-                this.verificationError = '';
-                fetch('/api/xamops/account-manager/verify-account', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include', 
-                    body: JSON.stringify(this.verificationDetails)
-                })
-                .then(res => {
-                    if (!res.ok) {
-                        return res.json().then(err => { throw new Error(err.message || 'Verification failed.') });
+                init() {
+                    console.log("AccountManager component initializing...");
+                    this.fetchAccounts();
+                    this.fetchGitHubConfigs();
+                    this.fetchJenkinsConfigs();
+                },
+
+                fetchAccounts() {
+                    this.isLoading = true;
+                    // *** UPDATED fetch URL and added credentials ***
+                    fetch('/api/xamops/account-manager/accounts', { credentials: 'include' })
+                        .then(res => {
+                            if (!res.ok) throw new Error('Failed to load accounts'); // Added error check
+                            return res.json();
+                        })
+                        .then(data => {
+                            this.accounts = data;
+                        })
+                        .catch(err => console.error('Failed to load accounts:', err))
+                        .finally(() => this.isLoading = false);
+                },
+
+                // === NEW FUNCTION TO FETCH GITHUB CONFIGS ===
+                fetchGitHubConfigs() {
+                    this.isGithubLoading = true;
+                    console.log("Attempting to fetch GitHub configs from: /api/cicd/config/github");
+
+                    fetch('/api/cicd/config/github', { credentials: 'include' })
+                        .then(res => {
+                            console.log("Fetch GitHub configs response received. Status:", res.status);
+                            if (!res.ok) {
+                                if (res.status === 401 || res.status === 403) {
+                                    console.error("Not authenticated to fetch GitHub configs. Status:", res.status);
+                                }
+                                throw new Error(`Failed to load GitHub configs. Status: ${res.status}`);
+                            }
+                            return res.json();
+                        })
+                        .then(data => {
+                            console.log("Successfully fetched and parsed GitHub configs:", data);
+                            this.githubConfigs = data;
+                        })
+                        .catch(err => {
+                            console.error("CRITICAL: Failed to load GitHub configs. Error:", err);
+                        })
+                        .finally(() => this.isGithubLoading = false);
+                },
+
+                // === NEW FUNCTION TO REMOVE GITHUB CONFIG ===
+                removeGitHubConfig(config) {
+                    if (!confirm(`Are you sure you want to remove the repository "${config.owner}/${config.repo}"?`)) {
+                        return;
                     }
-                    return res.json();
-                })
-                .then(data => {
-                    this.isModalOpen = false;
-                    this.fetchAccounts(); // Refresh the list
-                })
-                .catch(err => {
-                    this.verificationError = `Error: ${err.message}`;
-                })
-                .finally(() => {
-                    this.isVerifying = false;
-                });
-            },
+                    fetch(`/api/cicd/config/github/${config.id}`, {
+                        method: 'DELETE',
+                        credentials: 'include'
+                    })
+                        .then(res => {
+                            if (!res.ok) {
+                                throw new Error('Failed to remove GitHub config.');
+                            }
+                            this.githubConfigs = this.githubConfigs.filter(c => c.id !== config.id);
+                            alert('Repository connection removed.');
+                        })
+                        .catch(err => {
+                            alert(`Error: ${err.message}`);
+                            console.error('Failed to remove GitHub config:', err);
+                        });
+                },
 
-            removeAccount(account) {
-                if (!confirm(`Are you sure you want to remove the account "${account.name}"? This action cannot be undone.`)) {
-                    return;
+                // === NEW FUNCTION TO FETCH JENKINS CONFIGS ===
+                fetchJenkinsConfigs() {
+                    this.isJenkinsLoading = true;
+                    fetch('/api/cicd/config/jenkins', { credentials: 'include' })
+                        .then(res => {
+                            if (!res.ok) throw new Error('Failed to load Jenkins configs');
+                            return res.json();
+                        })
+                        .then(data => {
+                            this.jenkinsConfigs = data;
+                        })
+                        .catch(err => console.error(err))
+                        .finally(() => this.isJenkinsLoading = false);
+                },
+
+                // === NEW FUNCTION TO REMOVE JENKINS CONFIG ===
+                removeJenkinsConfig(config) {
+                    if (!confirm(`Remove Jenkins server at ${config.jenkinsUrl}?`)) return;
+
+                    fetch(`/api/cicd/config/jenkins/${config.id}`, {
+                        method: 'DELETE',
+                        credentials: 'include'
+                    })
+                        .then(res => {
+                            if (!res.ok) throw new Error('Failed to delete config');
+                            this.jenkinsConfigs = this.jenkinsConfigs.filter(c => c.id !== config.id);
+                        })
+                        .catch(err => alert(err.message));
+                },
+
+                openVerificationModal(account) {
+                    this.verifyingAccount = account;
+                    this.verificationDetails.externalId = account.externalId;
+                    this.verificationError = '';
+                    this.isModalOpen = true;
+                },
+
+                addAzureAccount() {
+                    fetch('/api/xamops/account-manager/azure', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            accountName: this.newAccount.azure.name,
+                            tenantId: this.newAccount.azure.tenantId,
+                            subscriptionId: this.newAccount.azure.subscriptionId,
+                            clientId: this.newAccount.azure.clientId,
+                            clientSecret: this.newAccount.azure.clientSecret,
+                        }),
+                        credentials: 'include'
+                    })
+                        .then(res => {
+                            if (!res.ok) {
+                                return res.text().then(text => { throw new Error(text) });
+                            }
+                            return res.json();
+                        })
+                        .then(newAcc => {
+                            this.accounts.push(newAcc);
+                            this.addAccountModal = false;
+                            this.resetNewAccount();
+                            this.fetchAccounts(); // Refresh list
+                        })
+                        .catch(err => {
+                            alert(`Error adding Azure account: ${err.message}`);
+                            console.error(err);
+                        });
+                },
+
+                resetNewAccount() {
+                    this.providerSelection = null;
+                    this.newAccount = {
+                        aws: { name: '', roleArn: '' },
+                        gcp: { name: '', serviceAccountKey: '' },
+                        azure: { name: '', tenantId: '', subscriptionId: '', clientId: '', clientSecret: '' }
+                    };
+                },
+
+                verifyAccount() {
+                    this.isVerifying = true;
+                    this.verificationError = '';
+                    fetch('/api/xamops/account-manager/verify-account', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        credentials: 'include',
+                        body: JSON.stringify(this.verificationDetails)
+                    })
+                        .then(res => {
+                            if (!res.ok) {
+                                return res.json().then(err => { throw new Error(err.message || 'Verification failed.') });
+                            }
+                            return res.json();
+                        })
+                        .then(data => {
+                            this.isModalOpen = false;
+                            this.fetchAccounts(); // Refresh the list
+                        })
+                        .catch(err => {
+                            this.verificationError = `Error: ${err.message}`;
+                        })
+                        .finally(() => {
+                            this.isVerifying = false;
+                        });
+                },
+
+                removeAccount(account) {
+                    if (!confirm(`Are you sure you want to remove the account "${account.name}"? This action cannot be undone.`)) {
+                        return;
+                    }
+                    fetch(`/api/xamops/account-manager/accounts/${account.dbId}`, {
+                        method: 'DELETE',
+                        credentials: 'include'
+                    })
+                        .then(res => {
+                            if (!res.ok) {
+                                throw new Error('Failed to remove account.');
+                            }
+                            this.accounts = this.accounts.filter(acc => acc.dbId !== account.dbId);
+                            const selectedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                            const newSelectedIds = selectedIds.filter(id => id !== account.id);
+
+                            if (selectedIds.length !== newSelectedIds.length) {
+                                sessionStorage.setItem('selectedAccountIds', JSON.stringify(newSelectedIds));
+                                window.location.href = '/dashboard.html';
+                            }
+                        })
+                        .catch(err => {
+                            alert(`Error: ${err.message}`);
+                            console.error('Failed to remove account:', err);
+                        });
+                },
+
+                getStatusColor(status, type) {
+                    const colors = {
+                        'CONNECTED': { badge: 'bg-green-100 text-green-800 border-green-200', icon: 'text-green-500' },
+                        'PENDING': { badge: 'bg-yellow-100 text-yellow-800 border-yellow-200', icon: 'text-yellow-500' },
+                        'FAILED': { badge: 'bg-red-100 text-red-800 border-red-200', icon: 'text-red-500' }
+                    };
+                    return (colors[status] && colors[status][type]) || { badge: 'bg-gray-100 text-gray-800 border-gray-200', icon: 'text-gray-500' }[type];
                 }
-                fetch(`/api/xamops/account-manager/accounts/${account.dbId}`, {
-                    method: 'DELETE',
-                    credentials: 'include' 
-                })
-                .then(res => {
-                    if (!res.ok) {
-                        throw new Error('Failed to remove account.');
-                    }
-                    this.accounts = this.accounts.filter(acc => acc.dbId !== account.dbId);
-                    const selectedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-                    const newSelectedIds = selectedIds.filter(id => id !== account.id);
-
-                    if (selectedIds.length !== newSelectedIds.length) {
-                        sessionStorage.setItem('selectedAccountIds', JSON.stringify(newSelectedIds));
-                        window.location.href = '/dashboard.html';
-                    }
-                })
-                .catch(err => {
-                    alert(`Error: ${err.message}`);
-                    console.error('Failed to remove account:', err);
-                });
-            },
-
-            getStatusColor(status, type) {
-                const colors = {
-                    'CONNECTED': { badge: 'bg-green-100 text-green-800 border-green-200', icon: 'text-green-500' },
-                    'PENDING': { badge: 'bg-yellow-100 text-yellow-800 border-yellow-200', icon: 'text-yellow-500' },
-                    'FAILED': { badge: 'bg-red-100 text-red-800 border-red-200', icon: 'text-red-500' }
-                };
-                return (colors[status] && colors[status][type]) || { badge: 'bg-gray-100 text-gray-800 border-gray-200', icon: 'text-gray-500' }[type];
             }
         }
-    }
-</script>
+    </script>
+</body>
+
+</html>
