@@ -54,7 +54,8 @@ public class AnythingLlmService {
                     anythingLlmUrl,
                     HttpMethod.POST,
                     request,
-                    String.class);
+                    String.class
+            );
 
             // 4. Parse Response (AnythingLLM returns { "textResponse": "...", ... })
             JsonNode root = objectMapper.readTree(response.getBody());

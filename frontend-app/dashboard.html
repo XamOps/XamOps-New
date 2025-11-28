@@ -603,50 +603,50 @@
             </filter>
         </svg>
     </div>
-    <div x-show="isMultiAccountMode && dashboardData.selectedAccount" x-cloak
-        class="bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-            <div class="flex items-center justify-between flex-wrap gap-3">
-                <div class="flex items-center space-x-4">
-                    <div class="flex items-center space-x-2">
-                        <i class="fas fa-layer-group text-2xl"></i>
-                        <div>
-                            <h3 class="font-semibold text-lg">Multi-Account View Active</h3>
-                            <p class="text-sm text-indigo-100">
-                                Viewing aggregated data from
-                                <span class="font-bold" x-text="selectedAccountIds.length"></span> AWS accounts
-                            </p>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="flex items-center space-x-3">
-                    <div class="flex flex-wrap gap-2">
-                        <template x-for="(name, index) in dashboardData.selectedAccountNames" :key="index">
-                            <span
-                                class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-white bg-opacity-20 backdrop-blur-sm">
-                                <i class="fas fa-check-circle mr-1.5"></i>
-                                <span x-text="name"></span>
-                            </span>
-                        </template>
-                    </div>
-                </div>
-            </div>
-
-            <div x-show="dashboardData.failedAccounts && dashboardData.failedAccounts.length > 0"
-                class="mt-3 bg-yellow-500 bg-opacity-20 backdrop-blur-sm rounded-lg p-3 border border-yellow-300 border-opacity-30">
-                <div class="flex items-start space-x-2">
-                    <i class="fas fa-exclamation-triangle text-yellow-200 mt-0.5"></i>
-                    <div class="flex-1">
-                        <p class="font-semibold text-sm">Warning: Some accounts failed to load</p>
-                        <p class="text-xs text-indigo-100 mt-1">
-                            Could not fetch data from some accounts. Displaying available data only.
+    <div x-show="isMultiAccountMode && dashboardData.selectedAccount" 
+     x-cloak
+     class="bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+        <div class="flex items-center justify-between flex-wrap gap-3">
+            <div class="flex items-center space-x-4">
+                <div class="flex items-center space-x-2">
+                    <i class="fas fa-layer-group text-2xl"></i>
+                    <div>
+                        <h3 class="font-semibold text-lg">Multi-Account View Active</h3>
+                        <p class="text-sm text-indigo-100">
+                            Viewing aggregated data from 
+                            <span class="font-bold" x-text="selectedAccountIds.length"></span> AWS accounts
                         </p>
                     </div>
                 </div>
             </div>
+            
+            <div class="flex items-center space-x-3">
+                <div class="flex flex-wrap gap-2">
+                    <template x-for="(name, index) in dashboardData.selectedAccountNames" :key="index">
+                        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-white bg-opacity-20 backdrop-blur-sm">
+                            <i class="fas fa-check-circle mr-1.5"></i>
+                            <span x-text="name"></span>
+                        </span>
+                    </template>
+                </div>
+            </div>
+        </div>
+        
+        <div x-show="dashboardData.failedAccounts && dashboardData.failedAccounts.length > 0" 
+             class="mt-3 bg-yellow-500 bg-opacity-20 backdrop-blur-sm rounded-lg p-3 border border-yellow-300 border-opacity-30">
+            <div class="flex items-start space-x-2">
+                <i class="fas fa-exclamation-triangle text-yellow-200 mt-0.5"></i>
+                <div class="flex-1">
+                    <p class="font-semibold text-sm">Warning: Some accounts failed to load</p>
+                    <p class="text-xs text-indigo-100 mt-1">
+                        Could not fetch data from some accounts. Displaying available data only.
+                    </p>
+                </div>
+            </div>
         </div>
     </div>
+</div>
 
 
     <div id="errorState" class="hidden fixed inset-0 flex items-center justify-center bg-red-50 text-red-700 z-50">
@@ -681,40 +681,40 @@
         <include file="/_sidebar.html"></include>
 
 
-        <div class="flex-1 pl-64">
-            <main class="flex-1 p-6 bg-transparent space-y-6">
-                <header
-                    class="h-20 flex items-center justify-between glass-card px-6 -mx-6 -mt-6 mb-6 border-b sticky top-0 z-10 fade-in">
-                    <div class="flex items-center space-x-4">
-                        <div class="flex items-center space-x-2">
-                            <div
-                                class="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center">
-                                <i class="fas fa-cloud text-white text-lg"></i>
-                            </div>
-                            <div>
-                                <h1 class="text-xl font-bold text-gray-800">Live Dashboard</h1>
-                                <div class="flex items-center space-x-2">
-                                    <div class="w-2 h-2 bg-green-500 rounded-full pulse-dot"></div>
-                                    <p id="updateTime" class="text-xs text-gray-500">Connected</p>
-                                </div>
+    <div class="flex-1 pl-64">
+        <main class="flex-1 p-6 bg-transparent space-y-6">
+            <header class="h-20 flex items-center justify-between glass-card px-6 -mx-6 -mt-6 mb-6 border-b sticky top-0 z-10 fade-in">
+                <div class="flex items-center space-x-4">
+                    <div class="flex items-center space-x-2">
+                        <div class="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center">
+                            <i class="fas fa-cloud text-white text-lg"></i>
+                        </div>
+                        <div>
+                            <h1 class="text-xl font-bold text-gray-800">Live Dashboard</h1>
+                            <div class="flex items-center space-x-2">
+                                <div class="w-2 h-2 bg-green-500 rounded-full pulse-dot"></div>
+                                <p id="updateTime" class="text-xs text-gray-500">Connected</p>
                             </div>
                         </div>
                     </div>
-                    <div class="flex items-center space-x-4">
-                        <a :href="getLink('/cloudmap.html')" class="my-auto"
-                            :class="{'opacity-50 pointer-events-none': selectedAccountIds.length === 0}">
-                            <div class="map-btn-wrapper">
-                                <div class="map-btn">CloudMap</div>
-                                <div class="pinpoint"></div>
-                                <div class="map-container">
-                                    <div class="map fold-1"></div>
-                                    <div class="map fold-2"></div>
-                                    <div class="map fold-3"></div>
-                                    <div class="map fold-4"></div>
-                                </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <a :href="getLink('/cloudmap.html')" class="my-auto" :class="{'opacity-50 pointer-events-none': selectedAccountIds.length === 0}">
+                        <div class="map-btn-wrapper">
+                            <div class="map-btn">CloudMap</div>
+                            <div class="pinpoint"></div>
+                            <div class="map-container">
+                                <div class="map fold-1"></div>
+                                <div class="map fold-2"></div>
+                                <div class="map fold-3"></div>
+                                <div class="map fold-4"></div>
                             </div>
-                        </a>
-                        <button @click="saveLayout()" x-show="layoutChanged" x-cloak
+                        </div>
+                    </a>
+                    <button
+                            @click="saveLayout()"
+                            x-show="layoutChanged"
+                            x-cloak
                             class="flex items-center text-sm font-semibold text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 px-6 py-2.5 rounded-lg shadow-md transition-all transform hover:scale-105 hover:shadow-lg">
                             <i class="fas fa-save mr-2"></i> Save Layout
                         </button>
@@ -829,51 +829,50 @@
                             <div id="optimizationHub"></div>
                         </div>
 
-                        <div id="widget-costs" class="widget grid gap-6 lg:grid-cols-3 fade-in">
-                            <div class="lg:col-span-2 chart-container p-6 rounded-xl">
-                                <div class="flex items-center justify-between mb-6">
-                                    <h3 class="text-lg font-bold text-gray-800 flex items-center">
-                                        <i class="fas fa-arrows-alt widget-handle mr-3 text-gray-400"></i>
-                                        <i class="fas fa-chart-bar mr-2 text-green-500"></i>
-                                        Cost History (Last 6 Months)
-                                    </h3>
-                                    <div class="flex items-center space-x-2 text-sm text-gray-500">
-                                        <i class="fas fa-exclamation-triangle text-orange-500"></i>
-                                        <span>Anomaly detection</span>
-                                    </div>
-                                </div>
-                                <div class="h-80 p-4 bg-gray-50 rounded-lg">
-                                    <canvas id="costHistoryChart"></canvas>
+                    <div id="widget-costs" class="widget grid gap-6 lg:grid-cols-3 fade-in">
+                        <div class="lg:col-span-2 chart-container p-6 rounded-xl">
+                            <div class="flex items-center justify-between mb-6">
+                                <h3 class="text-lg font-bold text-gray-800 flex items-center">
+                                    <i class="fas fa-arrows-alt widget-handle mr-3 text-gray-400"></i>
+                                    <i class="fas fa-chart-bar mr-2 text-green-500"></i>
+                                    Cost History (Last 6 Months)
+                                </h3>
+                                <div class="flex items-center space-x-2 text-sm text-gray-500">
+                                    <i class="fas fa-exclamation-triangle text-orange-500"></i>
+                                    <span>Anomaly detection</span>
                                 </div>
                             </div>
-                            <div class="chart-container p-6 rounded-xl">
-                                <div class="flex items-center justify-between mb-6">
-                                    <h3 class="text-lg font-bold text-gray-800 flex items-center">
-                                        <i class="fas fa-arrows-alt widget-handle mr-3 text-gray-400"></i>
-                                        <i class="fas fa-receipt mr-2 text-blue-500"></i>
-                                        Billing Summary
-                                    </h3>
-                                    <div class="text-sm text-gray-500">MTD</div>
-                                </div>
-                                <div class="overflow-y-auto max-h-80 custom-scrollbar">
-                                    <table class="w-full text-sm text-left text-gray-500">
-                                        <thead
-                                            class="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0 rounded-lg">
-                                            <tr>
-                                                <th class="px-4 py-3 rounded-l-lg">Service</th>
-                                                <th class="px-4 py-3 text-right rounded-r-lg">Cost (USD)</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="billingSummary"></tbody>
-                                    </table>
-                                </div>
+                            <div class="h-80 p-4 bg-gray-50 rounded-lg">
+                                <canvas id="costHistoryChart"></canvas>
+                            </div>
+                        </div>
+                        <div class="chart-container p-6 rounded-xl">
+                            <div class="flex items-center justify-between mb-6">
+                                <h3 class="text-lg font-bold text-gray-800 flex items-center">
+                                    <i class="fas fa-arrows-alt widget-handle mr-3 text-gray-400"></i>
+                                    <i class="fas fa-receipt mr-2 text-blue-500"></i>
+                                    Billing Summary
+                                </h3>
+                                <div class="text-sm text-gray-500">MTD</div>
+                            </div>
+                            <div class="overflow-y-auto max-h-80 custom-scrollbar">
+                                <table class="w-full text-sm text-left text-gray-500">
+                                    <thead class="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0 rounded-lg">
+                                    <tr>
+                                        <th class="px-4 py-3 rounded-l-lg">Service</th>
+                                        <th class="px-4 py-3 text-right rounded-r-lg">Cost (USD)</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody id="billingSummary"></tbody>
+                                </table>
                             </div>
                         </div>
                     </div>
                 </div>
-            </main>
-        </div>
+            </div>
+        </main>
     </div>
+</div>
 
 
     <script>
@@ -1431,7 +1430,7 @@
                             </div>
                         </div>
                     `;
-                    };
+                };
 
                     container.innerHTML = `
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
@@ -1817,24 +1816,25 @@
             }
         }
 
-    </script>
+</script>
 
-    <div id="xamops-chatbot" class="fixed bottom-6 right-6 z-50 font-sans" x-data="{
-        open: false,
-        newMessage: '',
+<div id="xamops-chatbot" class="fixed bottom-6 right-6 z-50 font-sans" 
+     x-data="{ 
+        open: false, 
+        newMessage: '', 
         isLoading: false,
         messages: [
             { text: 'Hello! I am XamOps AI. I can analyze your AWS costs and find idle resources. How can I help?', isUser: false }
         ],
-       
+        
         // 1. SMART URL DETECTOR: Works on Localhost AND Production automatically
         get backendUrl() {
             return window.location.port === '5173' ? 'http://localhost:8080' : '';
         },
-       
+        
         async sendMessage() {
             if (this.newMessage.trim() === '') return;
-           
+            
             this.messages.push({ text: this.newMessage, isUser: true });
             const userMsg = this.newMessage;
             this.newMessage = '';
@@ -1851,7 +1851,7 @@
                 // 3. DYNAMIC FETCH (Uses the smart backendUrl)
                 const response = await fetch(`${this.backendUrl}/api/ai/chat`, {
                     method: 'POST',
-                    headers: {
+                    headers: { 
                         'Content-Type': 'application/json',
                         'X-XSRF-TOKEN': csrfToken
                     },
@@ -1885,80 +1885,85 @@
         }
      }">
 
-        <button @click="open = !open; if(open) scrollToBottom()"
-            class="w-14 h-14 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-full shadow-2xl flex items-center justify-center hover:scale-110 transition-all duration-300 focus:outline-none z-50"
-            title="Ask XamOps AI">
-            <i class="fas fa-robot text-white text-2xl"></i>
-            <span class="absolute -top-1 -right-1 flex h-4 w-4">
-                <span
-                    class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                <span class="relative inline-flex rounded-full h-4 w-4 bg-green-500"></span>
-            </span>
-        </button>
+  <button 
+    @click="open = !open; if(open) scrollToBottom()" 
+    class="w-14 h-14 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-full shadow-2xl flex items-center justify-center hover:scale-110 transition-all duration-300 focus:outline-none z-50"
+    title="Ask XamOps AI">
+    <i class="fas fa-robot text-white text-2xl"></i>
+    <span class="absolute -top-1 -right-1 flex h-4 w-4">
+      <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+      <span class="relative inline-flex rounded-full h-4 w-4 bg-green-500"></span>
+    </span>
+  </button>
 
-        <div x-show="open" x-cloak x-transition:enter="transition ease-out duration-300"
-            x-transition:enter-start="opacity-0 transform scale-95 translate-y-10"
-            x-transition:enter-end="opacity-100 transform scale-100 translate-y-0"
-            x-transition:leave="transition ease-in duration-200"
-            x-transition:leave-start="opacity-100 transform scale-100 translate-y-0"
-            x-transition:leave-end="opacity-0 transform scale-95 translate-y-10"
-            class="absolute bottom-20 right-0 w-96 h-[500px] bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col overflow-hidden z-40">
+  <div 
+    x-show="open" 
+    x-cloak
+    x-transition:enter="transition ease-out duration-300"
+    x-transition:enter-start="opacity-0 transform scale-95 translate-y-10"
+    x-transition:enter-end="opacity-100 transform scale-100 translate-y-0"
+    x-transition:leave="transition ease-in duration-200"
+    x-transition:leave-start="opacity-100 transform scale-100 translate-y-0"
+    x-transition:leave-end="opacity-0 transform scale-95 translate-y-10"
+    class="absolute bottom-20 right-0 w-96 h-[500px] bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col overflow-hidden z-40">
+    
+    <div class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-4 flex items-center justify-between shadow-md">
+      <div class="flex items-center space-x-3">
+        <div class="w-8 h-8 bg-white bg-opacity-20 rounded-full flex items-center justify-center backdrop-blur-sm">
+            <i class="fas fa-robot text-sm"></i>
+        </div>
+        <div>
+          <h3 class="font-bold text-sm">XamOps AI Assistant</h3>
+          <p class="text-xs opacity-80 flex items-center gap-1">
+            <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span> Online
+          </p>
+        </div>
+      </div>
+      <button @click="open = false" class="hover:bg-white hover:bg-opacity-20 rounded-lg p-2 transition-colors">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
 
-            <div
-                class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-4 flex items-center justify-between shadow-md">
-                <div class="flex items-center space-x-3">
-                    <div
-                        class="w-8 h-8 bg-white bg-opacity-20 rounded-full flex items-center justify-center backdrop-blur-sm">
-                        <i class="fas fa-robot text-sm"></i>
-                    </div>
-                    <div>
-                        <h3 class="font-bold text-sm">XamOps AI Assistant</h3>
-                        <p class="text-xs opacity-80 flex items-center gap-1">
-                            <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span> Online
-                        </p>
-                    </div>
-                </div>
-                <button @click="open = false"
-                    class="hover:bg-white hover:bg-opacity-20 rounded-lg p-2 transition-colors">
-                    <i class="fas fa-times"></i>
-                </button>
-            </div>
-
-            <div id="chat-history" class="flex-1 p-4 overflow-y-auto bg-gray-50 space-y-4 custom-scrollbar">
-                <template x-for="(msg, index) in messages" :key="index">
-                    <div :class="msg.isUser ? 'flex justify-end' : 'flex justify-start'">
-                        <div :class="msg.isUser ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-white text-gray-800 border border-gray-200 rounded-bl-none'"
-                            class="max-w-[85%] rounded-2xl px-4 py-3 shadow-sm text-sm leading-relaxed">
-                            <p x-text="msg.text"></p>
-                        </div>
-                    </div>
-                </template>
-
-                <div x-show="isLoading" class="flex justify-start">
-                    <div
-                        class="bg-white border border-gray-200 text-gray-500 rounded-2xl rounded-bl-none px-4 py-3 text-xs flex items-center shadow-sm">
-                        <i class="fas fa-circle-notch fa-spin mr-2 text-indigo-500"></i>
-                        Thinking...
-                    </div>
+    <div id="chat-history" class="flex-1 p-4 overflow-y-auto bg-gray-50 space-y-4 custom-scrollbar">
+        <template x-for="(msg, index) in messages" :key="index">
+            <div :class="msg.isUser ? 'flex justify-end' : 'flex justify-start'">
+                <div :class="msg.isUser ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-white text-gray-800 border border-gray-200 rounded-bl-none'" 
+                     class="max-w-[85%] rounded-2xl px-4 py-3 shadow-sm text-sm leading-relaxed">
+                    <p x-text="msg.text"></p>
                 </div>
             </div>
+        </template>
 
-            <div class="p-4 bg-white border-t border-gray-100">
-                <div class="relative flex items-center">
-                    <input type="text" x-model="newMessage" @keydown.enter="sendMessage()"
-                        placeholder="Ask about costs, instances, or alerts..."
-                        class="w-full bg-gray-100 text-gray-800 text-sm rounded-xl pl-4 pr-12 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all border-0">
-                    <button @click="sendMessage()" :disabled="isLoading || newMessage.trim() === ''"
-                        class="absolute right-2 p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm">
-                        <i class="fas fa-paper-plane text-xs"></i>
-                    </button>
-                </div>
-                <div class="text-center mt-2">
-                    <p class="text-[10px] text-gray-400">AI generated responses can be inaccurate.</p>
-                </div>
+        <div x-show="isLoading" class="flex justify-start">
+            <div class="bg-white border border-gray-200 text-gray-500 rounded-2xl rounded-bl-none px-4 py-3 text-xs flex items-center shadow-sm">
+                <i class="fas fa-circle-notch fa-spin mr-2 text-indigo-500"></i> 
+                Thinking...
             </div>
         </div>
     </div>
+
+    <div class="p-4 bg-white border-t border-gray-100">
+        <div class="relative flex items-center">
+            <input 
+                type="text" 
+                x-model="newMessage" 
+                @keydown.enter="sendMessage()"
+                placeholder="Ask about costs, instances, or alerts..." 
+                class="w-full bg-gray-100 text-gray-800 text-sm rounded-xl pl-4 pr-12 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all border-0"
+            >
+            <button 
+                @click="sendMessage()"
+                :disabled="isLoading || newMessage.trim() === ''"
+                class="absolute right-2 p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm">
+                <i class="fas fa-paper-plane text-xs"></i>
+            </button>
+        </div>
+        <div class="text-center mt-2">
+             <p class="text-[10px] text-gray-400">AI generated responses can be inaccurate.</p>
+        </div>
+    </div>
+  </div>
+</div>
 </body>
 
 </html>

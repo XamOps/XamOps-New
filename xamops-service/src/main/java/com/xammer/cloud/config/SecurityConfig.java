@@ -71,7 +71,9 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("/api/xamops/k8s/**"),
                                 new AntPathRequestMatcher("/sonarqube.html"),
                                 new AntPathRequestMatcher("/user-manager.html"),
-                                new AntPathRequestMatcher("/api/devops-scripts/**")
+                                new AntPathRequestMatcher("/api/devops-scripts/**"),
+                                // 👇 ADD THIS LINE HERE 👇
+                                new AntPathRequestMatcher("/api/ai/**")
                         // ** ADD NEW RULE FOR FINOPS SCHEDULES (will be caught by
                         // anyRequest().authenticated()) **
                         // No explicit permitAll needed, it should be authenticated.
