@@ -175,7 +175,10 @@ public class DashboardDataService {
                             "AWS".equals(acc.getProvider()) ? acc.getAwsAccountId() : acc.getGcpProjectId(),
                             acc.getAccountName(),
                             Collections.emptyList(),
-                            null, null, Collections.emptyList(), null, Collections.emptyList(), null, null,
+                            null, null, Collections.emptyList(), null, Collections.emptyList(), null, null, null, // Added
+                                                                                                                  // null
+                                                                                                                  // for
+                                                                                                                  // iamDetails
                             Collections.emptyList(), Collections.emptyList(), Collections.emptyList(),
                             Collections.emptyList(),
                             null, Collections.emptyList(), null, Collections.emptyList(), Collections.emptyList(),
@@ -503,7 +506,8 @@ public class DashboardDataService {
                 .map(acc -> new DashboardData.Account(
                         "AWS".equals(acc.getProvider()) ? acc.getAwsAccountId() : acc.getGcpProjectId(),
                         acc.getAccountName(),
-                        null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                        null, null, null, null, null, null, null, null, null, // Added null for iamDetails
+                        null, null, null, null, null, null, null, null,
                         null, 0, 0.0, 0.0, 0.0))
                 .collect(Collectors.toList());
         data.setAvailableAccounts(availableAccounts);
@@ -551,6 +555,9 @@ public class DashboardDataService {
             CompletableFuture<List<DashboardData.BillingSummary>> billingFuture = finOpsService
                     .getBillingSummary(account, forceRefresh);
             CompletableFuture<DashboardData.IamResources> iamFuture = getIamResources(account, forceRefresh);
+            // ✅ NEW: Fetch detailed IAM Info
+            CompletableFuture<DashboardData.IamDetail> iamDetailsFuture = getIamDetails(account, forceRefresh);
+
             CompletableFuture<List<DashboardData.CostAnomaly>> anomaliesFuture = finOpsService.getCostAnomalies(account,
                     forceRefresh);
             CompletableFuture<DashboardData.ReservationAnalysis> reservationFuture = reservationService
@@ -573,7 +580,8 @@ public class DashboardDataService {
             return CompletableFuture.allOf(
                     inventoryFuture, cwStatusFuture, ec2RecsFuture, ebsRecsFuture, lambdaRecsFuture,
                     wastedResourcesFuture, securityFindingsFuture, costHistoryFuture, billingFuture,
-                    iamFuture, savingsFuture, anomaliesFuture, reservationFuture, reservationPurchaseFuture,
+                    iamFuture, iamDetailsFuture, savingsFuture, anomaliesFuture, reservationFuture,
+                    reservationPurchaseFuture,
                     reservationInventoryFuture, vpcQuotaInfoFuture,
                     mtdSpendFuture, lastMonthSpendFuture // ✅ Wait for cost futures
             ).thenApply(v -> {
@@ -615,7 +623,8 @@ public class DashboardDataService {
                 DashboardData.Account mainAccount = new DashboardData.Account(
                         account.getAwsAccountId(), account.getAccountName(),
                         activeRegions, inventoryFuture.join(), cwStatusFuture.join(), securityInsights,
-                        costHistoryFuture.join(), billingFuture.join(), iamFuture.join(), savingsFuture.join(),
+                        costHistoryFuture.join(), billingFuture.join(), iamFuture.join(), iamDetailsFuture.join(),
+                        savingsFuture.join(),
                         ec2Recs, anomalies, ebsRecs, lambdaRecs,
                         reservationFuture.join(), reservationPurchaseFuture.join(),
                         optimizationSummary, wastedResources, vpcQuotas,
@@ -643,6 +652,7 @@ public class DashboardDataService {
                                     acc.getAccountName(),
                                     Collections.emptyList(),
                                     null, null, Collections.emptyList(), null, Collections.emptyList(), null, null,
+                                    null, // Added null for iamDetails
                                     Collections.emptyList(), Collections.emptyList(), Collections.emptyList(),
                                     Collections.emptyList(),
                                     null, Collections.emptyList(), null, Collections.emptyList(),
@@ -656,6 +666,9 @@ public class DashboardDataService {
             });
         }).get();
     }
+
+    // ... (getResourceInventory, getCloudWatchStatus, getServiceQuotaInfo remain
+    // unchanged) ...
 
     private CompletableFuture<DashboardData.ResourceInventory> getResourceInventory(
             CompletableFuture<List<DashboardData.ServiceGroupDto>> groupedResourcesFuture) {
@@ -790,6 +803,74 @@ public class DashboardDataService {
         DashboardData.IamResources resources = new DashboardData.IamResources(users, groups, policies, roles);
         redisCache.put(cacheKey, resources, 10);
         return CompletableFuture.completedFuture(resources);
+    }
+
+    // --- NEW METHOD TO FETCH DETAILED IAM USERS & ROLES ---
+    @Async("awsTaskExecutor")
+    public CompletableFuture<DashboardData.IamDetail> getIamDetails(CloudAccount account, boolean forceRefresh) {
+        String cacheKey = "iamDetails-" + account.getAwsAccountId();
+        if (!forceRefresh) {
+            Optional<DashboardData.IamDetail> cachedData = redisCache.get(cacheKey, DashboardData.IamDetail.class);
+            if (cachedData.isPresent()) {
+                return CompletableFuture.completedFuture(cachedData.get());
+            }
+        }
+
+        return CompletableFuture.supplyAsync(() -> {
+            IamClient iam = awsClientProvider.getIamClient(account);
+
+            // Parallel fetch for users
+            List<DashboardData.IamUserDetail> users = iam.listUsers().users().parallelStream().map(user -> {
+                try {
+                    List<String> groups = iam.listGroupsForUser(r -> r.userName(user.userName()))
+                            .groups().stream().map(g -> g.groupName()).collect(Collectors.toList());
+
+                    List<DashboardData.IamPolicyDetail> policies = new ArrayList<>();
+
+                    iam.listAttachedUserPolicies(r -> r.userName(user.userName())).attachedPolicies()
+                            .forEach(p -> policies
+                                    .add(new DashboardData.IamPolicyDetail(p.policyName(), p.policyArn(), "Managed")));
+
+                    iam.listUserPolicies(r -> r.userName(user.userName())).policyNames()
+                            .forEach(p -> policies.add(new DashboardData.IamPolicyDetail(p, null, "Inline")));
+
+                    return new DashboardData.IamUserDetail(
+                            user.userName(), user.userId(), user.arn(),
+                            user.createDate().toString(),
+                            user.passwordLastUsed() != null ? user.passwordLastUsed().toString() : "Never",
+                            groups, policies);
+                } catch (Exception e) {
+                    logger.warn("Failed to fetch details for user {}", user.userName());
+                    return null;
+                }
+            }).filter(java.util.Objects::nonNull).collect(Collectors.toList());
+
+            // Parallel fetch for roles
+            List<DashboardData.IamRoleDetail> roles = iam.listRoles().roles().parallelStream()
+                    .filter(r -> !r.path().startsWith("/aws-service-role/"))
+                    .map(role -> {
+                        try {
+                            List<DashboardData.IamPolicyDetail> policies = new ArrayList<>();
+                            iam.listAttachedRolePolicies(r -> r.roleName(role.roleName())).attachedPolicies()
+                                    .forEach(p -> policies.add(new DashboardData.IamPolicyDetail(p.policyName(),
+                                            p.policyArn(), "Managed")));
+
+                            iam.listRolePolicies(r -> r.roleName(role.roleName())).policyNames()
+                                    .forEach(p -> policies.add(new DashboardData.IamPolicyDetail(p, null, "Inline")));
+
+                            return new DashboardData.IamRoleDetail(
+                                    role.roleName(), role.roleId(), role.arn(),
+                                    role.createDate().toString(), role.description(), policies);
+                        } catch (Exception e) {
+                            logger.warn("Failed to fetch details for role {}", role.roleName());
+                            return null;
+                        }
+                    }).filter(java.util.Objects::nonNull).collect(Collectors.toList());
+
+            DashboardData.IamDetail details = new DashboardData.IamDetail(users, roles);
+            redisCache.put(cacheKey, details, 10);
+            return details;
+        });
     }
 
     @Async("awsTaskExecutor")
