@@ -12,7 +12,10 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional; // Ensure this import is present
+import org.springframework.transaction.annotation.Transactional;
+import com.xammer.cloud.domain.JenkinsIntegrationConfig;
+import com.xammer.cloud.dto.cicd.JenkinsConfigRequestDto;
+import com.xammer.cloud.repository.JenkinsIntegrationConfigRepository;
 
 import java.util.Collections;
 import java.util.List;
@@ -32,18 +35,22 @@ public class CicdConfigurationService {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private JenkinsIntegrationConfigRepository jenkinsConfigRepository;
+
     @Transactional
     public GitHubIntegrationConfig saveGitHubConfig(GitHubConfigRequestDto requestDto) {
         Optional<User> currentUserOpt = getCurrentUser();
         if (currentUserOpt.isEmpty()) {
             logger.error("Cannot save GitHub config: User not authenticated.");
-            return null; 
+            return null;
         }
         User currentUser = currentUserOpt.get();
 
         String encryptedPat = encryptionService.encrypt(requestDto.getPat());
         if (encryptedPat == null) {
-            logger.error("Failed to encrypt PAT for user {} and repo {}/{}", currentUser.getUsername(), requestDto.getOwner(), requestDto.getRepo());
+            logger.error("Failed to encrypt PAT for user {} and repo {}/{}", currentUser.getUsername(),
+                    requestDto.getOwner(), requestDto.getRepo());
             return null;
         }
 
@@ -51,16 +58,16 @@ public class CicdConfigurationService {
                 currentUser,
                 requestDto.getOwner(),
                 requestDto.getRepo(),
-                encryptedPat
-        );
+                encryptedPat);
 
         try {
             GitHubIntegrationConfig savedConfig = configRepository.save(config);
-            logger.info("Saved GitHub config ID {} for user {} and repo {}/{}", savedConfig.getId(), currentUser.getUsername(), savedConfig.getGithubOwner(), savedConfig.getGithubRepo());
+            logger.info("Saved GitHub config ID {} for user {} and repo {}/{}", savedConfig.getId(),
+                    currentUser.getUsername(), savedConfig.getGithubOwner(), savedConfig.getGithubRepo());
             return savedConfig;
         } catch (Exception e) {
             logger.error("Error saving GitHub config for user {}: {}", currentUser.getUsername(), e.getMessage(), e);
-            return null; 
+            return null;
         }
     }
 
@@ -68,7 +75,7 @@ public class CicdConfigurationService {
      * Retrieves all GitHub configurations for the currently logged-in user.
      */
     // === *** THE FIX: Add this annotation *** ===
-    @Transactional(readOnly = true) 
+    @Transactional(readOnly = true)
     public List<GitHubIntegrationConfig> getGitHubConfigsForCurrentUser() {
         Optional<User> currentUserOpt = getCurrentUser();
         if (currentUserOpt.isEmpty()) {
@@ -82,7 +89,8 @@ public class CicdConfigurationService {
             logger.debug("Found {} GitHub configs for user {}", configs.size(), currentUser.getUsername());
             return configs;
         } catch (Exception e) {
-            logger.error("Error retrieving GitHub configs for user {}: {}", currentUser.getUsername(), e.getMessage(), e);
+            logger.error("Error retrieving GitHub configs for user {}: {}", currentUser.getUsername(), e.getMessage(),
+                    e);
             return Collections.emptyList();
         }
     }
@@ -110,18 +118,21 @@ public class CicdConfigurationService {
                     return false;
                 }
             } else {
-                logger.warn("GitHub config ID {} not found for deletion attempt by user {}", configId, currentUser.getUsername());
+                logger.warn("GitHub config ID {} not found for deletion attempt by user {}", configId,
+                        currentUser.getUsername());
                 return false;
             }
         } catch (Exception e) {
-            logger.error("Error deleting GitHub config ID {} for user {}: {}", configId, currentUser.getUsername(), e.getMessage(), e);
+            logger.error("Error deleting GitHub config ID {} for user {}: {}", configId, currentUser.getUsername(),
+                    e.getMessage(), e);
             return false;
         }
     }
 
     public Optional<User> getCurrentUser() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || !authentication.isAuthenticated() || authentication.getPrincipal().equals("anonymousUser")) {
+        if (authentication == null || !authentication.isAuthenticated()
+                || authentication.getPrincipal().equals("anonymousUser")) {
             return Optional.empty();
         }
 
@@ -135,8 +146,68 @@ public class CicdConfigurationService {
 
         return userRepository.findByUsername(username);
     }
+
     @Transactional(readOnly = true)
-public Optional<GitHubIntegrationConfig> findConfigByRepo(Long userId, String owner, String repo) {
-    return configRepository.findByUserIdAndGithubOwnerAndGithubRepo(userId, owner, repo);
-}
+    public Optional<GitHubIntegrationConfig> findConfigByRepo(Long userId, String owner, String repo) {
+        return configRepository.findByUserIdAndGithubOwnerAndGithubRepo(userId, owner, repo);
+    }
+
+    @Transactional
+    public JenkinsIntegrationConfig saveJenkinsConfig(JenkinsConfigRequestDto requestDto) {
+        Optional<User> currentUserOpt = getCurrentUser();
+        if (currentUserOpt.isEmpty()) {
+            logger.error("Cannot save Jenkins config: User not authenticated.");
+            return null;
+        }
+        User currentUser = currentUserOpt.get();
+
+        String encryptedToken = encryptionService.encrypt(requestDto.getApiToken());
+        if (encryptedToken == null) {
+            logger.error("Failed to encrypt Jenkins token for user {}", currentUser.getUsername());
+            return null;
+        }
+
+        JenkinsIntegrationConfig config = new JenkinsIntegrationConfig(
+                currentUser,
+                requestDto.getJenkinsUrl(),
+                requestDto.getUsername(),
+                encryptedToken);
+
+        try {
+            JenkinsIntegrationConfig savedConfig = jenkinsConfigRepository.save(config);
+            logger.info("Saved Jenkins config ID {} for user {}", savedConfig.getId(), currentUser.getUsername());
+            return savedConfig;
+        } catch (Exception e) {
+            logger.error("Error saving Jenkins config: {}", e.getMessage(), e);
+            return null;
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public List<JenkinsIntegrationConfig> getJenkinsConfigsForCurrentUser() {
+        Optional<User> currentUserOpt = getCurrentUser();
+        if (currentUserOpt.isEmpty())
+            return Collections.emptyList();
+
+        return jenkinsConfigRepository.findByUserId(currentUserOpt.get().getId());
+    }
+
+    @Transactional
+    public boolean deleteJenkinsConfig(Long configId) {
+        Optional<User> currentUserOpt = getCurrentUser();
+        if (currentUserOpt.isEmpty())
+            return false;
+
+        try {
+            Optional<JenkinsIntegrationConfig> configOpt = jenkinsConfigRepository.findById(configId);
+            if (configOpt.isPresent() && configOpt.get().getUser().getId().equals(currentUserOpt.get().getId())) {
+                jenkinsConfigRepository.deleteById(configId);
+                return true;
+            }
+            return false;
+        } catch (Exception e) {
+            logger.error("Error deleting Jenkins config: {}", e.getMessage());
+            return false;
+        }
+    }
 }

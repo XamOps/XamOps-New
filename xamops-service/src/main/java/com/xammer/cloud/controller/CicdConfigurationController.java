@@ -10,6 +10,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import com.xammer.cloud.domain.JenkinsIntegrationConfig;
+import com.xammer.cloud.dto.cicd.JenkinsConfigRequestDto;
+import com.xammer.cloud.dto.cicd.JenkinsConfigResponseDto;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -31,7 +34,7 @@ public class CicdConfigurationController {
      */
     @PostMapping("/github")
     // Use @Valid if you added validation annotations to the DTO
-    public ResponseEntity<?> addGitHubConfig(/*@Valid*/ @RequestBody GitHubConfigRequestDto requestDto) {
+    public ResponseEntity<?> addGitHubConfig(/* @Valid */ @RequestBody GitHubConfigRequestDto requestDto) {
         logger.info("Received request to add GitHub config: {}/{}", requestDto.getOwner(), requestDto.getRepo());
         GitHubIntegrationConfig savedConfig = configService.saveGitHubConfig(requestDto);
 
@@ -39,7 +42,8 @@ public class CicdConfigurationController {
             // Return the safe DTO (without PAT) and a 201 Created status
             return ResponseEntity.status(HttpStatus.CREATED).body(GitHubConfigResponseDto.fromEntity(savedConfig));
         } else {
-            // Handle potential errors (e.g., encryption failure, user not found, database error)
+            // Handle potential errors (e.g., encryption failure, user not found, database
+            // error)
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Failed to save GitHub configuration.");
         }
     }
@@ -61,7 +65,8 @@ public class CicdConfigurationController {
     }
 
     /**
-     * Endpoint to delete a specific GitHub repository configuration for the current user.
+     * Endpoint to delete a specific GitHub repository configuration for the current
+     * user.
      */
     @DeleteMapping("/github/{configId}")
     public ResponseEntity<?> deleteGitHubConfig(@PathVariable Long configId) {
@@ -72,8 +77,43 @@ public class CicdConfigurationController {
             return ResponseEntity.noContent().build(); // Standard 204 No Content for successful deletion
         } else {
             // Could be not found, or not owned by user, or other error
-            // Returning 404 is common, even if it's an ownership issue, to avoid revealing existence
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Configuration not found or user not authorized to delete.");
+            // Returning 404 is common, even if it's an ownership issue, to avoid revealing
+            // existence
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body("Configuration not found or user not authorized to delete.");
+        }
+    }
+    // --- JENKINS ENDPOINTS ---
+
+    @PostMapping("/jenkins")
+    public ResponseEntity<?> addJenkinsConfig(@RequestBody JenkinsConfigRequestDto requestDto) {
+        logger.info("Received request to add Jenkins config: {}", requestDto.getJenkinsUrl());
+        JenkinsIntegrationConfig savedConfig = configService.saveJenkinsConfig(requestDto);
+
+        if (savedConfig != null) {
+            return ResponseEntity.status(HttpStatus.CREATED).body(JenkinsConfigResponseDto.fromEntity(savedConfig));
+        } else {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("Failed to save Jenkins configuration.");
+        }
+    }
+
+    @GetMapping("/jenkins")
+    public ResponseEntity<List<JenkinsConfigResponseDto>> listJenkinsConfigs() {
+        List<JenkinsIntegrationConfig> configs = configService.getJenkinsConfigsForCurrentUser();
+        List<JenkinsConfigResponseDto> responseDtos = configs.stream()
+                .map(JenkinsConfigResponseDto::fromEntity)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(responseDtos);
+    }
+
+    @DeleteMapping("/jenkins/{configId}")
+    public ResponseEntity<?> deleteJenkinsConfig(@PathVariable Long configId) {
+        boolean deleted = configService.deleteJenkinsConfig(configId);
+        if (deleted) {
+            return ResponseEntity.noContent().build();
+        } else {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Configuration not found or unauthorized.");
         }
     }
 }
