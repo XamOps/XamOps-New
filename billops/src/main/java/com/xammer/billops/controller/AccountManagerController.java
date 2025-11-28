@@ -2,101 +2,246 @@ package com.xammer.billops.controller;
 
 import com.xammer.billops.domain.Client;
 import com.xammer.billops.domain.CloudAccount;
-import com.xammer.cloud.domain.User;
-import com.xammer.billops.dto.AccountCreationRequestDto;
-import com.xammer.billops.dto.GcpAccountRequestDto;
-import com.xammer.billops.dto.VerifyAccountRequest;
+import com.xammer.billops.dto.*;
+import com.xammer.billops.repository.ClientRepository;
 import com.xammer.billops.repository.CloudAccountRepository;
-import com.xammer.billops.repository.UserRepository;
+import com.xammer.billops.security.ClientUserDetails;
 import com.xammer.billops.service.AwsAccountService;
-import com.xammer.billops.service.GcpDataService;
-import org.springframework.http.HttpStatus;
+import com.xammer.billops.service.GcpDataService; // Ensure this import points to your BillOps GCP service
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
+import com.xammer.billops.dto.azure.AzureAccountRequestDto;
+import org.springframework.http.HttpStatus;
+import com.xammer.billops.service.azure.AzureCostManagementService;
 
 @RestController
-@RequestMapping("/api/accounts")
+@RequestMapping("/api/xamops/account-manager")
 public class AccountManagerController {
 
-    private final AwsAccountService awsAccountService;
-    private final GcpDataService gcpDataService;
-    private final UserRepository userRepository;
-    private final CloudAccountRepository cloudAccountRepository;
+    private static final Logger logger = LoggerFactory.getLogger(AccountManagerController.class);
 
-    public AccountManagerController(AwsAccountService awsAccountService, GcpDataService gcpDataService,
-                                    UserRepository userRepository, CloudAccountRepository cloudAccountRepository) {
-        this.awsAccountService = awsAccountService;
-        this.gcpDataService = gcpDataService;
-        this.userRepository = userRepository;
-        this.cloudAccountRepository = cloudAccountRepository;
-    }
+    @Autowired
+    private AwsAccountService awsAccountService;
 
-    @GetMapping
-    public ResponseEntity<List<CloudAccount>> getAccounts(Authentication authentication) {
-        User user = userRepository.findByUsername(authentication.getName())
-                .orElseThrow(() -> new UsernameNotFoundException("User not found"));
-        return ResponseEntity.ok(cloudAccountRepository.findByClientId(user.getClient().getId()));
-    }
+    @Autowired
+    private GcpDataService gcpDataService;
 
-    @PostMapping("/add-gcp")
-    public ResponseEntity<Map<String, String>> addGcpAccount(@RequestBody GcpAccountRequestDto request,
-                                                             Authentication authentication) {
-        Map<String, String> response = new HashMap<>();
-        try {
-            User user = userRepository.findByUsername(authentication.getName())
-                    .orElseThrow(() -> new UsernameNotFoundException("User not found"));
-            Client client = user.getClient();
-            gcpDataService.createGcpAccount(request, client);
-            response.put("message", "GCP account added successfully!");
-            return ResponseEntity.ok(response);
-        } catch (Exception e) {
-            response.put("error", "Failed to add GCP account: " + e.getMessage());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
-        }
-    }
+    @Autowired
+    private CloudAccountRepository cloudAccountRepository;
+
+    @Autowired
+    private ClientRepository clientRepository;
+
+    @Autowired
+    private AzureCostManagementService azureCostService;
 
     @PostMapping("/generate-stack-url")
-    public ResponseEntity<Map<String, String>> generateStackUrl(@RequestBody AccountCreationRequestDto request, Authentication authentication) {
-        User user = userRepository.findByUsername(authentication.getName())
-                .orElseThrow(() -> new UsernameNotFoundException("User not found"));
-        Client client = user.getClient();
-        String url = awsAccountService.generateCloudFormationUrl(request.getAccountName(), client);
-
-        Map<String, String> response = new HashMap<>();
-        response.put("url", url);
-
-        return ResponseEntity.ok(response);
-    }
-
-    @PostMapping("/verify")
-    public ResponseEntity<Map<String, String>> verifyAccount(@RequestBody VerifyAccountRequest request) {
-        Map<String, String> response = new HashMap<>();
+    public ResponseEntity<Map<String, String>> generateStackUrl(@RequestBody AccountCreationRequestDto request, @AuthenticationPrincipal ClientUserDetails userDetails) {
+        Long clientId = userDetails.getClientId();
         try {
-            awsAccountService.verifyAccount(request);
-            response.put("message", "Account verified successfully!");
-            return ResponseEntity.ok(response);
+            Map<String, Object> result = awsAccountService.generateCloudFormationUrl(request.getAccountName(), request.getAwsAccountId(), request.getAccessType(), clientId);
+            Map<String, String> stackDetails = Map.of(
+                    "url", result.get("url").toString(),
+                    "externalId", result.get("externalId").toString()
+            );
+            return ResponseEntity.ok(stackDetails);
         } catch (Exception e) {
-            response.put("error", "Failed to verify account: " + e.getMessage());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+            return ResponseEntity.badRequest().body(Map.of("error", "Could not generate CloudFormation URL", "message", e.getMessage()));
         }
     }
 
-    @DeleteMapping("/{id}")
-    public ResponseEntity<Map<String, String>> deleteAccount(@PathVariable("id") Long id) {
-        Map<String, String> response = new HashMap<>();
+    @PostMapping("/verify-account")
+    public ResponseEntity<?> verifyAccount(@RequestBody VerifyAccountRequest request) {
         try {
-            cloudAccountRepository.deleteById(id);
-            response.put("message", "Account removed successfully!");
-            return ResponseEntity.ok(response);
+            CloudAccount verifiedAccount = awsAccountService.verifyAccount(request);
+            return ResponseEntity.ok(Map.of("message", "Account " + verifiedAccount.getAccountName() + " connected successfully!"));
         } catch (Exception e) {
-            response.put("error", "Failed to remove account: " + e.getMessage());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+            return ResponseEntity.badRequest().body(Map.of("error", "Account verification failed", "message", e.getMessage()));
+        }
+    }
+
+    @GetMapping("/accounts")
+    public ResponseEntity<?> getAccounts(@AuthenticationPrincipal ClientUserDetails userDetails, Authentication authentication) {
+        
+        logger.info("========== GET ACCOUNTS REQUEST (BILLOPS) ==========");
+        
+        // Check authentication state
+        if (authentication == null) {
+            logger.error("✗ Authentication object is NULL");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(Map.of("error", "Authentication required", "message", "No authentication found in security context"));
+        }
+        
+        logger.info("✓ Authentication present: {}", authentication.isAuthenticated());
+        
+        // Check if userDetails was properly deserialized
+        if (userDetails == null) {
+            logger.error("✗ ClientUserDetails is NULL - Session deserialization failed");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(Map.of(
+                    "error", "Session deserialization failed",
+                    "message", "User details could not be restored from session. Please log out and log back in."
+                ));
+        }
+        
+        logger.info("✓ ClientUserDetails restored successfully for user: {}", userDetails.getUsername());
+        
+        // Check for Admin Roles
+        boolean isAdmin = userDetails.getAuthorities().stream()
+            .map(GrantedAuthority::getAuthority)
+            .anyMatch(role -> "ROLE_BILLOPS_ADMIN".equals(role) || "ROLE_XAMOPS_ADMIN".equals(role));
+        
+        List<CloudAccount> accounts;
+        if (isAdmin) {
+            logger.info("User is admin - fetching all accounts");
+            accounts = cloudAccountRepository.findAll();
+        } else {
+            Long clientId = userDetails.getClientId();
+            logger.info("Fetching accounts for Client ID: {}", clientId);
+            accounts = cloudAccountRepository.findByClientId(clientId);
+        }
+        
+        logger.info("✓ Found {} accounts", accounts.size());
+        
+        return ResponseEntity.ok(accounts.stream()
+            .map(this::mapToAccountDto)
+            .collect(Collectors.toList()));
+    }
+
+    @DeleteMapping("/accounts/{id}")
+    public ResponseEntity<?> deleteAccount(@PathVariable Long id) {
+        return cloudAccountRepository.findById(id)
+                .map(account -> {
+                    awsAccountService.clearAllCaches();
+                    cloudAccountRepository.delete(account);
+                    return ResponseEntity.ok(Map.of("message", "Account " + account.getAccountName() + " removed successfully."));
+                }).orElse(ResponseEntity.notFound().build());
+    }
+
+    @PostMapping("/add-gcp-account")
+    public ResponseEntity<?> addGcpAccount(@RequestBody GcpAccountRequestDto gcpAccountRequestDto, @AuthenticationPrincipal ClientUserDetails userDetails) {
+        Long clientId = userDetails.getClientId();
+        Client client = clientRepository.findById(clientId).orElse(null);
+        gcpDataService.createGcpAccount(gcpAccountRequestDto, client);
+        return ResponseEntity.ok(Map.of("message", "GCP Account added successfully."));
+    }
+
+    @PostMapping("/accounts/{accountId}/monitoring")
+    public ResponseEntity<?> updateMonitoringEndpoint(@PathVariable String accountId,
+                                                      @RequestBody Map<String, String> payload) {
+        String grafanaIp = payload.get("grafanaIp");
+        if (grafanaIp == null || grafanaIp.trim().isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("message", "grafanaIp is required in the request body."));
+        }
+
+        // Find account by AWS Account ID, GCP Project ID, or Azure Subscription ID
+        CloudAccount account = cloudAccountRepository
+                .findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(accountId, accountId, accountId)
+                .orElse(null);
+
+        if (account == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("message", "Account not found with ID: " + accountId));
+        }
+
+        account.setGrafanaIp(grafanaIp);
+        cloudAccountRepository.save(account);
+
+        return ResponseEntity.ok()
+                .body(Map.of("message", "Monitoring endpoint updated successfully for account: " + accountId));
+    }
+
+    private AccountDto mapToAccountDto(CloudAccount account) {
+        String connectionType;
+        String accountIdentifier;
+
+        switch (account.getProvider()) {
+            case "AWS":
+                connectionType = "Cross-account role";
+                accountIdentifier = account.getAwsAccountId();
+                break;
+            case "GCP":
+                connectionType = "Workload Identity Federation";
+                accountIdentifier = account.getGcpProjectId();
+                break;
+            case "Azure":
+                connectionType = "Service Principal";
+                accountIdentifier = account.getAzureSubscriptionId();
+                break;
+            default:
+                connectionType = "Unknown";
+                accountIdentifier = "N/A";
+                break;
+        }
+        AccountDto dto = new AccountDto(
+                account.getId(),
+                account.getAccountName(),
+                accountIdentifier,
+                account.getAccessType(),
+                connectionType,
+                account.getStatus(),
+                account.getRoleArn(),
+                account.getExternalId(),
+                account.getProvider());
+        
+        // Added line to include Grafana IP
+        dto.setGrafanaIp(account.getGrafanaIp());
+        
+        return dto;
+    }
+
+    @PostMapping("/azure")
+    public ResponseEntity<?> addAzureAccount(@RequestBody AzureAccountRequestDto request, @AuthenticationPrincipal ClientUserDetails userDetails) {
+        Long clientId = userDetails.getClientId();
+
+        try {
+            Client client = clientRepository.findById(clientId)
+                    .orElseThrow(() -> new RuntimeException("Client not found for ID: " + clientId));
+
+            CloudAccount newAccount = new CloudAccount();
+            newAccount.setAccountName(request.getAccountName());
+            newAccount.setProvider("Azure");
+            newAccount.setAzureTenantId(request.getTenantId());
+            newAccount.setAzureSubscriptionId(request.getSubscriptionId());
+            newAccount.setAzureClientId(request.getClientId());
+            newAccount.setAzureClientSecret(request.getClientSecret());
+            newAccount.setStatus("CONNECTED"); // Set to CONNECTED, as setup follows
+            newAccount.setClient(client);
+            newAccount.setAccessType(request.getAccess());
+            newAccount.setExternalId(request.getPrincipalId()); 
+
+            // First save to get an ID and basic info
+            CloudAccount savedAccount = cloudAccountRepository.save(newAccount);
+            
+            try {
+                // 1. Call setupCostExports, which now returns the path info
+                Map<String, String> exportConfig = azureCostService.setupCostExports(savedAccount, request);
+
+                // 2. Get the names and save them to the account
+                savedAccount.setAzureBillingContainer(exportConfig.get("containerName"));
+                savedAccount.setAzureBillingDirectory(exportConfig.get("directoryName"));
+
+                // 3. Re-save the account with the new path information
+                CloudAccount finalAccount = cloudAccountRepository.save(savedAccount);
+                return ResponseEntity.ok(finalAccount);
+
+            } catch (Exception e) {
+                logger.error("Azure account {} added, but cost export setup failed: {}", savedAccount.getId(), e.getMessage());
+                return ResponseEntity.ok(savedAccount); // Return the partially set-up account
+            }
+
+        } catch (Exception e) {
+            logger.error("Error adding Azure account (pre-cost-setup)", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("An unexpected error occurred while adding the account.");
         }
     }
 }

@@ -85,7 +85,7 @@ public class InvoiceViewController {
     @PostMapping("/download-preview")
     public ResponseEntity<byte[]> downloadInvoicePreview(@RequestBody InvoiceDto invoiceDto) {
          // Basic validation
-        if (invoiceDto == null || invoiceDto.getAwsAccountId() == null || invoiceDto.getBillingPeriod() == null) {
+        if (invoiceDto == null || invoiceDto.getBillingPeriod() == null) {
              logger.warn("Received invalid InvoiceDto for PDF download: {}", invoiceDto);
              return ResponseEntity.badRequest().build();
         }
@@ -95,9 +95,18 @@ public class InvoiceViewController {
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_PDF);
-             // Sanitize filename parts if necessary
+            
+            // Handle filename generation for GCP accounts (where awsAccountId might be null)
+            String accountIdentifier = invoiceDto.getAwsAccountId();
+            if (accountIdentifier == null || "N/A".equals(accountIdentifier)) {
+                accountIdentifier = invoiceDto.getGcpProjectId();
+            }
+            if (accountIdentifier == null) {
+                accountIdentifier = "unknown";
+            }
+
             String filename = String.format("invoice-%s-%s.pdf",
-                    invoiceDto.getAwsAccountId().replaceAll("[^a-zA-Z0-9_-]", ""), // Basic sanitization
+                    accountIdentifier.replaceAll("[^a-zA-Z0-9_-]", ""), // Basic sanitization
                     invoiceDto.getBillingPeriod().replaceAll("[^a-zA-Z0-9_-]", "") // Basic sanitization
             );
 
@@ -106,7 +115,9 @@ public class InvoiceViewController {
 
             return ResponseEntity.ok().headers(headers).body(contents);
         } catch (Exception e) {
-             logger.error("Error generating PDF preview for account {}: {}", invoiceDto.getAwsAccountId(), e.getMessage(), e);
+             // Safe logging to avoid NPE if getAwsAccountId is null
+             String accId = invoiceDto.getAwsAccountId() != null ? invoiceDto.getAwsAccountId() : invoiceDto.getGcpProjectId();
+             logger.error("Error generating PDF preview for account {}: {}", accId, e.getMessage(), e);
             return ResponseEntity.internalServerError().build();
         }
     }

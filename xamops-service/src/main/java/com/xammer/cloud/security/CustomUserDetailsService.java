@@ -1,7 +1,11 @@
 package com.xammer.cloud.security;
 
+import com.xammer.cloud.config.multitenancy.TenantContext;
 import com.xammer.cloud.domain.User;
+import com.xammer.cloud.dto.GlobalUserDto;
 import com.xammer.cloud.repository.UserRepository;
+import com.xammer.cloud.service.MasterDatabaseService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -9,10 +13,10 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
-import lombok.extern.slf4j.Slf4j;
 
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Optional;
 
 @Service
 @Slf4j
@@ -21,53 +25,51 @@ public class CustomUserDetailsService implements UserDetailsService {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private MasterDatabaseService masterDatabaseService;
+
     @Override
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
-        log.info("========== LOADING USER BY USERNAME ==========");
-        log.info("Username: {}", username);
-        
+        log.info("========== CENTRALIZED LOGIN ATTEMPT ==========");
+        log.info("User: {}", username);
+
+        // 1. GLOBAL LOOKUP: Check Master DB for this user
+        Optional<GlobalUserDto> globalUserOpt = masterDatabaseService.findGlobalUser(username);
+
+        if (globalUserOpt.isEmpty()) {
+            log.error("✗ User not found in Global Directory: {}", username);
+            throw new UsernameNotFoundException("User not found in Global Directory");
+        }
+
+        GlobalUserDto globalUser = globalUserOpt.get();
+        String tenantId = globalUser.getTenantId();
+        log.info("✓ User found in Global Directory. Tenant: {}", tenantId);
+
+        // 2. CONTEXT SWITCH: Force the application to talk to the correct Tenant DB
+        TenantContext.setCurrentTenant(tenantId);
+
+        // 3. TENANT LOOKUP: Now fetch the full user details from their specific database
+        // Because we set the context above, 'userRepository' now connects to the Tenant DB.
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> {
-                    log.error("✗ User not found: {}", username);
-                    return new UsernameNotFoundException("User not found: " + username);
+                    log.error("✗ Integrity Error: User in Global DB but missing in Tenant DB ({})", tenantId);
+                    return new UsernameNotFoundException("User data missing in Tenant Database");
                 });
-        
-        log.info("✓ User found in database");
-        log.info("  - User ID: {}", user.getId());
-        
-        // ✅ FIX: Access client ID through the relationship
+
+        log.info("✓ User profile loaded from Tenant DB ({})", tenantId);
+
+        // 4. Construct UserDetails
         Long clientId = user.getClient() != null ? user.getClient().getId() : null;
-        
-        if (clientId == null) {
-            log.error("✗ User has no associated client!");
-            throw new UsernameNotFoundException("User has no associated client");
-        }
-        
-        log.info("  - Client ID: {}", clientId);
-        log.info("  - Role: {}", user.getRole());
-        
-        // Create authorities from role
         Collection<GrantedAuthority> authorities = Collections.singletonList(
             new SimpleGrantedAuthority(user.getRole())
         );
-        
-        // CRITICAL: Return ClientUserDetails with correct clientId
-        ClientUserDetails userDetails = new ClientUserDetails(
+
+        return new ClientUserDetails(
             user.getUsername(),
             user.getPassword(),
             authorities,
-            clientId,        // ✅ Now correctly gets client ID from relationship
+            clientId,
             user.getId()
         );
-        
-        log.info("✓ Created ClientUserDetails successfully");
-        log.info("  - Type: {}", userDetails.getClass().getName());
-        log.info("  - Username: {}", userDetails.getUsername());
-        log.info("  - Client ID: {}", userDetails.getClientId());
-        log.info("  - User ID: {}", userDetails.getId());
-        
-        return userDetails;
     }
 }
-
-

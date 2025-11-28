@@ -276,7 +276,7 @@ public class InvoiceManagementService {
         
         String monthStr = formatMonth(dto.getBillingPeriod());
 
-        // --- ROW 1: AWS Consumption ---
+        // --- ROW 1: Standard Consumption (AWS or GCP) ---
         if (grouped.containsKey("STANDARD")) {
             List<InvoiceDto.LineItemDto> stdItems = grouped.get("STANDARD");
             BigDecimal stdTotal = stdItems.stream().map(InvoiceDto.LineItemDto::getCost).reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -286,7 +286,10 @@ public class InvoiceManagementService {
             
             if (dto.getDiscounts() != null) {
                 for (InvoiceDto.DiscountDto d : dto.getDiscounts()) {
-                    if ("AWS Consumption Charge".equalsIgnoreCase(d.getServiceName()) || "ALL".equalsIgnoreCase(d.getServiceName())) {
+                    // Check discount names more broadly if needed
+                    if ("AWS Consumption Charge".equalsIgnoreCase(d.getServiceName()) || 
+                        "Google Cloud Consumption".equalsIgnoreCase(d.getServiceName()) ||
+                        "ALL".equalsIgnoreCase(d.getServiceName())) {
                          discountPercent = d.getPercentage();
                          BigDecimal pct = discountPercent.divide(new BigDecimal(100), 4, RoundingMode.HALF_UP);
                          discountAmount = stdTotal.multiply(pct).setScale(2, RoundingMode.HALF_UP);
@@ -294,11 +297,19 @@ public class InvoiceManagementService {
                 }
             }
 
+            // Detect Provider for Text Labels
+            boolean isGcp = dto.getGcpProjectId() != null && !dto.getGcpProjectId().equals("N/A") 
+                            && (dto.getAwsAccountId() == null || dto.getAwsAccountId().equals("N/A"));
+            
+            String headerText = isGcp ? "Google Cloud Consumption" : "AWS Consumption Charge";
+            String subHeaderText = isGcp ? "Google Cloud Platform Charges" : "Amazon Web Service Charges";
+            String accountLabel = isGcp ? "Project ID: " + dto.getGcpProjectId() : "Account ID: " + dto.getAwsAccountId();
+
             StringBuilder desc = new StringBuilder();
-            desc.append("AWS Consumption Charge\n");
-            desc.append("Amazon Web Service Charges\n");
+            desc.append(headerText).append("\n");
+            desc.append(subHeaderText).append("\n");
             desc.append("For the Month of ").append(monthStr).append("\n");
-            desc.append("Account ID: ").append(dto.getAwsAccountId()).append("\n");
+            desc.append(accountLabel).append("\n");
             
             BigDecimal finalAmount = stdTotal.subtract(discountAmount);
             

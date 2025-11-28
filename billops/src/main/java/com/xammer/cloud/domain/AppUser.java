@@ -17,7 +17,7 @@ import lombok.Data;
 
 @Entity
 @Data
-@Table(name = "app_user") // Explicitly specify the table name to match the existing database
+@Table(name = "app_user") // Keeps connection to the existing database table
 public class AppUser {
 
     @Id
@@ -40,7 +40,6 @@ public class AppUser {
     @JoinColumn(name = "client_id", nullable = false)
     @JsonIgnoreProperties({"hibernateLazyInitializer", "handler", "users", "cloudAccounts"})
     private Client client;
-
 
     // Constructors
     public AppUser() {

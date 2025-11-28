@@ -14,6 +14,9 @@ public interface CloudAccountRepository extends JpaRepository<CloudAccount, Long
 
     List<CloudAccount> findByClientId(Long clientId);
 
+    // --- ADDED: Required for Account Verification Flow ---
+    Optional<CloudAccount> findByExternalId(String externalId);
+
     @Query("SELECT ca FROM CloudAccount ca WHERE LOWER(TRIM(ca.gcpProjectId)) = LOWER(:gcpProjectId)")
     Optional<CloudAccount> findByGcpProjectId(@Param("gcpProjectId") String gcpProjectId);
 
@@ -21,5 +24,11 @@ public interface CloudAccountRepository extends JpaRepository<CloudAccount, Long
     List<CloudAccount> findByAwsAccountId(@Param("awsAccountId") String awsAccountId);
 
     List<CloudAccount> findByAwsAccountIdIn(List<String> awsAccountIds);
+
+    // --- AZURE SUPPORT ---
+    Optional<CloudAccount> findByAzureSubscriptionId(String azureSubscriptionId);
+
+    // --- ADDED: Missing Method for Monitoring Update ---
+    Optional<CloudAccount> findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(String awsAccountId, String gcpProjectId, String azureSubscriptionId);
 
 }

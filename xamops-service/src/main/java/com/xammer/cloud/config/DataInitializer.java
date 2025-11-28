@@ -13,6 +13,8 @@ import com.xammer.cloud.domain.DevOpsScript;
 import com.xammer.cloud.repository.DevOpsScriptRepository;
 import org.springframework.context.annotation.Bean;
 
+import java.util.Optional;
+
 @Component
 public class DataInitializer implements CommandLineRunner {
 
@@ -30,32 +32,60 @@ public class DataInitializer implements CommandLineRunner {
 
     @Override
     public void run(String... args) throws Exception {
+        // 1. Ensure a default client exists (Required for foreign key constraints)
+        Client defaultClient;
         if (clientRepository.count() == 0) {
-            logger.info("Initializing default client and users...");
-
-            Client defaultClient = new Client("Default Client");
+            logger.info("Initializing default client...");
+            defaultClient = new Client("Default Client");
             clientRepository.save(defaultClient);
+        } else {
+            // Fetch the first available client to assign to the superadmin
+            defaultClient = clientRepository.findAll().get(0);
+        }
 
-            // Admin User (can see everything)
-            User adminUser = new User("admin", passwordEncoder.encode("password"), defaultClient);
-            adminUser.setRole("ROLE_BILLOPS_ADMIN"); // This role is essential
-            userRepository.save(adminUser);
+        // 2. Create SuperAdmin User (The Master User)
+        createSuperAdminIfMissing(defaultClient);
+
+        // 3. Create Standard Users (Only if DB is empty)
+        if (userRepository.count() <= 1) { // <= 1 because superadmin might have just been created
+            logger.info("Initializing default demo users...");
+
+            // Admin User
+            // createUserIfMissing("admin", "password", "ROLE_BILLOPS_ADMIN", defaultClient);
 
             // XamOps User
-            User xamopsUser = new User("xamopsuser", passwordEncoder.encode("password"), defaultClient);
-            xamopsUser.setRole("ROLE_XAMOPS");
-            userRepository.save(xamopsUser);
+            // createUserIfMissing("xamopsuser", "password", "ROLE_XAMOPS", defaultClient);
 
             // BillOps User
-            User billopsUser = new User("billopsuser", passwordEncoder.encode("password"), defaultClient);
-            billopsUser.setRole("ROLE_BILLOPS");
-            userRepository.save(billopsUser);
+            // createUserIfMissing("billopsuser", "password", "ROLE_BILLOPS", defaultClient);
 
             logger.info("Default users created successfully.");
-        } else {
-            logger.info("Database already contains client data. Skipping initialization.");
         }
     }
+
+    private void createSuperAdminIfMissing(Client client) {
+        Optional<User> existingSuperAdmin = userRepository.findByUsername("superadmin");
+        if (existingSuperAdmin.isEmpty()) {
+            logger.info("Creating Default SuperAdmin User...");
+            User superAdmin = new User();
+            superAdmin.setUsername("superadmin");
+            superAdmin.setPassword(passwordEncoder.encode("SuperAdmin@123")); // Default Password
+            superAdmin.setRole("ROLE_SUPER_ADMIN");
+            superAdmin.setClient(client);
+            superAdmin.setEmail("superadmin@xamops.com");
+            userRepository.save(superAdmin);
+            logger.info(">>> SUPERADMIN CREATED | User: superadmin | Pass: SuperAdmin@123 <<<");
+        }
+    }
+
+    private void createUserIfMissing(String username, String password, String role, Client client) {
+        if (userRepository.findByUsername(username).isEmpty()) {
+            User user = new User(username, passwordEncoder.encode(password), client);
+            user.setRole(role);
+            userRepository.save(user);
+        }
+    }
+
     @Bean
     public CommandLineRunner loadDevOpsScripts(DevOpsScriptRepository repository) {
         return args -> {
