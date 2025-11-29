@@ -1,0 +1,11 @@
+# Use the official AWS CLI image as base
+FROM amazon/aws-cli:latest
+
+# Install util-linux (contains 'script') and bash
+# We use yum because amazon/aws-cli is based on Amazon Linux
+RUN yum update -y && \
+    yum install -y util-linux bash && \
+    yum clean all
+
+# Set default entrypoint to bash
+ENTRYPOINT ["/bin/bash"]
