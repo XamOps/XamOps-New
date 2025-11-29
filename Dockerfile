@@ -28,3 +28,10 @@ COPY --from=build /app/${MODULE_NAME}/target/*.jar app.jar
 
 # The command to run the application when the container starts
 ENTRYPOINT ["java", "-jar", "app.jar"]
+
+# --- ADD THIS BLOCK START ---
+# Install Docker CLI so the Java app can spawn sibling containers
+RUN apt-get update && \
+    apt-get install -y docker.io && \
+    rm -rf /var/lib/apt/lists/*
+# --- ADD THIS BLOCK END ---
