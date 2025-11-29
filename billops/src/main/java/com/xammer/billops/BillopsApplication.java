@@ -14,7 +14,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @EntityScan(basePackages = {"com.xammer.billops", "com.xammer.cloud.domain"}) // 2. ADD THIS LINE
 public class BillopsApplication {
  
-    public static void main(String[] args) { 
-        SpringApplication.run(BillopsApplication.class, args);
+    public static void main(String[] args) {  
+        SpringApplication.run(BillopsApplication.class, args); 
     }
 }  
