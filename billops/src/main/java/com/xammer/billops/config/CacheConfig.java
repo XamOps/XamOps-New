@@ -62,24 +62,9 @@ public class CacheConfig {
         
         // --- Create a new ObjectMapper *just for Redis* ---
         // This is separate from the primary ObjectMapper to avoid conflicts
-        ObjectMapper objectMapper = new ObjectMapper()
-            .registerModule(new JavaTimeModule()) 
-            // --- FIX START: Register Spring Security Module ---
-            // This fixes the "Cannot construct instance of SimpleGrantedAuthority" error
-            .registerModule(new CoreJackson2Module()) 
-            // --- FIX END ---
-            .configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false) 
-            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-            
-        // --- THIS SOLVES THE LinkedHashMap ERROR ---
-        // It embeds the Java class type into the JSON stored in Redis,
-        // so Spring knows what class to deserialize it back into.
-        objectMapper.activateDefaultTyping(
-            LaissezFaireSubTypeValidator.instance, 
-            ObjectMapper.DefaultTyping.NON_FINAL, 
-            JsonTypeInfo.As.PROPERTY
-        );
-        // ---------------------------------------------------
+        // Reuse the dedicated Redis ObjectMapper and create a RedisSerializer from it
+        ObjectMapper objectMapper = createRedisObjectMapper();
+        RedisSerializer<Object> redisSerializer = new GenericJackson2JsonRedisSerializer(objectMapper);
 
         RedisCacheConfiguration config = RedisCacheConfiguration.defaultCacheConfig()
                 .entryTtl(Duration.ofHours(1))
