@@ -1,6 +1,7 @@
 package com.xammer.billops.controller;
 
 import com.xammer.billops.dto.TenantDto;
+import com.xammer.billops.dto.UserDTO; // Import the DTO
 import com.xammer.cloud.domain.User;
 import com.xammer.billops.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -10,9 +11,9 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.sql.DataSource;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @RestController
-// CHANGE: Move under /api/xamops to match existing proxy rules
 @RequestMapping("/api/xamops/superadmin")
 @PreAuthorize("hasAuthority('ROLE_SUPER_ADMIN')")
 public class SuperAdminController {
@@ -23,7 +24,6 @@ public class SuperAdminController {
     @Autowired
     private UserRepository userRepository;
 
-    // Endpoint: /api/xamops/superadmin/tenants
     @GetMapping("/tenants")
     public List<TenantDto> getAllTenants() {
         JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
@@ -36,9 +36,31 @@ public class SuperAdminController {
         );
     }
 
-    // Endpoint: /api/xamops/superadmin/users
+    // FIX: Return List<UserDTO> instead of List<User>
     @GetMapping("/users")
-    public List<User> getTenantUsers() {
-        return userRepository.findAll();
+    public List<UserDTO> getTenantUsers() {
+        List<User> users = userRepository.findAll();
+        
+        // Convert Entity to DTO to break recursion
+        return users.stream()
+                .map(this::convertToDto)
+                .collect(Collectors.toList());
+    }
+
+    // Helper method to map Entity -> DTO
+    private UserDTO convertToDto(User user) {
+        UserDTO dto = new UserDTO();
+        dto.setId(user.getId());
+        dto.setUsername(user.getUsername());
+        dto.setEmail(user.getEmail());
+        dto.setRole(user.getRole());
+        
+        // Map Client Name safely
+        if (user.getClient() != null) {
+            dto.setClientId(user.getClient().getId());
+            dto.setClientName(user.getClient().getName());
+        }
+        
+        return dto;
     }
 }

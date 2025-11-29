@@ -5,7 +5,7 @@ import com.xammer.billops.domain.CloudAccount;
 import com.xammer.billops.dto.*;
 import com.xammer.billops.repository.ClientRepository;
 import com.xammer.billops.repository.CloudAccountRepository;
-import com.xammer.billops.security.ClientUserDetails;
+import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.billops.service.AwsAccountService;
 import com.xammer.billops.service.GcpDataService; // Ensure this import points to your BillOps GCP service
 import org.slf4j.Logger;
