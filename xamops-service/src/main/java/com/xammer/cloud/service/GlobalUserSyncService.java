@@ -1,17 +1,19 @@
 package com.xammer.cloud.service;
 
 import com.xammer.cloud.config.multitenancy.TenantContext;
-import com.xammer.cloud.domain.User; // Or User.java depending on your service
+import com.xammer.cloud.domain.User;
 import com.xammer.cloud.dto.GlobalUserDto;
 import com.xammer.cloud.dto.TenantDto;
 import com.xammer.cloud.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
+import javax.sql.DataSource;
 import java.util.List;
 import java.util.Optional;
 
@@ -26,8 +28,11 @@ public class GlobalUserSyncService {
     @Autowired
     private UserRepository userRepository;
 
+    // ✅ FIX: Inject DataSource directly instead of Controller to avoid
+    // SecurityContext issues
     @Autowired
-    private com.xammer.cloud.controller.SuperAdminController superAdminController; // To get tenant list
+    @Qualifier("masterDataSource")
+    private DataSource masterDataSource;
 
     /**
      * Runs automatically every 60 seconds to ensure Global Directory is up to date.
@@ -36,16 +41,21 @@ public class GlobalUserSyncService {
     public void syncAllUsersToGlobalDirectory() {
         log.info("↻ Starting Global User Synchronization...");
 
-        // 1. Get all Active Tenants + Default (Master)
-        List<TenantDto> tenants = superAdminController.getAllTenants();
-        
+        // 1. Get all Active Tenants directly from DB (Bypassing Controller Security)
+        JdbcTemplate jdbcTemplate = new JdbcTemplate(masterDataSource);
+        List<TenantDto> tenants = jdbcTemplate.query(
+                "SELECT tenant_id, company_name FROM tenant_config WHERE active = true",
+                (rs, rowNum) -> new TenantDto(
+                        rs.getString("tenant_id"),
+                        rs.getString("company_name")));
+
         // Add "default" manually to sync SuperAdmins from Master DB
         tenants.add(new TenantDto("default", "System Master"));
 
         for (TenantDto tenant : tenants) {
             syncTenantUsers(tenant.getTenantId());
         }
-        
+
         log.info("✓ Global User Synchronization Complete.");
     }
 
@@ -60,7 +70,7 @@ public class GlobalUserSyncService {
 
         try {
             // 2. Fetch all users from that Tenant's Database
-            List<User> localUsers = userRepository.findAll(); // Ensure AppUser or User maps correctly
+            List<User> localUsers = userRepository.findAll();
 
             // 3. Push to Master DB
             for (User localUser : localUsers) {
@@ -69,14 +79,14 @@ public class GlobalUserSyncService {
                     Optional<GlobalUserDto> existing = masterDatabaseService.findGlobalUser(localUser.getUsername());
 
                     if (existing.isEmpty()) {
-                        log.info("➕ Syncing new user '{}' from Tenant '{}' to Global Directory", localUser.getUsername(), tenantId);
+                        log.info("➕ Syncing new user '{}' from Tenant '{}' to Global Directory",
+                                localUser.getUsername(), tenantId);
                         masterDatabaseService.registerGlobalUser(
-                            localUser.getUsername(),
-                            localUser.getPassword(), // Hashed password
-                            localUser.getEmail(),
-                            localUser.getRole(),
-                            tenantId
-                        );
+                                localUser.getUsername(),
+                                localUser.getPassword(), // Hashed password
+                                localUser.getEmail(),
+                                localUser.getRole(),
+                                tenantId);
                     }
                 } catch (Exception e) {
                     log.error("Failed to sync user: " + localUser.getUsername(), e);

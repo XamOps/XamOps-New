@@ -322,6 +322,7 @@
             async submitReply() {
                 const textContent = this.quillInstance.getText().trim();
                 
+                // Validation: Ensure either text content or an attachment exists
                 if (!textContent && !this.attachment) {
                     return;
                 }
@@ -330,7 +331,12 @@
 
                 try {
                     const formData = new FormData();
-                    formData.append('message', this.newReply);
+                    
+                    // FIX: If there is text content, send it. Otherwise send empty string.
+                    // This prevents sending just HTML tags like <p><br></p> if user only attached a file.
+                    const finalMessage = textContent ? this.newReply : "";
+                    formData.append('message', finalMessage);
+                    
                     formData.append('ticketId', this.ticketId);
                     
                     if (this.currentUser.id) {

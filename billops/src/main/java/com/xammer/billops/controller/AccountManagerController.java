@@ -1,27 +1,35 @@
 package com.xammer.billops.controller;
 
+import com.xammer.billops.config.multitenancy.ImpersonationContext; // ✅ Added
+import com.xammer.billops.config.multitenancy.TenantContext; // ✅ Added
 import com.xammer.billops.domain.Client;
 import com.xammer.billops.domain.CloudAccount;
+import com.xammer.cloud.domain.User; // ✅ Added (Note: User entity is often shared/copied)
 import com.xammer.billops.dto.*;
+import com.xammer.billops.dto.GlobalUserDto; // ✅ Added
 import com.xammer.billops.repository.ClientRepository;
 import com.xammer.billops.repository.CloudAccountRepository;
-import com.xammer.cloud.security.ClientUserDetails;
+import com.xammer.billops.repository.UserRepository; // ✅ Added
 import com.xammer.billops.service.AwsAccountService;
-import com.xammer.billops.service.GcpDataService; // Ensure this import points to your BillOps GCP service
+import com.xammer.billops.service.GcpDataService;
+import com.xammer.billops.service.MasterDatabaseService; // ✅ Added
+import com.xammer.billops.service.azure.AzureCostManagementService;
+import com.xammer.cloud.security.ClientUserDetails;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
-import com.xammer.billops.dto.azure.AzureAccountRequestDto;
-import org.springframework.http.HttpStatus;
-import com.xammer.billops.service.azure.AzureCostManagementService;
 
 @RestController
 @RequestMapping("/api/xamops/account-manager")
@@ -42,20 +50,28 @@ public class AccountManagerController {
     private ClientRepository clientRepository;
 
     @Autowired
+    private UserRepository userRepository; // ✅ Injected for Impersonation lookup
+
+    @Autowired
     private AzureCostManagementService azureCostService;
 
+    @Autowired
+    private MasterDatabaseService masterDatabaseService; // ✅ Injected for Tenant Fallback
+
     @PostMapping("/generate-stack-url")
-    public ResponseEntity<Map<String, String>> generateStackUrl(@RequestBody AccountCreationRequestDto request, @AuthenticationPrincipal ClientUserDetails userDetails) {
+    public ResponseEntity<Map<String, String>> generateStackUrl(@RequestBody AccountCreationRequestDto request,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
         Long clientId = userDetails.getClientId();
         try {
-            Map<String, Object> result = awsAccountService.generateCloudFormationUrl(request.getAccountName(), request.getAwsAccountId(), request.getAccessType(), clientId);
+            Map<String, Object> result = awsAccountService.generateCloudFormationUrl(request.getAccountName(),
+                    request.getAwsAccountId(), request.getAccessType(), clientId);
             Map<String, String> stackDetails = Map.of(
                     "url", result.get("url").toString(),
-                    "externalId", result.get("externalId").toString()
-            );
+                    "externalId", result.get("externalId").toString());
             return ResponseEntity.ok(stackDetails);
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Could not generate CloudFormation URL", "message", e.getMessage()));
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Could not generate CloudFormation URL", "message", e.getMessage()));
         }
     }
 
@@ -63,58 +79,92 @@ public class AccountManagerController {
     public ResponseEntity<?> verifyAccount(@RequestBody VerifyAccountRequest request) {
         try {
             CloudAccount verifiedAccount = awsAccountService.verifyAccount(request);
-            return ResponseEntity.ok(Map.of("message", "Account " + verifiedAccount.getAccountName() + " connected successfully!"));
+            return ResponseEntity
+                    .ok(Map.of("message", "Account " + verifiedAccount.getAccountName() + " connected successfully!"));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Account verification failed", "message", e.getMessage()));
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Account verification failed", "message", e.getMessage()));
         }
     }
 
     @GetMapping("/accounts")
-    public ResponseEntity<?> getAccounts(@AuthenticationPrincipal ClientUserDetails userDetails, Authentication authentication) {
-        
+    public ResponseEntity<?> getAccounts(@AuthenticationPrincipal ClientUserDetails userDetails,
+            Authentication authentication) {
+
         logger.info("========== GET ACCOUNTS REQUEST (BILLOPS) ==========");
-        
-        // Check authentication state
-        if (authentication == null) {
+
+        // 1. Authentication Check
+        if (authentication == null || userDetails == null) {
             logger.error("✗ Authentication object is NULL");
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                .body(Map.of("error", "Authentication required", "message", "No authentication found in security context"));
+                    .body(Map.of("error", "Authentication required", "message",
+                            "No authentication found in security context"));
         }
-        
-        logger.info("✓ Authentication present: {}", authentication.isAuthenticated());
-        
-        // Check if userDetails was properly deserialized
-        if (userDetails == null) {
-            logger.error("✗ ClientUserDetails is NULL - Session deserialization failed");
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                .body(Map.of(
-                    "error", "Session deserialization failed",
-                    "message", "User details could not be restored from session. Please log out and log back in."
-                ));
+
+        logger.info("✓ Authentication present. Username: {}", userDetails.getUsername());
+
+        // 2. Tenant Context Fallback (If Filter missed it)
+        String currentTenant = TenantContext.getCurrentTenant();
+        if (currentTenant == null || "default".equals(currentTenant)) {
+            try {
+                String username = userDetails.getUsername();
+                Optional<GlobalUserDto> globalUser = masterDatabaseService.findGlobalUser(username);
+                if (globalUser.isPresent()) {
+                    String resolvedTenantId = globalUser.get().getTenantId();
+                    if (!resolvedTenantId.equals(currentTenant)) {
+                        logger.info("⚠ Forcing Tenant Context Switch: {} -> {}", currentTenant, resolvedTenantId);
+                        TenantContext.setCurrentTenant(resolvedTenantId);
+                    }
+                }
+            } catch (Exception e) {
+                logger.error("✗ Error during Tenant fallback resolution: {}", e.getMessage());
+            }
         }
-        
-        logger.info("✓ ClientUserDetails restored successfully for user: {}", userDetails.getUsername());
-        
-        // Check for Admin Roles
+
+        // 3. Handle Impersonation Logic
+        Long targetClientId = userDetails.getClientId();
+        Long impersonatedUserId = ImpersonationContext.getImpersonatedUserId();
+
+        if (impersonatedUserId != null) {
+            logger.info("ℹ Impersonation Active. Target User ID: {}", impersonatedUserId);
+            // Fetch the impersonated user from the CURRENT tenant DB
+            Optional<User> impersonatedUserOpt = userRepository.findById(impersonatedUserId);
+
+            if (impersonatedUserOpt.isPresent()) {
+                User impersonatedUser = impersonatedUserOpt.get();
+                if (impersonatedUser.getClient() != null) {
+                    targetClientId = impersonatedUser.getClient().getId();
+                    logger.info("✓ Switched Client ID to Impersonated User's Client: {}", targetClientId);
+                } else {
+                    logger.warn("⚠ Impersonated user found but has no associated Client.");
+                }
+            } else {
+                logger.warn("⚠ Impersonated User ID {} not found in current tenant DB.", impersonatedUserId);
+            }
+        }
+
+        // 4. Check Roles
         boolean isAdmin = userDetails.getAuthorities().stream()
-            .map(GrantedAuthority::getAuthority)
-            .anyMatch(role -> "ROLE_BILLOPS_ADMIN".equals(role) || "ROLE_XAMOPS_ADMIN".equals(role));
-        
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch(role -> "ROLE_BILLOPS_ADMIN".equals(role) || "ROLE_XAMOPS_ADMIN".equals(role));
+
         List<CloudAccount> accounts;
-        if (isAdmin) {
-            logger.info("User is admin - fetching all accounts");
+
+        // If Admin AND NOT Impersonating, show ALL accounts.
+        // If Impersonating, show only THAT USER's accounts.
+        if (isAdmin && impersonatedUserId == null) {
+            logger.info("User is admin (no impersonation) - fetching all accounts");
             accounts = cloudAccountRepository.findAll();
         } else {
-            Long clientId = userDetails.getClientId();
-            logger.info("Fetching accounts for Client ID: {}", clientId);
-            accounts = cloudAccountRepository.findByClientId(clientId);
+            logger.info("Fetching accounts for Client ID: {}", targetClientId);
+            accounts = cloudAccountRepository.findByClientId(targetClientId);
         }
-        
-        logger.info("✓ Found {} accounts", accounts.size());
-        
+
+        logger.info("✓ Found {} accounts in Tenant: {}", accounts.size(), TenantContext.getCurrentTenant());
+
         return ResponseEntity.ok(accounts.stream()
-            .map(this::mapToAccountDto)
-            .collect(Collectors.toList()));
+                .map(this::mapToAccountDto)
+                .collect(Collectors.toList()));
     }
 
     @DeleteMapping("/accounts/{id}")
@@ -123,12 +173,14 @@ public class AccountManagerController {
                 .map(account -> {
                     awsAccountService.clearAllCaches();
                     cloudAccountRepository.delete(account);
-                    return ResponseEntity.ok(Map.of("message", "Account " + account.getAccountName() + " removed successfully."));
+                    return ResponseEntity
+                            .ok(Map.of("message", "Account " + account.getAccountName() + " removed successfully."));
                 }).orElse(ResponseEntity.notFound().build());
     }
 
     @PostMapping("/add-gcp-account")
-    public ResponseEntity<?> addGcpAccount(@RequestBody GcpAccountRequestDto gcpAccountRequestDto, @AuthenticationPrincipal ClientUserDetails userDetails) {
+    public ResponseEntity<?> addGcpAccount(@RequestBody GcpAccountRequestDto gcpAccountRequestDto,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
         Long clientId = userDetails.getClientId();
         Client client = clientRepository.findById(clientId).orElse(null);
         gcpDataService.createGcpAccount(gcpAccountRequestDto, client);
@@ -137,13 +189,15 @@ public class AccountManagerController {
 
     @PostMapping("/accounts/{accountId}/monitoring")
     public ResponseEntity<?> updateMonitoringEndpoint(@PathVariable String accountId,
-                                                      @RequestBody Map<String, String> payload) {
+            @RequestBody Map<String, String> payload) {
         String grafanaIp = payload.get("grafanaIp");
         if (grafanaIp == null || grafanaIp.trim().isEmpty()) {
             return ResponseEntity.badRequest().body(Map.of("message", "grafanaIp is required in the request body."));
         }
 
         // Find account by AWS Account ID, GCP Project ID, or Azure Subscription ID
+        // Note: Ensure findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId exists in
+        // BillOps CloudAccountRepository
         CloudAccount account = cloudAccountRepository
                 .findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(accountId, accountId, accountId)
                 .orElse(null);
@@ -192,56 +246,62 @@ public class AccountManagerController {
                 account.getRoleArn(),
                 account.getExternalId(),
                 account.getProvider());
-        
-        // Added line to include Grafana IP
+
         dto.setGrafanaIp(account.getGrafanaIp());
-        
+
         return dto;
     }
 
-    @PostMapping("/azure")
-    public ResponseEntity<?> addAzureAccount(@RequestBody AzureAccountRequestDto request, @AuthenticationPrincipal ClientUserDetails userDetails) {
-        Long clientId = userDetails.getClientId();
+    // @PostMapping("/azure")
+    // public ResponseEntity<?> addAzureAccount(@RequestBody AzureAccountRequestDto
+    // request,
+    // @AuthenticationPrincipal ClientUserDetails userDetails) {
+    // Long clientId = userDetails.getClientId();
 
-        try {
-            Client client = clientRepository.findById(clientId)
-                    .orElseThrow(() -> new RuntimeException("Client not found for ID: " + clientId));
+    // try {
+    // Client client = clientRepository.findById(clientId)
+    // .orElseThrow(() -> new RuntimeException("Client not found for ID: " +
+    // clientId));
 
-            CloudAccount newAccount = new CloudAccount();
-            newAccount.setAccountName(request.getAccountName());
-            newAccount.setProvider("Azure");
-            newAccount.setAzureTenantId(request.getTenantId());
-            newAccount.setAzureSubscriptionId(request.getSubscriptionId());
-            newAccount.setAzureClientId(request.getClientId());
-            newAccount.setAzureClientSecret(request.getClientSecret());
-            newAccount.setStatus("CONNECTED"); // Set to CONNECTED, as setup follows
-            newAccount.setClient(client);
-            newAccount.setAccessType(request.getAccess());
-            newAccount.setExternalId(request.getPrincipalId()); 
+    // CloudAccount newAccount = new CloudAccount();
+    // newAccount.setAccountName(request.getAccountName());
+    // newAccount.setProvider("Azure");
+    // newAccount.setAzureTenantId(request.getTenantId());
+    // newAccount.setAzureSubscriptionId(request.getSubscriptionId());
+    // newAccount.setAzureClientId(request.getClientId());
+    // newAccount.setAzureClientSecret(request.getClientSecret());
+    // newAccount.setStatus("CONNECTED"); // Set to CONNECTED, as setup follows
+    // newAccount.setClient(client);
+    // newAccount.setAccessType(request.getAccess());
+    // newAccount.setExternalId(request.getPrincipalId());
 
-            // First save to get an ID and basic info
-            CloudAccount savedAccount = cloudAccountRepository.save(newAccount);
-            
-            try {
-                // 1. Call setupCostExports, which now returns the path info
-                Map<String, String> exportConfig = azureCostService.setupCostExports(savedAccount, request);
+    // // First save to get an ID and basic info
+    // CloudAccount savedAccount = cloudAccountRepository.save(newAccount);
 
-                // 2. Get the names and save them to the account
-                savedAccount.setAzureBillingContainer(exportConfig.get("containerName"));
-                savedAccount.setAzureBillingDirectory(exportConfig.get("directoryName"));
+    // try {
+    // // 1. Call setupCostExports, which now returns the path info
+    // Map<String, String> exportConfig =
+    // azureCostService.setupCostExports(savedAccount, request);
 
-                // 3. Re-save the account with the new path information
-                CloudAccount finalAccount = cloudAccountRepository.save(savedAccount);
-                return ResponseEntity.ok(finalAccount);
+    // // 2. Get the names and save them to the account
+    // savedAccount.setAzureBillingContainer(exportConfig.get("containerName"));
+    // savedAccount.setAzureBillingDirectory(exportConfig.get("directoryName"));
 
-            } catch (Exception e) {
-                logger.error("Azure account {} added, but cost export setup failed: {}", savedAccount.getId(), e.getMessage());
-                return ResponseEntity.ok(savedAccount); // Return the partially set-up account
-            }
+    // // 3. Re-save the account with the new path information
+    // CloudAccount finalAccount = cloudAccountRepository.save(savedAccount);
+    // return ResponseEntity.ok(finalAccount);
 
-        } catch (Exception e) {
-            logger.error("Error adding Azure account (pre-cost-setup)", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("An unexpected error occurred while adding the account.");
-        }
-    }
+    // } catch (Exception e) {
+    // logger.error("Azure account {} added, but cost export setup failed: {}",
+    // savedAccount.getId(),
+    // e.getMessage());
+    // return ResponseEntity.ok(savedAccount);
+    // }
+
+    // } catch (Exception e) {
+    // logger.error("Error adding Azure account (pre-cost-setup)", e);
+    // return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+    // .body("An unexpected error occurred while adding the account.");
+    // }
+    // }
 }
