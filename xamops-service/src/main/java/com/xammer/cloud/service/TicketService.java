@@ -28,7 +28,7 @@ public class TicketService {
 
     private static final Logger logger = LoggerFactory.getLogger(TicketService.class);
     private static final String ADMIN_TECHNICAL_EMAIL = "sahil@xammer.in";
-    private static final String ADMIN_BILLING_EMAIL = "akshay@xammer.in";
+    private static final String ADMIN_BILLING_EMAIL = "nirbhay@xammer.in";
 
     @Autowired
     private TicketRepository ticketRepository;
@@ -58,7 +58,8 @@ public class TicketService {
         // 3. Resolve Client from the User entity (Smart Resolution)
         Client client = creator.getClient();
         if (client == null) {
-            // Fallback: Try to use the ID from DTO if User object doesn't have it loaded/set
+            // Fallback: Try to use the ID from DTO if User object doesn't have it
+            // loaded/set
             if (ticketDto.getClientId() != null) {
                 client = clientRepository.findById(ticketDto.getClientId())
                         .orElseThrow(() -> new RuntimeException("Client not found"));
@@ -78,31 +79,30 @@ public class TicketService {
         ticket.setSeverity(ticketDto.getSeverity());
         ticket.setAccountId(ticketDto.getAccountId());
         ticket.setRegion(ticketDto.getRegion());
-        
+
         ticket.setCreator(creator);
 
         Ticket savedTicket = ticketRepository.save(ticket);
 
         // 5. Send Notification Email
         try {
-            String adminEmail = "Account and Billing".equalsIgnoreCase(savedTicket.getCategory()) ? 
-                                ADMIN_BILLING_EMAIL : ADMIN_TECHNICAL_EMAIL;
-            
+            String adminEmail = "Account and Billing".equalsIgnoreCase(savedTicket.getCategory()) ? ADMIN_BILLING_EMAIL
+                    : ADMIN_TECHNICAL_EMAIL;
+
             String subject = String.format("New Ticket [ID: %d]: %s", savedTicket.getId(), savedTicket.getSubject());
             String text = String.format(
-                "A new ticket has been created by %s (Client: %s).\n\n" +
-                "Category: %s\n" +
-                "Service: %s\n" +
-                "Severity: %s\n\n" +
-                "Description:\n%s",
-                creator.getUsername(),
-                client.getName(),
-                ticket.getCategory(),
-                ticket.getService(),
-                ticket.getSeverity(),
-                ticket.getDescription()
-            );
-            
+                    "A new ticket has been created by %s (Client: %s).\n\n" +
+                            "Category: %s\n" +
+                            "Service: %s\n" +
+                            "Severity: %s\n\n" +
+                            "Description:\n%s",
+                    creator.getUsername(),
+                    client.getName(),
+                    ticket.getCategory(),
+                    ticket.getService(),
+                    ticket.getSeverity(),
+                    ticket.getDescription());
+
             emailService.sendHtmlEmail(adminEmail, subject, text);
         } catch (Exception e) {
             logger.error("Failed to send new ticket notification email for ticket {}", savedTicket.getId(), e);
@@ -139,19 +139,23 @@ public class TicketService {
 
         User author;
         if (replyDto.getAuthorId() != null) {
-             author = userRepository.findById(replyDto.getAuthorId())
-                .orElseThrow(() -> new RuntimeException("Author (user) not found"));
+            author = userRepository.findById(replyDto.getAuthorId())
+                    .orElseThrow(() -> new RuntimeException("Author (user) not found"));
         } else if (replyDto.getAuthorUsername() != null) {
-             author = userRepository.findByUsername(replyDto.getAuthorUsername())
-                 .orElseThrow(() -> new RuntimeException("Author (user) not found"));
+            author = userRepository.findByUsername(replyDto.getAuthorUsername())
+                    .orElseThrow(() -> new RuntimeException("Author (user) not found"));
         } else {
-             throw new RuntimeException("Author ID or Username is required");
+            throw new RuntimeException("Author ID or Username is required");
         }
 
         TicketReply reply = new TicketReply();
         reply.setTicket(ticket);
         reply.setAuthor(author);
-        reply.setMessage(replyDto.getMessage());
+
+        // FIX: Ensure message is never null for DB persistence
+        String messageContent = replyDto.getMessage() != null ? replyDto.getMessage() : "";
+        reply.setMessage(messageContent);
+
         reply.setCreatedAt(java.time.LocalDateTime.now());
 
         if (file != null && !file.isEmpty()) {
@@ -173,35 +177,41 @@ public class TicketService {
 
         try {
             User ticketCreator = ticket.getCreator();
-            
+
             String subject = String.format("New Reply on Ticket [ID: %d]: %s", ticket.getId(), ticket.getSubject());
+
+            // FIX: Graceful fallback for email body if message is empty
+            String displayMessage = (reply.getMessage() == null || reply.getMessage().isBlank())
+                    ? "(Attachment only)"
+                    : reply.getMessage();
+
             String text = String.format(
-                "%s has replied to ticket %d:\n\n---\n%s\n---",
-                author.getUsername(),
-                ticket.getId(),
-                reply.getMessage()
-            );
+                    "%s has replied to ticket %d:\n\n---\n%s\n---",
+                    author.getUsername(),
+                    ticket.getId(),
+                    displayMessage);
 
             if (reply.getAttachmentName() != null) {
                 text += "\n\n[Attachment: " + reply.getAttachmentName() + "]";
             }
 
-            boolean isAdminReply = author.getRole() != null && (author.getRole().contains("ADMIN"));            
+            boolean isAdminReply = author.getRole() != null && (author.getRole().contains("ADMIN"));
             if (isAdminReply) {
                 if (ticketCreator != null && ticketCreator.getEmail() != null) {
                     emailService.sendHtmlEmail(ticketCreator.getEmail(), subject, text);
                 } else {
-                    logger.warn("Cannot notify ticket creator for ticket {}: Creator or email is null.", ticket.getId());
+                    logger.warn("Cannot notify ticket creator for ticket {}: Creator or email is null.",
+                            ticket.getId());
                 }
             } else {
-                String adminEmail = "Account and Billing".equalsIgnoreCase(ticket.getCategory()) ? 
-                                    ADMIN_BILLING_EMAIL : ADMIN_TECHNICAL_EMAIL;
+                String adminEmail = "Account and Billing".equalsIgnoreCase(ticket.getCategory()) ? ADMIN_BILLING_EMAIL
+                        : ADMIN_TECHNICAL_EMAIL;
                 emailService.sendHtmlEmail(adminEmail, subject, text);
             }
         } catch (Exception e) {
             logger.error("Failed to send reply notification email for ticket {}", ticket.getId(), e);
         }
-        
+
         return convertToDto(updatedTicket);
     }
 
@@ -248,7 +258,8 @@ public class TicketService {
         if (ticket.getReplies() != null) {
             dto.setReplies(ticket.getReplies().stream()
                     .map(this::convertReplyToDto)
-                    .sorted(Comparator.comparing(TicketReplyDto::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder())))
+                    .sorted(Comparator.comparing(TicketReplyDto::getCreatedAt,
+                            Comparator.nullsLast(Comparator.naturalOrder())))
                     .collect(Collectors.toList()));
         }
 

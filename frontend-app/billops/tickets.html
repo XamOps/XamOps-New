@@ -42,10 +42,13 @@
         <div class="flex-1 flex flex-col overflow-y-auto pl-64" x-data="ticketSystem()">
             <header class="bg-white shadow-sm sticky top-0 z-10">
                 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-                    <h1 class="text-2xl font-bold text-gray-900 flex items-center">
-                        My Support Tickets (Billing)
-                        <span x-show="isUpdating" class="updating-spinner" title="Refreshing data..."></span>
-                    </h1>
+                    <div>
+                        <h1 class="text-2xl font-bold text-gray-900 flex items-center">
+                            My Support Tickets (Billing)
+                            <span x-show="isUpdating" class="updating-spinner" title="Refreshing data..."></span>
+                        </h1>
+                        <p class="text-sm text-gray-500 mt-1" x-show="selectedAccountId" x-text="`Account: ${selectedAccountId}`"></p>
+                    </div>
                     <div class="flex items-center space-x-4">
                         <button @click="fetchFreshData(true)" 
                                 class="text-gray-600 hover:text-indigo-600 transition-colors p-2 rounded-full hover:bg-gray-100"
@@ -97,7 +100,7 @@
                 <div x-show="!loading && !error && tickets.length === 0" x-cloak class="text-center py-16 bg-white rounded-lg shadow-sm border border-gray-200">
                     <div class="text-gray-300 text-5xl mb-4"><i class="fas fa-ticket-alt"></i></div>
                     <h3 class="text-lg font-medium text-gray-900">No tickets found</h3>
-                    <p class="mt-1 text-sm text-gray-500">There are no tickets in the "Account and Billing" category.</p>
+                    <p class="mt-1 text-sm text-gray-500" x-text="selectedAccountId ? 'No tickets found for this account.' : 'There are no tickets in the Account and Billing category.'"></p>
                     <button @click="openCreateModal" class="mt-6 text-indigo-600 hover:text-indigo-500 font-medium">
                         Create a case &rarr;
                     </button>
@@ -259,6 +262,7 @@
                 tickets: [],
                 showModal: false,
                 cacheKey: 'billops_account_tickets_v1', 
+                selectedAccountId: null, // New State for Account ID
                 
                 form: {
                     category: 'Account and Billing',
@@ -279,16 +283,23 @@
                 },
 
                 init() {
-                    // 1. Attempt Instant Load from Cache
-                    const loaded = this.loadFromLocalStorage();
+                    // 1. Parse URL Parameters for Account Selection
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const accountIds = urlParams.get('accountId') || urlParams.get('accountIds');
                     
-                    if (loaded) {
-                        console.log("✅ Tickets loaded from cache.");
+                    if (accountIds) {
+                        // Store only the first ID if multiple are passed (sidebar usually passes one for detail view)
+                        this.selectedAccountId = accountIds.split(',')[0];
+                        console.log("🔍 Filtering tickets for account:", this.selectedAccountId);
                     } else {
-                        console.log("⏳ No cache found, waiting for network.");
+                        console.log("⚠️ No account selected from sidebar.");
+                        // Optional: Redirect or show a prompt? For now, we just fetch all accessible tickets.
                     }
 
-                    // 2. Trigger Background Sync (Stale-While-Revalidate)
+                    // 2. Attempt Instant Load from Cache (Note: Cache might contain mixed account data, so we filter it too)
+                    this.loadFromLocalStorage();
+                    
+                    // 3. Trigger Background Sync (Stale-While-Revalidate)
                     this.fetchFreshData(false);
                 },
 
@@ -296,8 +307,16 @@
                     try {
                         const cached = localStorage.getItem(this.cacheKey);
                         if (cached) {
-                            this.tickets = JSON.parse(cached);
-                            this.loading = false; // Hide skeleton immediately
+                            let allCachedTickets = JSON.parse(cached);
+                            
+                            // Apply client-side filtering to cached data
+                            if (this.selectedAccountId) {
+                                this.tickets = allCachedTickets.filter(t => t.accountId === this.selectedAccountId);
+                            } else {
+                                this.tickets = allCachedTickets;
+                            }
+                            
+                            this.loading = false;
                             return true;
                         }
                     } catch (e) {
@@ -315,13 +334,11 @@
                     
                     this.error = null;
 
-                    // Only show full skeleton if we have absolutely no data
                     if (!this.hasData) {
                         this.loading = true;
                     }
 
                     try {
-                        // We construct the URL. If 'manual' is true, we tell the backend to bypass its cache.
                         const url = `/api/billops/tickets/category/Account%20and%20Billing?forceRefresh=${manual}`;
 
                         const response = await fetch(url, { credentials: 'include' });
@@ -333,13 +350,19 @@
 
                         if (!response.ok) throw new Error(`Failed to fetch tickets (Status: ${response.status})`);
 
-                        const data = await response.json();
+                        const allTickets = await response.json();
                         
+                        // Filter tickets based on the selected account ID from URL
+                        let filteredTickets = allTickets;
+                        if (this.selectedAccountId) {
+                            filteredTickets = allTickets.filter(ticket => ticket.accountId === this.selectedAccountId);
+                        }
+
                         // Sort: Newest first
-                        this.tickets = data.sort((a, b) => b.id - a.id);
+                        this.tickets = filteredTickets.sort((a, b) => b.id - a.id);
                         
-                        // Update Frontend Cache
-                        localStorage.setItem(this.cacheKey, JSON.stringify(this.tickets));
+                        // Update Frontend Cache with the full list (so switching accounts works without re-fetch)
+                        localStorage.setItem(this.cacheKey, JSON.stringify(allTickets));
                         
                     } catch (err) {
                         console.error("Fetch error:", err);
@@ -354,38 +377,34 @@
 
                 openCreateModal() {
                     this.resetForm();
+                    // Auto-populate account ID from the current selection
+                    if (this.selectedAccountId) {
+                        this.form.accountId = this.selectedAccountId;
+                    }
                     this.showModal = true;
                 },
 
                 async submitTicket() {
                     this.isSubmitting = true;
                     
-                    // --- FIX: AUTO-DETECT ACCOUNT FROM SIDEBAR ---
-                    // We grab the selected account(s) from session storage.
-                    // If multiple are selected, we default to the first one.
-                    const selectedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-                    const accountId = selectedIds.length > 0 ? selectedIds[0] : ''; 
-
-                    const payload = {
-                        ...this.form,
-                        accountId: accountId, // Auto-populated
-                    };
+                    // Fallback: If form ID is empty, try to use the one from session/URL
+                    if (!this.form.accountId && this.selectedAccountId) {
+                        this.form.accountId = this.selectedAccountId;
+                    }
 
                     try {
                         const response = await fetch('/api/billops/tickets', {
                             credentials: 'include', 
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(payload)
+                            body: JSON.stringify(this.form)
                         });
 
                         if (!response.ok) throw new Error('Failed to submit ticket');
 
-                        // Success! Close modal
                         this.showModal = false;
                         this.resetForm();
                         
-                        // Force refresh to get the new ticket (updates both backend and frontend cache)
                         await this.fetchFreshData(true); 
                         
                     } catch (error) {
@@ -403,7 +422,7 @@
                         severity: '',
                         subject: '',
                         description: '',
-                        accountId: '',
+                        accountId: '', // Will be populated on open
                         region: '',
                     };
                 },

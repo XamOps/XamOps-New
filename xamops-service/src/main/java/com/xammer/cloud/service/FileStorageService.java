@@ -1,7 +1,5 @@
 package com.xammer.cloud.service;
 
-import com.xammer.cloud.domain.CloudAccount;
-import com.xammer.cloud.repository.CloudAccountRepository; // Or Billops equivalent
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -32,20 +30,24 @@ public class FileStorageService {
     private final S3Client s3Client;
     private final S3Presigner s3Presigner;
 
-    // Assuming you use the default client for the app's own bucket operations
     public FileStorageService(S3Client s3Client, S3Presigner s3Presigner) {
         this.s3Client = s3Client;
         this.s3Presigner = s3Presigner;
     }
 
     public String uploadFile(MultipartFile file) {
-        String key = "tickets/" + UUID.randomUUID() + "/" + file.getOriginalFilename();
+        String originalFilename = file.getOriginalFilename();
+        if (originalFilename == null || originalFilename.isBlank()) {
+            originalFilename = "attachment";
+        }
+
+        String key = "tickets/" + UUID.randomUUID() + "/" + originalFilename;
 
         try {
             PutObjectRequest putOb = PutObjectRequest.builder()
                     .bucket(bucketName)
                     .key(key)
-                    .contentType(file.getContentType())
+                    .contentType(file.getContentType()) // Store correct MIME type
                     .build();
 
             s3Client.putObject(putOb, RequestBody.fromInputStream(file.getInputStream(), file.getSize()));
@@ -57,12 +59,17 @@ public class FileStorageService {
     }
 
     public String generatePresignedUrl(String key) {
-        if (key == null || key.isBlank()) return null;
+        if (key == null || key.isBlank())
+            return null;
 
         try {
+            String fileName = key.substring(key.lastIndexOf("/") + 1);
+
             GetObjectRequest getObjectRequest = GetObjectRequest.builder()
                     .bucket(bucketName)
                     .key(key)
+                    // FIX: Force "inline" so images/PDFs open in browser
+                    .responseContentDisposition("inline; filename=\"" + fileName + "\"")
                     .build();
 
             GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()

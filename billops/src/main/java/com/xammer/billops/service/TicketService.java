@@ -195,7 +195,11 @@ public class TicketService {
         TicketReply reply = new TicketReply();
         reply.setTicket(ticket);
         reply.setAuthor(author);
-        reply.setMessage(replyDto.getMessage());
+        
+        // FIX: Ensure non-null message for DB
+        String message = replyDto.getMessage() != null ? replyDto.getMessage() : "";
+        reply.setMessage(message);
+        
         reply.setCreatedAt(java.time.LocalDateTime.now());
 
         if (file != null && !file.isEmpty()) {
@@ -218,11 +222,17 @@ public class TicketService {
         try {
             User ticketCreator = ticket.getCreator();
             String subject = String.format("New Reply on Ticket [ID: %d]: %s", ticket.getId(), ticket.getSubject());
+            
+            // FIX: Handle empty message gracefully in email
+            String displayMessage = (reply.getMessage() == null || reply.getMessage().isBlank()) 
+                                    ? "(Attachment only)" 
+                                    : reply.getMessage();
+
             String text = String.format(
                 "%s has replied to ticket %d:\n\n---\n%s\n---",
                 author.getUsername(),
                 ticket.getId(),
-                reply.getMessage()
+                displayMessage
             );
 
             if (reply.getAttachmentName() != null) {
