@@ -1,8 +1,8 @@
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig } from 'vite';
 import { resolve } from 'path';
 import htmlInclude from 'vite-plugin-html-include';
 
-// --- HELPER FUNCTION ---
+// --- ADD THIS HELPER FUNCTION ---
 // This function rewrites the backend's cookie to work with the frontend proxy
 const cookieRewrite = (proxyRes, req) => {
   const cookies = proxyRes.headers['set-cookie'];
@@ -17,42 +17,41 @@ const cookieRewrite = (proxyRes, req) => {
 };
 // --- END OF HELPER FUNCTION ---
 
-export default defineConfig(({ mode }) => {
-  // 1. Load environment variables
-  const env = loadEnv(mode, process.cwd(), '');
+export default defineConfig({
+  plugins: [
+    htmlInclude(),
+  ],
 
-  // 2. Determine the Authentication Port (Default to 8080 if not set)
-  // If running "npm run dev:billops", this will be 8082
-  const authPort = env.VITE_AUTH_PORT || '8080';
-  const authTarget = `http://localhost:${authPort}`;
+  server: {
+    port: 5173,
+    proxy: {
+      // Azure API endpoints
+      '/api/azure': {
+        target: 'http://localhost:8080', // xamops-service
+        changeOrigin: true,
+        secure: false,
+      },
 
-  console.log(`[Vite Proxy] Authentication & Shared Modules targeting: ${authTarget}`);
+      // AWS API endpoints
+      '/api/aws': {
+        target: 'http://localhost:8080', // xamops-service
+        changeOrigin: true,
+        secure: false,
+      },
 
-  return {
-    plugins: [
-      htmlInclude(),
-    ],
+      // GCP API endpoints
+      '/api/gcp': {
+        target: 'http://localhost:8080', // xamops-service
+        changeOrigin: true,
+        secure: false,
+      },
 
-    server: {
-      port: 5173,
-      proxy: {
-        // --- 1. DYNAMIC AUTHENTICATION (Login/Logout) ---
-        '/login': {
-          target: authTarget,
-          changeOrigin: true,
-          secure: false,
-          configure: (proxy, options) => {
-            proxy.on('proxyRes', cookieRewrite);
-          }
-        },
-        '/logout': {
-          target: authTarget,
-          changeOrigin: true,
-          secure: false,
-          configure: (proxy, options) => {
-            proxy.on('proxyRes', cookieRewrite);
-          }
-        },
+      // Admin API requests to billops-service
+      '/api/admin': {
+        target: 'http://localhost:8082', // billops-service
+        changeOrigin: true,
+        secure: false,
+      },
 
         // --- 2. USER PROFILE (Fixes Sidebar Visibility) ---
         // Intercepts XamOps profile call and rewrites it to BillOps format if needed
@@ -127,10 +126,63 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           followRedirects: false,
           rewriteWsOrigin: true,
-          timeout: 10000
+          timeout: 10000,
+        },
+      // AI Advisor
+      '/api/ai-advisor': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+        secure: false,
+      },
+
+      // Billops service requests
+      '/api/billops': {
+        target: 'http://localhost:8082', // billops-service
+        changeOrigin: true,
+        secure: false,
+      },
+
+      // Xamops service requests
+      '/api/xamops': {
+        target: 'http://localhost:8080', // xamops-service
+        changeOrigin: true,
+        secure: false,
+      },
+
+      // CICD API endpoints (for GitHub, etc.)
+      '/api/cicd': {
+        target: 'http://localhost:8080', // xamops-service
+        changeOrigin: true,
+        secure: false,
+      },
+
+      // Authentication requests to xamops
+      '/login': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+        secure: false,
+        configure: (proxy, options) => {
+          proxy.on('proxyRes', cookieRewrite);
         }
+      },
+
+      // Logout with cookie rewrite
+      '/logout': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+        secure: false,
+        configure: (proxy, options) => {
+          proxy.on('proxyRes', cookieRewrite);
+        }
+      },
+
+      // WebSocket proxy for xamops
+      '/ws': {
+        target: 'ws://localhost:8080',
+        ws: true,
       }
-    },
+    }
+  },
 
     build: {
       rollupOptions: {
@@ -185,12 +237,26 @@ export default defineConfig(({ mode }) => {
           'thirdparty-tools': resolve(__dirname, 'billops/thirdparty-tools.html'),
           'workspace-licenses': resolve(__dirname, 'billops/workspace-licenses.html'),
 
-          // Azure files
-          'azure_cloudlist': resolve(__dirname, 'azure_cloudlist.html'),
-          'azure_dashboard': resolve(__dirname, 'azure_dashboard.html'),
-          'azure-finops-report': resolve(__dirname, 'azure-finops-report.html')
-        },
+        // GCP subdir files
+        'gcp_cloudlist': resolve(__dirname, 'gcp_cloudlist.html'),
+        'gcp_cloudmap': resolve(__dirname, 'gcp_cloudmap.html'),
+        'gcp_cost': resolve(__dirname, 'gcp_cost.html'),
+        'gcp_dashboard': resolve(__dirname, 'gcp_dashboard.html'),
+        'gcp_finops': resolve(__dirname, 'gcp_finops.html'),
+        'gcp-billing': resolve(__dirname, 'billops/gcp-billing.html'),
+        'gcp_rightsizing': resolve(__dirname, 'gcp_rightsizing.html'),
+        'gcp_security': resolve(__dirname, 'gcp_security.html'),
+        'gcp_waste': resolve(__dirname, 'gcp_waste.html'),
+        'gcp_cloudk8s.html': resolve(__dirname, 'gcp_cloudk8s.html'),
+        'gcp_performance.html': resolve(__dirname, 'gcp_performance.html'),
+        'gcp_reservations.html': resolve(__dirname, 'gcp_reservations.html'),
+        'gcp_alerts.html': resolve(__dirname, 'gcp_alerts.html'),
+
+        // Azure files
+        'azure_cloudlist': resolve(__dirname, 'azure_cloudlist.html'),
+        'azure_dashboard': resolve(__dirname, 'azure_dashboard.html'),
+        'azure-finops-report': resolve(__dirname, 'azure-finops-report.html')
       },
     },
-  };
+  },
 });

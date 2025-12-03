@@ -15,7 +15,6 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
-import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/billops")
@@ -31,12 +30,10 @@ public class TicketController {
     @PostMapping("/tickets")
     public ResponseEntity<TicketDto> createTicket(@RequestBody TicketDto ticketDto, Authentication authentication) {
         try {
-            // FIX: Inject Creator ID from Security Context
             if (authentication != null && authentication.getPrincipal() instanceof ClientUserDetails) {
                 ClientUserDetails userDetails = (ClientUserDetails) authentication.getPrincipal();
                 ticketDto.setCreatorId(userDetails.getId());
                 
-                // Optional: Ensure Client ID is also set if missing
                 if (ticketDto.getClientId() == null) {
                     ticketDto.setClientId(userDetails.getClientId());
                 }
@@ -51,7 +48,6 @@ public class TicketController {
 
     @GetMapping("/tickets/cached")
     public ResponseEntity<List<TicketDto>> getCachedAllTickets() {
-        // Redirect to unified endpoint
         return getAllTickets(false);
     }
 
@@ -76,11 +72,12 @@ public class TicketController {
         }
     }
 
-    // --- FILE ATTACHMENT ENDPOINT ---
+    // --- UPDATED: FILE ATTACHMENT ENDPOINT ---
     @PostMapping(value = "/tickets/{id}/replies", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<TicketDto> addTicketReply(
             @PathVariable Long id,
-            @RequestPart("message") String message,
+            // CHANGE 1: Made message optional
+            @RequestPart(value = "message", required = false) String message, 
             @RequestPart(value = "file", required = false) MultipartFile file,
             Authentication authentication) {
         try {
@@ -92,14 +89,20 @@ public class TicketController {
 
             TicketReplyDto replyDto = new TicketReplyDto();
             replyDto.setAuthorUsername(username);
-            replyDto.setMessage(message);
             
-            // Also capture author ID if possible to ensure consistency
+            // CHANGE 2: Handle null message gracefully
+            String safeMessage = (message != null) ? message : "";
+            replyDto.setMessage(safeMessage);
+            
             if (authentication.getPrincipal() instanceof ClientUserDetails) {
                 replyDto.setAuthorId(((ClientUserDetails) authentication.getPrincipal()).getId());
             }
 
-            if (replyDto.getMessage() == null || replyDto.getMessage().isBlank()) {
+            // CHANGE 3: Allow if EITHER message has text OR file is attached
+            boolean hasMessage = !safeMessage.isBlank();
+            boolean hasFile = file != null && !file.isEmpty();
+
+            if (!hasMessage && !hasFile) {
                 return ResponseEntity.badRequest().build();
             }
 

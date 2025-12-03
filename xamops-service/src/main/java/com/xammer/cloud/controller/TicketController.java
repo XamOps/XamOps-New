@@ -41,21 +41,31 @@ public class TicketController {
     // --- UPDATED ENDPOINT TO SUPPORT MULTIPART FILE UPLOAD ---
     @PostMapping(value = "/tickets/{id}/replies", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<TicketDto> addTicketReply(
-            @PathVariable Long id, 
-            @RequestPart("message") String message,
+            @PathVariable Long id,
+            // FIX: Make message optional so file-only replies work
+            @RequestPart(value = "message", required = false) String message,
             @RequestPart(value = "file", required = false) MultipartFile file,
             @RequestPart(value = "authorId", required = false) String authorIdStr,
             Authentication authentication) {
-        
+
+        // Validate that we have at least something to post
+        boolean hasMessage = message != null && !message.isBlank();
+        boolean hasFile = file != null && !file.isEmpty();
+
+        if (!hasMessage && !hasFile) {
+            return ResponseEntity.badRequest().build();
+        }
+
         TicketReplyDto replyDto = new TicketReplyDto();
-        replyDto.setMessage(message);
+        replyDto.setMessage(hasMessage ? message : "");
 
         // Prefer Authentication object for security
         if (authentication != null) {
-             replyDto.setAuthorUsername(authentication.getName());
+            replyDto.setAuthorUsername(authentication.getName());
         }
-        
-        // Fallback to authorId if passed manually (e.g., admin actions if needed, though Auth is preferred)
+
+        // Fallback to authorId if passed manually (e.g., admin actions if needed,
+        // though Auth is preferred)
         if (authorIdStr != null && !authorIdStr.isBlank()) {
             try {
                 replyDto.setAuthorId(Long.parseLong(authorIdStr));
@@ -63,7 +73,7 @@ public class TicketController {
                 // Ignore invalid ID format
             }
         }
-        
+
         return ResponseEntity.ok(ticketService.addReplyToTicket(id, replyDto, file));
     }
     // ----------------------------------------------------------

@@ -1,0 +1,49 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "java",
+            "name": "Current File",
+            "request": "launch",
+            "mainClass": "${file}"
+        },
+        {
+            "type": "java",
+            "name": "ApiGatewayApplication",
+            "request": "launch",
+            "mainClass": "com.xammer.api_gateway.ApiGatewayApplication",
+            "projectName": "api-gateway"
+        },
+        {
+            "type": "java",
+            "name": "BillopsApplication",
+            "request": "launch",
+            "mainClass": "com.xammer.billops.BillopsApplication",
+            "projectName": "billops"
+        },
+        {
+            "type": "java",
+            "name": "ServiceRegistryApplication",
+            "request": "launch",
+            "mainClass": "com.xammer.service_registry.ServiceRegistryApplication",
+            "projectName": "service-registry"
+        },
+        {
+            "type": "java",
+            "name": "CloudDashboardApplication",
+            "request": "launch",
+            "mainClass": "com.xammer.cloud.CloudDashboardApplication",
+            "projectName": "xamops-service"
+        },
+        {
+            "type": "java",
+            "name": "PasswordGenerator",
+            "request": "launch",
+            "mainClass": "com.xammer.cloud.util.PasswordGenerator",
+            "projectName": "xamops-service"
+        }
+    ]
+}
