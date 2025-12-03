@@ -27,7 +27,7 @@ public class GlobalUserSyncService {
     private UserRepository userRepository;
 
     @Autowired
-    private com.xammer.cloud.controller.SuperAdminController superAdminController; // To get tenant list
+    private TenantService tenantService; // Service layer without security restrictions
 
     /**
      * Runs automatically every 60 seconds to ensure Global Directory is up to date.
@@ -37,15 +37,15 @@ public class GlobalUserSyncService {
         log.info("↻ Starting Global User Synchronization...");
 
         // 1. Get all Active Tenants + Default (Master)
-        List<TenantDto> tenants = superAdminController.getAllTenants();
-        
+        List<TenantDto> tenants = tenantService.getAllActiveTenants();
+
         // Add "default" manually to sync SuperAdmins from Master DB
         tenants.add(new TenantDto("default", "System Master"));
 
         for (TenantDto tenant : tenants) {
             syncTenantUsers(tenant.getTenantId());
         }
-        
+
         log.info("✓ Global User Synchronization Complete.");
     }
 
@@ -60,7 +60,9 @@ public class GlobalUserSyncService {
 
         try {
             // 2. Fetch all users from that Tenant's Database
-            List<User> localUsers = userRepository.findAll(); // Ensure AppUser or User maps correctly
+            List<User> localUsers = userRepository.findAll();
+
+            log.debug("Found {} users in tenant '{}'", localUsers.size(), tenantId);
 
             // 3. Push to Master DB
             for (User localUser : localUsers) {
@@ -69,21 +71,28 @@ public class GlobalUserSyncService {
                     Optional<GlobalUserDto> existing = masterDatabaseService.findGlobalUser(localUser.getUsername());
 
                     if (existing.isEmpty()) {
-                        log.info("➕ Syncing new user '{}' from Tenant '{}' to Global Directory", localUser.getUsername(), tenantId);
+                        log.info("➕ Syncing new user '{}' from Tenant '{}' to Global Directory",
+                                localUser.getUsername(), tenantId);
                         masterDatabaseService.registerGlobalUser(
-                            localUser.getUsername(),
-                            localUser.getPassword(), // Hashed password
-                            localUser.getEmail(),
-                            localUser.getRole(),
-                            tenantId
-                        );
+                                localUser.getUsername(),
+                                localUser.getPassword(), // Hashed password
+                                localUser.getEmail(),
+                                localUser.getRole(),
+                                tenantId);
                     }
                 } catch (Exception e) {
-                    log.error("Failed to sync user: " + localUser.getUsername(), e);
+                    log.error("Failed to sync user '{}' from tenant '{}': {}",
+                            localUser.getUsername(), tenantId, e.getMessage());
                 }
             }
+        } catch (org.springframework.transaction.CannotCreateTransactionException e) {
+            // Database connection issue - log concisely without full stack trace
+            log.warn(
+                    "⚠️ Cannot connect to database for tenant '{}' - skipping (connection timeout or database unavailable)",
+                    tenantId);
         } catch (Exception e) {
-            log.error("Error accessing database for tenant: " + tenantId, e);
+            // Other unexpected errors - log with details
+            log.error("❌ Unexpected error accessing database for tenant '{}': {}", tenantId, e.getMessage());
         } finally {
             // 4. Always clear context
             TenantContext.clear();

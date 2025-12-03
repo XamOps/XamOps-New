@@ -254,12 +254,48 @@ public class DashboardData {
     private int count;
   }
 
+  // In xamops-service/src/main/java/com/xammer/cloud/dto/DashboardData.java
+
+  // In xamops-service/src/main/java/com/xammer/cloud/dto/DashboardData.java
+
   @Data
   @NoArgsConstructor
   @AllArgsConstructor
+  @lombok.Builder
   public static class SavingsSummary {
+    // Legacy fields (for backward compatibility)
+    private double realized;
     private double potential;
     private List<SavingsSuggestion> suggestions;
+
+    // New fields for AutoSpotting integration
+    private double currentMonthlyCost;
+    private double onDemandMonthlyCost;
+    private double actualMonthlySavings;
+    private double potentialMonthlySavings;
+    private int totalAsgs;
+    private int enabledAsgs;
+
+    // Constructor for just realized/potential without suggestions
+    public SavingsSummary(double realized, double potential) {
+      this.realized = realized;
+      this.potential = potential;
+      this.suggestions = java.util.Collections.emptyList();
+    }
+
+    // Constructor for potential and suggestions (realized defaults to 0.0)
+    public SavingsSummary(double potential, List<SavingsSuggestion> suggestions) {
+      this.realized = 0.0;
+      this.potential = potential;
+      this.suggestions = suggestions;
+    }
+
+    // Constructor for realized, potential, and suggestions (all three parameters)
+    public SavingsSummary(double realized, double potential, List<SavingsSuggestion> suggestions) {
+      this.realized = realized;
+      this.potential = potential;
+      this.suggestions = suggestions;
+    }
 
     public double getTotalPotentialSavings() {
       return potential;
@@ -502,4 +538,5 @@ public class DashboardData {
     private String policyArn; // Null for inline policies
     private String type; // "Managed" or "Inline"
   }
+
 }

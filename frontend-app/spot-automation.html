@@ -16,153 +16,442 @@
         body {
             font-family: 'Inter', sans-serif;
             overflow: hidden;
-            /* Prevent scroll on body, handle in main */
         }
 
-        /* FinOps Themed Gradient */
-        .coming-soon-gradient {
-            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        .toggle-checkbox:checked {
+            right: 0;
+            border-color: #10b981;
         }
 
-        .float-animation {
-            animation: float 6s ease-in-out infinite;
+        .toggle-checkbox:checked+.toggle-label {
+            background-color: #10b981;
         }
 
-        @keyframes float {
+        [x-cloak] {
+            display: none !important;
+        }
+
+        /* Pulse animation for scanning */
+        @keyframes pulse-scan {
 
             0%,
             100% {
-                transform: translateY(0px);
+                opacity: 1;
             }
 
             50% {
-                transform: translateY(-20px);
+                opacity: 0.5;
             }
         }
 
-        .glow-effect {
-            box-shadow: 0 0 20px rgba(16, 185, 129, 0.3);
+        .pulse-scan {
+            animation: pulse-scan 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
         }
 
-        .feature-card {
-            background: white;
-            border-left: 4px solid;
-            transition: all 0.3s ease;
+        /* Cost badge styling */
+        .cost-badge {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.375rem;
+            font-weight: 600;
         }
 
-        .feature-card:hover {
-            transform: translateX(4px);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        /* Tooltip styling */
+        .tooltip {
+            position: relative;
+            display: inline-block;
+            cursor: help;
+        }
+
+        .tooltip .tooltiptext {
+            visibility: hidden;
+            width: 320px;
+            background-color: #1f2937;
+            color: #fff;
+            text-align: left;
+            border-radius: 8px;
+            padding: 12px;
+            position: absolute;
+            z-index: 1000;
+            bottom: 125%;
+            left: 50%;
+            margin-left: -160px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            font-size: 0.75rem;
+            line-height: 1.4;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+
+        .tooltip .tooltiptext::after {
+            content: "";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: #1f2937 transparent transparent transparent;
+        }
+
+        .tooltip:hover .tooltiptext {
+            visibility: visible;
+            opacity: 1;
         }
     </style>
 </head>
 
 <body class="bg-gray-50">
-    <div class="flex h-screen overflow-hidden">
+    <div class="flex h-screen overflow-hidden" x-data="autoSpottingDashboard()" x-init="initDashboard()">
         <include file="/_sidebar.html"></include>
 
         <div class="ml-64 flex-1 flex flex-col h-screen overflow-hidden">
+            <header class="bg-white border-b border-gray-200 px-8 py-4 flex justify-between items-center">
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-800">Spot Automation</h1>
+                    <p class="text-sm text-gray-500">Automated Spot instance management & cost optimization across all
+                        regions</p>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <button @click="registerAccount()" :disabled="registering || !accountId"
+                        class="text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-4 py-2 transition-colors flex items-center">
+                        <i class="fas fa-sync-alt mr-2" :class="{'fa-spin': registering}"></i>
+                        <span x-text="registering ? 'Syncing...' : 'Sync Account'"></span>
+                    </button>
+                </div>
+            </header>
 
             <main class="flex-1 overflow-y-auto p-8">
+                <div class="max-w-7xl mx-auto space-y-6">
 
-                <div class="max-w-6xl mx-auto w-full">
-                    <div class="relative overflow-hidden bg-white rounded-2xl shadow-xl p-10">
-                        <div class="absolute inset-0 opacity-5">
-                            <div class="absolute inset-0"
-                                style="background-image: repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(16, 185, 129, 0.1) 10px, rgba(16, 185, 129, 0.1) 20px);">
+                    <!-- Stats Cards -->
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                        <!-- Current Cost -->
+                        <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+                            <div class="flex justify-between items-start">
+                                <div>
+                                    <p class="text-sm font-medium text-gray-500">Current Cost</p>
+                                    <h3 class="text-3xl font-bold text-purple-600 mt-2"
+                                        x-text="formatCurrency(costs.currentMonthlyCost)"></h3>
+                                </div>
+                                <div class="p-3 bg-purple-50 rounded-lg">
+                                    <i class="fas fa-dollar-sign text-purple-600 text-xl"></i>
+                                </div>
+                            </div>
+                            <div class="mt-4 text-sm text-gray-500">
+                                <span x-text="formatCurrency(costs.currentHourly) + '/hr'"></span>
                             </div>
                         </div>
-                        <div class="relative z-10 text-center">
-                            <div class="mb-8 flex justify-center">
-                                <div class="relative">
-                                    <div
-                                        class="w-24 h-24 coming-soon-gradient rounded-full flex items-center justify-center float-animation glow-effect">
-                                        <i class="fas fa-magic text-white text-4xl"></i>
-                                    </div>
+
+                        <!-- Actual Savings -->
+                        <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+                            <div class="flex justify-between items-start">
+                                <div>
+                                    <p class="text-sm font-medium text-gray-500">Actual Savings</p>
+                                    <h3 class="text-3xl font-bold text-emerald-600 mt-2"
+                                        x-text="formatCurrency(savings.actualMonthlySavings)"></h3>
+                                </div>
+                                <div class="p-3 bg-emerald-50 rounded-lg">
+                                    <i class="fas fa-piggy-bank text-emerald-600 text-xl"></i>
                                 </div>
                             </div>
-                            <h2 class="text-4xl font-bold text-gray-800 mb-3">
-                                <span
-                                    class="bg-gradient-to-r from-emerald-500 to-teal-600 bg-clip-text text-transparent">Coming
-                                    Soon</span>
-                            </h2>
-                            <p class="text-xl text-gray-800 mb-2 font-semibold">Spot Automation Engine</p>
-                            <p class="text-gray-600 mb-10 max-w-3xl mx-auto text-base leading-relaxed">
-                                Transform your existing On-Demand workloads into cost-saving Spot instances without
-                                changing your launch configurations.
-                                Our intelligent engine attaches to your existing Auto Scaling Groups, managing the
-                                lifecycle of spot instances
-                                to deliver up to 90% savings with enterprise-grade reliability.
-                            </p>
+                            <div class="mt-4 text-sm text-gray-500">
+                                <span class="text-emerald-600 font-medium">
+                                    <i class="fas fa-arrow-up"></i> Last 30 Days
+                                </span>
+                            </div>
+                        </div>
 
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mb-10 text-left max-w-4xl mx-auto">
-                                <div class="feature-card p-5 rounded-xl border-emerald-500 shadow-sm">
-                                    <div class="flex items-start space-x-4">
-                                        <div
-                                            class="flex-shrink-0 w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">
-                                            <i class="fas fa-tags text-emerald-600 text-xl"></i>
-                                        </div>
-                                        <div class="flex-1">
-                                            <h3 class="font-bold text-gray-900 text-base mb-1">Zero-Config Activation
-                                            </h3>
-                                            <p class="text-sm text-gray-600">Enable spot automation simply by tagging
-                                                your Auto Scaling Groups. No changes to launch templates or
-                                                infrastructure code required.</p>
-                                        </div>
-                                    </div>
+                        <!-- Potential Savings -->
+                        <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+                            <div class="flex justify-between items-start">
+                                <div>
+                                    <p class="text-sm font-medium text-gray-500">Potential Savings</p>
+                                    <h3 class="text-3xl font-bold text-blue-600 mt-2"
+                                        x-text="formatCurrency(savings.potentialMonthlySavings)"></h3>
                                 </div>
-
-                                <div class="feature-card p-5 rounded-xl border-teal-500 shadow-sm">
-                                    <div class="flex items-start space-x-4">
-                                        <div
-                                            class="flex-shrink-0 w-12 h-12 bg-teal-100 rounded-xl flex items-center justify-center">
-                                            <i class="fas fa-shield-alt text-teal-600 text-xl"></i>
-                                        </div>
-                                        <div class="flex-1">
-                                            <h3 class="font-bold text-gray-900 text-base mb-1">Automated Fallback</h3>
-                                            <p class="text-sm text-gray-600">Guarantees capacity by automatically
-                                                reverting to On-Demand instances instantly if Spot market capacity
-                                                becomes unavailable.</p>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div class="feature-card p-5 rounded-xl border-blue-500 shadow-sm">
-                                    <div class="flex items-start space-x-4">
-                                        <div
-                                            class="flex-shrink-0 w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
-                                            <i class="fas fa-random text-blue-600 text-xl"></i>
-                                        </div>
-                                        <div class="flex-1">
-                                            <h3 class="font-bold text-gray-900 text-base mb-1">Instance Diversification
-                                            </h3>
-                                            <p class="text-sm text-gray-600">Intelligently selects compatible instance
-                                                types from multiple pools to minimize interruption risks and maximize
-                                                availability.</p>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div class="feature-card p-5 rounded-xl border-indigo-500 shadow-sm">
-                                    <div class="flex items-start space-x-4">
-                                        <div
-                                            class="flex-shrink-0 w-12 h-12 bg-indigo-100 rounded-xl flex items-center justify-center">
-                                            <i class="fas fa-heartbeat text-indigo-600 text-xl"></i>
-                                        </div>
-                                        <div class="flex-1">
-                                            <h3 class="font-bold text-gray-900 text-base mb-1">Proactive Draining</h3>
-                                            <p class="text-sm text-gray-600">Detects Spot interruption signals and
-                                                proactively drains ELB connections before the instance is terminated.
-                                            </p>
-                                        </div>
-                                    </div>
+                                <div class="p-3 bg-blue-50 rounded-lg">
+                                    <i class="fas fa-chart-line text-blue-600 text-xl"></i>
                                 </div>
                             </div>
+                            <div class="mt-4 text-sm text-gray-500">
+                                Additional if all ASGs enabled
+                            </div>
+                        </div>
 
-                            <div
-                                class="inline-flex items-center px-6 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-full shadow-lg transform hover:scale-105 transition-transform cursor-default">
-                                <i class="fas fa-rocket mr-2"></i>
-                                <span class="font-semibold">Target Launch: Q4 2025</span>
+                        <!-- ASGs -->
+                        <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+                            <div class="flex justify-between items-start">
+                                <div>
+                                    <p class="text-sm font-medium text-gray-500">ASGs</p>
+                                    <h3 class="text-3xl font-bold text-indigo-600 mt-2">
+                                        <span x-text="asgs.filter(a => a.isEnabled).length"></span>
+                                        <span class="text-gray-400">/</span>
+                                        <span x-text="asgs.length"></span>
+                                    </h3>
+                                </div>
+                                <div class="p-3 bg-indigo-50 rounded-lg">
+                                    <i class="fas fa-layer-group text-indigo-600 text-xl"></i>
+                                </div>
+                            </div>
+                            <div class="mt-4 text-sm text-gray-500">
+                                <span x-show="enabledRegionsCount > 0">
+                                    Across <span x-text="enabledRegionsCount"></span> region<span
+                                        x-show="enabledRegionsCount > 1">s</span>
+                                </span>
+                                <span x-show="enabledRegionsCount === 0">
+                                    No regions configured
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ASGs Table -->
+                    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                        <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
+                            <div>
+                                <h3 class="font-semibold text-gray-800">Auto Scaling Groups</h3>
+                                <p class="text-xs text-gray-500 mt-1" x-show="enabledRegionsCount > 0">
+                                    Real-time cost data from <span x-text="enabledRegionsCount"></span> region<span
+                                        x-show="enabledRegionsCount > 1">s</span>
+                                </p>
+                            </div>
+                            <div class="flex items-center space-x-3">
+                                <!-- Refresh Data Button -->
+                                <button @click="fetchCostData()" :disabled="loading"
+                                    class="text-gray-500 hover:text-indigo-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2 px-3 py-1.5 rounded-lg hover:bg-indigo-50"
+                                    title="Refresh cost data from AutoSpotting API">
+                                    <i class="fas fa-chart-line" :class="{'fa-spin': loading}"></i>
+                                    <span class="text-sm font-medium">
+                                        <span x-show="!loading">Refresh Data</span>
+                                        <span x-show="loading">Loading...</span>
+                                    </span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead>
+                                    <tr class="bg-gray-50 text-gray-600 text-xs uppercase tracking-wider">
+                                        <th class="px-6 py-4 font-semibold">ASG Name</th>
+                                        <th class="px-6 py-4 font-semibold">Region</th>
+                                        <th class="px-6 py-4 font-semibold">Instance Type</th>
+                                        <th class="px-6 py-4 font-semibold">Instances</th>
+                                        <th class="px-6 py-4 font-semibold">Spot/OD</th>
+                                        <th class="px-6 py-4 font-semibold">Hourly Cost</th>
+                                        <th class="px-6 py-4 font-semibold">Monthly Cost</th>
+                                        <th class="px-6 py-4 font-semibold">Actual Savings/mo</th>
+                                        <th class="px-6 py-4 font-semibold">
+                                            <div class="flex items-center">
+                                                <span>Potential Savings/mo</span>
+                                                <div class="tooltip ml-1.5">
+                                                    <i
+                                                        class="fas fa-info-circle text-gray-400 hover:text-gray-600 cursor-help"></i>
+                                                    <span class="tooltiptext">
+                                                        Estimated monthly savings if all on-demand instances in this ASG
+                                                        were converted to Spot instances of the same type. Uses current
+                                                        spot market prices. Shows $0 for ASGs with AutoSpotting enabled
+                                                        (already optimizing).
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </th>
+                                        <th class="px-6 py-4 font-semibold text-center">AutoSpotting</th>
+                                        <th class="px-6 py-4 font-semibold text-right">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-100">
+                                    <!-- Loading State -->
+                                    <template x-if="loading">
+                                        <tr>
+                                            <td colspan="11" class="px-6 py-12 text-center">
+                                                <div class="flex flex-col items-center justify-center space-y-3">
+                                                    <i class="fas fa-spinner fa-spin text-4xl text-blue-500"></i>
+                                                    <div>
+                                                        <p class="text-gray-700 font-medium">Fetching real-time cost
+                                                            data from AutoSpotting API...</p>
+                                                        <p class="text-sm text-gray-500 mt-1">This may take a few
+                                                            moments</p>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </template>
+
+                                    <!-- Empty State -->
+                                    <template x-if="!loading && asgs.length === 0">
+                                        <tr>
+                                            <td colspan="11" class="px-6 py-12">
+                                                <div class="text-center">
+                                                    <div class="text-yellow-500 mb-3">
+                                                        <i class="fas fa-exclamation-triangle text-4xl"></i>
+                                                    </div>
+                                                    <p class="text-gray-700 font-semibold text-lg mb-2">No Auto Scaling
+                                                        Groups Found</p>
+                                                    <p class="text-sm text-gray-500 mb-4">
+                                                        No ASGs were discovered for this account.
+                                                    </p>
+                                                    <button @click="fetchCostData()"
+                                                        class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-colors">
+                                                        <i class="fas fa-sync-alt mr-2"></i>
+                                                        Retry
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </template>
+
+                                    <!-- ASG Rows -->
+                                    <template x-for="asg in asgs" :key="asg.name + '-' + asg.region">
+                                        <tr class="hover:bg-gray-50 transition-colors">
+                                            <!-- ASG Name -->
+                                            <td class="px-6 py-4">
+                                                <div class="flex items-center">
+                                                    <i class="fas fa-layer-group text-gray-400 mr-3"></i>
+                                                    <div class="font-medium text-gray-900" x-text="asg.name"></div>
+                                                </div>
+                                            </td>
+
+                                            <!-- Region -->
+                                            <td class="px-6 py-4">
+                                                <span
+                                                    class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                                    <i class="fas fa-map-marker-alt mr-1.5"></i>
+                                                    <span x-text="asg.region"></span>
+                                                </span>
+                                            </td>
+
+                                            <!-- Instance Type -->
+                                            <td class="px-6 py-4">
+                                                <span class="text-xs text-gray-600"
+                                                    x-text="asg.instanceTypes || 'N/A'"></span>
+                                            </td>
+
+                                            <!-- Instances -->
+                                            <td class="px-6 py-4">
+                                                <span
+                                                    class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                                                    <i class="fas fa-server mr-1.5 text-gray-500"></i>
+                                                    <span x-text="asg.instanceCount"></span>
+                                                </span>
+                                            </td>
+
+                                            <!-- Spot/OD -->
+                                            <td class="px-6 py-4">
+                                                <div class="text-xs text-gray-600">
+                                                    <span class="text-green-600 font-medium"
+                                                        x-text="asg.spotCount"></span>
+                                                    /
+                                                    <span class="text-orange-600 font-medium"
+                                                        x-text="asg.onDemandCount"></span>
+                                                </div>
+                                            </td>
+
+                                            <!-- Hourly Cost -->
+                                            <td class="px-6 py-4">
+                                                <span class="text-sm font-semibold text-gray-900"
+                                                    x-text="formatCurrency(asg.currentCost || 0)"></span>
+                                            </td>
+
+                                            <!-- Monthly Cost -->
+                                            <td class="px-6 py-4">
+                                                <span class="text-sm font-semibold text-gray-900"
+                                                    x-text="formatCurrency((asg.currentCost || 0) * 730)"></span>
+                                            </td>
+
+                                            <!-- Actual Savings/mo -->
+                                            <td class="px-6 py-4">
+                                                <template x-if="asg.savings && asg.savings > 0">
+                                                    <span class="text-sm font-bold text-emerald-600"
+                                                        x-text="formatCurrency(asg.savings * 730)"></span>
+                                                </template>
+                                                <template x-if="!asg.savings || asg.savings === 0">
+                                                    <span class="text-xs text-gray-400">-</span>
+                                                </template>
+                                            </td>
+
+                                            <!-- Potential Savings/mo -->
+                                            <td class="px-6 py-4">
+                                                <template x-if="asg.potentialSavings && asg.potentialSavings > 0">
+                                                    <span class="text-sm font-bold text-blue-600"
+                                                        x-text="formatCurrency(asg.potentialSavings * 730)"></span>
+                                                </template>
+                                                <template x-if="!asg.potentialSavings || asg.potentialSavings === 0">
+                                                    <span class="text-xs text-gray-400">-</span>
+                                                </template>
+                                            </td>
+
+                                            <!-- AutoSpotting Toggle -->
+                                            <td class="px-6 py-4 text-center">
+                                                <div class="flex items-center justify-center space-x-3">
+                                                    <div
+                                                        class="relative inline-block w-10 align-middle select-none transition duration-200 ease-in">
+                                                        <input type="checkbox"
+                                                            :id="'toggle-' + asg.name + '-' + asg.region"
+                                                            class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer transition-all duration-200"
+                                                            :class="{
+                                                                'right-0 border-emerald-500': asg.isEnabled,
+                                                                'left-0 border-gray-300': !asg.isEnabled,
+                                                                'opacity-50 cursor-not-allowed': asg.updating
+                                                            }" :checked="asg.isEnabled" :disabled="asg.updating"
+                                                            @change="toggleAsg(asg)">
+                                                        <label :for="'toggle-' + asg.name + '-' + asg.region"
+                                                            class="toggle-label block overflow-hidden h-6 rounded-full cursor-pointer transition-colors duration-200"
+                                                            :class="{'bg-emerald-500': asg.isEnabled, 'bg-gray-300': !asg.isEnabled}"></label>
+                                                    </div>
+                                                    <div class="flex items-center space-x-1.5">
+                                                        <span class="text-xs font-semibold"
+                                                            :class="asg.isEnabled ? 'text-emerald-600' : 'text-gray-500'"
+                                                            x-text="asg.isEnabled ? 'Enabled' : 'Disabled'"></span>
+                                                        <span x-show="asg.updating">
+                                                            <i class="fas fa-spinner fa-spin text-gray-400 text-xs"></i>
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </td>
+
+                                            <!-- Actions -->
+                                            <td class="px-6 py-4 text-right">
+                                                <button class="text-gray-400 hover:text-gray-600 transition-colors">
+                                                    <i class="fas fa-ellipsis-v"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Footer Stats -->
+                        <div x-show="asgs.length > 0" class="px-6 py-3 bg-gray-50 border-t border-gray-200">
+                            <div class="flex items-center justify-between text-sm">
+                                <div class="text-gray-600">
+                                    <span class="font-medium" x-text="asgs.length"></span>
+                                    <span>ASG<span x-show="asgs.length !== 1">s</span> • </span>
+                                    <span class="font-medium" x-text="totalInstances"></span>
+                                    <span>instance<span x-show="totalInstances !== 1">s</span> • </span>
+                                    <span class="text-emerald-600 font-semibold"
+                                        x-text="formatCurrency(costs.hourlyActualSavings) + '/hr saved'"></span>
+                                </div>
+                                <div class="flex items-center space-x-4">
+                                    <div class="flex items-center space-x-2">
+                                        <div class="w-3 h-3 bg-emerald-500 rounded-full"></div>
+                                        <span class="text-gray-600">
+                                            <span class="font-medium"
+                                                x-text="asgs.filter(a => a.isEnabled).length"></span>
+                                            Enabled
+                                        </span>
+                                    </div>
+                                    <div class="flex items-center space-x-2">
+                                        <div class="w-3 h-3 bg-gray-300 rounded-full"></div>
+                                        <span class="text-gray-600">
+                                            <span class="font-medium"
+                                                x-text="asgs.filter(a => !a.isEnabled).length"></span>
+                                            Disabled
+                                        </span>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -170,6 +459,403 @@
             </main>
         </div>
     </div>
+
+    <!-- Toast Notification -->
+    <div x-data="{ show: false, message: '', type: 'success' }"
+        @notify.window="show = true; message = $event.detail.message; type = $event.detail.type; setTimeout(() => show = false, 4000)"
+        x-show="show" x-transition:enter="transition ease-out duration-300"
+        x-transition:enter-start="opacity-0 transform translate-y-2"
+        x-transition:enter-end="opacity-100 transform translate-y-0"
+        x-transition:leave="transition ease-in duration-200"
+        x-transition:leave-start="opacity-100 transform translate-y-0"
+        x-transition:leave-end="opacity-0 transform translate-y-2"
+        class="fixed bottom-5 right-5 px-6 py-3 rounded-lg shadow-lg text-white text-sm font-medium z-50 flex items-center max-w-md"
+        :class="type === 'success' ? 'bg-emerald-600' : 'bg-red-600'" x-cloak>
+        <i class="fas mr-2" :class="type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle'"></i>
+        <span x-text="message"></span>
+    </div>
+
+    <script>
+        function autoSpottingDashboard() {
+            const backendBaseUrl = 'http://localhost:8080';
+            const tenantId = sessionStorage.getItem('tenantId') || 'customer1';
+
+            return {
+                loading: false,
+                registering: false,
+                accountId: null,
+                asgs: [],
+                savings: {
+                    actualMonthlySavings: 0.0,
+                    potentialMonthlySavings: 0.0
+                },
+                costs: {
+                    currentHourly: 0.0,
+                    currentMonthlyCost: 0.0,
+                    onDemandHourly: 0.0,
+                    hourlyActualSavings: 0.0
+                },
+                enabledRegionsCount: 0,
+                totalInstances: 0,
+                initialized: false,
+
+                initDashboard() {
+                    if (this.initialized) {
+                        console.log('⚠️ Dashboard already initialized, skipping...');
+                        return;
+                    }
+                    this.initialized = true;
+
+                    console.log('🚀 Initializing Spot Automation Dashboard...');
+
+                    try {
+                        const stored = sessionStorage.getItem('selectedAccountIds');
+                        if (stored) {
+                            const ids = JSON.parse(stored);
+                            if (ids && ids.length > 0) {
+                                this.accountId = ids[0];
+                                console.log('✓ Account ID from sessionStorage:', this.accountId);
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Error reading selectedAccountIds from sessionStorage', e);
+                    }
+
+                    window.addEventListener('account-changed', (event) => {
+                        console.log('SpotAutomation account-changed', event.detail);
+                        this.accountId = event.detail.accountId;
+                        if (this.accountId) {
+                            this.fetchSavings();
+                            this.fetchCostData();
+                        }
+                    }, { once: false });
+
+                    window.addEventListener('multi-account-selection-changed', (event) => {
+                        console.log('SpotAutomation multi-account-selection-changed', event.detail);
+                        const ids = event.detail.accountIds || [];
+                        this.accountId = ids.length > 0 ? ids[0] : null;
+                        if (this.accountId) {
+                            this.fetchSavings();
+                            this.fetchCostData();
+                        }
+                    }, { once: false });
+
+                    if (!this.accountId) {
+                        this.dispatchNotification('No Account ID selected. Please select an account from the dashboard.', 'error');
+                        return;
+                    }
+
+                    console.log('📊 Loading initial data for account:', this.accountId);
+                    this.fetchSavings();
+                    this.fetchCostData();
+                },
+
+                async checkAuth(response) {
+                    if (response.status === 401 || response.status === 403) {
+                        console.error("Unauthorized, redirecting to login.");
+                        window.location.href = backendBaseUrl + '/login';
+                        throw new Error("Session expired");
+                    }
+                    return response;
+                },
+
+                async registerAccount() {
+                    if (!this.accountId) {
+                        this.dispatchNotification('No Account ID selected. Please select an account from the dashboard.', 'error');
+                        return;
+                    }
+
+                    this.registering = true;
+                    try {
+                        let response = await fetch(`${backendBaseUrl}/api/autospotting/register/${this.accountId}`, {
+                            method: 'POST',
+                            credentials: 'include',
+                            headers: {
+                                'X-Tenant-ID': tenantId
+                            }
+                        });
+                        await this.checkAuth(response);
+
+                        if (response.ok) {
+                            this.dispatchNotification('Account successfully synced with AutoSpotting Engine', 'success');
+                        } else {
+                            throw new Error('Sync failed');
+                        }
+                    } catch (error) {
+                        console.error('Error registering account:', error);
+                        if (error.message !== "Session expired") {
+                            this.dispatchNotification('Failed to sync account. Check console for details.', 'error');
+                        }
+                    } finally {
+                        this.registering = false;
+                    }
+                },
+
+                async fetchSavings() {
+                    if (!this.accountId) return;
+
+                    console.log('💰 Fetching savings for account:', this.accountId);
+
+                    try {
+                        let response = await fetch(`${backendBaseUrl}/api/autospotting/savings/${this.accountId}`, {
+                            credentials: 'include',
+                            headers: {
+                                'X-Tenant-ID': tenantId
+                            }
+                        });
+                        await this.checkAuth(response);
+
+                        if (response.ok) {
+                            const data = await response.json();
+                            console.log('✓ Savings data received:', data);
+
+                            this.savings = {
+                                actualMonthlySavings: data.actualMonthlySavings || 0.0,
+                                potentialMonthlySavings: data.potentialMonthlySavings || 0.0
+                            };
+
+                            console.log('  - Actual monthly savings:', this.formatCurrency(this.savings.actualMonthlySavings));
+                            console.log('  - Potential monthly savings:', this.formatCurrency(this.savings.potentialMonthlySavings));
+                        }
+                    } catch (error) {
+                        console.error('❌ Error fetching savings:', error);
+                    }
+                },
+
+                async fetchCostData() {
+                    if (!this.accountId) {
+                        this.dispatchNotification('No Account ID selected', 'error');
+                        return;
+                    }
+
+                    if (this.loading) {
+                        console.log('⚠️ Already loading cost data, skipping duplicate request');
+                        return;
+                    }
+
+                    console.log('📊 Fetching cost data for account:', this.accountId);
+
+                    this.loading = true;
+
+                    try {
+                        let response = await fetch(
+                            `${backendBaseUrl}/api/autospotting/costs/${this.accountId}`,
+                            {
+                                credentials: 'include',
+                                headers: {
+                                    'X-Tenant-ID': tenantId
+                                }
+                            }
+                        );
+                        await this.checkAuth(response);
+
+                        if (response.ok) {
+                            const data = await response.json();
+                            console.log('✓ Cost data received:', data);
+
+                            // Parse summary with SNAKE_CASE fields
+                            if (data.summary) {
+                                console.log('  - Summary data:', data.summary);
+
+                                this.costs = {
+                                    currentHourly: data.summary.total_current_hourly_cost || 0.0,
+                                    currentMonthlyCost: (data.summary.total_current_hourly_cost || 0) * 730,
+                                    onDemandHourly: data.summary.total_ondemand_hourly_cost || 0.0,
+                                    hourlyActualSavings: data.summary.total_actual_savings || 0.0
+                                };
+
+                                // Update monthly savings
+                                this.savings = {
+                                    actualMonthlySavings: (data.summary.total_actual_savings || 0) * 730,
+                                    potentialMonthlySavings: (data.summary.total_potential_savings || 0) * 730
+                                };
+
+                                console.log('  - Current hourly cost:', this.formatCurrency(this.costs.currentHourly));
+                                console.log('  - Current monthly cost:', this.formatCurrency(this.costs.currentMonthlyCost));
+                                console.log('  - Hourly savings:', this.formatCurrency(this.costs.hourlyActualSavings));
+                            }
+
+                            // Parse ASG data with SNAKE_CASE fields
+                            if (data.asgs && data.asgs.length > 0) {
+                                console.log(`  - Mapping ${data.asgs.length} ASGs...`);
+
+                                this.asgs = data.asgs.map((asg, index) => {
+                                    const mapped = {
+                                        name: asg.asg_name || asg.asgName || `ASG-${index}`,
+                                        region: asg.region || 'unknown',
+                                        isEnabled: asg.autospotting_enabled === true,
+                                        instanceCount: asg.instance_count || 0,
+                                        spotCount: asg.spot_instance_count || 0,
+                                        onDemandCount: asg.ondemand_instance_count || 0,
+                                        instanceTypes: asg.instance_types ? asg.instance_types.join(', ') : 'N/A',
+                                        currentCost: asg.current_hourly_cost || 0,
+                                        onDemandCost: asg.ondemand_hourly_cost || 0,
+                                        savings: asg.actual_hourly_savings || 0,
+                                        potentialSavings: asg.potential_hourly_savings || 0,
+                                        updating: false
+                                    };
+
+                                    // ✅ Check localStorage for recent toggle state
+                                    const toggleKey = `asg-toggle-${this.accountId}-${mapped.region}-${mapped.name}`;
+                                    const stored = localStorage.getItem(toggleKey);
+
+                                    if (stored) {
+                                        try {
+                                            const toggle = JSON.parse(stored);
+                                            const ageMinutes = (Date.now() - toggle.timestamp) / 1000 / 60;
+
+                                            // If toggle was within last 5 minutes, use stored state instead of API
+                                            if (ageMinutes < 5) {
+                                                console.log(`  ⚡ Using stored toggle state for ${mapped.name}: ${toggle.state} (${ageMinutes.toFixed(1)} min ago)`);
+                                                mapped.isEnabled = toggle.state;
+                                            } else {
+                                                // Toggle is old, remove it and trust API
+                                                localStorage.removeItem(toggleKey);
+                                            }
+                                        } catch (e) {
+                                            console.error('Error parsing stored toggle', e);
+                                            localStorage.removeItem(toggleKey);
+                                        }
+                                    }
+
+                                    console.log(`    [${index + 1}] ${mapped.name}:`, {
+                                        name: mapped.name,
+                                        region: mapped.region,
+                                        enabled: mapped.isEnabled,
+                                        instances: mapped.instanceCount,
+                                        instanceTypes: mapped.instanceTypes
+                                    });
+
+                                    return mapped;
+                                });
+
+                                // Count regions and instances
+                                this.enabledRegionsCount = new Set(this.asgs.map(a => a.region)).size;
+                                this.totalInstances = this.asgs.reduce((sum, asg) => sum + (asg.instanceCount || 0), 0);
+
+                                const enabledCount = this.asgs.filter(a => a.isEnabled).length;
+                                const disabledCount = this.asgs.filter(a => !a.isEnabled).length;
+
+                                console.log(`✓ Successfully loaded ${this.asgs.length} ASG(s)`);
+                                console.log(`  - Enabled: ${enabledCount}`);
+                                console.log(`  - Disabled: ${disabledCount}`);
+                                console.log(`  - Regions: ${this.enabledRegionsCount}`);
+                                console.log(`  - Total instances: ${this.totalInstances}`);
+
+                                this.dispatchNotification(
+                                    `Loaded ${this.asgs.length} ASG(s) with real-time cost data`,
+                                    'success'
+                                );
+                            } else {
+                                console.warn('⚠️ No ASG data in response');
+                                this.asgs = [];
+                                this.enabledRegionsCount = 0;
+                                this.totalInstances = 0;
+                                this.dispatchNotification('No ASG cost data available', 'error');
+                            }
+                        } else {
+                            throw new Error('Failed to load cost data');
+                        }
+                    } catch (error) {
+                        console.error('❌ Error fetching cost data:', error);
+                        if (error.message !== "Session expired") {
+                            this.dispatchNotification('Failed to fetch cost data from API. Ensure API key is configured.', 'error');
+                        }
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+
+                async toggleAsg(asg) {
+                    if (!this.accountId) {
+                        this.dispatchNotification('No Account ID selected', 'error');
+                        return;
+                    }
+
+                    if (asg.updating) {
+                        return;
+                    }
+
+                    const originalState = asg.isEnabled;
+                    const newState = !originalState;
+
+                    // Optimistic update
+                    asg.isEnabled = newState;
+                    asg.updating = true;
+
+                    const action = newState ? 'enable' : 'disable';
+                    const url = `${backendBaseUrl}/api/autospotting/asgs/${this.accountId}/${action}` +
+                        `?region=${encodeURIComponent(asg.region)}&asgName=${encodeURIComponent(asg.name)}`;
+
+                    console.log(`🔄 Toggling ASG: ${asg.name} in ${asg.region} to ${newState ? 'ENABLED' : 'DISABLED'}`);
+                    console.log(`  URL: ${url}`);
+
+                    try {
+                        let response = await fetch(url, {
+                            method: 'POST',
+                            credentials: 'include',
+                            headers: {
+                                'X-Tenant-ID': tenantId
+                            }
+                        });
+                        await this.checkAuth(response);
+
+                        if (response.ok) {
+                            console.log(`✓ Toggle request successful for ${asg.name}`);
+                            asg.updating = false;
+
+                            // ✅ Store the toggle state in localStorage with timestamp
+                            const toggleKey = `asg-toggle-${this.accountId}-${asg.region}-${asg.name}`;
+                            localStorage.setItem(toggleKey, JSON.stringify({
+                                state: newState,
+                                timestamp: Date.now()
+                            }));
+
+                            console.log(`  💾 Stored toggle state in localStorage (expires in 5 minutes)`);
+
+                            this.dispatchNotification(
+                                `✓ AutoSpotting ${newState ? 'enabled' : 'disabled'} for ${asg.name}.`,
+                                'success'
+                            );
+
+                        } else {
+                            const errorText = await response.text();
+                            console.error('  ❌ Toggle failed:', errorText);
+                            throw new Error('API failed: ' + errorText);
+                        }
+                    } catch (error) {
+                        console.error(`❌ Error toggling ASG:`, error);
+                        // Revert on error
+                        asg.isEnabled = originalState;
+                        asg.updating = false;
+
+                        if (error.message !== "Session expired") {
+                            this.dispatchNotification(
+                                `Failed to update ${asg.name}. ${error.message}`,
+                                'error'
+                            );
+                        }
+                    }
+                },
+
+                formatCurrency(value) {
+                    return new Intl.NumberFormat('en-US', {
+                        style: 'currency',
+                        currency: 'USD',
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2
+                    }).format(value || 0);
+                },
+
+                dispatchNotification(message, type = 'success') {
+                    console.log(`📢 ${type.toUpperCase()}: ${message}`);
+                    window.dispatchEvent(new CustomEvent('notify', {
+                        detail: { message, type }
+                    }));
+                }
+            }
+        }
+    </script>
 </body>
 
 </html>
