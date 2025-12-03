@@ -1,37 +1,32 @@
 # Stage 1: Build the application using Maven
 FROM maven:3.8.5-openjdk-17 AS build
-
-# Set the working directory
 WORKDIR /app
 
-# Copy the entire project context (parent POM and all modules)
+# Copy the entire project context
 COPY . .
 
-# Build the specific module.
-# The `pl` flag tells Maven to build a specific project/module.
-# We use a variable `MODULE_NAME` which we'll set during the build command.
-ARG MODULE_NAME
+# Build the application
+ARG MODULE_NAME=xamops-service
 RUN mvn clean package -pl ${MODULE_NAME} -am -DskipTests
 
 # Stage 2: Create the final, lightweight runtime image
 FROM eclipse-temurin:17-jre-jammy
 WORKDIR /app
 
-# The port the application will run on inside the container.
-# We'll set this as an argument for flexibility.
-ARG EXPOSE_PORT=8080
-EXPOSE ${EXPOSE_PORT}
-
-# Copy only the built JAR file from the specific module's target directory
-ARG MODULE_NAME
-COPY --from=build /app/${MODULE_NAME}/target/*.jar app.jar
-
-# The command to run the application when the container starts
-ENTRYPOINT ["java", "-jar", "app.jar"]
-
-# --- ADD THIS BLOCK START ---
-# Install Docker CLI so the Java app can spawn sibling containers
+# --- CRITICAL FIX: Install Docker CLI HERE (Before Copy/Entrypoint) ---
 RUN apt-get update && \
     apt-get install -y docker.io && \
     rm -rf /var/lib/apt/lists/*
-# --- ADD THIS BLOCK END ---
+
+# The port the application will run on
+ARG EXPOSE_PORT=8080
+EXPOSE ${EXPOSE_PORT}
+
+# Copy only the built JAR file (Hardcoded path to avoid build-arg errors)
+COPY --from=build /app/xamops-service/target/*.jar app.jar
+
+# The command to run the application
+ENTRYPOINT ["java", "-jar", "app.jar"]
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 CMD wget -q -O - http://localhost:8080/actuator/health | grep UP || exit 1

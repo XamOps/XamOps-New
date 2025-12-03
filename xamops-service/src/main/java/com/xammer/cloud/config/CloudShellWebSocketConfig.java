@@ -18,8 +18,8 @@ public class CloudShellWebSocketConfig implements WebSocketConfigurer {
 
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
-        // Changed from "/cloudshell" to "/ws/terminal" to fix the 404 error
-        registry.addHandler(shellHandler, "/ws/terminal")
+        // MOVED to /terminal to avoid conflict with /ws (STOMP/SockJS) endpoint
+        registry.addHandler(shellHandler, "/terminal")
                 .setAllowedOriginPatterns("*");
     }
 }

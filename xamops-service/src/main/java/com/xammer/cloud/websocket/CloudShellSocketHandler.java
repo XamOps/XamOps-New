@@ -1,5 +1,3 @@
-
-
 package com.xammer.cloud.websocket;
 
 import com.xammer.cloud.config.AwsConfig;
@@ -41,7 +39,6 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
         String query = session.getUri().getQuery();
         
-        // 1. Parse Query Parameters manually (accountId and tenantId)
         Map<String, String> queryParams = new HashMap<>();
         if (query != null) {
             for (String param : query.split("&")) {
@@ -61,36 +58,37 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
             return;
         }
 
-        // 2. Set the Tenant Context so DB queries go to the correct database (xamops_local_db)
         if (tenantId != null && !tenantId.isEmpty() && !tenantId.equals("null")) {
             TenantContext.setCurrentTenant(tenantId);
         } else {
-            log.warn("No tenantId found in WebSocket connection for session {}. Defaulting to master DB.", session.getId());
+            log.warn("No tenantId found in WebSocket connection. Defaulting to master DB.");
         }
 
         try {
             log.info("WS Connected: Session ID={}, Account={}, Tenant={}", session.getId(), accountId, tenantId);
 
-            // This query now utilizes the correct TenantContext
             List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
 
             if (accounts.isEmpty()) {
                 throw new RuntimeException("Account " + accountId + " not found in database.");
             }
 
-            String targetRoleArn = accounts.get(0).getRoleArn();
-
-            if (targetRoleArn == null || !targetRoleArn.contains("XamOpsReadOnlyRole")) {
-                throw new RuntimeException("Invalid Role ARN configured for this account. Must contain 'XamOpsReadOnlyRole'.");
+            CloudAccount account = accounts.get(0);
+            String targetRoleArn = account.getRoleArn();
+            
+            // FIX: Fetch External ID from DB, fallback to default if missing
+            String externalId = account.getExternalId(); 
+            if (externalId == null || externalId.isEmpty()) {
+                 externalId = "XamOps_Secure_ID"; // Fallback only if DB is empty
             }
 
-            log.info("Assuming Role: {}", targetRoleArn);
+            log.info("Assuming Role: {} with ExternalID: {}", targetRoleArn, externalId);
 
             StsClient sts = awsConfig.stsClient();
             AssumeRoleResponse assumeRole = sts.assumeRole(AssumeRoleRequest.builder()
                     .roleArn(targetRoleArn)
                     .roleSessionName("XamOpsShell-" + session.getId())
-                    .externalId("XamOps_Secure_ID")
+                    .externalId(externalId) // <--- UPDATED HERE
                     .build());
 
             String accessKey = assumeRole.credentials().accessKeyId();
@@ -105,7 +103,6 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
                     "-e", "AWS_SECRET_ACCESS_KEY=" + secretKey,
                     "-e", "AWS_SESSION_TOKEN=" + sessionToken,
                     "-e", "AWS_DEFAULT_REGION=us-east-1",
-                    // TO THIS (Use your Docker Hub username):
                     "shivam777707/xamops-shell:latest",
                     "xamops-shell",
                     "-qfc", "/bin/bash -i", "/dev/null");
@@ -114,7 +111,7 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
             Process process = pb.start();
             sessions.put(session.getId(), process);
 
-            log.info("Docker process started for account {}: PID={}", accountId, process.pid());
+            log.info("Docker process started: PID={}", process.pid());
 
             Thread outputThread = new Thread(() -> {
                 try (InputStream is = process.getInputStream()) {
@@ -136,7 +133,7 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
             session.sendMessage(new TextMessage("Connected to Account: " + accountId + "\r\n"));
 
         } catch (Exception e) {
-            log.error("Shell setup failed for account {}: {}", accountId, e.getMessage(), e);
+            log.error("Shell setup failed: {}", e.getMessage());
             session.sendMessage(new TextMessage("Error connecting: " + e.getMessage()));
             session.close();
         }
@@ -149,8 +146,6 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
             OutputStream os = process.getOutputStream();
             os.write(message.getPayload().getBytes());
             os.flush();
-        } else {
-            log.warn("No alive process for session: {}", session.getId());
         }
     }
 
@@ -162,8 +157,6 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
         }
         sessions.remove(session.getId());
         outputThreads.remove(session.getId());
-        
-        // 3. Clear the context to prevent memory leaks
         TenantContext.clear();
     }
 }
