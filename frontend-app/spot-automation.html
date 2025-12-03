@@ -65,7 +65,7 @@
 
         .tooltip .tooltiptext {
             visibility: hidden;
-            width: 320px;
+            width: 280px;
             background-color: #1f2937;
             color: #fff;
             text-align: left;
@@ -73,25 +73,25 @@
             padding: 12px;
             position: absolute;
             z-index: 1000;
-            bottom: 125%;
-            left: 50%;
-            margin-left: -160px;
+            top: 125%;
+            right: -10px;
             opacity: 0;
             transition: opacity 0.3s;
             font-size: 0.75rem;
             line-height: 1.4;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
+            white-space: normal;
         }
 
         .tooltip .tooltiptext::after {
             content: "";
             position: absolute;
-            top: 100%;
-            left: 50%;
+            bottom: 100%;
+            right: 20px;
             margin-left: -5px;
-            border-width: 5px;
+            border-width: 6px;
             border-style: solid;
-            border-color: #1f2937 transparent transparent transparent;
+            border-color: transparent transparent #1f2937 transparent;
         }
 
         .tooltip:hover .tooltiptext {
