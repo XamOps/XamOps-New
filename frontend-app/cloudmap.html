@@ -6,11 +6,15 @@
     <title>XamOps - Cloudmap</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-        <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
-<link rel="apple-touch-icon" href="/icons/XamOps.png">
+    <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
+    <link rel="apple-touch-icon" href="/icons/XamOps.png">
+    
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dagre/0.8.5/dagre.min.js"></script>
     <script src="https://unpkg.com/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.21/lodash.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape-edgehandles/4.0.1/cytoscape-edgehandles.min.js"></script>
+
     <script type="module" src="/src/main.js"></script>
 
     <style>
@@ -18,231 +22,41 @@
 
         :root {
             --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            --success-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
-            --warning-gradient: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
             --glass-bg: rgba(255, 255, 255, 0.95);
             --glass-border: rgba(255, 255, 255, 0.2);
         }
 
-        body {
-            font-family: 'Inter', sans-serif;
-            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-            min-height: 100vh;
-        }
+        body { font-family: 'Inter', sans-serif; background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); min-height: 100vh; overflow: hidden; }
 
-        .glass-card {
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--glass-border);
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-        }
+        /* Layout & Panels */
+        .header-gradient { background: rgba(255,255,255,0.9); backdrop-filter: blur(10px); border-bottom: 1px solid rgba(229, 231, 235, 0.8); }
+        #cy { width: 100%; height: 100%; background: #f8fafc; }
+        
+        /* Sidebar Palette (Design Mode) */
+        #design-palette { transition: transform 0.3s ease; }
+        .palette-item { cursor: grab; transition: all 0.2s; border: 1px solid #e5e7eb; }
+        .palette-item:hover { transform: translateY(-2px); border-color: #667eea; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        .palette-item:active { cursor: grabbing; }
 
-        .header-gradient {
-            background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%);
-            backdrop-filter: blur(10px);
-            border-bottom: 1px solid rgba(229, 231, 235, 0.8);
-        }
+        /* Tabs */
+        .tab-btn { border-bottom: 2px solid transparent; transition: all 0.3s; }
+        .tab-btn.active { border-color: #667eea; color: #4f46e5; background: #eff6ff; }
 
-        #cy {
-            width: 100%;
-            height: 100%;
-            position: absolute;
-            top: 0;
-            left: 0;
-            z-index: 1;
-            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-            border-radius: 12px;
-            border: 1px solid rgba(229, 231, 235, 0.5);
-        }
+        /* Info Panel */
+        #info-panel { transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); background: var(--glass-bg); backdrop-filter: blur(10px); border-left: 1px solid var(--glass-border); box-shadow: -5px 0 15px rgba(0,0,0,0.05); z-index: 20; }
+        
+        /* Legend & Toolbar */
+        .legend { background: var(--glass-bg); backdrop-filter: blur(10px); border: 1px solid var(--glass-border); border-radius: 12px; padding: 16px; margin: 16px; position: absolute; bottom: 0; left: 0; z-index: 5; max-height: 40%; overflow-y: auto; }
+        .legend-item { display: flex; align-items: center; margin-bottom: 8px; font-size: 12px; }
+        .legend-icon { width: 20px; height: 20px; margin-right: 8px; border-radius: 4px; display: flex; align-items: center; justify-content: center; }
+        
+        .toolbar { background: var(--glass-bg); backdrop-filter: blur(10px); border: 1px solid var(--glass-border); border-radius: 12px; padding: 8px; margin: 16px; position: absolute; top: 0; right: 16px; z-index: 5; display: flex; gap: 4px; }
+        .toolbar-button { background: rgba(255,255,255,0.8); border: 1px solid #e5e7eb; border-radius: 6px; padding: 6px 10px; font-size: 12px; transition: all 0.2s; }
+        .toolbar-button:hover { background: white; transform: translateY(-1px); box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
 
-        #info-panel {
-            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            z-index: 10;
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--glass-border);
-            border-radius: 16px 0 0 16px;
-            box-shadow: -10px 0 25px -5px rgba(0, 0, 0, 0.1), -4px 0 10px -3px rgba(0, 0, 0, 0.05);
-        }
-
-        .btn-primary {
-            background: var(--primary-gradient);
-            border: none;
-            color: white;
-            transition: all 0.3s ease;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .btn-primary::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-            transition: left 0.5s ease;
-        }
-
-        .btn-primary:hover::before {
-            left: 100%;
-        }
-
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 15px -3px rgba(102, 126, 234, 0.4);
-        }
-
-        .form-select {
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--glass-border);
-            transition: all 0.3s ease;
-        }
-
-        .form-select:focus {
-            background: rgba(255, 255, 255, 1);
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-        }
-
-        .loading-spinner {
-            border: 4px solid #f3f4f6;
-            border-top: 4px solid #667eea;
-            border-radius: 50%;
-            width: 60px;
-            height: 60px;
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        .fade-in {
-            animation: fadeIn 0.5s ease-in-out;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .slide-in {
-            animation: slideIn 0.3s ease-out;
-        }
-
-        @keyframes slideIn {
-            from { transform: translateX(100%); opacity: 0; }
-            to { transform: translateX(0); opacity: 1; }
-        }
-
-        .network-node {
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--glass-border);
-            border-radius: 8px;
-            padding: 12px;
-            margin-bottom: 8px;
-            transition: all 0.3s ease;
-        }
-
-        .network-node:hover {
-            background: rgba(255, 255, 255, 1);
-            transform: translateY(-2px);
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-        }
-
-        .pulse-dot {
-            animation: pulse-dot 2s infinite;
-        }
-
-        @keyframes pulse-dot {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-
-        .message-overlay {
-            background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--glass-border);
-            border-radius: 16px;
-            padding: 24px;
-            margin: 24px;
-        }
-
-        .vpc-badge {
-            background: var(--success-gradient);
-            color: white;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 11px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .legend {
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--glass-border);
-            border-radius: 12px;
-            padding: 16px;
-            margin: 16px;
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            z-index: 5;
-            max-height: 40%;
-            overflow-y: auto;
-        }
-
-        .legend-item {
-            display: flex;
-            align-items: center;
-            margin-bottom: 8px;
-            font-size: 12px;
-        }
-
-        .legend-icon {
-            width: 20px;
-            height: 20px;
-            margin-right: 8px;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .toolbar {
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--glass-border);
-            border-radius: 12px;
-            padding: 12px;
-            margin: 16px;
-            position: absolute;
-            top: 0;
-            left: 0;
-            z-index: 5;
-        }
-
-        .toolbar-button {
-            background: rgba(255, 255, 255, 0.8);
-            border: 1px solid var(--glass-border);
-            border-radius: 8px;
-            padding: 8px 12px;
-            margin: 0 4px;
-            font-size: 12px;
-            transition: all 0.3s ease;
-        }
-
-        .toolbar-button:hover {
-            background: rgba(255, 255, 1);
-            transform: translateY(-1px);
-        }
+        /* Node Badges */
+        .vpc-badge { background: #10b981; color: white; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: 600; text-transform: uppercase; }
+        .network-node { background: white; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; margin-bottom: 6px; }
     </style>
 </head>
 <body class="bg-gray-100">
@@ -250,342 +64,520 @@
 <div class="flex h-screen bg-white">
   <include file="/_sidebar.html"></include>
 
-    <main class="flex-1 flex flex-col pl-64">
-        <header class="header-gradient h-auto flex-col sm:flex-row flex items-center justify-between border-b px-8 py-4 gap-4">
-            <div class="flex items-center space-x-4">
-                <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center">
-                    <i class="fas fa-project-diagram text-white text-lg"></i>
+    <main class="flex-1 flex flex-col pl-64 h-full relative">
+        <header class="header-gradient px-6 py-3 flex-none z-10">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-6">
+                    <div class="flex items-center space-x-3">
+                        <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center">
+                            <i class="fas fa-project-diagram text-white text-lg"></i>
+                        </div>
+                        <h1 class="text-xl font-bold text-gray-800">Cloudmap</h1>
+                    </div>
+                    <div class="flex bg-gray-100 p-1 rounded-lg">
+                        <button onclick="switchMode('live')" id="tab-live" class="tab-btn active px-4 py-2 text-sm font-semibold rounded-md flex items-center gap-2">
+                            <i class="fas fa-network-wired"></i> Live View
+                        </button>
+                        <button onclick="switchMode('design')" id="tab-design" class="tab-btn px-4 py-2 text-sm font-semibold rounded-md text-gray-500 hover:text-gray-700 flex items-center gap-2">
+                            <i class="fas fa-pencil-ruler"></i> Design Studio
+                        </button>
+                    </div>
                 </div>
-                <div>
-                    <h1 class="text-xl font-bold text-gray-800">Cloudmap</h1>
-                    <p class="text-sm text-gray-600">Visualize your cloud infrastructure</p>
+
+                <div class="flex items-center space-x-4">
+                    <div id="controls-live" class="flex items-center gap-3">
+                        <div class="flex items-center space-x-2 text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded border border-gray-200">
+                            <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                            <span>Monitoring AWS</span>
+                        </div>
+                        <select id="vpc-selector" class="border border-gray-300 rounded-md text-sm px-3 py-1.5 focus:ring-2 focus:ring-blue-500">
+                            <option value="">Loading...</option>
+                        </select>
+                        <button id="save-btn-live" class="bg-blue-600 text-white px-3 py-1.5 rounded text-sm hover:bg-blue-700 shadow-sm">
+                            <i class="fas fa-download"></i>
+                        </button>
+                    </div>
+
+                    <div id="controls-design" class="hidden flex items-center gap-3">
+                        <select id="blueprint-selector" class="border border-gray-300 rounded-md text-sm px-3 py-1.5 w-48">
+                            <option value="">-- New Design --</option>
+                        </select>
+                        <button onclick="saveDesign()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-md text-sm font-medium flex items-center gap-2 shadow-sm">
+                            <i class="fas fa-save"></i> Save
+                        </button>
+                        <button onclick="clearCanvas()" class="text-red-600 hover:bg-red-50 px-3 py-1.5 rounded-md text-sm font-medium transition">
+                            <i class="fas fa-trash"></i> Clear
+                        </button>
+                    </div>
                 </div>
-            </div>
-            <div class="flex items-center space-x-4">
-                <div class="flex items-center space-x-2">
-                    <div class="w-2 h-2 bg-green-500 rounded-full pulse-dot"></div>
-                    <span class="text-sm text-gray-600">Live topology</span>
-                </div>
-                <div class="flex items-center space-x-3 glass-card rounded-xl p-3">
-                    <label for="vpc-selector" class="text-sm font-semibold text-gray-700">VPC:</label>
-                    <select id="vpc-selector" class="form-select text-sm rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200">
-                        <option value="">Loading VPCs...</option>
-                    </select>
-                </div>
-                <button id="save-btn" class="btn-primary px-4 py-2 text-sm font-semibold rounded-lg shadow-md flex items-center space-x-2">
-                    <i class="fas fa-download"></i>
-                    <span>Export PNG</span>
-                </button>
             </div>
         </header>
 
-        <div class="flex-1 relative" id="cloudmap-container">
-            <div id="graph-container" class="w-full h-full p-4">
-                <div id="message-overlay" class="absolute inset-0 flex items-center justify-center z-20">
-                    <div class="message-overlay text-center">
-                        <div class="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                            <i class="fas fa-network-wired text-white text-2xl"></i>
-                        </div>
-                        <h3 class="text-lg font-bold text-gray-800 mb-2">Ready to Visualize</h3>
-                        <p class="text-gray-600">Please select a VPC to begin mapping your infrastructure.</p>
+        <div class="flex flex-1 relative overflow-hidden">
+            
+            <div id="design-palette" class="hidden w-64 bg-white border-r border-gray-200 overflow-y-auto p-4 shrink-0 z-10">
+                <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Toolbox</h3>
+                <div class="text-xs text-gray-500 mb-3 bg-blue-50 p-2 rounded border border-blue-100 flex items-start gap-2">
+                    <i class="fas fa-info-circle text-blue-500 mt-0.5"></i>
+                    <span>Drag icons to canvas. Click & drag from a node's handle to connect.</span>
+                </div>
+                <div id="palette-container" class="grid grid-cols-2 gap-2">
+                    </div>
+            </div>
+
+            <div class="flex-1 relative bg-gray-50" id="canvas-wrapper">
+                <div id="cy" class="absolute inset-0"></div>
+                
+                <div id="message-overlay" class="absolute inset-0 flex items-center justify-center z-20 pointer-events-none" style="display: none;">
+                    <div class="bg-white/95 backdrop-blur border border-gray-200 rounded-xl p-6 shadow-xl text-center pointer-events-auto">
+                        <div class="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+                        <h3 class="font-bold text-gray-800" id="msg-title">Loading...</h3>
                     </div>
                 </div>
-
-                <div id="cy" class="rounded-xl"></div>
 
                 <div class="toolbar">
-                    <div class="flex items-center space-x-2">
-                        <button class="toolbar-button" onclick="cy && cy.fit()" title="Fit to view"><i class="fas fa-expand-arrows-alt"></i></button>
-                        <button class="toolbar-button" onclick="cy && cy.center()" title="Center view"><i class="fas fa-crosshairs"></i></button>
-                        <button class="toolbar-button" onclick="cy && cy.zoom(cy.zoom() * 1.2)" title="Zoom in"><i class="fas fa-search-plus"></i></button>
-                        <button class="toolbar-button" onclick="cy && cy.zoom(cy.zoom() * 0.8)" title="Zoom out"><i class="fas fa-search-minus"></i></button>
-                    </div>
+                    <button class="toolbar-button" onclick="cy && cy.fit()" title="Fit"><i class="fas fa-expand-arrows-alt"></i></button>
+                    <button class="toolbar-button" onclick="cy && cy.center()" title="Center"><i class="fas fa-crosshairs"></i></button>
+                    <button class="toolbar-button" onclick="cy && cy.zoom(cy.zoom() * 1.2)" title="Zoom In"><i class="fas fa-plus"></i></button>
+                    <button class="toolbar-button" onclick="cy && cy.zoom(cy.zoom() * 0.8)" title="Zoom Out"><i class="fas fa-minus"></i></button>
                 </div>
 
-                <div id="legend" class="legend">
+                <div id="legend" class="legend hidden sm:block">
                     <h4 class="text-sm font-bold text-gray-800 mb-3">Legend</h4>
                 </div>
             </div>
 
-            <div id="info-panel" class="absolute top-0 right-0 h-full w-96 p-8 border-l transform translate-x-full overflow-y-auto">
-                <button id="close-panel-btn" class="absolute top-6 right-6 text-gray-400 hover:text-gray-600 transition-colors">
-                    <i class="fas fa-times text-xl"></i>
+            <div id="info-panel" class="absolute top-0 right-0 h-full w-80 transform translate-x-full overflow-y-auto bg-white">
+                <button onclick="closeInfoPanel()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+                    <i class="fas fa-times"></i>
                 </button>
-                <div id="info-content" class="mt-4"></div>
+                <div id="info-content" class="p-6 mt-4"></div>
             </div>
         </div>
     </main>
 </div>
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-        const vpcSelector = document.getElementById('vpc-selector');
-        const messageOverlay = document.getElementById('message-overlay');
-        const infoPanel = document.getElementById('info-panel');
-        const infoContent = document.getElementById('info-content');
-        const closePanelBtn = document.getElementById('close-panel-btn');
-        const saveBtn = document.getElementById('save-btn');
-        const legendContainer = document.getElementById('legend');
-        let selectedAccountId = null;
-        let cy;
 
+<script>
+    // --- 1. Configuration & State ---
+    let cy = null;
+    let eh = null; // EdgeHandles instance
+    let currentMode = 'live'; 
+    let selectedAccountId = null;
+    let currentBlueprintId = null;
+
+    const tailwindColors = {
+        green: { 100: '#f0fdf4', 500: '#22c55e', 600: '#16a34a' },
+        blue: { 100: '#eff6ff', 500: '#3b82f6', 600: '#2563eb' },
+        emerald: { 100: '#ecfdf5', 500: '#10b981', 600: '#059669' },
+        yellow: { 100: '#fefce8', 500: '#eab308', 600: '#ca8a04' },
+        cyan: { 100: '#ecfeff', 500: '#06b6d4', 600: '#0891b2' },
+        indigo: { 100: '#eef2ff', 500: '#6366f1', 600: '#4f46e5' },
+        orange: { 100: '#fff7ed', 500: '#f97316', 600: '#ea580c' },
+        amber: { 100: '#fffbeb', 500: '#f59e0b', 600: '#d97706' },
+        rose: { 100: '#fff1f2', 500: '#f43f5e', 600: '#e11d48' },
+        slate: { 100: '#f1f5f9', 500: '#64748b', 600: '#475569' },
+        teal: { 100: '#f0fdfa', 500: '#14b8a6', 600: '#0d9488' },
+        gray: { 100: '#f3f4f6', 500: '#6b7280', 600: '#4b5563' },
+        lime: { 100: '#f7fee7', 500: '#84cc16', 600: '#65a30d' },
+        sky: { 100: '#f0f9ff', 500: '#0ea5e9', 600: '#0284c7' },
+        red: { 100: '#fef2f2', 500: '#ef4444', 600: '#dc2626' },
+        purple: { 100: '#faf5ff', 500: '#a855f7', 600: '#9333ea' },
+        pink: { 100: '#fdf2f8', 500: '#ec4899', 600: '#db2777' },
+        fuchsia: { 100: '#fdf4ff', 500: '#d946ef', 600: '#c026d3' },
+        violet: { 100: '#f5f3ff', 500: '#8b5cf6', 600: '#7c3aed' }
+    };
+
+    const icons = {
+        'VPC': '/icons/vpc.png', 'EC2 Instance': '/icons/ec2-instances.png', 'EBS Volume': '/icons/ebs.png',
+        'RDS Instance': '/icons/rds-instance.png', 'Lambda Function': '/icons/lambda.png', 'Security Group': '/icons/security-group.png',
+        'Load Balancer': '/icons/load-balanceraws.png', 'Auto Scaling Group': '/icons/autoscaling.png',
+        'ElastiCache Cluster': '/icons/elasticache.png', 'DynamoDB Table': '/icons/dynamodb.png', 'ECR Repository': '/icons/ecr.png',
+        'SNS Topic': '/icons/sns.png', 'SQS Queue': '/icons/sqs.png', 'CloudWatch Log Group': '/icons/cloudwatch.png',
+        'CloudTrail': '/icons/cloudtrail.png', 'S3 Bucket': '/icons/s3-bucket.png', 'Route 53 Zone': '/icons/route53.png',
+        'Certificate Manager': '/icons/acm.png', 'EKS Cluster': '/icons/eks.png', 'Lightsail Instance': '/icons/lightsail.png',
+        'Amplify App': '/icons/amplify.png', 'EFS File System': '/icons/efs.png', 'SSM Managed Instance': '/icons/ssm.png',
+        'AWS Step Functions': '/icons/step-functions.png', 'AWS Config': '/icons/config.png', 'Security Hub': '/icons/security-hub.png',
+        'AWS Glue': '/icons/glue.png', 'Amazon Athena': '/icons/athena.png', 'Amazon Cognito': '/icons/cognito.png',
+        'CloudFront': '/icons/cloudfront.png', 'Bedrock': '/icons/bedrock.png', 'SageMaker': '/icons/sagemaker.png',
+        'KMS': '/icons/kms.png', 'Internet Gateway': '/icons/internet-gateway.png', 'NAT Gateway': '/icons/nat-gateway.png',
+        'Network Interface (ENI)':'/icons/eni.png', 'Elastic IP':'/icons/elastic-ip.png', 'CloudFormation Stack': '/icons/cloudformation.png',
+        'DataZone Domain': '/icons/datazone.png', 'Textract Project': '/icons/textract.png', 'EventBridge Bus': '/icons/eventbridge.png',
+        'Kinesis Stream': '/icons/kinesis.png', 'CodePipeline': '/icons/codepipeline.png', 'CodeBuild Project': '/icons/codebuild.png',
+        'CodeCommit Repository': '/icons/codecommit.png', 'AWS Shield Protection': '/icons/shield.png', 'Organization Account': '/icons/organizations.png',
+        'Control Tower Control': '/icons/controltower.png', 'Elastic Beanstalk Environment': '/icons/elasticbeanstalk.png', 'API Gateway': '/icons/api-gateway.png'
+    };
+
+    const nodeTypeData = {
+        'VPC': { icon: 'cloud', color: 'green', style: 'solid', category: 'Network' }, 'Availability Zone': { icon: 'layer-group', color: 'blue', style: 'dashed', category: 'Network' }, 'Subnet': { icon: 'network-wired', color: 'emerald', style: 'solid', category: 'Network' }, 'Security Group': { icon: 'shield-alt', color: 'yellow', style: 'solid', category: 'Security' }, 'Internet Gateway': { icon: 'globe', color: 'cyan', style: 'solid', category: 'Network' }, 'NAT Gateway': { icon: 'exchange-alt', color: 'indigo', style: 'solid', category: 'Network' }, 'Route 53 Zone': { icon: 'route', color: 'orange', style: 'solid', category: 'Network' }, 'EC2 Instance': { icon: 'server', color: 'orange', style: 'solid', category: 'Compute' }, 'Lambda Function': { icon: 'bolt', color: 'amber', style: 'solid', category: 'Compute' }, 'Auto Scaling Group': { icon: 'expand-arrows-alt', color: 'rose', style: 'solid', category: 'Compute' }, 'EKS Cluster': { icon: 'cubes', color: 'indigo', style: 'solid', category: 'Compute' }, 'Lightsail Instance': { icon: 'lightbulb', color: 'yellow', style: 'solid', category: 'Compute' }, 'SSM Managed Instance': { icon: 'tasks', color: 'slate', style: 'solid', category: 'Management' }, 'S3 Bucket': { icon: 'archive', color: 'teal', style: 'solid', category: 'Storage' }, 'EBS Volume': { icon: 'compact-disc', color: 'gray', style: 'solid', category: 'Storage' }, 'EFS File System': { icon: 'folder-open', color: 'lime', style: 'solid', category: 'Storage' }, 'RDS Instance': { icon: 'database', color: 'sky', style: 'solid', category: 'Database' }, 'DynamoDB Table': { icon: 'table', color: 'blue', style: 'solid', category: 'Database' }, 'ElastiCache Cluster': { icon: 'memory', color: 'red', style: 'solid', category: 'Database' }, 'Load Balancer': { icon: 'balance-scale', color: 'purple', style: 'solid', category: 'Network' }, 'SNS Topic': { icon: 'bullhorn', color: 'pink', style: 'solid', category: 'Messaging' }, 'SQS Queue': { icon: 'list-ol', color: 'fuchsia', style: 'solid', category: 'Messaging' }, 'Amplify App': { icon: 'mobile-alt', color: 'violet', style: 'solid', category: 'Application' }, 'AWS Step Functions': { icon: 'project-diagram', color: 'purple', style: 'solid', category: 'Application' }, 'Pinpoint Application': { icon: 'map-pin', color: 'red', style: 'solid', category: 'Application' }, 'CloudWatch Log Group': { icon: 'file-alt', color: 'gray', style: 'solid', category: 'Management' }, 'CloudTrail': { icon: 'shoe-prints', color: 'gray', style: 'solid', category: 'Management' }, 'Certificate Manager': { icon: 'certificate', color: 'green', style: 'solid', category: 'Security' }, 'AWS Config': { icon: 'cogs', color: 'slate', style: 'solid', category: 'Management' }, 'Security Hub': { icon: 'shield-virus', color: 'red', style: 'solid', category: 'Security' }, 'KMS': { icon: 'key', color: 'amber', style: 'solid', category: 'Security' }, 'AWS Glue': { icon: 'puzzle-piece', color: 'cyan', style: 'solid', category: 'Analytics' }, 'Amazon Athena': { icon: 'feather-alt', color: 'indigo', style: 'solid', category: 'Analytics' }, 'Bedrock': { icon: 'brain', color: 'violet', style: 'solid', category: 'AI/ML' }, 'SageMaker': { icon: 'flask', color: 'emerald', style: 'solid', category: 'AI/ML' }, 'Amazon Cognito': { icon: 'users-cog', color: 'orange', style: 'solid', category: 'Security' }, 'CloudFront': { icon: 'rocket', color: 'blue', style: 'solid', category: 'Network' }, 'ECR Repository': { icon: 'box', color: 'slate', style: 'solid', category: 'Storage' },
+        'CloudFormation Stack': { icon: 'cubes', color: 'orange', style: 'solid', category: 'Management' }, 'DataZone Domain': { icon: 'sitemap', color: 'teal', style: 'solid', category: 'Analytics' }, 'Textract Project': { icon: 'file-invoice', color: 'indigo', style: 'solid', category: 'AI/ML' }, 'EventBridge Bus': { icon: 'bus', color: 'rose', style: 'solid', category: 'Application' }, 'Kinesis Stream': { icon: 'stream', color: 'cyan', style: 'solid', category: 'Analytics' }, 'CodePipeline': { icon: 'road', color: 'blue', style: 'solid', category: 'DevOps' }, 'CodeBuild Project': { icon: 'hammer', color: 'slate', style: 'solid', category: 'DevOps' }, 'CodeCommit Repository': { icon: 'code-branch', color: 'gray', style: 'solid', category: 'DevOps' }, 'AWS Shield Protection': { icon: 'shield-alt', color: 'green', style: 'solid', category: 'Security' }, 'Organization Account': { icon: 'sitemap', color: 'indigo', style: 'solid', category: 'Management' }, 'Control Tower Control': { icon: 'university', color: 'purple', style: 'solid', category: 'Management' }, 'Elastic Beanstalk Environment': { icon: 'seedling', color: 'lime', style: 'solid', category: 'Compute' }, 'API Gateway': { icon: 'server', color: 'amber', style: 'solid', category: 'Network' }
+    };
+
+    // --- 2. Initialization ---
+    document.addEventListener('DOMContentLoaded', function () {
         cytoscape.use(cytoscapeDagre);
 
-        // --- START OF FIX: Color Mapping ---
-        const tailwindColors = {
-            green: { 100: '#f0fdf4', 500: '#22c55e', 600: '#16a34a' },
-            blue: { 100: '#eff6ff', 500: '#3b82f6', 600: '#2563eb' },
-            emerald: { 100: '#ecfdf5', 500: '#10b981', 600: '#059669' },
-            yellow: { 100: '#fefce8', 500: '#eab308', 600: '#ca8a04' },
-            cyan: { 100: '#ecfeff', 500: '#06b6d4', 600: '#0891b2' },
-            indigo: { 100: '#eef2ff', 500: '#6366f1', 600: '#4f46e5' },
-            orange: { 100: '#fff7ed', 500: '#f97316', 600: '#ea580c' },
-            amber: { 100: '#fffbeb', 500: '#f59e0b', 600: '#d97706' },
-            rose: { 100: '#fff1f2', 500: '#f43f5e', 600: '#e11d48' },
-            slate: { 100: '#f1f5f9', 500: '#64748b', 600: '#475569' },
-            teal: { 100: '#f0fdfa', 500: '#14b8a6', 600: '#0d9488' },
-            gray: { 100: '#f3f4f6', 500: '#6b7280', 600: '#4b5563' },
-            lime: { 100: '#f7fee7', 500: '#84cc16', 600: '#65a30d' },
-            sky: { 100: '#f0f9ff', 500: '#0ea5e9', 600: '#0284c7' },
-            red: { 100: '#fef2f2', 500: '#ef4444', 600: '#dc2626' },
-            purple: { 100: '#faf5ff', 500: '#a855f7', 600: '#9333ea' },
-            pink: { 100: '#fdf2f8', 500: '#ec4899', 600: '#db2777' },
-            fuchsia: { 100: '#fdf4ff', 500: '#d946ef', 600: '#c026d3' },
-            violet: { 100: '#f5f3ff', 500: '#8b5cf6', 600: '#7c3aed' }
-        };
-        // --- END OF FIX ---
+        // 2.1 Drag & Drop Events for Canvas
+        const wrapper = document.getElementById('canvas-wrapper');
+        wrapper.addEventListener('dragover', e => e.preventDefault());
+        wrapper.addEventListener('drop', handleCanvasDrop);
 
-        const icons = {
-            'VPC': '/icons/vpc.png', 'EC2 Instance': '/icons/ec2-instances.png', 'EBS Volume': '/icons/ebs.png',
-            'RDS Instance': '/icons/rds-instance.png', 'Lambda Function': '/icons/lambda.png', 'Security Group': '/icons/security-group.png',
-            'Load Balancer': '/icons/load-balanceraws.png', 'Auto Scaling Group': '/icons/autoscaling.png',
-            'ElastiCache Cluster': '/icons/elasticache.png', 'DynamoDB Table': '/icons/dynamodb.png', 'ECR Repository': '/icons/ecr.png',
-            'SNS Topic': '/icons/sns.png', 'SQS Queue': '/icons/sqs.png', 'CloudWatch Log Group': '/icons/cloudwatch.png',
-            'CloudTrail': '/icons/cloudtrail.png', 'S3 Bucket': '/icons/s3-bucket.png', 'Route 53 Zone': '/icons/route53.png',
-            'Certificate Manager': '/icons/acm.png', 'EKS Cluster': '/icons/eks.png', 'Lightsail Instance': '/icons/lightsail.png',
-            'Amplify App': '/icons/amplify.png', 'EFS File System': '/icons/efs.png', 'SSM Managed Instance': '/icons/ssm.png',
-            'AWS Step Functions': '/icons/step-functions.png', 'AWS Config': '/icons/config.png', 'Security Hub': '/icons/security-hub.png',
-            'AWS Glue': '/icons/glue.png', 'Amazon Athena': '/icons/athena.png', 'Amazon Cognito': '/icons/cognito.png',
-            'CloudFront': '/icons/cloudfront.png', 'Bedrock': '/icons/bedrock.png', 'SageMaker': '/icons/sagemaker.png',
-            'KMS': '/icons/kms.png', 'Internet Gateway': '/icons/internet-gateway.png', 'NAT Gateway': '/icons/nat-gateway.png',
-            'Network Interface (ENI)':'/icons/eni.png',
-            'Elastic IP':'/icons/elastic-ip.png',
-            // ** ADDED ICONS **
-            'CloudFormation Stack': '/icons/cloudformation.png',
-            'DataZone Domain': '/icons/datazone.png',
-            'Textract Project': '/icons/textract.png',
-            'EventBridge Bus': '/icons/eventbridge.png',
-            'Kinesis Stream': '/icons/kinesis.png',
-            'CodePipeline': '/icons/codepipeline.png',
-            'CodeBuild Project': '/icons/codebuild.png',
-            'CodeCommit Repository': '/icons/codecommit.png',
-            'AWS Shield Protection': '/icons/shield.png',
-            'Organization Account': '/icons/organizations.png',
-            'Control Tower Control': '/icons/controltower.png',
-            'Elastic Beanstalk Environment': '/icons/elasticbeanstalk.png',
-            'API Gateway': '/icons/api-gateway.png'
-        };
+        // 2.2 Account ID Logic
+        const urlParams = new URLSearchParams(window.location.search);
+        selectedAccountId = urlParams.get('accountIds') || JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]')[0];
 
-        const nodeTypeData = {
-            'VPC': { icon: 'cloud', color: 'green', style: 'solid', category: 'Network' }, 'Availability Zone': { icon: 'layer-group', color: 'blue', style: 'dashed', category: 'Network' }, 'Subnet': { icon: 'network-wired', color: 'emerald', style: 'solid', category: 'Network' }, 'Security Group': { icon: 'shield-alt', color: 'yellow', style: 'solid', category: 'Security' }, 'Internet Gateway': { icon: 'globe', color: 'cyan', style: 'solid', category: 'Network' }, 'NAT Gateway': { icon: 'exchange-alt', color: 'indigo', style: 'solid', category: 'Network' }, 'Route 53 Zone': { icon: 'route', color: 'orange', style: 'solid', category: 'Network' }, 'EC2 Instance': { icon: 'server', color: 'orange', style: 'solid', category: 'Compute' }, 'Lambda Function': { icon: 'bolt', color: 'amber', style: 'solid', category: 'Compute' }, 'Auto Scaling Group': { icon: 'expand-arrows-alt', color: 'rose', style: 'solid', category: 'Compute' }, 'EKS Cluster': { icon: 'cubes', color: 'indigo', style: 'solid', category: 'Compute' }, 'Lightsail Instance': { icon: 'lightbulb', color: 'yellow', style: 'solid', category: 'Compute' }, 'SSM Managed Instance': { icon: 'tasks', color: 'slate', style: 'solid', category: 'Management' }, 'S3 Bucket': { icon: 'archive', color: 'teal', style: 'solid', category: 'Storage' }, 'EBS Volume': { icon: 'compact-disc', color: 'gray', style: 'solid', category: 'Storage' }, 'EFS File System': { icon: 'folder-open', color: 'lime', style: 'solid', category: 'Storage' }, 'RDS Instance': { icon: 'database', color: 'sky', style: 'solid', category: 'Database' }, 'DynamoDB Table': { icon: 'table', color: 'blue', style: 'solid', category: 'Database' }, 'ElastiCache Cluster': { icon: 'memory', color: 'red', style: 'solid', category: 'Database' }, 'Load Balancer': { icon: 'balance-scale', color: 'purple', style: 'solid', category: 'Network' }, 'SNS Topic': { icon: 'bullhorn', color: 'pink', style: 'solid', category: 'Messaging' }, 'SQS Queue': { icon: 'list-ol', color: 'fuchsia', style: 'solid', category: 'Messaging' }, 'Amplify App': { icon: 'mobile-alt', color: 'violet', style: 'solid', category: 'Application' }, 'AWS Step Functions': { icon: 'project-diagram', color: 'purple', style: 'solid', category: 'Application' }, 'Pinpoint Application': { icon: 'map-pin', color: 'red', style: 'solid', category: 'Application' }, 'CloudWatch Log Group': { icon: 'file-alt', color: 'gray', style: 'solid', category: 'Management' }, 'CloudTrail': { icon: 'shoe-prints', color: 'gray', style: 'solid', category: 'Management' }, 'Certificate Manager': { icon: 'certificate', color: 'green', style: 'solid', category: 'Security' }, 'AWS Config': { icon: 'cogs', color: 'slate', style: 'solid', category: 'Management' }, 'Security Hub': { icon: 'shield-virus', color: 'red', style: 'solid', category: 'Security' }, 'KMS': { icon: 'key', color: 'amber', style: 'solid', category: 'Security' }, 'AWS Glue': { icon: 'puzzle-piece', color: 'cyan', style: 'solid', category: 'Analytics' }, 'Amazon Athena': { icon: 'feather-alt', color: 'indigo', style: 'solid', category: 'Analytics' }, 'Bedrock': { icon: 'brain', color: 'violet', style: 'solid', category: 'AI/ML' }, 'SageMaker': { icon: 'flask', color: 'emerald', style: 'solid', category: 'AI/ML' }, 'Amazon Cognito': { icon: 'users-cog', color: 'orange', style: 'solid', category: 'Security' }, 'CloudFront': { icon: 'rocket', color: 'blue', style: 'solid', category: 'Network' }, 'ECR Repository': { icon: 'box', color: 'slate', style: 'solid', category: 'Storage' },
-            // ** ADDED NODE TYPES **
-            'CloudFormation Stack': { icon: 'cubes', color: 'orange', style: 'solid', category: 'Management' },
-            'DataZone Domain': { icon: 'sitemap', color: 'teal', style: 'solid', category: 'Analytics' },
-            'Textract Project': { icon: 'file-invoice', color: 'indigo', style: 'solid', category: 'AI/ML' },
-            'EventBridge Bus': { icon: 'bus', color: 'rose', style: 'solid', category: 'Application' },
-            'Kinesis Stream': { icon: 'stream', color: 'cyan', style: 'solid', category: 'Analytics' },
-            'CodePipeline': { icon: 'road', color: 'blue', style: 'solid', category: 'DevOps' },
-            'CodeBuild Project': { icon: 'hammer', color: 'slate', style: 'solid', category: 'DevOps' },
-            'CodeCommit Repository': { icon: 'code-branch', color: 'gray', style: 'solid', category: 'DevOps' },
-            'AWS Shield Protection': { icon: 'shield-alt', color: 'green', style: 'solid', category: 'Security' },
-            'Organization Account': { icon: 'sitemap', color: 'indigo', style: 'solid', category: 'Management' },
-            'Control Tower Control': { icon: 'university', color: 'purple', style: 'solid', category: 'Management' },
-            'Elastic Beanstalk Environment': { icon: 'seedling', color: 'lime', style: 'solid', category: 'Compute' },
-            'API Gateway': { icon: 'server', color: 'amber', style: 'solid', category: 'Network' }
-        };
+        // 2.3 Start in Live Mode
+        initLiveMode();
+        populatePalette();
+    });
 
-        function renderGraph(graphData) {
-            const style = [
-                {
-                    selector: 'node',
-                    style: { 'shape': 'rectangle', 'label': 'data(label)', 'font-size': '11px', 'font-weight': '600', 'text-valign': 'bottom', 'text-halign': 'center', 'color': '#374151', 'text-margin-y': 8, 'width': 60, 'height': 60, 'background-opacity': 0, 'background-image': (node) => icons[node.data('type')] || '/icons/default.png', 'background-fit': 'contain', 'background-clip': 'none', 'border-width': 2, 'border-color': '#e5e7eb', 'border-opacity': 0.8 }
-                },
-                {
-                    selector: 'node:selected', // Corrected selector
-                    style: { 'border-color': '#667eea', 'border-width': 4 }
-                },
-                // --- ARROW STYLE FIX ---
-                {
-                    selector: 'edge',
-                    style: {
-                        'width': 2, 'line-color': '#9ca3af', 'target-arrow-color': '#9ca3af', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', 'opacity': 0.8, 'label': 'data(label)', 'font-size': '9px', 'color': '#555', 'text-rotation': 'autorotate'
-                    }
-                },
-                // ---------------------
-                {
-                    selector: ':parent',
-                    style: {
-                        'text-valign': 'top', 'text-halign': 'center', 'font-weight': 'bold', 'color': '#1f2937', 'font-size': '16px', 'background-opacity': 1, 'background-image': 'none', 'padding': '20px'
-                    }
-                }
-            ];
+    // --- 3. Mode Switching ---
+    window.switchMode = function(mode) {
+        currentMode = mode;
+        const liveTab = document.getElementById('tab-live');
+        const designTab = document.getElementById('tab-design');
+        const liveControls = document.getElementById('controls-live');
+        const designControls = document.getElementById('controls-design');
+        const designPalette = document.getElementById('design-palette');
+        const legend = document.getElementById('legend');
+        const infoPanel = document.getElementById('info-panel');
 
-            // --- COLOR STYLING FIX ---
-            for (const [type, data] of Object.entries(nodeTypeData)) {
-                 style.push({
-                    selector: `node[type="${type}"]`,
-                    style: {
-                        'background-color': tailwindColors[data.color]?.[100] || '#f3f4f6',
-                        'border-color': tailwindColors[data.color]?.[500] || '#6b7280',
-                        'border-style': data.style || 'solid'
-                    }
-                });
-            }
-            // -------------------------
-
-
-            cy = cytoscape({
-                container: document.getElementById('cy'),
-                elements: graphData,
-                layout: { name: 'dagre', nodeSep: 80, edgeSep: 20, rankSep: 100, rankDir: 'TB', align: 'UL', spacingFactor: 1.5 },
-                style: style
-            });
-
-            cy.on('tap', 'node', evt => displayNodeInfo(evt.target.data()));
-            cy.on('tap', evt => { if (evt.target === cy) infoPanel.classList.add('translate-x-full'); });
-
-            cy.fit();
+        // Reset UI state
+        infoPanel.classList.add('translate-x-full');
+        if(cy) {
+            if (eh) { eh.destroy(); eh = null; } 
+            cy.destroy();
         }
 
-        function populateLegend() {
-            const categories = [...new Set(Object.values(nodeTypeData).map(d => d.category))];
-            let legendHtml = '<h4 class="text-sm font-bold text-gray-800 mb-3">Legend</h4>';
-            categories.sort().forEach(category => {
-                legendHtml += `<h5 class="text-xs font-semibold text-gray-600 mt-3 mb-1">${category}</h5>`;
-                for (const [type, data] of Object.entries(nodeTypeData)) {
-                    if (data.category === category) {
-                         const bgColor = tailwindColors[data.color]?.[100] || '#f3f4f6';
-                         const borderColor = tailwindColors[data.color]?.[500] || '#6b7280';
-                         const iconColor = tailwindColors[data.color]?.[600] || '#4b5563';
-                        legendHtml += `
-                            <div class="legend-item">
-                                <div class="legend-icon" style="background-color:${bgColor}; border: 1px solid ${borderColor};">
-                                    <i class="fas fa-${data.icon} text-xs" style="color: ${iconColor};"></i>
-                                </div>
-                                <span class="text-gray-700">${type}</span>
-                            </div>
-                        `;
-                    }
-                }
-            });
-            legendContainer.innerHTML = legendHtml;
+        if (mode === 'live') {
+            // UI Toggles: LIVE
+            liveTab.className = "tab-btn active px-4 py-2 text-sm font-semibold rounded-md flex items-center gap-2";
+            designTab.className = "tab-btn px-4 py-2 text-sm font-semibold rounded-md text-gray-500 hover:text-gray-700 flex items-center gap-2";
+            
+            liveControls.classList.remove('hidden');
+            designControls.classList.add('hidden');
+            designPalette.classList.add('hidden');
+            
+            // CHANGE 1: HIDE Legend in Live Mode
+            legend.classList.add('hidden'); 
+            
+            initLiveMode();
+        } else {
+            // UI Toggles: DESIGN
+            liveTab.className = "tab-btn px-4 py-2 text-sm font-semibold rounded-md text-gray-500 hover:text-gray-700 flex items-center gap-2";
+            designTab.className = "tab-btn active px-4 py-2 text-sm font-semibold rounded-md flex items-center gap-2";
+            
+            liveControls.classList.add('hidden');
+            designControls.classList.remove('hidden');
+            designPalette.classList.remove('hidden');
+            
+            // CHANGE 2: SHOW Legend in Design Mode
+            legend.classList.remove('hidden'); 
+            
+            initDesignMode();
+        }
+    };
+
+    // --- 4. Live Mode Logic ---
+    function initLiveMode() {
+        populateLegend();
+        const vpcSelector = document.getElementById('vpc-selector');
+        
+        if (!selectedAccountId) {
+            vpcSelector.innerHTML = '<option value="">Please select an account</option>';
+            return;
         }
 
-        closePanelBtn.addEventListener('click', () => infoPanel.classList.add('translate-x-full'));
-        vpcSelector.addEventListener('change', () => loadGraphForVpc(vpcSelector.value));
+        vpcSelector.innerHTML = '<option value="">Loading VPCs...</option>';
+        fetch(`/api/xamops/cloudmap/vpcs?accountId=${selectedAccountId}`)
+            .then(r => r.json())
+            .then(vpcs => {
+                vpcSelector.innerHTML = '';
+                if (Array.isArray(vpcs) && vpcs.length > 0) {
+                    vpcs.forEach(vpc => {
+                        const opt = document.createElement('option');
+                        opt.value = `${vpc.id}|${vpc.region}`;
+                        opt.textContent = `${vpc.name} (${vpc.id} - ${vpc.region})`;
+                        vpcSelector.appendChild(opt);
+                    });
+                    const globalOpt = document.createElement('option');
+                    globalOpt.value = ""; globalOpt.textContent = "🌐 Global & S3";
+                    vpcSelector.appendChild(globalOpt);
+                    
+                    loadLiveGraph(vpcSelector.options[0].value);
+                } else {
+                    vpcSelector.innerHTML = '<option value="">🌐 Global & S3</option>';
+                    loadLiveGraph("");
+                }
+            })
+            .catch(err => {
+                console.error(err);
+                vpcSelector.innerHTML = '<option>Error loading data</option>';
+            });
+            
+        vpcSelector.onchange = (e) => loadLiveGraph(e.target.value);
+    }
 
-        saveBtn.addEventListener('click', () => {
-            if(cy) {
-                const png64 = cy.png({ output: 'base64uri', bg: '#f8fafc', full: true, scale: 2 });
-                const link = document.createElement('a');
-                link.download = `cloudmap-${vpcSelector.value || 'global'}-${new Date().toISOString().split('T')[0]}.png`;
-                link.href = png64;
-                link.click();
-            }
+    function loadLiveGraph(value) {
+        const [vpcId, region] = (value || '|').split('|');
+        showMessage(true, 'Loading AWS Topology...');
+        
+        fetch(`/api/xamops/cloudmap/graph?accountId=${selectedAccountId}&vpcId=${vpcId || ''}&region=${region || ''}`)
+            .then(r => r.json())
+            .then(data => {
+                renderGraph(data, false); // false = read-only
+                showMessage(false);
+            })
+            .catch(() => showMessage(true, 'Failed to load graph.'));
+    }
+
+    // --- 5. Design Mode Logic ---
+    function initDesignMode() {
+        renderGraph([], true); // true = editable
+        loadBlueprintsList();
+    }
+
+    function populatePalette() {
+        const container = document.getElementById('palette-container');
+        container.innerHTML = '';
+        
+        Object.entries(nodeTypeData).forEach(([type, data]) => {
+            const div = document.createElement('div');
+            div.className = 'palette-item bg-white p-2 rounded flex flex-col items-center justify-center text-center h-20';
+            div.draggable = true;
+            
+            const color = tailwindColors[data.color]?.[500] || '#6b7280';
+            
+            div.innerHTML = `
+                <div class="w-8 h-8 rounded-full flex items-center justify-center mb-1" style="background-color: ${color}20; color: ${color}">
+                    <i class="fas fa-${data.icon}"></i>
+                </div>
+                <span class="text-[10px] font-medium text-gray-600 leading-tight">${type}</span>
+            `;
+
+            div.addEventListener('dragstart', (e) => {
+                e.dataTransfer.setData('type', type);
+            });
+            container.appendChild(div);
+        });
+    }
+
+    function handleCanvasDrop(e) {
+        if (currentMode !== 'design' || !cy) return;
+        e.preventDefault();
+
+        const type = e.dataTransfer.getData('type');
+        if (!type) return;
+
+        // Position relative to canvas
+        const rect = document.getElementById('cy').getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        const pos = cy.renderer().projectIntoViewport(x, y);
+
+        cy.add({
+            group: 'nodes',
+            data: { 
+                id: 'node-' + Date.now(), 
+                label: type, 
+                type: type 
+            },
+            position: { x: pos.x, y: pos.y }
+        });
+    }
+
+    // --- 6. Shared Graph Rendering ---
+    function renderGraph(elements, isEditable) {
+        if (cy) cy.destroy();
+
+        const style = getCyStyle();
+
+        cy = cytoscape({
+            container: document.getElementById('cy'),
+            elements: elements,
+            layout: isEditable ? { name: 'preset' } : { name: 'dagre', nodeSep: 80, rankDir: 'TB' },
+            style: style,
+            wheelSensitivity: 0.2
         });
 
-        function initialize() {
-            populateLegend();
-            const urlParams = new URLSearchParams(window.location.search);
-            selectedAccountId = urlParams.get('accountIds');
-            if (!selectedAccountId) {
-                const storedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-                if (storedIds.length > 0) { selectedAccountId = storedIds.join(','); }
-            }
-            if (!selectedAccountId) {
-                vpcSelector.innerHTML = '<option value="">Please select an account</option>';
-                return;
-            }
+        // Node Tap: Info
+        cy.on('tap', 'node', evt => displayNodeInfo(evt.target.data()));
+        
+        // Bg Tap: Close Panel
+        cy.on('tap', evt => { if (evt.target === cy) closeInfoPanel(); });
 
-            vpcSelector.innerHTML = '<option value="">Loading VPCs...</option>';
-            fetch(`/api/xamops/cloudmap/vpcs?accountId=${selectedAccountId}`)
-                .then(response => {
-                    if (!response.ok) throw new Error('Bad Request');
-                    return response.json();
-                })
-                .then(vpcs => {
-                    // ** FIX: Dropdown sorting and default selection logic **
-                    vpcSelector.innerHTML = ''; // Clear the selector first
-
-                    if (Array.isArray(vpcs) && vpcs.length > 0) {
-                        // Add VPCs first
-                        vpcs.forEach(vpc => {
-                            const option = document.createElement('option');
-                            option.value = `${vpc.id}|${vpc.region}`;
-                            option.textContent = `${vpc.name} (${vpc.id} - ${vpc.region})`;
-                            vpcSelector.appendChild(option);
-                        });
-                        // Add Global/S3 option last
-                        const globalOption = document.createElement('option');
-                        globalOption.value = "";
-                        globalOption.textContent = "🌐 Global & S3";
-                        vpcSelector.appendChild(globalOption);
-
-                        // Default to loading the first VPC
-                        loadGraphForVpc(vpcSelector.options[0].value);
-                    } else {
-                        // If no VPCs, just show the Global option
-                        vpcSelector.innerHTML = '<option value="">🌐 Global & S3</option>';
-                        console.error('Expected an array of VPCs, but received:', vpcs);
-                        loadGraphForVpc("");
-                    }
-                })
-                .catch(error => {
-                    console.error('Error fetching VPCs:', error);
-                    vpcSelector.innerHTML = '<option value="">❌ Error loading VPCs</option>';
+        // Enable Edge Handles if Design Mode
+        if (isEditable) {
+            if(cy.edgehandles) {
+                eh = cy.edgehandles({
+                    snap: true,
+                    edgeParams: () => ({ data: { label: '' } }) // Default empty label for edges
                 });
-        }
-
-        function loadGraphForVpc(vpcSelectorValue) {
-            if (cy) cy.destroy();
-            infoPanel.classList.add('translate-x-full');
-            if (!selectedAccountId) {
-                messageOverlay.innerHTML = `<div class="message-overlay text-center"><div class="w-16 h-16 bg-gradient-to-br from-red-500 to-pink-600 rounded-full flex items-center justify-center mx-auto mb-4"><i class="fas fa-exclamation-triangle text-white text-2xl"></i></div><h3 class="text-lg font-bold text-gray-800 mb-2">Account Required</h3><p class="text-gray-600">Please select an account to begin mapping.</p></div>`;
-                return;
             }
-            const [vpcId, region] = (vpcSelectorValue || '|').split('|');
-            const url = `/api/xamops/cloudmap/graph?accountId=${selectedAccountId}&vpcId=${vpcId || ''}&region=${region || ''}`;
-            messageOverlay.innerHTML = `<div class="message-overlay text-center"><div class="loading-spinner mx-auto mb-4"></div><h3 class="text-lg font-bold text-gray-800 mb-2">Loading Infrastructure</h3><p class="text-gray-600">Analyzing your cloud topology...</p></div>`;
-            messageOverlay.style.display = 'flex';
-            fetch(url)
-                .then(response => response.json())
-                .then(data => {
-                    messageOverlay.style.display = 'none';
-                    renderGraph(data);
-                })
-                .catch(error => {
-                    console.error('Error fetching graph data:', error);
-                    messageOverlay.innerHTML = `<div class="message-overlay text-center"><div class="w-16 h-16 bg-gradient-to-br from-red-500 to-pink-600 rounded-full flex items-center justify-center mx-auto mb-4"><i class="fas fa-exclamation-triangle text-white text-2xl"></i></div><h3 class="text-lg font-bold text-gray-800 mb-2">Load Error</h3><p class="text-gray-600">Could not load graph data. Please try again.</p></div>`;
-                });
         }
+    }
 
-        function displayNodeInfo(data) {
-            const typeInfo = nodeTypeData[data.type] || { icon: 'cube', color: 'gray' };
-            const nodeTypeColors = { 'VPC': 'from-green-500 to-emerald-600', 'EC2 Instance': 'from-orange-500 to-red-600', 'RDS Instance': 'from-blue-500 to-indigo-600', 'Load Balancer': 'from-purple-500 to-pink-600', 'S3 Bucket': 'from-green-500 to-teal-600', 'Security Group': 'from-yellow-500 to-orange-600', 'Internet Gateway': 'from-blue-500 to-cyan-600', 'NAT Gateway': 'from-indigo-500 to-purple-600', 'Auto Scaling Group': 'from-pink-500 to-rose-600', 'Pinpoint Application': 'from-red-500 to-pink-700', };
-            const gradientClass = nodeTypeColors[data.type] || 'from-gray-500 to-gray-600';
-            let contentHtml = `<div class="slide-in"><div class="w-12 h-12 bg-gradient-to-br ${gradientClass} rounded-xl flex items-center justify-center mb-4"><i class="fas fa-${typeInfo.icon} text-white text-lg"></i></div><h2 class="text-2xl font-bold text-gray-800 mb-2">${data.label}</h2><div class="vpc-badge mb-4">${data.type}</div><p class="text-sm text-gray-500 font-mono mb-6 bg-gray-50 p-2 rounded">${data.id}</p><div class="space-y-3">`;
-            const internalKeys = ['id', 'label', 'parent', 'type', 'source', 'target'];
-            for (const [key, value] of Object.entries(data)) {
-                if (!internalKeys.includes(key) && value) {
-                    contentHtml += `<div class="network-node"><div class="flex justify-between items-center"><span class="font-semibold text-gray-700">${key.replace(/([A-Z])/g, ' $1').trim()}</span><span class="font-mono text-gray-900 text-sm">${value}</span></div></div>`;
+    function getCyStyle() {
+        const style = [
+            {
+                selector: 'node',
+                style: { 'shape': 'rectangle', 'label': 'data(label)', 'font-size': '11px', 'font-weight': '600', 'text-valign': 'bottom', 'text-halign': 'center', 'color': '#374151', 'text-margin-y': 8, 'width': 60, 'height': 60, 'background-opacity': 0, 'background-image': (node) => icons[node.data('type')] || '/icons/default.png', 'background-fit': 'contain', 'background-clip': 'none', 'border-width': 2, 'border-color': '#e5e7eb', 'border-opacity': 0.8 }
+            },
+            { selector: 'node:selected', style: { 'border-color': '#667eea', 'border-width': 4 } },
+            { selector: 'edge', style: { 'width': 2, 'line-color': '#9ca3af', 'target-arrow-color': '#9ca3af', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', 'opacity': 0.8, 'label': 'data(label)', 'font-size': '9px', 'color': '#555' } },
+            { selector: ':parent', style: { 'text-valign': 'top', 'text-halign': 'center', 'font-weight': 'bold', 'color': '#1f2937', 'background-opacity': 1 } },
+            
+            // Edge Handles specific styles
+            { selector: '.eh-handle', style: { 'background-color': '#667eea', 'width': 12, 'height': 12, 'shape': 'ellipse', 'overlay-opacity': 0, 'border-width': 12, 'border-opacity': 0 } },
+            { selector: '.eh-hover', style: { 'background-color': '#667eea' } },
+            { selector: '.eh-source', style: { 'border-width': 2, 'border-color': '#667eea' } },
+            { selector: '.eh-target', style: { 'border-width': 2, 'border-color': '#667eea' } },
+            { selector: '.eh-preview, .eh-ghost-edge', style: { 'background-color': '#667eea', 'line-color': '#667eea', 'target-arrow-color': '#667eea', 'source-arrow-color': '#667eea' } }
+        ];
+
+        // Dynamic colors from existing logic
+        for (const [type, data] of Object.entries(nodeTypeData)) {
+            style.push({
+                selector: `node[type="${type}"]`,
+                style: {
+                    'background-color': tailwindColors[data.color]?.[100] || '#f3f4f6',
+                    'border-color': tailwindColors[data.color]?.[500] || '#6b7280',
+                    'border-style': data.style || 'solid'
+                }
+            });
+        }
+        return style;
+    }
+
+    // --- 7. Design API Calls ---
+    window.loadBlueprintsList = function() {
+        fetch('/api/xamops/design/list')
+            .then(r => r.json())
+            .then(list => {
+                const sel = document.getElementById('blueprint-selector');
+                sel.innerHTML = '<option value="">-- New Design --</option>';
+                list.forEach(bp => {
+                    const opt = document.createElement('option');
+                    opt.value = bp.id;
+                    opt.textContent = bp.name;
+                    sel.appendChild(opt);
+                });
+                
+                sel.onchange = (e) => {
+                    if(e.target.value) loadBlueprint(e.target.value);
+                    else { cy.elements().remove(); currentBlueprintId = null; }
+                };
+            });
+    };
+
+    function loadBlueprint(id) {
+        showMessage(true, 'Loading Design...');
+        fetch(`/api/xamops/design/${id}`)
+            .then(r => r.json())
+            .then(bp => {
+                currentBlueprintId = bp.id;
+                cy.elements().remove();
+                if (bp.graphData) {
+                    cy.add(JSON.parse(bp.graphData));
+                    cy.fit();
+                }
+                showMessage(false);
+            });
+    }
+
+    window.saveDesign = function() {
+        const name = prompt("Name your design:", "My Cloud Architecture");
+        if (!name) return;
+
+        const payload = {
+            id: currentBlueprintId, // If ID exists, backend updates it
+            name: name,
+            graphData: JSON.stringify(cy.json().elements)
+        };
+
+        fetch('/api/xamops/design/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(r => r.json())
+        .then(data => {
+            alert('Design saved successfully!');
+            currentBlueprintId = data.id;
+            loadBlueprintsList(); // Refresh dropdown
+        })
+        .catch(err => alert("Save failed: " + err));
+    };
+
+    window.clearCanvas = function() {
+        if(confirm("Clear everything? Unsaved changes will be lost.")) {
+            cy.elements().remove();
+            currentBlueprintId = null;
+            document.getElementById('blueprint-selector').value = "";
+        }
+    };
+
+    // --- 8. Utils & UI Helpers ---
+    function displayNodeInfo(data) {
+        const typeInfo = nodeTypeData[data.type] || { icon: 'cube', color: 'gray' };
+        const nodeTypeColors = { 'VPC': 'from-green-500 to-emerald-600', 'EC2 Instance': 'from-orange-500 to-red-600', 'RDS Instance': 'from-blue-500 to-indigo-600' };
+        const gradientClass = nodeTypeColors[data.type] || 'from-gray-500 to-gray-600';
+
+        let contentHtml = `<div class="slide-in">
+            <div class="w-12 h-12 bg-gradient-to-br ${gradientClass} rounded-xl flex items-center justify-center mb-4">
+                <i class="fas fa-${typeInfo.icon} text-white text-lg"></i>
+            </div>
+            <h2 class="text-2xl font-bold text-gray-800 mb-2">${data.label}</h2>
+            <div class="vpc-badge mb-4 inline-block">${data.type}</div>
+            <p class="text-xs text-gray-400 font-mono break-all mb-4">${data.id}</p>
+            <div class="space-y-3">`;
+
+        for (const [key, value] of Object.entries(data)) {
+            if (!['id', 'label', 'parent', 'type', 'source', 'target'].includes(key) && typeof value !== 'object') {
+                contentHtml += `<div class="network-node flex justify-between items-center">
+                    <span class="font-semibold text-gray-700 text-xs">${key}</span>
+                    <span class="font-mono text-gray-900 text-xs">${value}</span>
+                </div>`;
+            }
+        }
+        contentHtml += `</div></div>`;
+        
+        document.getElementById('info-content').innerHTML = contentHtml;
+        document.getElementById('info-panel').classList.remove('translate-x-full');
+    }
+
+    function showMessage(show, text) {
+        const el = document.getElementById('message-overlay');
+        el.style.display = show ? 'flex' : 'none';
+        if(text) document.getElementById('msg-title').textContent = text;
+    }
+
+    window.closeInfoPanel = function() {
+        document.getElementById('info-panel').classList.add('translate-x-full');
+    };
+    
+    function populateLegend() {
+        const categories = [...new Set(Object.values(nodeTypeData).map(d => d.category))];
+        let legendHtml = '<h4 class="text-sm font-bold text-gray-800 mb-3">Legend</h4>';
+        categories.sort().forEach(category => {
+            legendHtml += `<h5 class="text-xs font-semibold text-gray-600 mt-3 mb-1">${category}</h5>`;
+            for (const [type, data] of Object.entries(nodeTypeData)) {
+                if (data.category === category) {
+                        const bgColor = tailwindColors[data.color]?.[100] || '#f3f4f6';
+                        const borderColor = tailwindColors[data.color]?.[500] || '#6b7280';
+                        const iconColor = tailwindColors[data.color]?.[600] || '#4b5563';
+                    legendHtml += `
+                        <div class="legend-item">
+                            <div class="legend-icon" style="background-color:${bgColor}; border: 1px solid ${borderColor};">
+                                <i class="fas fa-${data.icon} text-xs" style="color: ${iconColor};"></i>
+                            </div>
+                            <span class="text-gray-700">${type}</span>
+                        </div>
+                    `;
                 }
             }
-            contentHtml += `</div></div>`;
-            infoContent.innerHTML = contentHtml;
-            infoPanel.classList.remove('translate-x-full');
-        }
-
-        initialize();
-    });
+        });
+        document.getElementById('legend').innerHTML = legendHtml;
+    }
 </script>
 
 </body>

@@ -1,200 +1,137 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>XamOps - Cloud Shell</title>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>XamOps - Cloud Shell</title>
 
-    <!-- Tailwind & Icons -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link
-      rel="stylesheet"
-      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
-    />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
 
-    <!-- Xterm.js -->
-    <link
-      rel="stylesheet"
-      href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css"
-    />
-    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
 
-    <!-- Alpine.js (only needed for sidebar) -->
-    <script
-      defer
-      src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"
-    ></script>
-  </head>
+<body class="bg-gray-900 text-white flex h-screen overflow-hidden">
+  <include file="_sidebar.html"></include>
 
-  <body class="bg-gray-900 text-white flex h-screen overflow-hidden">
-    <include file="_sidebar.html"></include>
-
-    <!-- Main Terminal Area -->
-    <div class="flex-1 flex flex-col ml-64">
-      <!-- Header -->
-      <div
-        class="bg-gray-800 px-6 py-4 flex items-center justify-between shadow-lg"
-      >
-        <h1 class="text-xl font-bold flex items-center gap-3">
-          <i class="fas fa-terminal"></i>
-          AWS CloudShell
-        </h1>
-        <div
-          id="connection-status"
-          class="px-3 py-1 rounded text-xs font-medium bg-yellow-600"
-        >
-          Connecting...
-        </div>
+  <div class="flex-1 flex flex-col ml-64">
+    <div class="bg-gray-800 px-6 py-4 flex items-center justify-between shadow-lg">
+      <h1 class="text-xl font-bold flex items-center gap-3">
+        <i class="fas fa-terminal"></i>
+        AWS CloudShell
+      </h1>
+      <div id="connection-status" class="px-3 py-1 rounded text-xs font-medium bg-yellow-600">
+        Connecting...
       </div>
-
-      <!-- Terminal -->
-      <div id="terminal" class="flex-1 bg-black"></div>
     </div>
 
-    <script>
-      // Global variables
-      let term;
-      let socket;
-      let accountId = null;
+    <div id="terminal" class="flex-1 bg-black"></div>
+  </div>
 
-      // Extract accountId from URL → sessionStorage → sidebar (in that order)
-      function getAccountId() {
-        // Priority 1: URL param (works when opened from sidebar)
-        const urlParam = new URLSearchParams(window.location.search).get(
-          "accountId"
-        );
-        if (urlParam) return urlParam;
+  <script>
+    let term;
+    let socket;
+    let accountId = null;
 
-        // Priority 2: sessionStorage (works on refresh)
-        const saved = JSON.parse(
-          sessionStorage.getItem("selectedAccountIds") || "[]"
-        );
-        if (saved.length > 0) return saved[0];
-
-        // Priority 3: Try to read from Alpine sidebar (last resort)
-        const sidebar = document.querySelector("[x-data]");
-        if (sidebar && sidebar.__x) {
-          const data = sidebar.__x.$data;
-          if (data.selectedAccountIds?.length > 0)
-            return data.selectedAccountIds[0];
-        }
-
-        return null;
-      }
-
-      // Main init
-      function initTerminal() {
-        accountId = getAccountId();
-
-        if (!accountId) {
-          document.getElementById("terminal").innerHTML =
-            '<div class="p-8 text-red-400">No AWS account selected. Go back to dashboard and pick one.</div>';
-          return;
-        }
-
-        // Save for future refreshes
-        sessionStorage.setItem(
-          "selectedAccountIds",
-          JSON.stringify([accountId])
-        );
-
-        // Initialize Xterm
-        term = new Terminal({
-          cursorBlink: true,
-          cursorStyle: "block",
-          fontSize: 14,
-          fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-          theme: {
-            background: "#000000",
-            foreground: "#00ff00",
-            cursor: "#00ff00",
-            selection: "#ffffff33",
-          },
-          scrollback: 10000,
-        });
-
-        const fitAddon = new FitAddon.FitAddon();
-        term.loadAddon(fitAddon);
-
-        const container = document.getElementById("terminal");
-        term.open(container);
-        fitAddon.fit();
-
-        // Make sure terminal gets focus
-        term.focus();
-        container.addEventListener("click", () => term.focus());
-
-        // Resize handler
-        window.addEventListener("resize", () => fitAddon.fit());
-
-        // Welcome message
-        term.writeln("\x1b[1;36mXamOps CloudShell\x1b[0m");
-        term.writeln(`Connected to AWS Account: \x1b[1;33m${accountId}\x1b[0m`);
-        term.writeln("");
-        term.write("$ ");
-
-        // WebSocket connection
-        // const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        // const wsUrl = `${protocol}//${location.host}/ws/terminal?accountId=${accountId}`;
-
-        const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-        // FIX: Retrieve tenantId from storage
-        const tenantId = sessionStorage.getItem("selectedTenantId");
-        // FIX: Append tenantId to the URL
-        const wsUrl = `${protocol}//${location.host}/ws/terminal?accountId=${accountId}&tenantId=${tenantId}`;
-
-        socket = new WebSocket(wsUrl);
-
-        const status = document.getElementById("connection-status");
-
-        socket.onopen = () => {
-          status.textContent = `Connected: ${accountId}`;
-          status.className =
-            "px-3 py-1 rounded text-xs font-medium bg-green-600";
-        };
-
-        socket.onmessage = (event) => {
-          term.write(event.data);
-        };
-
-        socket.onclose = () => {
-          status.textContent = "Disconnected";
-          status.className = "px-3 py-1 rounded text-xs font-medium bg-red-600";
-          term.writeln(
-            "\r\n\x1b[31mConnection closed. Refresh page to reconnect.\x1b[0m"
-          );
-        };
-
-        socket.onerror = () => {
-          term.writeln("\r\n\x1b[31mWebSocket error\x1b[0m");
-        };
-
-        // Send every keystroke to backend
-        term.onData((data) => {
-          if (socket.readyState === WebSocket.OPEN) {
-            socket.send(data);
+    async function checkAuthentication() {
+      try {
+        const response = await fetch('/api/xamops/user/profile', {
+          method: 'GET',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Tenant-ID': sessionStorage.getItem('selectedTenantId') || 'customer1'
           }
         });
+        if (!response.ok) {
+          window.location.href = '/index.html';
+          return false;
+        }
+        return true;
+      } catch (error) {
+        console.error('Authentication check failed:', error);
+        window.location.href = '/index.html';
+        return false;
       }
+    }
 
-      // Start when page is fully loaded
-      if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", initTerminal);
-      } else {
-        initTerminal();
+    function getAccountId() {
+      const urlParam = new URLSearchParams(window.location.search).get("accountId");
+      if (urlParam) return urlParam;
+      const saved = JSON.parse(sessionStorage.getItem("selectedAccountIds") || "[]");
+      if (saved.length > 0) return saved[0];
+      const sidebar = document.querySelector("[x-data]");
+      if (sidebar && sidebar.__x) {
+        const data = sidebar.__x.$data;
+        if (data.selectedAccountIds?.length > 0) return data.selectedAccountIds[0];
       }
+      return null;
+    }
 
-      // Optional: Ctrl+C, Ctrl+D handling (nice to have)
+    function initWebSocket() {
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const host = window.location.host;
+      const tenantId = sessionStorage.getItem("selectedTenantId") || 'customer1';
+      
+      // ✅ UPDATED URL: Using /terminal to match the new backend config
+      const wsUrl = `${protocol}//${host}/terminal?accountId=${accountId}&tenantId=${tenantId}`;
+
+      console.log('Environment Detection:', {
+        hostname: window.location.hostname,
+        protocol: protocol,
+        wsUrl: wsUrl
+      });
+
+      const status = document.getElementById("connection-status");
+      status.textContent = "Connecting...";
+      status.className = "px-3 py-1 rounded text-xs font-medium bg-yellow-600";
+
+      socket = new WebSocket(wsUrl);
+
+      socket.onopen = () => {
+        console.log('WebSocket Connection ESTABLISHED');
+        status.textContent = `Connected: ${accountId}`;
+        status.className = "px-3 py-1 rounded text-xs font-medium bg-green-600";
+        term.focus();
+      };
+
+      socket.onmessage = (event) => {
+        term.write(event.data);
+      };
+
+      socket.onclose = (event) => {
+        console.warn('WebSocket Connection CLOSED', event);
+        status.textContent = "Disconnected";
+        status.className = "px-3 py-1 rounded text-xs font-medium bg-red-600";
+        term.writeln("\r\n\x1b[31mConnection closed. Refresh page to reconnect.\x1b[0m");
+      };
+
+      socket.onerror = (error) => {
+        console.error('WebSocket Connection ERROR:', error);
+        status.textContent = "Error";
+        status.className = "px-3 py-1 rounded text-xs font-medium bg-red-600";
+        term.writeln("\r\n\x1b[31mWebSocket connection error.\x1b[0m");
+      };
+
+      term.onData((data) => {
+        if (socket && socket.readyState === WebSocket.OPEN) {
+          socket.send(data);
+        }
+      });
+
       term.attachCustomKeyEventHandler((e) => {
         if (e.type === "keydown") {
           if (e.ctrlKey && e.key === "c") {
-            socket.send("\x03"); // Send ETX
+            if (socket && socket.readyState === WebSocket.OPEN) socket.send("\x03");
             term.write("^C\r\n$ ");
             return false;
           }
           if (e.ctrlKey && e.key === "d") {
-            socket.send("\x04"); // Send EOT
+            if (socket && socket.readyState === WebSocket.OPEN) socket.send("\x04");
             return false;
           }
           if (e.ctrlKey && e.key === "l") {
@@ -204,6 +141,59 @@
         }
         return true;
       });
-    </script>
-  </body>
+    }
+
+    async function initTerminal() {
+      const isAuthenticated = await checkAuthentication();
+      if (!isAuthenticated) return;
+
+      accountId = getAccountId();
+
+      if (!accountId) {
+        document.getElementById("terminal").innerHTML = '<div class="p-8 text-red-400">No AWS account selected. Go back to dashboard and pick one.</div>';
+        return;
+      }
+
+      sessionStorage.setItem("selectedAccountIds", JSON.stringify([accountId]));
+
+      term = new Terminal({
+        cursorBlink: true,
+        cursorStyle: "block",
+        fontSize: 14,
+        fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+        theme: {
+          background: "#000000",
+          foreground: "#00ff00",
+          cursor: "#00ff00",
+          selection: "#ffffff33",
+        },
+        scrollback: 10000,
+      });
+
+      const fitAddon = new FitAddon.FitAddon();
+      term.loadAddon(fitAddon);
+
+      const container = document.getElementById("terminal");
+      term.open(container);
+      fitAddon.fit();
+
+      term.focus();
+      container.addEventListener("click", () => term.focus());
+      window.addEventListener("resize", () => fitAddon.fit());
+
+      term.writeln("\x1b[1;36mXamOps CloudShell\x1b[0m");
+      term.writeln(`Connected to AWS Account: \x1b[1;33m${accountId}\x1b[0m`);
+      term.writeln("");
+      term.write("$ ");
+
+      initWebSocket();
+    }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", initTerminal);
+    } else {
+      initTerminal();
+    }
+  </script>
+</body>
 </html>
