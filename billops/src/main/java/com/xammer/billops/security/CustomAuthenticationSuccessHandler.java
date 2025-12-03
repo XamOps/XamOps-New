@@ -29,17 +29,17 @@ public class CustomAuthenticationSuccessHandler implements AuthenticationSuccess
 
     @Override
     public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response,
-                                        Authentication authentication) throws IOException, ServletException {
-        
+            Authentication authentication) throws IOException, ServletException {
+
         response.setStatus(HttpStatus.OK.value());
         response.setContentType("application/json");
 
-        // Determine Redirect URL based on Role
+        // 1. Determine Redirect URL based on Role
         String redirectUrl = "/dashboard.html";
         Collection<? extends GrantedAuthority> authorities = authentication.getAuthorities();
         for (GrantedAuthority authority : authorities) {
             if (authority.getAuthority().equals("ROLE_BILLOPS_ADMIN")) {
-                redirectUrl = "/billops/admin_invoices.html"; // Example for BillOps Admin
+                redirectUrl = "/billops/admin_invoices.html";
                 break;
             } else if (authority.getAuthority().equals("ROLE_BILLOPS")) {
                 redirectUrl = "/billops/billing.html";
@@ -47,16 +47,21 @@ public class CustomAuthenticationSuccessHandler implements AuthenticationSuccess
             }
         }
 
-        // CRITICAL FIX: Fetch Tenant ID to send back to Frontend
+        // 2. CRITICAL FIX: Fetch Tenant ID to send back to Frontend
         String username = authentication.getName();
-        String tenantId = "customer1"; // Default fallback
-        
-        Optional<GlobalUserDto> globalUser = masterDatabaseService.findGlobalUser(username);
-        if (globalUser.isPresent()) {
-            tenantId = globalUser.get().getTenantId();
+        String tenantId = "default"; // Default fallback
+
+        try {
+            Optional<GlobalUserDto> globalUser = masterDatabaseService.findGlobalUser(username);
+            if (globalUser.isPresent()) {
+                tenantId = globalUser.get().getTenantId();
+            }
+        } catch (Exception e) {
+            // Log error but continue login
+            System.err.println("Error fetching tenant for user " + username + ": " + e.getMessage());
         }
 
-        // Build Response
+        // 3. Build Response
         Map<String, String> data = new HashMap<>();
         data.put("redirectUrl", redirectUrl);
         data.put("tenantId", tenantId); // <--- Sending this allows Frontend to set Context

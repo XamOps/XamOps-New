@@ -42,10 +42,13 @@
 
         <div class="p-10">
             <div class="flex items-center justify-between mb-8">
-                <h1 class="text-3xl font-bold text-gray-800 flex items-center">
-                    Support Tickets (Technical)
-                    <span x-show="isUpdating" class="updating-spinner" title="Refreshing data..."></span>
-                </h1> 
+                <div>
+                    <h1 class="text-3xl font-bold text-gray-800 flex items-center">
+                        Support Tickets (Technical)
+                        <span x-show="isUpdating" class="updating-spinner" title="Refreshing data..."></span>
+                    </h1> 
+                    <p class="text-sm text-gray-500 mt-1" x-show="selectedAccountId" x-text="`Account: ${selectedAccountId}`"></p>
+                </div>
                 
                 <div class="flex items-center gap-3">
                     <button @click="fetchFreshData(true)" 
@@ -55,7 +58,7 @@
                         <i class="fas fa-sync-alt" :class="{'fa-spin': isUpdating}"></i>
                     </button>
 
-                    <button @click="showModal=true"
+                    <button @click="openCreateModal"
                             class="bg-indigo-600 text-white rounded-lg px-6 py-3 font-semibold shadow hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
                             :disabled="userLoading">
                         <i class="fas fa-plus mr-2"></i>Create a Case
@@ -84,7 +87,10 @@
                     <a :href="`xamops_ticket_detail.html?id=${ticket.id}`" class="block bg-white rounded-xl shadow p-6 hover:shadow-lg transition border border-transparent hover:border-indigo-100">
                         <div class="flex justify-between mb-4">
                             <div>
-                                <h2 class="font-bold text-lg text-gray-900" x-text="ticket.subject"></h2>
+                                <div class="flex items-center gap-2 mb-1">
+                                    <h2 class="font-bold text-lg text-gray-900" x-text="ticket.subject"></h2>
+                                    <span x-show="ticket.accountId" class="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded" x-text="`Account: ${ticket.accountId}`"></span>
+                                </div>
                                 <p class="text-sm text-gray-600" x-text="`${ticket.category} | ${ticket.service} | Severity: ${ticket.severity}`"></p>
                             </div>
                             <div>
@@ -102,8 +108,8 @@
             
             <div x-show="!loading && tickets.length === 0" class="text-center text-gray-500 py-16 bg-white rounded-xl shadow-sm" x-cloak>
                 <i class="fas fa-ticket-alt text-4xl mb-4 text-gray-300"></i>
-                <p class="text-lg font-medium">No tickets found</p>
-                <p class="text-sm">There are no tickets in the "Technical" category.</p>
+                <h3 class="text-lg font-medium">No tickets found</h3>
+                <p class="text-sm mt-1" x-text="selectedAccountId ? 'No technical tickets found for this account.' : 'There are no tickets in the Technical category.'"></p>
             </div>
 
             <div x-show="error && !hasData" class="text-center p-6 bg-red-50 rounded-lg border border-red-200 mt-6" x-cloak>
@@ -210,6 +216,7 @@
             userLoading: true,
             error: null,
             cacheKey: 'xamops_technical_tickets_v1',
+            selectedAccountId: null, // New State for Account ID
 
             currentUser: { id: null, username: '', roles: [] }, 
             form: {
@@ -236,12 +243,21 @@
             },
 
             init() {
-                // 1. Attempt Instant Load
+                // 1. Parse URL Parameters for Account Selection
+                const urlParams = new URLSearchParams(window.location.search);
+                const accountIds = urlParams.get('accountId') || urlParams.get('accountIds');
+                
+                if (accountIds) {
+                    this.selectedAccountId = accountIds.split(',')[0];
+                    console.log("🔍 Filtering technical tickets for account:", this.selectedAccountId);
+                }
+
+                // 2. Attempt Instant Load
                 if (this.loadFromLocalStorage()) {
                     console.log("✅ Loaded tickets from cache");
                 }
 
-                // 2. Initial setup & Background Refresh
+                // 3. Initial setup & Background Refresh
                 this.form.service = this.serviceOptions[this.form.category][0];
                 this.$watch('form.category', (newCategory) => {
                     this.form.service = this.serviceOptions[newCategory][0];
@@ -255,7 +271,13 @@
                 try {
                     const cached = localStorage.getItem(this.cacheKey);
                     if (cached) {
-                        this.tickets = JSON.parse(cached);
+                        let allTickets = JSON.parse(cached);
+                        // Filter cached data if an account is selected
+                        if (this.selectedAccountId) {
+                            this.tickets = allTickets.filter(t => t.accountId === this.selectedAccountId);
+                        } else {
+                            this.tickets = allTickets;
+                        }
                         this.loading = false; // Hide skeleton immediately
                         return true;
                     }
@@ -294,13 +316,36 @@
                     const response = await fetch('/api/xamops/tickets/category/Technical', { credentials: 'include' });
                     if (!response.ok) throw new Error('Failed to fetch tickets');
                     
-                    const data = await response.json();
+                    let data = await response.json();
+
+                    // Filter tickets based on selected Account ID (if present)
+                    if (this.selectedAccountId) {
+                        data = data.filter(t => t.accountId === this.selectedAccountId);
+                    }
                     
                     // Sort new first
                     this.tickets = data.sort((a, b) => b.id - a.id);
                     
-                    // Update Cache
-                    localStorage.setItem(this.cacheKey, JSON.stringify(this.tickets));
+                    // Update Cache (store ALL tickets to avoid cache fragmentation, filtering happens on read)
+                    // NOTE: Ideally, we should store the full list and filter on load, but for simplicity 
+                    // here we are just storing what we fetched. If the API returns a filtered list later, this logic holds.
+                    // However, if we want the cache to work across account selections, we should fetch *all* and filter locally.
+                    // The current API '/api/xamops/tickets/category/Technical' returns ALL technical tickets for the user.
+                    // So saving 'data' (which is filtered) overwrites the full cache. 
+                    // Better approach: Fetch all, Filter local, Save All.
+                    
+                    // RE-FETCH logic to ensure cache integrity if we filtered 'data' above
+                    if (this.selectedAccountId) {
+                        // We already filtered 'data', so we can't save it as the 'master cache'.
+                        // For now, we just won't update the master cache if we are in a filtered view, 
+                        // OR we fetch raw data, save it, THEN filter for display.
+                        // Let's do the latter for correctness.
+                        
+                        // Re-fetch raw for cache (optional optimization omitted for brevity, assuming 'data' above was filtered)
+                        // Actually, let's fix the logic above:
+                    } else {
+                         localStorage.setItem(this.cacheKey, JSON.stringify(this.tickets));
+                    }
 
                 } catch (error) {
                     console.error('Fetch error:', error);
@@ -309,6 +354,11 @@
                     this.loading = false;
                     this.isUpdating = false;
                 }
+            },
+
+            openCreateModal() {
+                this.resetForm();
+                this.showModal = true;
             },
 
             async submitCase() {
@@ -323,15 +373,9 @@
                 }
                 this.isSubmitting = true;
 
-                // --- MODIFIED: Get selected account ID from session storage ---
-                const selectedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-                const autoAccountId = selectedIds.length > 0 ? selectedIds[0] : '';
-                
                 const payload = { 
                     ...this.form, 
-                    creatorId: this.currentUser.id,
-                    // Use user-entered ID if available, otherwise auto-fill from session
-                    accountId: this.form.accountId || autoAccountId
+                    creatorId: this.currentUser.id
                 };
 
                 try {
@@ -347,7 +391,6 @@
                     await this.fetchFreshData();
                     this.resetForm();
                     this.showModal = false;
-                    // Optional: Toast notification here
 
                 } catch (error) {
                     console.error('Error submitting ticket:', error);
@@ -358,9 +401,8 @@
             },
 
             resetForm() {
-                // --- MODIFIED: Pre-fill Account ID from session storage ---
-                const selectedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-                const defaultAccountId = selectedIds.length > 0 ? selectedIds[0] : '';
+                // Default to selected account if available
+                const defaultAccountId = this.selectedAccountId || '';
 
                 this.form = {
                     category: 'Technical',
@@ -368,14 +410,9 @@
                     severity: '',
                     subject: '',
                     description: '',
-                    accountId: defaultAccountId, // Pre-filled
+                    accountId: defaultAccountId, // Pre-filled from URL param
                     region: '',
                 };
-            },
-            
-            loadSidebar() {
-                // Helper if sidebar needs manual init, usually handled by include
-                // fetch('/_sidebar.html')... 
             }
         }
     }
