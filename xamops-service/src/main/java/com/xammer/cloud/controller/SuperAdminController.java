@@ -3,12 +3,11 @@ package com.xammer.cloud.controller;
 import com.xammer.cloud.dto.TenantDto;
 import com.xammer.cloud.domain.User;
 import com.xammer.cloud.repository.UserRepository;
+import com.xammer.cloud.service.TenantService;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
-import javax.sql.DataSource;
 import java.util.List;
 
 @RestController
@@ -18,7 +17,7 @@ import java.util.List;
 public class SuperAdminController {
 
     @Autowired
-    private DataSource dataSource;
+    private TenantService tenantService;
 
     @Autowired
     private UserRepository userRepository;
@@ -26,14 +25,7 @@ public class SuperAdminController {
     // Endpoint: /api/xamops/superadmin/tenants
     @GetMapping("/tenants")
     public List<TenantDto> getAllTenants() {
-        JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
-        return jdbcTemplate.query(
-            "SELECT tenant_id, company_name FROM tenant_config WHERE active = true",
-            (rs, rowNum) -> new TenantDto(
-                rs.getString("tenant_id"),
-                rs.getString("company_name")
-            )
-        );
+        return tenantService.getAllActiveTenants();
     }
 
     // Endpoint: /api/xamops/superadmin/users
