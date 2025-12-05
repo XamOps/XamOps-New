@@ -11,341 +11,6 @@
     <link rel="apple-touch-icon" href="/icons/XamOps.png">
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
     <script type="module" src="/src/main.js"></script>
-
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-
-        :root {
-            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            --success-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
-            --warning-gradient: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-            --error-gradient: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-            --glass-bg: rgba(255, 255, 255, 0.95);
-            --glass-border: rgba(255, 255, 255, 0.2);
-        }
-
-        body {
-            font-family: 'Inter', sans-serif;
-            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-            min-height: 100vh;
-        }
-
-        [x-cloak] {
-            display: none !important;
-        }
-
-        .glass-card {
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--glass-border);
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .glass-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-        }
-
-        .account-card {
-            position: relative;
-            overflow: hidden;
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--glass-border);
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .account-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 4px;
-            background: var(--primary-gradient);
-            transform: scaleX(0);
-            transition: transform 0.3s ease;
-        }
-
-        .account-card:hover::before {
-            transform: scaleX(1);
-        }
-
-        .account-card:hover {
-            transform: translateY(-4px) scale(1.02);
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-        }
-
-        .skeleton {
-            background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
-            background-size: 200% 100%;
-            animation: shimmer 1.5s infinite;
-            border-radius: 8px;
-        }
-
-        @keyframes shimmer {
-            0% {
-                background-position: -200% 0;
-            }
-
-            100% {
-                background-position: 200% 0;
-            }
-        }
-
-        .header-gradient {
-            background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%);
-            backdrop-filter: blur(10px);
-            border-bottom: 1px solid rgba(229, 231, 235, 0.8);
-        }
-
-        .btn-primary {
-            background: var(--primary-gradient);
-            border: none;
-            color: white;
-            transition: all 0.3s ease;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .btn-primary::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-            transition: left 0.5s ease;
-        }
-
-        .btn-primary:hover::before {
-            left: 100%;
-        }
-
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 15px -3px rgba(102, 126, 234, 0.4);
-        }
-
-        .form-input {
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--glass-border);
-            transition: all 0.3s ease;
-        }
-
-        .form-input:focus {
-            background: rgba(255, 255, 255, 1);
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-            transform: translateY(-1px);
-        }
-
-        .table-enhanced {
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            border-radius: 12px;
-            overflow: hidden;
-            border: 1px solid var(--glass-border);
-        }
-
-        .table-enhanced thead {
-            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-        }
-
-        .table-enhanced tr {
-            transition: all 0.2s ease;
-        }
-
-        .table-enhanced tr:hover {
-            background: rgba(102, 126, 234, 0.05);
-            transform: translateX(2px);
-        }
-
-        .account-cell-indicator {
-            position: relative;
-        }
-
-        .account-cell-indicator::before {
-            content: '';
-            position: absolute;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            width: 4px;
-            transform: scaleY(0);
-            transition: transform 0.2s ease;
-        }
-
-        tr.connected .account-cell-indicator::before {
-            background: var(--success-gradient);
-        }
-
-        tr.pending .account-cell-indicator::before {
-            background: var(--warning-gradient);
-        }
-
-        tr.failed .account-cell-indicator::before {
-            background: var(--error-gradient);
-        }
-
-        tr:hover .account-cell-indicator::before {
-            transform: scaleY(1);
-        }
-
-        .modal-overlay {
-            background: rgba(0, 0, 0, 0.5);
-            backdrop-filter: blur(4px);
-        }
-
-        .modal-content {
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--glass-border);
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-        }
-
-        .empty-state {
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            border: 2px dashed rgba(102, 126, 234, 0.3);
-            transition: all 0.3s ease;
-        }
-
-        .empty-state:hover {
-            border-color: rgba(102, 126, 234, 0.5);
-            background: rgba(255, 255, 255, 0.98);
-        }
-
-        .status-badge {
-            display: inline-flex;
-            align-items: center;
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 11px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-        }
-
-        .action-button {
-            transition: all 0.2s ease;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .action-button:hover {
-            transform: scale(1.05);
-        }
-
-        .pulse-dot {
-            animation: pulse-dot 2s infinite;
-        }
-
-        @keyframes pulse-dot {
-
-            0%,
-            100% {
-                opacity: 1;
-            }
-
-            50% {
-                opacity: 0.5;
-            }
-        }
-
-        .loading-spinner {
-            border: 3px solid #f3f4f6;
-            border-top: 3px solid #667eea;
-            border-radius: 50%;
-            width: 20px;
-            height: 20px;
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            0% {
-                transform: rotate(0deg);
-            }
-
-            100% {
-                transform: rotate(360deg);
-            }
-        }
-
-        .fade-in {
-            animation: fadeIn 0.5s ease-in-out;
-        }
-
-        @keyframes fadeIn {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
-            }
-
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        .gradient-text {
-            background: var(--primary-gradient);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
-        .aws-icon {
-            background: linear-gradient(135deg, #ff9900 0%, #ff6600 100%);
-        }
-
-        .gcp-icon {
-            background: linear-gradient(135deg, #4285F4 0%, #34A853 100%);
-        }
-
-        .azure-icon {
-            background: linear-gradient(135deg, #0089D6 0%, #0072C6 100%);
-        }
-
-        .github-icon {
-            background: #24292e;
-            /* GitHub Dark Background */
-        }
-
-        /* Enhanced styles for Help Modal */
-        .code-block {
-            background: #1e293b;
-            color: #e2e8f0;
-            padding: 1rem;
-            border-radius: 0.5rem;
-            font-family: 'Courier New', Courier, monospace;
-            white-space: pre-wrap;
-            word-break: break-all;
-            max-height: 40vh;
-            overflow-y: auto;
-        }
-
-        .accordion-header {
-            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-            border-bottom: 1px solid #e5e7eb;
-            padding: 1rem;
-            cursor: pointer;
-            transition: background 0.3s ease;
-        }
-
-        .accordion-header:hover {
-            background: #e5e7eb;
-        }
-
-        .accordion-content {
-            padding: 1rem;
-        }
-    </style>
 </head>
 
 <body class="bg-gray-50">
@@ -354,7 +19,336 @@
         <include file="/_sidebar.html"></include>
 
         <div class="flex-1 pl-64">
-            <main class="flex-1 flex flex-col min-h-screen" x-data="accountManager()">
+            <main id="main-content" class="flex-1 flex flex-col min-h-screen" x-data="accountManager()">
+
+                <style>
+                    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+                    :root {
+                        --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        --success-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
+                        --warning-gradient: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+                        --error-gradient: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+                        --glass-bg: rgba(255, 255, 255, 0.95);
+                        --glass-border: rgba(255, 255, 255, 0.2);
+                    }
+
+                    [x-cloak] {
+                        display: none !important;
+                    }
+
+                    .glass-card {
+                        background: var(--glass-bg);
+                        backdrop-filter: blur(10px);
+                        border: 1px solid var(--glass-border);
+                        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+                        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                    }
+
+                    .glass-card:hover {
+                        transform: translateY(-2px);
+                        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+                    }
+
+                    .account-card {
+                        position: relative;
+                        overflow: hidden;
+                        background: var(--glass-bg);
+                        backdrop-filter: blur(10px);
+                        border: 1px solid var(--glass-border);
+                        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                    }
+
+                    .account-card::before {
+                        content: '';
+                        position: absolute;
+                        top: 0;
+                        left: 0;
+                        right: 0;
+                        height: 4px;
+                        background: var(--primary-gradient);
+                        transform: scaleX(0);
+                        transition: transform 0.3s ease;
+                    }
+
+                    .account-card:hover::before {
+                        transform: scaleX(1);
+                    }
+
+                    .account-card:hover {
+                        transform: translateY(-4px) scale(1.02);
+                        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+                    }
+
+                    .skeleton {
+                        background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+                        background-size: 200% 100%;
+                        animation: shimmer 1.5s infinite;
+                        border-radius: 8px;
+                    }
+
+                    @keyframes shimmer {
+                        0% {
+                            background-position: -200% 0;
+                        }
+
+                        100% {
+                            background-position: 200% 0;
+                        }
+                    }
+
+                    .header-gradient {
+                        background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%);
+                        backdrop-filter: blur(10px);
+                        border-bottom: 1px solid rgba(229, 231, 235, 0.8);
+                    }
+
+                    .btn-primary {
+                        background: var(--primary-gradient);
+                        border: none;
+                        color: white;
+                        transition: all 0.3s ease;
+                        position: relative;
+                        overflow: hidden;
+                    }
+
+                    .btn-primary::before {
+                        content: '';
+                        position: absolute;
+                        top: 0;
+                        left: -100%;
+                        width: 100%;
+                        height: 100%;
+                        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+                        transition: left 0.5s ease;
+                    }
+
+                    .btn-primary:hover::before {
+                        left: 100%;
+                    }
+
+                    .btn-primary:hover {
+                        transform: translateY(-2px);
+                        box-shadow: 0 10px 15px -3px rgba(102, 126, 234, 0.4);
+                    }
+
+                    .form-input {
+                        background: var(--glass-bg);
+                        backdrop-filter: blur(10px);
+                        border: 1px solid var(--glass-border);
+                        transition: all 0.3s ease;
+                    }
+
+                    .form-input:focus {
+                        background: rgba(255, 255, 255, 1);
+                        border-color: #667eea;
+                        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+                        transform: translateY(-1px);
+                    }
+
+                    .table-enhanced {
+                        background: var(--glass-bg);
+                        backdrop-filter: blur(10px);
+                        border-radius: 12px;
+                        overflow: hidden;
+                        border: 1px solid var(--glass-border);
+                    }
+
+                    .table-enhanced thead {
+                        background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+                    }
+
+                    .table-enhanced tr {
+                        transition: all 0.2s ease;
+                    }
+
+                    .table-enhanced tr:hover {
+                        background: rgba(102, 126, 234, 0.05);
+                        transform: translateX(2px);
+                    }
+
+                    .account-cell-indicator {
+                        position: relative;
+                    }
+
+                    .account-cell-indicator::before {
+                        content: '';
+                        position: absolute;
+                        left: 0;
+                        top: 0;
+                        bottom: 0;
+                        width: 4px;
+                        transform: scaleY(0);
+                        transition: transform 0.2s ease;
+                    }
+
+                    tr.connected .account-cell-indicator::before {
+                        background: var(--success-gradient);
+                    }
+
+                    tr.pending .account-cell-indicator::before {
+                        background: var(--warning-gradient);
+                    }
+
+                    tr.failed .account-cell-indicator::before {
+                        background: var(--error-gradient);
+                    }
+
+                    tr:hover .account-cell-indicator::before {
+                        transform: scaleY(1);
+                    }
+
+                    .modal-overlay {
+                        background: rgba(0, 0, 0, 0.5);
+                        backdrop-filter: blur(4px);
+                    }
+
+                    .modal-content {
+                        background: var(--glass-bg);
+                        backdrop-filter: blur(10px);
+                        border: 1px solid var(--glass-border);
+                        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+                    }
+
+                    .empty-state {
+                        background: var(--glass-bg);
+                        backdrop-filter: blur(10px);
+                        border: 2px dashed rgba(102, 126, 234, 0.3);
+                        transition: all 0.3s ease;
+                    }
+
+                    .empty-state:hover {
+                        border-color: rgba(102, 126, 234, 0.5);
+                        background: rgba(255, 255, 255, 0.98);
+                    }
+
+                    .status-badge {
+                        display: inline-flex;
+                        align-items: center;
+                        padding: 6px 12px;
+                        border-radius: 20px;
+                        font-size: 11px;
+                        font-weight: 600;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                        backdrop-filter: blur(10px);
+                        border: 1px solid rgba(255, 255, 255, 0.2);
+                    }
+
+                    .action-button {
+                        transition: all 0.2s ease;
+                        position: relative;
+                        overflow: hidden;
+                    }
+
+                    .action-button:hover {
+                        transform: scale(1.05);
+                    }
+
+                    .pulse-dot {
+                        animation: pulse-dot 2s infinite;
+                    }
+
+                    @keyframes pulse-dot {
+
+                        0%,
+                        100% {
+                            opacity: 1;
+                        }
+
+                        50% {
+                            opacity: 0.5;
+                        }
+                    }
+
+                    .loading-spinner {
+                        border: 3px solid #f3f4f6;
+                        border-top: 3px solid #667eea;
+                        border-radius: 50%;
+                        width: 20px;
+                        height: 20px;
+                        animation: spin 1s linear infinite;
+                    }
+
+                    @keyframes spin {
+                        0% {
+                            transform: rotate(0deg);
+                        }
+
+                        100% {
+                            transform: rotate(360deg);
+                        }
+                    }
+
+                    .fade-in {
+                        animation: fadeIn 0.5s ease-in-out;
+                    }
+
+                    @keyframes fadeIn {
+                        from {
+                            opacity: 0;
+                            transform: translateY(20px);
+                        }
+
+                        to {
+                            opacity: 1;
+                            transform: translateY(0);
+                        }
+                    }
+
+                    .gradient-text {
+                        background: var(--primary-gradient);
+                        -webkit-background-clip: text;
+                        -webkit-text-fill-color: transparent;
+                        background-clip: text;
+                    }
+
+                    .aws-icon {
+                        background: linear-gradient(135deg, #ff9900 0%, #ff6600 100%);
+                    }
+
+                    .gcp-icon {
+                        background: linear-gradient(135deg, #4285F4 0%, #34A853 100%);
+                    }
+
+                    .azure-icon {
+                        background: linear-gradient(135deg, #0089D6 0%, #0072C6 100%);
+                    }
+
+                    .github-icon {
+                        background: #24292e;
+                    }
+
+                    /* Enhanced styles for Help Modal */
+                    .code-block {
+                        background: #1e293b;
+                        color: #e2e8f0;
+                        padding: 1rem;
+                        border-radius: 0.5rem;
+                        font-family: 'Courier New', Courier, monospace;
+                        white-space: pre-wrap;
+                        word-break: break-all;
+                        max-height: 40vh;
+                        overflow-y: auto;
+                    }
+
+                    .accordion-header {
+                        background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+                        border-bottom: 1px solid #e5e7eb;
+                        padding: 1rem;
+                        cursor: pointer;
+                        transition: background 0.3s ease;
+                    }
+
+                    .accordion-header:hover {
+                        background: #e5e7eb;
+                    }
+
+                    .accordion-content {
+                        padding: 1rem;
+                    }
+                </style>
+
                 <header class="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-10">
                     <div class="flex items-center space-x-4">
                         <div
@@ -706,7 +700,7 @@
 
                             <div class="flex justify-end space-x-3 mt-8">
                                 <button type="button" @click="isModalOpen = false"
-                                    class="btn-secondary px-6 py-3 text-sm font-semibold rounded-lg"
+                                    class="bg-gray-200 text-gray-800 px-6 py-3 text-sm font-semibold rounded-lg"
                                     :disabled="isVerifying">Cancel</button>
                                 <button type="submit"
                                     class="btn-primary px-6 py-3 text-sm font-semibold rounded-lg shadow-md"
@@ -1212,251 +1206,176 @@ enforcement: DENY
                     </div>
                 </div>
 
+                <script>
+                    function accountManager() {
+                        return {
+                            isLoading: true,
+                            accounts: [],
+                            isModalOpen: false,
+                            isVerifying: false,
+                            verificationError: '',
+                            verifyingAccount: {},
+                            verificationDetails: {
+                                awsAccountId: '',
+                                roleName: '',
+                                externalId: ''
+                            },
+                            newAccount: {
+                                aws: { name: '', roleArn: '' },
+                                gcp: { name: '', serviceAccountKey: '' },
+                                azure: { name: '', tenantId: '', subscriptionId: '', clientId: '', clientSecret: '' }
+                            },
+                            providerSelection: null,
+                            addAccountModal: false,
+                            isHelpModalOpen: false,
+                            isGithubLoading: true,
+                            githubConfigs: [],
+                            isJenkinsLoading: true,
+                            jenkinsConfigs: [],
+
+                            init() {
+                                console.log("AccountManager component initializing...");
+                                this.fetchAccounts();
+                                this.fetchGitHubConfigs();
+                                this.fetchJenkinsConfigs();
+                            },
+
+                            fetchAccounts() {
+                                this.isLoading = true;
+                                fetch('/api/xamops/account-manager/accounts', { credentials: 'include' })
+                                    .then(res => {
+                                        if (!res.ok) throw new Error('Failed to load accounts');
+                                        return res.json();
+                                    })
+                                    .then(data => {
+                                        this.accounts = data;
+                                    })
+                                    .catch(err => console.error('Failed to load accounts:', err))
+                                    .finally(() => this.isLoading = false);
+                            },
+
+                            fetchGitHubConfigs() {
+                                this.isGithubLoading = true;
+                                fetch('/api/cicd/config/github', { credentials: 'include' })
+                                    .then(res => {
+                                        if (!res.ok) throw new Error('Failed to load GitHub configs');
+                                        return res.json();
+                                    })
+                                    .then(data => {
+                                        this.githubConfigs = data;
+                                    })
+                                    .catch(err => console.error("Failed to load GitHub configs:", err))
+                                    .finally(() => this.isGithubLoading = false);
+                            },
+
+                            removeGitHubConfig(config) {
+                                if (!confirm(`Are you sure you want to remove the repository "${config.owner}/${config.repo}"?`)) return;
+                                fetch(`/api/cicd/config/github/${config.id}`, {
+                                    method: 'DELETE',
+                                    credentials: 'include'
+                                })
+                                    .then(res => {
+                                        if (!res.ok) throw new Error('Failed to remove GitHub config.');
+                                        this.githubConfigs = this.githubConfigs.filter(c => c.id !== config.id);
+                                        alert('Repository connection removed.');
+                                    })
+                                    .catch(err => alert(`Error: ${err.message}`));
+                            },
+
+                            fetchJenkinsConfigs() {
+                                this.isJenkinsLoading = true;
+                                fetch('/api/cicd/config/jenkins', { credentials: 'include' })
+                                    .then(res => {
+                                        if (!res.ok) throw new Error('Failed to load Jenkins configs');
+                                        return res.json();
+                                    })
+                                    .then(data => {
+                                        this.jenkinsConfigs = data;
+                                    })
+                                    .catch(err => console.error(err))
+                                    .finally(() => this.isJenkinsLoading = false);
+                            },
+
+                            removeJenkinsConfig(config) {
+                                if (!confirm(`Remove Jenkins server at ${config.jenkinsUrl}?`)) return;
+                                fetch(`/api/cicd/config/jenkins/${config.id}`, {
+                                    method: 'DELETE',
+                                    credentials: 'include'
+                                })
+                                    .then(res => {
+                                        if (!res.ok) throw new Error('Failed to delete config');
+                                        this.jenkinsConfigs = this.jenkinsConfigs.filter(c => c.id !== config.id);
+                                    })
+                                    .catch(err => alert(err.message));
+                            },
+
+                            openVerificationModal(account) {
+                                this.verifyingAccount = account;
+                                this.verificationDetails.externalId = account.externalId;
+                                this.verificationError = '';
+                                this.isModalOpen = true;
+                            },
+
+                            verifyAccount() {
+                                this.isVerifying = true;
+                                this.verificationError = '';
+                                fetch('/api/xamops/account-manager/verify-account', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    credentials: 'include',
+                                    body: JSON.stringify(this.verificationDetails)
+                                })
+                                    .then(res => {
+                                        if (!res.ok) return res.json().then(err => { throw new Error(err.message || 'Verification failed.') });
+                                        return res.json();
+                                    })
+                                    .then(data => {
+                                        this.isModalOpen = false;
+                                        this.fetchAccounts();
+                                    })
+                                    .catch(err => {
+                                        this.verificationError = `Error: ${err.message}`;
+                                    })
+                                    .finally(() => {
+                                        this.isVerifying = false;
+                                    });
+                            },
+
+                            removeAccount(account) {
+                                if (!confirm(`Are you sure you want to remove the account "${account.name}"?`)) return;
+                                fetch(`/api/xamops/account-manager/accounts/${account.dbId}`, {
+                                    method: 'DELETE',
+                                    credentials: 'include'
+                                })
+                                    .then(res => {
+                                        if (!res.ok) throw new Error('Failed to remove account.');
+                                        this.accounts = this.accounts.filter(acc => acc.dbId !== account.dbId);
+
+                                        // Clean up session storage if needed
+                                        const selectedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                                        const newSelectedIds = selectedIds.filter(id => id !== account.id);
+                                        if (selectedIds.length !== newSelectedIds.length) {
+                                            sessionStorage.setItem('selectedAccountIds', JSON.stringify(newSelectedIds));
+                                            window.location.href = '/dashboard.html';
+                                        }
+                                    })
+                                    .catch(err => alert(`Error: ${err.message}`));
+                            },
+
+                            getStatusColor(status, type) {
+                                const colors = {
+                                    'CONNECTED': { badge: 'bg-green-100 text-green-800 border-green-200', icon: 'text-green-500' },
+                                    'PENDING': { badge: 'bg-yellow-100 text-yellow-800 border-yellow-200', icon: 'text-yellow-500' },
+                                    'FAILED': { badge: 'bg-red-100 text-red-800 border-red-200', icon: 'text-red-500' }
+                                };
+                                return (colors[status] && colors[status][type]) || { badge: 'bg-gray-100 text-gray-800 border-gray-200', icon: 'text-gray-500' }[type];
+                            }
+                        }
+                    }
+                </script>
             </main>
         </div>
     </div>
-
-    <script>
-        function accountManager() {
-            return {
-                isLoading: true,
-                accounts: [],
-                isModalOpen: false,
-                isVerifying: false,
-                verificationError: '',
-                verifyingAccount: {},
-                verificationDetails: {
-                    awsAccountId: '',
-                    roleName: '',
-                    externalId: ''
-                },
-                newAccount: {
-                    aws: { name: '', roleArn: '' },
-                    gcp: { name: '', serviceAccountKey: '' },
-                    azure: { name: '', tenantId: '', subscriptionId: '', clientId: '', clientSecret: '' }
-                },
-                providerSelection: null,
-                addAccountModal: false,
-                isHelpModalOpen: false,
-                // === NEW GITHUB PROPERTIES ===
-                isGithubLoading: true,
-                githubConfigs: [],
-                // === NEW JENKINS PROPERTIES ===
-                isJenkinsLoading: true,
-                jenkinsConfigs: [],
-
-                init() {
-                    console.log("AccountManager component initializing...");
-                    this.fetchAccounts();
-                    this.fetchGitHubConfigs();
-                    this.fetchJenkinsConfigs();
-                },
-
-                fetchAccounts() {
-                    this.isLoading = true;
-                    // *** UPDATED fetch URL and added credentials ***
-                    fetch('/api/xamops/account-manager/accounts', { credentials: 'include' })
-                        .then(res => {
-                            if (!res.ok) throw new Error('Failed to load accounts'); // Added error check
-                            return res.json();
-                        })
-                        .then(data => {
-                            this.accounts = data;
-                        })
-                        .catch(err => console.error('Failed to load accounts:', err))
-                        .finally(() => this.isLoading = false);
-                },
-
-                // === NEW FUNCTION TO FETCH GITHUB CONFIGS ===
-                fetchGitHubConfigs() {
-                    this.isGithubLoading = true;
-                    console.log("Attempting to fetch GitHub configs from: /api/cicd/config/github");
-
-                    fetch('/api/cicd/config/github', { credentials: 'include' })
-                        .then(res => {
-                            console.log("Fetch GitHub configs response received. Status:", res.status);
-                            if (!res.ok) {
-                                if (res.status === 401 || res.status === 403) {
-                                    console.error("Not authenticated to fetch GitHub configs. Status:", res.status);
-                                }
-                                throw new Error(`Failed to load GitHub configs. Status: ${res.status}`);
-                            }
-                            return res.json();
-                        })
-                        .then(data => {
-                            console.log("Successfully fetched and parsed GitHub configs:", data);
-                            this.githubConfigs = data;
-                        })
-                        .catch(err => {
-                            console.error("CRITICAL: Failed to load GitHub configs. Error:", err);
-                        })
-                        .finally(() => this.isGithubLoading = false);
-                },
-
-                // === NEW FUNCTION TO REMOVE GITHUB CONFIG ===
-                removeGitHubConfig(config) {
-                    if (!confirm(`Are you sure you want to remove the repository "${config.owner}/${config.repo}"?`)) {
-                        return;
-                    }
-                    fetch(`/api/cicd/config/github/${config.id}`, {
-                        method: 'DELETE',
-                        credentials: 'include'
-                    })
-                        .then(res => {
-                            if (!res.ok) {
-                                throw new Error('Failed to remove GitHub config.');
-                            }
-                            this.githubConfigs = this.githubConfigs.filter(c => c.id !== config.id);
-                            alert('Repository connection removed.');
-                        })
-                        .catch(err => {
-                            alert(`Error: ${err.message}`);
-                            console.error('Failed to remove GitHub config:', err);
-                        });
-                },
-
-                // === NEW FUNCTION TO FETCH JENKINS CONFIGS ===
-                fetchJenkinsConfigs() {
-                    this.isJenkinsLoading = true;
-                    fetch('/api/cicd/config/jenkins', { credentials: 'include' })
-                        .then(res => {
-                            if (!res.ok) throw new Error('Failed to load Jenkins configs');
-                            return res.json();
-                        })
-                        .then(data => {
-                            this.jenkinsConfigs = data;
-                        })
-                        .catch(err => console.error(err))
-                        .finally(() => this.isJenkinsLoading = false);
-                },
-
-                // === NEW FUNCTION TO REMOVE JENKINS CONFIG ===
-                removeJenkinsConfig(config) {
-                    if (!confirm(`Remove Jenkins server at ${config.jenkinsUrl}?`)) return;
-
-                    fetch(`/api/cicd/config/jenkins/${config.id}`, {
-                        method: 'DELETE',
-                        credentials: 'include'
-                    })
-                        .then(res => {
-                            if (!res.ok) throw new Error('Failed to delete config');
-                            this.jenkinsConfigs = this.jenkinsConfigs.filter(c => c.id !== config.id);
-                        })
-                        .catch(err => alert(err.message));
-                },
-
-                openVerificationModal(account) {
-                    this.verifyingAccount = account;
-                    this.verificationDetails.externalId = account.externalId;
-                    this.verificationError = '';
-                    this.isModalOpen = true;
-                },
-
-                addAzureAccount() {
-                    fetch('/api/xamops/account-manager/azure', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            accountName: this.newAccount.azure.name,
-                            tenantId: this.newAccount.azure.tenantId,
-                            subscriptionId: this.newAccount.azure.subscriptionId,
-                            clientId: this.newAccount.azure.clientId,
-                            clientSecret: this.newAccount.azure.clientSecret,
-                        }),
-                        credentials: 'include'
-                    })
-                        .then(res => {
-                            if (!res.ok) {
-                                return res.text().then(text => { throw new Error(text) });
-                            }
-                            return res.json();
-                        })
-                        .then(newAcc => {
-                            this.accounts.push(newAcc);
-                            this.addAccountModal = false;
-                            this.resetNewAccount();
-                            this.fetchAccounts(); // Refresh list
-                        })
-                        .catch(err => {
-                            alert(`Error adding Azure account: ${err.message}`);
-                            console.error(err);
-                        });
-                },
-
-                resetNewAccount() {
-                    this.providerSelection = null;
-                    this.newAccount = {
-                        aws: { name: '', roleArn: '' },
-                        gcp: { name: '', serviceAccountKey: '' },
-                        azure: { name: '', tenantId: '', subscriptionId: '', clientId: '', clientSecret: '' }
-                    };
-                },
-
-                verifyAccount() {
-                    this.isVerifying = true;
-                    this.verificationError = '';
-                    fetch('/api/xamops/account-manager/verify-account', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        credentials: 'include',
-                        body: JSON.stringify(this.verificationDetails)
-                    })
-                        .then(res => {
-                            if (!res.ok) {
-                                return res.json().then(err => { throw new Error(err.message || 'Verification failed.') });
-                            }
-                            return res.json();
-                        })
-                        .then(data => {
-                            this.isModalOpen = false;
-                            this.fetchAccounts(); // Refresh the list
-                        })
-                        .catch(err => {
-                            this.verificationError = `Error: ${err.message}`;
-                        })
-                        .finally(() => {
-                            this.isVerifying = false;
-                        });
-                },
-
-                removeAccount(account) {
-                    if (!confirm(`Are you sure you want to remove the account "${account.name}"? This action cannot be undone.`)) {
-                        return;
-                    }
-                    fetch(`/api/xamops/account-manager/accounts/${account.dbId}`, {
-                        method: 'DELETE',
-                        credentials: 'include'
-                    })
-                        .then(res => {
-                            if (!res.ok) {
-                                throw new Error('Failed to remove account.');
-                            }
-                            this.accounts = this.accounts.filter(acc => acc.dbId !== account.dbId);
-                            const selectedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-                            const newSelectedIds = selectedIds.filter(id => id !== account.id);
-
-                            if (selectedIds.length !== newSelectedIds.length) {
-                                sessionStorage.setItem('selectedAccountIds', JSON.stringify(newSelectedIds));
-                                window.location.href = '/dashboard.html';
-                            }
-                        })
-                        .catch(err => {
-                            alert(`Error: ${err.message}`);
-                            console.error('Failed to remove account:', err);
-                        });
-                },
-
-                getStatusColor(status, type) {
-                    const colors = {
-                        'CONNECTED': { badge: 'bg-green-100 text-green-800 border-green-200', icon: 'text-green-500' },
-                        'PENDING': { badge: 'bg-yellow-100 text-yellow-800 border-yellow-200', icon: 'text-yellow-500' },
-                        'FAILED': { badge: 'bg-red-100 text-red-800 border-red-200', icon: 'text-red-500' }
-                    };
-                    return (colors[status] && colors[status][type]) || { badge: 'bg-gray-100 text-gray-800 border-gray-200', icon: 'text-gray-500' }[type];
-                }
-            }
-        }
-    </script>
 </body>
 
 </html>

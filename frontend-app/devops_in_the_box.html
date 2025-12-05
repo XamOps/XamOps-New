@@ -11,164 +11,163 @@
     <link rel="apple-touch-icon" href="/icons/XamOps.png">
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.0/dist/cdn.min.js"></script>
     <script type="module" src="/src/main.js"></script>
-
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-
-        body {
-            font-family: 'Inter', sans-serif;
-        }
-
-        .script-card {
-            background: white;
-            border-left: 4px solid;
-            transition: all 0.3s ease;
-        }
-
-        .script-card:hover {
-            transform: translateY(-4px);
-            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
-        }
-
-        .category-badge {
-            display: inline-flex;
-            align-items: center;
-            padding: 0.25rem 0.75rem;
-            border-radius: 9999px;
-            font-size: 0.75rem;
-            font-weight: 600;
-        }
-
-        .terraform-badge {
-            background: #7B42BC20;
-            color: #7B42BC;
-        }
-
-        .bash-badge {
-            background: #4EAA2520;
-            color: #4EAA25;
-        }
-
-        .python-badge {
-            background: #306998;
-            color: white;
-        }
-
-        .ansible-badge {
-            background: #EE000020;
-            color: #EE0000;
-        }
-
-        [x-cloak] {
-            display: none !important;
-        }
-    </style>
 </head>
 
 <body class="bg-gray-50">
-    <div class="flex h-screen overflow-hidden">
+    <div class="flex">
         <include file="/_sidebar.html"></include>
 
-        <div class="flex-1 flex flex-col overflow-hidden pl-64">
-            <main class="flex-1 overflow-y-auto p-8" x-data="devopsBox()">
-                <header class="mb-8">
-                    <div class="flex items-center justify-between">
-                        <div class="flex items-center space-x-4">
-                            <div
-                                class="w-12 h-12 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-xl flex items-center justify-center">
-                                <i class="fas fa-toolbox text-white text-2xl"></i>
-                            </div>
-                            <div>
-                                <h1 class="text-2xl font-bold text-gray-800">DevOps-in-the-Box</h1>
-                                <p class="text-sm text-gray-600">Automation scripts and infrastructure tools</p>
-                            </div>
-                        </div>
-                        <button @click="refreshScripts()"
-                            class="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-md">
-                            <i class="fas fa-filter"></i>
-                            <span>Reset Filters</span>
-                        </button>
-                    </div>
-                </header>
+        <div class="flex-1 pl-64">
+            <main id="main-content" class="flex-1 flex flex-col min-h-screen" x-data="devopsBox()">
 
-                <div class="mb-6 flex flex-col md:flex-row gap-4">
-                    <div class="flex-1">
-                        <div class="relative">
-                            <i class="fas fa-search absolute left-4 top-3.5 text-gray-400"></i>
-                            <input type="text" x-model="searchTerm" placeholder="Search scripts..."
-                                class="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
-                        </div>
-                    </div>
-                    <div class="flex gap-2">
-                        <button @click="filterCategory = 'all'; searchTerm = ''"
-                            class="px-4 py-2 rounded-lg font-medium transition-colors"
-                            :class="filterCategory === 'all' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'">
-                            All
-                        </button>
-                        <button @click="filterCategory = 'terraform'; searchTerm = ''"
-                            class="px-4 py-2 rounded-lg font-medium transition-colors"
-                            :class="filterCategory === 'terraform' ? 'bg-purple-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'">
-                            <i class="fab fa-terraform mr-2"></i>Terraform
-                        </button>
-                        <button @click="filterCategory = 'bash'; searchTerm = ''"
-                            class="px-4 py-2 rounded-lg font-medium transition-colors"
-                            :class="filterCategory === 'bash' ? 'bg-green-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'">
-                            <i class="fas fa-terminal mr-2"></i>Bash
-                        </button>
-                        <button @click="filterCategory = 'python'; searchTerm = ''"
-                            class="px-4 py-2 rounded-lg font-medium transition-colors"
-                            :class="filterCategory === 'python' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'">
-                            <i class="fab fa-python mr-2"></i>Python
-                        </button>
-                    </div>
-                </div>
+                <style>
+                    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
-                <div x-show="error"
-                    class="mb-6 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert"
-                    x-cloak>
-                    <strong class="font-bold">Error!</strong>
-                    <span class="block sm:inline" x-text="error"></span>
-                </div>
+                    .script-card {
+                        background: white;
+                        border-left: 4px solid;
+                        transition: all 0.3s ease;
+                    }
 
-                <div x-show="isLoading" class="flex justify-center py-12" x-cloak>
-                    <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
-                </div>
+                    .script-card:hover {
+                        transform: translateY(-4px);
+                        box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+                    }
 
-                <div x-show="!isLoading" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <template x-for="script in filteredScripts" :key="script.id">
-                        <div class="script-card rounded-xl p-6 cursor-pointer"
-                            :class="getCategoryColor(script.category)" @click="viewScript(script)">
-                            <div class="flex items-start justify-between mb-4">
-                                <div class="flex-1">
-                                    <h3 class="text-lg font-bold text-gray-900 mb-2" x-text="script.name"></h3>
-                                    <p class="text-sm text-gray-600 line-clamp-2" x-text="script.description"></p>
+                    .category-badge {
+                        display: inline-flex;
+                        align-items: center;
+                        padding: 0.25rem 0.75rem;
+                        border-radius: 9999px;
+                        font-size: 0.75rem;
+                        font-weight: 600;
+                    }
+
+                    .terraform-badge {
+                        background: #7B42BC20;
+                        color: #7B42BC;
+                    }
+
+                    .bash-badge {
+                        background: #4EAA2520;
+                        color: #4EAA25;
+                    }
+
+                    .python-badge {
+                        background: #306998;
+                        color: white;
+                    }
+
+                    .ansible-badge {
+                        background: #EE000020;
+                        color: #EE0000;
+                    }
+
+                    [x-cloak] {
+                        display: none !important;
+                    }
+                </style>
+
+                <div class="p-8">
+                    <header class="mb-8">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center space-x-4">
+                                <div
+                                    class="w-12 h-12 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-xl flex items-center justify-center">
+                                    <i class="fas fa-toolbox text-white text-2xl"></i>
                                 </div>
-                                <div :class="getBadgeClass(script.category)" class="category-badge ml-2">
-                                    <i :class="getIcon(script.category)" class="mr-1"></i>
-                                    <span x-text="script.category"></span>
+                                <div>
+                                    <h1 class="text-2xl font-bold text-gray-800">DevOps-in-the-Box</h1>
+                                    <p class="text-sm text-gray-600">Automation scripts and infrastructure tools</p>
                                 </div>
                             </div>
-                            <div class="flex items-center justify-between text-sm text-gray-500">
-                                <div class="flex items-center space-x-4">
-                                    <span><i class="fas fa-download mr-1"></i><span
-                                            x-text="script.downloads"></span></span>
-                                    <span><i class="far fa-clock mr-1"></i><span
-                                            x-text="script.lastUpdated"></span></span>
-                                </div>
-                                <button class="text-indigo-600 hover:text-indigo-800 font-medium">
-                                    View <i class="fas fa-arrow-right ml-1"></i>
-                                </button>
+                            <button @click="refreshScripts()"
+                                class="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-md">
+                                <i class="fas fa-filter"></i>
+                                <span>Reset Filters</span>
+                            </button>
+                        </div>
+                    </header>
+
+                    <div class="mb-6 flex flex-col md:flex-row gap-4">
+                        <div class="flex-1">
+                            <div class="relative">
+                                <i class="fas fa-search absolute left-4 top-3.5 text-gray-400"></i>
+                                <input type="text" x-model="searchTerm" placeholder="Search scripts..."
+                                    class="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
                             </div>
                         </div>
-                    </template>
-                </div>
-
-                <div x-show="!isLoading && filteredScripts.length === 0" class="text-center py-16" x-cloak>
-                    <div class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <i class="fas fa-search text-gray-400 text-2xl"></i>
+                        <div class="flex gap-2">
+                            <button @click="filterCategory = 'all'; searchTerm = ''"
+                                class="px-4 py-2 rounded-lg font-medium transition-colors"
+                                :class="filterCategory === 'all' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'">
+                                All
+                            </button>
+                            <button @click="filterCategory = 'terraform'; searchTerm = ''"
+                                class="px-4 py-2 rounded-lg font-medium transition-colors"
+                                :class="filterCategory === 'terraform' ? 'bg-purple-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'">
+                                <i class="fab fa-terraform mr-2"></i>Terraform
+                            </button>
+                            <button @click="filterCategory = 'bash'; searchTerm = ''"
+                                class="px-4 py-2 rounded-lg font-medium transition-colors"
+                                :class="filterCategory === 'bash' ? 'bg-green-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'">
+                                <i class="fas fa-terminal mr-2"></i>Bash
+                            </button>
+                            <button @click="filterCategory = 'python'; searchTerm = ''"
+                                class="px-4 py-2 rounded-lg font-medium transition-colors"
+                                :class="filterCategory === 'python' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'">
+                                <i class="fab fa-python mr-2"></i>Python
+                            </button>
+                        </div>
                     </div>
-                    <h3 class="text-xl font-bold text-gray-800 mb-2">No Scripts Found</h3>
-                    <p class="text-gray-600">Your search or filter returned no results.</p>
+
+                    <div x-show="error"
+                        class="mb-6 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative"
+                        role="alert" x-cloak>
+                        <strong class="font-bold">Error!</strong>
+                        <span class="block sm:inline" x-text="error"></span>
+                    </div>
+
+                    <div x-show="isLoading" class="flex justify-center py-12" x-cloak>
+                        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+                    </div>
+
+                    <div x-show="!isLoading" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        <template x-for="script in filteredScripts" :key="script.id">
+                            <div class="script-card rounded-xl p-6 cursor-pointer"
+                                :class="getCategoryColor(script.category)" @click="viewScript(script)">
+                                <div class="flex items-start justify-between mb-4">
+                                    <div class="flex-1">
+                                        <h3 class="text-lg font-bold text-gray-900 mb-2" x-text="script.name"></h3>
+                                        <p class="text-sm text-gray-600 line-clamp-2" x-text="script.description"></p>
+                                    </div>
+                                    <div :class="getBadgeClass(script.category)" class="category-badge ml-2">
+                                        <i :class="getIcon(script.category)" class="mr-1"></i>
+                                        <span x-text="script.category"></span>
+                                    </div>
+                                </div>
+                                <div class="flex items-center justify-between text-sm text-gray-500">
+                                    <div class="flex items-center space-x-4">
+                                        <span><i class="fas fa-download mr-1"></i><span
+                                                x-text="script.downloads"></span></span>
+                                        <span><i class="far fa-clock mr-1"></i><span
+                                                x-text="script.lastUpdated"></span></span>
+                                    </div>
+                                    <button class="text-indigo-600 hover:text-indigo-800 font-medium">
+                                        View <i class="fas fa-arrow-right ml-1"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+
+                    <div x-show="!isLoading && filteredScripts.length === 0" class="text-center py-16" x-cloak>
+                        <div class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <i class="fas fa-search text-gray-400 text-2xl"></i>
+                        </div>
+                        <h3 class="text-xl font-bold text-gray-800 mb-2">No Scripts Found</h3>
+                        <p class="text-gray-600">Your search or filter returned no results.</p>
+                    </div>
                 </div>
 
                 <div x-show="selectedScript" @keydown.escape.window="selectedScript = null"
@@ -251,166 +250,161 @@
                         </div>
                     </div>
                 </div>
+
+                <script>
+                    function devopsBox() {
+                        return {
+                            searchTerm: '',
+                            filterCategory: 'all',
+                            selectedScript: null,
+                            scripts: [],
+                            isLoading: false,
+                            error: null,
+
+                            async init() {
+                                // Alpine automatically calls this when the component is initialized
+                                await this.fetchScripts();
+                            },
+
+                            getApiUrl() {
+                                const hostname = window.location.hostname;
+
+                                // Logic: If local, point to port 8080 explicitly
+                                if (hostname === 'localhost' || hostname === '127.0.0.1') {
+                                    return 'http://localhost:8080/api/devops-scripts';
+                                } else {
+                                    // For live.xamops.com or uat.xamops.com
+                                    return '/api/devops-scripts';
+                                }
+                            },
+
+                            async fetchScripts() {
+                                this.isLoading = true;
+                                this.error = null;
+                                const url = this.getApiUrl();
+
+                                console.log("XamOps: Fetching scripts from:", url);
+
+                                try {
+                                    const response = await fetch(url, {
+                                        method: 'GET',
+                                        headers: {
+                                            'Content-Type': 'application/json',
+                                        }
+                                    });
+
+                                    if (!response.ok) {
+                                        throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+                                    }
+
+                                    this.scripts = await response.json();
+
+                                } catch (err) {
+                                    console.error("XamOps Fetch Error:", err);
+                                    this.error = "Failed to load scripts. Please check your connection. " + err.message;
+                                    this.scripts = [];
+                                } finally {
+                                    this.isLoading = false;
+                                }
+                            },
+
+                            get filteredScripts() {
+                                let filtered = this.scripts;
+
+                                if (this.filterCategory !== 'all') {
+                                    filtered = filtered.filter(s =>
+                                        s.category && s.category.toLowerCase() === this.filterCategory.toLowerCase()
+                                    );
+                                }
+
+                                if (this.searchTerm) {
+                                    const term = this.searchTerm.toLowerCase();
+                                    filtered = filtered.filter(s =>
+                                        (s.name && s.name.toLowerCase().includes(term)) ||
+                                        (s.description && s.description.toLowerCase().includes(term))
+                                    );
+                                }
+
+                                return filtered;
+                            },
+
+                            refreshScripts() {
+                                this.filterCategory = 'all';
+                                this.searchTerm = '';
+                                this.fetchScripts();
+                            },
+
+                            viewScript(script) {
+                                this.selectedScript = script;
+                            },
+
+                            // --- Helper functions ---
+
+                            getCategoryColor(category) {
+                                const colors = {
+                                    terraform: 'border-purple-500',
+                                    bash: 'border-green-500',
+                                    python: 'border-blue-500',
+                                    ansible: 'border-red-500'
+                                };
+                                return colors[category] || 'border-gray-500';
+                            },
+
+                            getBadgeClass(category) {
+                                const classes = {
+                                    terraform: 'terraform-badge',
+                                    bash: 'bash-badge',
+                                    python: 'python-badge',
+                                    ansible: 'ansible-badge'
+                                };
+                                return classes[category] || '';
+                            },
+
+                            getIcon(category) {
+                                const icons = {
+                                    terraform: 'fab fa-terraform',
+                                    bash: 'fas fa-terminal',
+                                    python: 'fab fa-python',
+                                    ansible: 'fas fa-cogs'
+                                };
+                                return icons[category] || 'fas fa-file-code';
+                            },
+
+                            getFileName(script) {
+                                if (!script) return 'script.txt';
+                                const name = script.name ? script.name.replace(/\s+/g, '-').toLowerCase() : 'script';
+                                const cat = script.category ? script.category.toLowerCase() : '';
+
+                                switch (cat) {
+                                    case 'python': return `${name}.py`;
+                                    case 'bash': return `${name}.sh`;
+                                    case 'terraform': return `main.tf`;
+                                    default: return `${name}.txt`;
+                                }
+                            },
+
+                            copyCode() {
+                                if (!this.selectedScript?.code) return;
+                                navigator.clipboard.writeText(this.selectedScript.code);
+                                alert('Code copied to clipboard!');
+                            },
+
+                            downloadScript() {
+                                if (!this.selectedScript?.code) return;
+                                const element = document.createElement('a');
+                                const file = new Blob([this.selectedScript.code], { type: 'text/plain' });
+                                element.href = URL.createObjectURL(file);
+                                element.download = this.getFileName(this.selectedScript);
+                                document.body.appendChild(element);
+                                element.click();
+                                document.body.removeChild(element);
+                            }
+                        }
+                    }
+                </script>
             </main>
         </div>
     </div>
-
-    <script>
-        function devopsBox() {
-            return {
-                searchTerm: '',
-                filterCategory: 'all',
-                selectedScript: null,
-                scripts: [],
-                isLoading: false,
-                error: null,
-
-                async init() {
-                    // Alpine automatically calls this when the component is initialized
-                    await this.fetchScripts();
-                },
-
-                getApiUrl() {
-                    const hostname = window.location.hostname;
-
-                    // Logic: If local, point to port 8080 explicitly
-                    if (hostname === 'localhost' || hostname === '127.0.0.1') {
-                        return 'http://localhost:8080/api/devops-scripts';
-                    } else {
-                        // For live.xamops.com or uat.xamops.com
-                        // This uses a relative path, which assumes your Nginx/LoadBalancer
-                        // routes /api requests to the backend service.
-                        return '/api/devops-scripts';
-                    }
-                },
-
-                async fetchScripts() {
-                    this.isLoading = true;
-                    this.error = null;
-                    const url = this.getApiUrl();
-
-                    console.log("XamOps: Fetching scripts from:", url);
-
-                    try {
-                        const response = await fetch(url, {
-                            method: 'GET',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                // If you have auth tokens, uncomment and use:
-                                // 'Authorization': 'Bearer ' + localStorage.getItem('token') 
-                            }
-                        });
-
-                        if (!response.ok) {
-                            throw new Error(`Server returned ${response.status}: ${response.statusText}`);
-                        }
-
-                        this.scripts = await response.json();
-
-                    } catch (err) {
-                        console.error("XamOps Fetch Error:", err);
-                        this.error = "Failed to load scripts. Please check your connection. " + err.message;
-                        // Optional: fallback to empty list or static data if needed
-                        this.scripts = [];
-                    } finally {
-                        this.isLoading = false;
-                    }
-                },
-
-                get filteredScripts() {
-                    let filtered = this.scripts;
-
-                    if (this.filterCategory !== 'all') {
-                        filtered = filtered.filter(s =>
-                            s.category && s.category.toLowerCase() === this.filterCategory.toLowerCase()
-                        );
-                    }
-
-                    if (this.searchTerm) {
-                        const term = this.searchTerm.toLowerCase();
-                        filtered = filtered.filter(s =>
-                            (s.name && s.name.toLowerCase().includes(term)) ||
-                            (s.description && s.description.toLowerCase().includes(term))
-                        );
-                    }
-
-                    return filtered;
-                },
-
-                refreshScripts() {
-                    this.filterCategory = 'all';
-                    this.searchTerm = '';
-                    this.fetchScripts();
-                },
-
-                viewScript(script) {
-                    this.selectedScript = script;
-                },
-
-                // --- Helper functions ---
-
-                getCategoryColor(category) {
-                    const colors = {
-                        terraform: 'border-purple-500',
-                        bash: 'border-green-500',
-                        python: 'border-blue-500',
-                        ansible: 'border-red-500'
-                    };
-                    return colors[category] || 'border-gray-500';
-                },
-
-                getBadgeClass(category) {
-                    const classes = {
-                        terraform: 'terraform-badge',
-                        bash: 'bash-badge',
-                        python: 'python-badge',
-                        ansible: 'ansible-badge'
-                    };
-                    return classes[category] || '';
-                },
-
-                getIcon(category) {
-                    const icons = {
-                        terraform: 'fab fa-terraform',
-                        bash: 'fas fa-terminal',
-                        python: 'fab fa-python',
-                        ansible: 'fas fa-cogs'
-                    };
-                    return icons[category] || 'fas fa-file-code';
-                },
-
-                getFileName(script) {
-                    if (!script) return 'script.txt';
-                    const name = script.name ? script.name.replace(/\s+/g, '-').toLowerCase() : 'script';
-                    const cat = script.category ? script.category.toLowerCase() : '';
-
-                    switch (cat) {
-                        case 'python': return `${name}.py`;
-                        case 'bash': return `${name}.sh`;
-                        case 'terraform': return `main.tf`;
-                        default: return `${name}.txt`;
-                    }
-                },
-
-                copyCode() {
-                    if (!this.selectedScript?.code) return;
-                    navigator.clipboard.writeText(this.selectedScript.code);
-                    alert('Code copied to clipboard!');
-                },
-
-                downloadScript() {
-                    if (!this.selectedScript?.code) return;
-                    const element = document.createElement('a');
-                    const file = new Blob([this.selectedScript.code], { type: 'text/plain' });
-                    element.href = URL.createObjectURL(file);
-                    element.download = this.getFileName(this.selectedScript);
-                    document.body.appendChild(element);
-                    element.click();
-                    document.body.removeChild(element);
-                }
-            }
-        }
-    </script>
 </body>
 
 </html>

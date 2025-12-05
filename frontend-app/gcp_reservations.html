@@ -1,344 +1,472 @@
 <!DOCTYPE html>
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>XamOps - GCP Committed Use Discounts</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-        <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
-<link rel="apple-touch-icon" href="/icons/XamOps.png">
-    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
+    <link rel="apple-touch-icon" href="/icons/XamOps.png">
+
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script type="module" src="/src/main.js"></script>
-
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-        body { font-family: 'Inter', sans-serif; background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); }
-        [x-cloak] { display: none !important; }
-        .glass-card { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.2); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
-        .header-gradient { background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%); backdrop-filter: blur(10px); border-bottom: 1px solid rgba(229, 231, 235, 0.8); }
-        .skeleton { background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
-        @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
-        .cud-card { border: 1px solid #e5e7eb; transition: all 0.3s ease; }
-        .cud-card:hover { border-color: #4285F4; box-shadow: 0 4px 12px rgba(66, 133, 244, 0.15); transform: translateY(-2px); }
-        .badge-recommended { background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%); color: white; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600; }
-        .detail-row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #f3f4f6; }
-        .detail-label { color: #6b7280; font-size: 14px; font-weight: 500; }
-        .detail-value { color: #111827; font-size: 14px; font-weight: 600; }
-    </style>
 </head>
+
 <body class="bg-gray-50">
-<div class="flex">
-  <include file="/_sidebar.html"></include>
 
-    <div class="flex-1 pl-64">
-        <main class="flex-1 flex flex-col min-h-screen" x-data="gcpReservations()">
-            <header class="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-20">
-                <div class="flex items-center space-x-4">
-                    <div class="w-12 h-12 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-xl flex items-center justify-center">
-                        <i class="fas fa-hand-holding-usd text-white text-xl"></i>
+    <div class="flex h-screen overflow-hidden">
+        <include file="/_sidebar.html"></include>
+
+        <div class="flex-1 flex flex-col h-screen overflow-hidden pl-64">
+
+            <main id="main-content" class="flex-1 flex flex-col h-full overflow-hidden" x-data="gcpReservations()"
+                x-init="init()">
+
+                <style>
+                    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+                    :root {
+                        --primary-gradient: linear-gradient(135deg, #4285F4 0%, #34A853 100%);
+                        --success-gradient: linear-gradient(135deg, #34A853 0%, #0F9D58 100%);
+                        --warning-gradient: linear-gradient(135deg, #FBBC04 0%, #F57C00 100%);
+                        --danger-gradient: linear-gradient(135deg, #EA4335 0%, #C5221F 100%);
+                        --glass-bg: rgba(255, 255, 255, 0.95);
+                        --glass-border: rgba(229, 231, 235, 0.8);
+                    }
+
+                    #main-content {
+                        font-family: 'Inter', sans-serif;
+                    }
+
+                    [x-cloak] {
+                        display: none !important;
+                    }
+
+                    .glass-card {
+                        background: var(--glass-bg);
+                        backdrop-filter: blur(10px);
+                        border: 1px solid rgba(255, 255, 255, 0.2);
+                        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+                    }
+
+                    .header-gradient {
+                        background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%);
+                        backdrop-filter: blur(10px);
+                        border-bottom: 1px solid rgba(229, 231, 235, 0.8);
+                    }
+
+                    .skeleton {
+                        background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+                        background-size: 200% 100%;
+                        animation: shimmer 1.5s infinite;
+                    }
+
+                    @keyframes shimmer {
+                        0% {
+                            background-position: -200% 0;
+                        }
+
+                        100% {
+                            background-position: 200% 0;
+                        }
+                    }
+
+                    .cud-card {
+                        border: 1px solid #e5e7eb;
+                        transition: all 0.3s ease;
+                    }
+
+                    .cud-card:hover {
+                        border-color: #4285F4;
+                        box-shadow: 0 4px 12px rgba(66, 133, 244, 0.15);
+                        transform: translateY(-2px);
+                    }
+
+                    .badge-recommended {
+                        background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%);
+                        color: white;
+                        padding: 4px 12px;
+                        border-radius: 12px;
+                        font-size: 11px;
+                        font-weight: 600;
+                    }
+
+                    .detail-row {
+                        display: flex;
+                        justify-content: space-between;
+                        padding: 12px 0;
+                        border-bottom: 1px solid #f3f4f6;
+                    }
+
+                    .detail-label {
+                        color: #6b7280;
+                        font-size: 14px;
+                        font-weight: 500;
+                    }
+
+                    .detail-value {
+                        color: #111827;
+                        font-size: 14px;
+                        font-weight: 600;
+                    }
+
+                    /* Scrollbar Styles */
+                    .custom-scrollbar::-webkit-scrollbar {
+                        width: 8px;
+                    }
+
+                    .custom-scrollbar::-webkit-scrollbar-track {
+                        background: #f1f1f1;
+                    }
+
+                    .custom-scrollbar::-webkit-scrollbar-thumb {
+                        background: #cbd5e0;
+                        border-radius: 4px;
+                    }
+
+                    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+                        background: #a0aec0;
+                    }
+                </style>
+
+                <header
+                    class="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-20 flex-shrink-0">
+                    <div class="flex items-center space-x-4">
+                        <div
+                            class="w-12 h-12 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-xl flex items-center justify-center">
+                            <i class="fas fa-hand-holding-usd text-white text-xl"></i>
+                        </div>
+                        <div>
+                            <h1 class="text-2xl font-bold text-gray-800">GCP Committed Use Discounts</h1>
+                            <p class="text-sm text-gray-600">Analyze your GCP commitments & recommendations</p>
+                        </div>
                     </div>
-                    <div>
-                        <h1 class="text-2xl font-bold text-gray-800">GCP Committed Use Discounts</h1>
-                        <p class="text-sm text-gray-600">Analyze your GCP commitments & recommendations</p>
-                    </div>
-                </div>
-                <button @click="refreshAll()" class="bg-indigo-600 text-white flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md hover:bg-indigo-700 transition-colors" :disabled="isRefreshing">
-                    <i class="fas fa-sync-alt" :class="{ 'fa-spin': isRefreshing }"></i>
-                    <span x-text="isRefreshing ? 'Refreshing...' : 'Refresh Data'"></span>
-                </button>
-            </header>
+                    <button @click="refreshAll()"
+                        class="bg-indigo-600 text-white flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md hover:bg-indigo-700 transition-colors"
+                        :disabled="isRefreshing">
+                        <i class="fas fa-sync-alt" :class="{ 'fa-spin': isRefreshing }"></i>
+                        <span x-text="isRefreshing ? 'Refreshing...' : 'Refresh Data'"></span>
+                    </button>
+                </header>
 
-            <div class="flex-1 p-8 space-y-8">
-                <div class="glass-card rounded-2xl p-8">
-                    <div class="flex items-center justify-between mb-6">
-                        <h2 class="text-xl font-bold text-gray-800">Active Committed Use Discounts</h2>
-                        <span class="px-3 py-1 bg-green-100 text-green-800 text-xs font-semibold rounded-full">
-                            <span x-text="activeCuds?.length || 0"></span> Active
-                        </span>
-                    </div>
+                <div class="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar bg-gray-50">
+                    <div class="glass-card rounded-2xl p-8">
+                        <div class="flex items-center justify-between mb-6">
+                            <h2 class="text-xl font-bold text-gray-800">Active Committed Use Discounts</h2>
+                            <span class="px-3 py-1 bg-green-100 text-green-800 text-xs font-semibold rounded-full">
+                                <span x-text="activeCuds?.length || 0"></span> Active
+                            </span>
+                        </div>
 
-                    <div x-show="isLoadingActive" class="skeleton h-32 rounded-lg"></div>
+                        <div x-show="isLoadingActive" class="skeleton h-32 rounded-lg"></div>
 
-                    <div x-show="!isLoadingActive && (!activeCuds || activeCuds.length === 0)" x-cloak class="text-center py-12 bg-blue-50 rounded-xl border-2 border-dashed border-blue-200">
-                        <i class="fas fa-info-circle text-4xl text-blue-400 mb-4"></i>
-                        <p class="text-gray-700 font-medium">No active Committed Use Discounts found for this account.</p>
-                        <p class="text-gray-500 text-sm mt-2">Purchase CUDs to save on consistent workloads.</p>
-                    </div>
+                        <div x-show="!isLoadingActive && (!activeCuds || activeCuds.length === 0)" x-cloak
+                            class="text-center py-12 bg-blue-50 rounded-xl border-2 border-dashed border-blue-200">
+                            <i class="fas fa-info-circle text-4xl text-blue-400 mb-4"></i>
+                            <p class="text-gray-700 font-medium">No active Committed Use Discounts found for this
+                                account.</p>
+                            <p class="text-gray-500 text-sm mt-2">Purchase CUDs to save on consistent workloads.</p>
+                        </div>
 
-                    <div x-show="!isLoadingActive && activeCuds && activeCuds.length > 0" x-cloak class="space-y-4">
-                        <template x-for="(cud, index) in activeCuds" :key="index">
-                            <div class="bg-white p-6 rounded-xl border border-gray-200 hover:border-indigo-300 transition-colors">
-                                <div class="flex justify-between items-start mb-4">
-                                    <div>
-                                        <h3 class="font-bold text-gray-900 text-lg" x-text="cud.name || 'Committed Use Discount'"></h3>
-                                        <p class="text-sm text-gray-500 mt-1" x-text="cud.description || ''"></p>
+                        <div x-show="!isLoadingActive && activeCuds && activeCuds.length > 0" x-cloak class="space-y-4">
+                            <template x-for="(cud, index) in activeCuds" :key="index">
+                                <div
+                                    class="bg-white p-6 rounded-xl border border-gray-200 hover:border-indigo-300 transition-colors">
+                                    <div class="flex justify-between items-start mb-4">
+                                        <div>
+                                            <h3 class="font-bold text-gray-900 text-lg"
+                                                x-text="cud.name || 'Committed Use Discount'"></h3>
+                                            <p class="text-sm text-gray-500 mt-1" x-text="cud.description || ''"></p>
+                                        </div>
+                                        <span
+                                            class="px-3 py-1 bg-green-100 text-green-700 text-xs font-semibold rounded-full"
+                                            x-text="cud.status || 'ACTIVE'"></span>
                                     </div>
-                                    <span class="px-3 py-1 bg-green-100 text-green-700 text-xs font-semibold rounded-full" x-text="cud.status || 'ACTIVE'"></span>
+                                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                        <div>
+                                            <p class="text-xs text-gray-500 uppercase">Type</p>
+                                            <p class="font-semibold text-gray-900 mt-1"
+                                                x-text="cud.commitmentUnit || cud.type || 'N/A'"></p>
+                                        </div>
+                                        <div>
+                                            <p class="text-xs text-gray-500 uppercase">Term</p>
+                                            <p class="font-semibold text-gray-900 mt-1"
+                                                x-text="cud.term || cud.plan || 'N/A'"></p>
+                                        </div>
+                                        <div>
+                                            <p class="text-xs text-gray-500 uppercase">Region</p>
+                                            <p class="font-semibold text-gray-900 mt-1" x-text="cud.region || 'Global'">
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <p class="text-xs text-gray-500 uppercase">Commitment</p>
+                                            <p class="font-semibold text-indigo-600 mt-1"
+                                                x-text="formatNumber(cud.commitmentAmount) + ' ' + (cud.commitmentUnit || '')">
+                                            </p>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                    <div>
-                                        <p class="text-xs text-gray-500 uppercase">Type</p>
-                                        <p class="font-semibold text-gray-900 mt-1" x-text="cud.commitmentUnit || cud.type || 'N/A'"></p>
-                                    </div>
-                                    <div>
-                                        <p class="text-xs text-gray-500 uppercase">Term</p>
-                                        <p class="font-semibold text-gray-900 mt-1" x-text="cud.term || cud.plan || 'N/A'"></p>
-                                    </div>
-                                    <div>
-                                        <p class="text-xs text-gray-500 uppercase">Region</p>
-                                        <p class="font-semibold text-gray-900 mt-1" x-text="cud.region || 'Global'"></p>
-                                    </div>
-                                    <div>
-                                        <p class="text-xs text-gray-500 uppercase">Commitment</p>
-                                        <p class="font-semibold text-indigo-600 mt-1" x-text="formatNumber(cud.commitmentAmount) + ' ' + (cud.commitmentUnit || '')"></p>
-                                    </div>
-                                </div>
-                            </div>
-                        </template>
-                    </div>
-                </div>
-
-                <div class="glass-card rounded-2xl p-8">
-                    <div class="flex items-center justify-between mb-6">
-                        <h2 class="text-xl font-bold text-gray-800">CUD Recommendations</h2>
-                        <span class="px-3 py-1 bg-orange-100 text-orange-800 text-xs font-semibold rounded-full">
-                            <span x-text="cudRecommendations?.length || 0"></span> Recommendations
-                        </span>
+                            </template>
+                        </div>
                     </div>
 
-                    <div x-show="isLoadingRecommendations" class="space-y-4">
-                        <div class="skeleton h-48 rounded-lg"></div>
-                        <div class="skeleton h-48 rounded-lg"></div>
-                    </div>
+                    <div class="glass-card rounded-2xl p-8">
+                        <div class="flex items-center justify-between mb-6">
+                            <h2 class="text-xl font-bold text-gray-800">CUD Recommendations</h2>
+                            <span class="px-3 py-1 bg-orange-100 text-orange-800 text-xs font-semibold rounded-full">
+                                <span x-text="cudRecommendations?.length || 0"></span> Recommendations
+                            </span>
+                        </div>
 
-                    <div x-show="!isLoadingRecommendations && (!cudRecommendations || cudRecommendations.length === 0)" x-cloak class="text-center py-12">
-                        <i class="fas fa-lightbulb text-4xl text-yellow-400 mb-4"></i>
-                        <p class="text-gray-600 font-semibold mb-2">No CUD Recommendations Available</p>
-                        <p class="text-gray-500 text-sm">Google Cloud hasn't generated any commitment recommendations yet.</p>
-                        <p class="text-gray-500 text-sm mt-1">This typically requires consistent usage patterns over time.</p>
-                    </div>
+                        <div x-show="isLoadingRecommendations" class="space-y-4">
+                            <div class="skeleton h-48 rounded-lg"></div>
+                            <div class="skeleton h-48 rounded-lg"></div>
+                        </div>
 
-                    <div x-show="!isLoadingRecommendations && cudRecommendations && cudRecommendations.length > 0" x-cloak class="space-y-6">
-                        <template x-for="(rec, index) in cudRecommendations" :key="index">
-                            <div class="cud-card bg-white rounded-xl p-6">
-                                <div class="flex items-start justify-between mb-4">
-                                    <div class="flex items-center space-x-2">
-                                        <span class="badge-recommended">
-                                            <i class="fas fa-star mr-1"></i>RECOMMENDED CUD
-                                        </span>
-                                        <i class="fas fa-link text-blue-500"></i>
-                                    </div>
-                                    <span class="text-blue-600 font-semibold cursor-pointer hover:underline">
-                                        <i class="fas fa-check-circle mr-1"></i>Selected
-                                    </span>
-                                </div>
+                        <div x-show="!isLoadingRecommendations && (!cudRecommendations || cudRecommendations.length === 0)"
+                            x-cloak class="text-center py-12">
+                            <i class="fas fa-lightbulb text-4xl text-yellow-400 mb-4"></i>
+                            <p class="text-gray-600 font-semibold mb-2">No CUD Recommendations Available</p>
+                            <p class="text-gray-500 text-sm">Google Cloud hasn't generated any commitment
+                                recommendations yet.</p>
+                            <p class="text-gray-500 text-sm mt-1">This typically requires consistent usage patterns over
+                                time.</p>
+                        </div>
 
-                                <h3 class="text-lg font-bold text-gray-900 mb-4">
-                                    Save <span x-text="formatCurrency(Math.abs(rec.monthlySavings || 0))"></span>/month by purchasing a
-                                    <span x-text="extractTermFromDescription(rec.currentMachineType)"></span>
-                                    <span x-text="rec.currentMachineType || 'resource-based CUD'"></span>
-                                </h3>
-
-                                <div class="space-y-3 mb-6">
-                                    <div class="detail-row">
-                                        <span class="detail-label">Resources covered</span>
-                                        <span class="detail-value">
-                                            Eligible <span x-text="rec.currentMachineType || 'usage'"></span> in
-                                            <span x-text="rec.location || 'us-east1'"></span>, for project
-                                            <span x-text="getProjectFromRecommendation(rec)"></span>
-                                        </span>
-                                    </div>
-                                    <div class="detail-row">
-                                        <span class="detail-label">Basis for recommendation</span>
-                                        <span class="detail-value">Last 30 days of historical usage</span>
-                                    </div>
-                                    <div class="detail-row">
-                                        <span class="detail-label">Eligible usage to be covered</span>
-                                        <span class="detail-value">
-                                            100% based on <span class="text-blue-600 cursor-pointer hover:underline">configuration</span>
-                                        </span>
-                                    </div>
-                                    <div class="detail-row">
-                                        <span class="detail-label">CUD term</span>
-                                        <span class="detail-value" x-text="extractTermFromDescription(rec.currentMachineType) + ' (billed monthly)'"></span>
-                                    </div>
-                                    <div class="detail-row">
-                                        <span class="detail-label">Estimated CUD cost</span>
-                                        <span class="detail-value">
-                                            <span x-text="formatCurrency(calculateCudCost(rec))"></span>/month
-                                            <span class="text-sm text-gray-500">
-                                                (<span x-text="formatCurrency(calculateCudCost(rec) / 730)"></span>/hr)
+                        <div x-show="!isLoadingRecommendations && cudRecommendations && cudRecommendations.length > 0"
+                            x-cloak class="space-y-6">
+                            <template x-for="(rec, index) in cudRecommendations" :key="index">
+                                <div class="cud-card bg-white rounded-xl p-6">
+                                    <div class="flex items-start justify-between mb-4">
+                                        <div class="flex items-center space-x-2">
+                                            <span class="badge-recommended">
+                                                <i class="fas fa-star mr-1"></i>RECOMMENDED CUD
                                             </span>
-                                            <br>
-                                            <span class="text-sm text-green-600">
-                                                55% less than on-demand price
+                                            <i class="fas fa-link text-blue-500"></i>
+                                        </div>
+                                        <span class="text-blue-600 font-semibold cursor-pointer hover:underline">
+                                            <i class="fas fa-check-circle mr-1"></i>Selected
+                                        </span>
+                                    </div>
+
+                                    <h3 class="text-lg font-bold text-gray-900 mb-4">
+                                        Save <span
+                                            x-text="formatCurrency(Math.abs(rec.monthlySavings || 0))"></span>/month by
+                                        purchasing a
+                                        <span x-text="extractTermFromDescription(rec.currentMachineType)"></span>
+                                        <span x-text="rec.currentMachineType || 'resource-based CUD'"></span>
+                                    </h3>
+
+                                    <div class="space-y-3 mb-6">
+                                        <div class="detail-row">
+                                            <span class="detail-label">Resources covered</span>
+                                            <span class="detail-value">
+                                                Eligible <span x-text="rec.currentMachineType || 'usage'"></span> in
+                                                <span x-text="rec.location || 'us-east1'"></span>, for project
+                                                <span x-text="getProjectFromRecommendation(rec)"></span>
                                             </span>
-                                        </span>
+                                        </div>
+                                        <div class="detail-row">
+                                            <span class="detail-label">Basis for recommendation</span>
+                                            <span class="detail-value">Last 30 days of historical usage</span>
+                                        </div>
+                                        <div class="detail-row">
+                                            <span class="detail-label">Eligible usage to be covered</span>
+                                            <span class="detail-value">
+                                                100% based on <span
+                                                    class="text-blue-600 cursor-pointer hover:underline">configuration</span>
+                                            </span>
+                                        </div>
+                                        <div class="detail-row">
+                                            <span class="detail-label">CUD term</span>
+                                            <span class="detail-value"
+                                                x-text="extractTermFromDescription(rec.currentMachineType) + ' (billed monthly)'"></span>
+                                        </div>
+                                        <div class="detail-row">
+                                            <span class="detail-label">Estimated CUD cost</span>
+                                            <span class="detail-value">
+                                                <span x-text="formatCurrency(calculateCudCost(rec))"></span>/month
+                                                <span class="text-sm text-gray-500">
+                                                    (<span
+                                                        x-text="formatCurrency(calculateCudCost(rec) / 730)"></span>/hr)
+                                                </span>
+                                                <br>
+                                                <span class="text-sm text-green-600">
+                                                    55% less than on-demand price
+                                                </span>
+                                            </span>
+                                        </div>
+                                        <div class="detail-row">
+                                            <span class="detail-label">Estimated savings</span>
+                                            <span class="detail-value text-green-600">
+                                                <span
+                                                    x-text="formatCurrency(Math.abs(rec.monthlySavings || 0))"></span>/month*
+                                            </span>
+                                        </div>
+                                        <div class="detail-row border-b-0">
+                                            <span class="detail-label">Usage insights</span>
+                                            <span class="detail-value text-sm" x-html="getUsageInsight(rec)"></span>
+                                        </div>
                                     </div>
-                                    <div class="detail-row">
-                                        <span class="detail-label">Estimated savings</span>
-                                        <span class="detail-value text-green-600">
-                                            <span x-text="formatCurrency(Math.abs(rec.monthlySavings || 0))"></span>/month*
-                                        </span>
-                                    </div>
-                                    <div class="detail-row border-b-0">
-                                        <span class="detail-label">Usage insights</span>
-                                        <span class="detail-value text-sm" x-html="getUsageInsight(rec)"></span>
-                                    </div>
-                                </div>
 
-                                <div class="bg-blue-50 rounded-lg p-4 mb-4">
-                                    <p class="text-sm text-gray-700">
-                                        <i class="fas fa-info-circle text-blue-500 mr-2"></i>
-                                        <strong>Details:</strong> <span x-text="rec.reason || rec.description"></span>
-                                    </p>
-                                </div>
+                                    <div class="bg-blue-50 rounded-lg p-4 mb-4">
+                                        <p class="text-sm text-gray-700">
+                                            <i class="fas fa-info-circle text-blue-500 mr-2"></i>
+                                            <strong>Details:</strong> <span
+                                                x-text="rec.reason || rec.description"></span>
+                                        </p>
+                                    </div>
 
-                                <div class="bg-gray-50 rounded-lg p-4 text-xs text-gray-600">
-                                    <i class="fas fa-info-circle mr-1"></i>
-                                    * If applicable, the recommendation takes into account existing CUDs, sustained discounts,
-                                    custom machine surcharges and negotiated pricing. The lowest on-demand rate for the SKUs is considered.
+                                    <div class="bg-gray-50 rounded-lg p-4 text-xs text-gray-600">
+                                        <i class="fas fa-info-circle mr-1"></i>
+                                        * If applicable, the recommendation takes into account existing CUDs, sustained
+                                        discounts,
+                                        custom machine surcharges and negotiated pricing. The lowest on-demand rate for
+                                        the SKUs is considered.
+                                    </div>
                                 </div>
-                            </div>
-                        </template>
+                            </template>
+                        </div>
                     </div>
                 </div>
-            </div>
-        </main>
+
+                <script>
+                    function gcpReservations() {
+                        return {
+                            isLoadingActive: true,
+                            isLoadingRecommendations: true,
+                            isRefreshing: false,
+                            activeCuds: [],
+                            cudRecommendations: [],
+
+                            init() {
+                                console.log('Initializing CUD page...');
+                                this.loadActiveCuds();
+                                this.loadCudRecommendations();
+                            },
+
+                            refreshAll() {
+                                this.isRefreshing = true;
+                                this.isLoadingActive = true;
+                                this.isLoadingRecommendations = true;
+
+                                Promise.all([
+                                    this.loadActiveCuds(),
+                                    this.loadCudRecommendations()
+                                ]).finally(() => {
+                                    this.isRefreshing = false;
+                                });
+                            },
+
+                            loadActiveCuds() {
+                                const urlParams = new URLSearchParams(window.location.search);
+                                const accountIds = urlParams.get('accountIds') || 'xamops';
+                                const accountId = accountIds.split(',')[0];
+
+                                if (!accountId) {
+                                    this.isLoadingActive = false;
+                                    return Promise.resolve();
+                                }
+
+                                console.log(`Loading active CUDs for account: ${accountId}`);
+
+                                this.activeCuds = [];
+                                this.isLoadingActive = false;
+
+                                console.log('ℹ️ Active CUDs: Feature not yet implemented. Showing recommendations only.');
+
+                                return Promise.resolve();
+                            },
+
+                            loadCudRecommendations() {
+                                const urlParams = new URLSearchParams(window.location.search);
+                                const accountIds = urlParams.get('accountIds') || 'xamops';
+                                const accountId = accountIds.split(',')[0];
+
+                                if (!accountId) {
+                                    this.isLoadingRecommendations = false;
+                                    return Promise.resolve();
+                                }
+
+                                console.log(`Loading CUD recommendations for account: ${accountId}`);
+
+                                return fetch(`/api/xamops/gcp/reservations/cuds?accountId=${accountId}`)
+                                    .then(res => {
+                                        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                                        return res.json();
+                                    })
+                                    .then(data => {
+                                        console.log('CUD Recommendations received:', data);
+                                        this.cudRecommendations = Array.isArray(data) ? data : [];
+                                    })
+                                    .catch(err => {
+                                        console.error('Failed to load CUD recommendations:', err);
+                                        this.cudRecommendations = [];
+                                    })
+                                    .finally(() => {
+                                        this.isLoadingRecommendations = false;
+                                    });
+                            },
+
+                            extractTermFromDescription(machineType) {
+                                if (!machineType) return '3 years';
+                                if (machineType.includes('3-year') || machineType.includes('3 year')) return '3 years';
+                                if (machineType.includes('1-year') || machineType.includes('1 year')) return '1 year';
+                                return '3 years';
+                            },
+
+                            calculateCudCost(rec) {
+                                const savings = Math.abs(rec.monthlySavings || 0);
+                                const estimatedOnDemand = savings / 0.55;
+                                const cudCost = estimatedOnDemand * 0.45;
+                                return cudCost;
+                            },
+
+                            getProjectFromRecommendation(rec) {
+                                if (rec.recommendationId) {
+                                    const match = rec.recommendationId.match(/projects\/([^\/]+)\//);
+                                    if (match) return match[1];
+                                }
+                                return 'XamOps';
+                            },
+
+                            getUsageInsight(rec) {
+                                const term = this.extractTermFromDescription(rec.currentMachineType);
+                                const termYears = term.includes('3') ? 3 : 1;
+                                const breakEvenDays = Math.round(termYears * 365 * 0.45);
+                                const breakEvenPercent = 45;
+
+                                return `With this CUD purchase, if you use <strong>1 GB</strong> for at least
+                                        <strong>${breakEvenDays} days</strong> in <strong>${termYears} years</strong>
+                                        (<strong>${breakEvenPercent}%</strong> of CUD term), you will still break even.
+                                        <a href="https://cloud.google.com/docs/cuds-recommender#understanding-summary-cards"
+                                           target="_blank"
+                                           class="text-blue-600 cursor-pointer hover:underline ml-1">Learn more</a>`;
+                            },
+
+                            formatCurrency(value) {
+                                if (value === null || value === undefined || isNaN(value)) return '₹0.00';
+                                return new Intl.NumberFormat('en-IN', {
+                                    style: 'currency',
+                                    currency: 'INR',
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2
+                                }).format(value);
+                            },
+
+                            formatNumber(value) {
+                                if (value === null || value === undefined || isNaN(value)) return '0';
+                                return new Intl.NumberFormat('en-US').format(value);
+                            }
+                        }
+                    }
+                </script>
+            </main>
+        </div>
     </div>
-</div>
 
-<script>
-    function gcpReservations() {
-        return {
-            isLoadingActive: true,
-            isLoadingRecommendations: true,
-            isRefreshing: false,
-            activeCuds: [],
-            cudRecommendations: [],
-
-            init() {
-                console.log('Initializing CUD page...');
-                this.loadActiveCuds();
-                this.loadCudRecommendations();
-            },
-
-            refreshAll() {
-                this.isRefreshing = true;
-                this.isLoadingActive = true;
-                this.isLoadingRecommendations = true;
-
-                Promise.all([
-                    this.loadActiveCuds(),
-                    this.loadCudRecommendations()
-                ]).finally(() => {
-                    this.isRefreshing = false;
-                });
-            },
-
-            loadActiveCuds() {
-                const urlParams = new URLSearchParams(window.location.search);
-                const accountIds = urlParams.get('accountIds') || 'xamops';
-                const accountId = accountIds.split(',')[0];
-
-                if (!accountId) {
-                    this.isLoadingActive = false;
-                    return Promise.resolve();
-                }
-
-                console.log(`Loading active CUDs for account: ${accountId}`);
-
-                this.activeCuds = [];
-                this.isLoadingActive = false;
-
-                console.log('ℹ️ Active CUDs: Feature not yet implemented. Showing recommendations only.');
-
-                return Promise.resolve();
-            },
-
-            loadCudRecommendations() {
-                const urlParams = new URLSearchParams(window.location.search);
-                const accountIds = urlParams.get('accountIds') || 'xamops';
-                const accountId = accountIds.split(',')[0];
-
-                if (!accountId) {
-                    this.isLoadingRecommendations = false;
-                    return Promise.resolve();
-                }
-
-                console.log(`Loading CUD recommendations for account: ${accountId}`);
-
-                return fetch(`/api/xamops/gcp/reservations/cuds?accountId=${accountId}`)
-                    .then(res => {
-                        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-                        return res.json();
-                    })
-                    .then(data => {
-                        console.log('CUD Recommendations received:', data);
-                        this.cudRecommendations = Array.isArray(data) ? data : [];
-                    })
-                    .catch(err => {
-                        console.error('Failed to load CUD recommendations:', err);
-                        this.cudRecommendations = [];
-                    })
-                    .finally(() => {
-                        this.isLoadingRecommendations = false;
-                    });
-            },
-
-            extractTermFromDescription(machineType) {
-                if (!machineType) return '3 years';
-                if (machineType.includes('3-year') || machineType.includes('3 year')) return '3 years';
-                if (machineType.includes('1-year') || machineType.includes('1 year')) return '1 year';
-                return '3 years';
-            },
-
-            calculateCudCost(rec) {
-                const savings = Math.abs(rec.monthlySavings || 0);
-                const estimatedOnDemand = savings / 0.55;
-                const cudCost = estimatedOnDemand * 0.45;
-                return cudCost;
-            },
-
-            getProjectFromRecommendation(rec) {
-                if (rec.recommendationId) {
-                    const match = rec.recommendationId.match(/projects\/([^\/]+)\//);
-                    if (match) return match[1];
-                }
-                return 'XamOps';
-            },
-
-            getUsageInsight(rec) {
-                const term = this.extractTermFromDescription(rec.currentMachineType);
-                const termYears = term.includes('3') ? 3 : 1;
-                const breakEvenDays = Math.round(termYears * 365 * 0.45);
-                const breakEvenPercent = 45;
-
-                return `With this CUD purchase, if you use <strong>1 GB</strong> for at least
-                        <strong>${breakEvenDays} days</strong> in <strong>${termYears} years</strong>
-                        (<strong>${breakEvenPercent}%</strong> of CUD term), you will still break even.
-                        <a href="https://cloud.google.com/docs/cuds-recommender#understanding-summary-cards"
-                           target="_blank"
-                           class="text-blue-600 cursor-pointer hover:underline ml-1">Learn more</a>`;
-            },
-
-            formatCurrency(value) {
-                if (value === null || value === undefined || isNaN(value)) return '₹0.00';
-                return new Intl.NumberFormat('en-IN', {
-                    style: 'currency',
-                    currency: 'INR',
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2
-                }).format(value);
-            },
-
-            formatNumber(value) {
-                if (value === null || value === undefined || isNaN(value)) return '0';
-                return new Intl.NumberFormat('en-US').format(value);
-            }
-        }
-    }
-</script>
 </body>
+
 </html>

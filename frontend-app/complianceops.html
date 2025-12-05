@@ -10,49 +10,6 @@
     <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.0/dist/cdn.min.js"></script>
     <script type="module" src="/src/main.js"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-
-        body {
-            font-family: 'Inter', sans-serif;
-            overflow: hidden;
-        }
-
-        .coming-soon-gradient {
-            background: linear-gradient(135deg, #f59e0b 0%, #ea580c 100%);
-        }
-
-        .float-animation {
-            animation: float 6s ease-in-out infinite;
-        }
-
-        @keyframes float {
-
-            0%,
-            100% {
-                transform: translateY(0px);
-            }
-
-            50% {
-                transform: translateY(-20px);
-            }
-        }
-
-        .glow-effect {
-            box-shadow: 0 0 20px rgba(245, 158, 11, 0.3);
-        }
-
-        .feature-card {
-            background: white;
-            border-left: 4px solid;
-            transition: all 0.3s ease;
-        }
-
-        .feature-card:hover {
-            transform: translateX(4px);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-        }
-    </style>
 </head>
 
 <body class="bg-gray-50">
@@ -60,8 +17,46 @@
         <include file="/_sidebar.html"></include>
 
         <div class="ml-64 flex-1 flex flex-col h-screen overflow-hidden">
+            <main id="main-content" class="flex-1 overflow-y-auto p-8" x-data="complianceOps()">
 
-            <main class="flex-1 overflow-y-auto p-8">
+                <style>
+                    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+                    .coming-soon-gradient {
+                        background: linear-gradient(135deg, #f59e0b 0%, #ea580c 100%);
+                    }
+
+                    .float-animation {
+                        animation: float 6s ease-in-out infinite;
+                    }
+
+                    @keyframes float {
+
+                        0%,
+                        100% {
+                            transform: translateY(0px);
+                        }
+
+                        50% {
+                            transform: translateY(-20px);
+                        }
+                    }
+
+                    .glow-effect {
+                        box-shadow: 0 0 20px rgba(245, 158, 11, 0.3);
+                    }
+
+                    .feature-card {
+                        background: white;
+                        border-left: 4px solid;
+                        transition: all 0.3s ease;
+                    }
+
+                    .feature-card:hover {
+                        transform: translateX(4px);
+                        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+                    }
+                </style>
 
                 <div class="max-w-6xl mx-auto w-full">
                     <div class="relative overflow-hidden bg-white rounded-2xl shadow-xl p-10">
@@ -87,9 +82,9 @@
                             <p class="text-xl text-gray-800 mb-2 font-semibold">ComplianceOps AI Agents</p>
                             <p class="text-gray-600 mb-10 max-w-3xl mx-auto text-base leading-relaxed">
                                 Your end-to-end compliance operating system. Powered by a BFSI-specific Vertical LLM
-                                (NeoGPT) to
-                                automate circular processing, streamline evidence collection, and ensure 100% audit
-                                readiness.
+                                (NeoGPT) to automate circular processing, streamline evidence collection, and ensure
+                                100%
+                                audit readiness.
                             </p>
 
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mb-10 text-left max-w-4xl mx-auto">
@@ -163,6 +158,14 @@
                         </div>
                     </div>
                 </div>
+
+                <script>
+                    function complianceOps() {
+                        return {
+                            // Placeholder for future logic
+                        }
+                    }
+                </script>
             </main>
         </div>
     </div>

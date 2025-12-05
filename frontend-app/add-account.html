@@ -11,123 +11,6 @@
     <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
     <link rel="apple-touch-icon" href="/icons/XamOps.png">
     <script type="module" src="/src/main.js"></script>
-
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-
-        :root {
-            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            --gcp-gradient: linear-gradient(135deg, #4285F4 0%, #34A853 100%);
-            --aws-orange: #ff9900;
-            --azure-blue: #0078D4;
-            --glass-bg: rgba(255, 255, 255, 0.95);
-            --glass-border: rgba(255, 255, 255, 0.2);
-        }
-
-        body {
-            font-family: 'Inter', sans-serif;
-            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-            min-height: 100vh;
-        }
-
-        [x-cloak] {
-            display: none !important;
-        }
-
-        .glass-card {
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--glass-border);
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-        }
-
-        .header-gradient {
-            background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%);
-            backdrop-filter: blur(10px);
-            border-bottom: 1px solid rgba(229, 231, 235, 0.8);
-        }
-
-        .form-card {
-            position: relative;
-            overflow: hidden;
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--glass-border);
-        }
-
-        .form-input {
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--glass-border);
-        }
-
-        .btn-primary {
-            background: var(--primary-gradient);
-            border: none;
-            color: white;
-        }
-
-        .radio-option {
-            background: var(--glass-bg);
-            border: 2px solid rgba(229, 231, 235, 0.8);
-            transition: all 0.3s ease;
-            cursor: pointer;
-            display: block;
-            /* Make sure <a> tag behaves like a block */
-        }
-
-        .radio-option:hover {
-            border-color: #667eea;
-            text-decoration: none;
-            /* Remove underline from <a> */
-        }
-
-        .radio-option.selected {
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-        }
-
-        .step-number {
-            width: 32px;
-            height: 32px;
-            border-radius: 50%;
-            background: var(--primary-gradient);
-            color: white;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 600;
-            flex-shrink: 0;
-            margin-right: 1rem;
-        }
-
-        .fade-in {
-            animation: fadeIn 0.5s ease-in-out;
-        }
-
-        @keyframes fadeIn {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
-            }
-
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        .modal-overlay {
-            background: rgba(0, 0, 0, 0.5);
-            backdrop-filter: blur(4px);
-        }
-
-        .modal-content {
-            background: var(--glass-bg);
-            border: 1px solid var(--glass-border);
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-        }
-    </style>
 </head>
 
 <body class="bg-gray-50">
@@ -136,7 +19,136 @@
         <include file="/_sidebar.html"></include>
 
         <div class="flex-1 pl-64">
-            <main class="flex-1 flex flex-col min-h-screen" x-data="addAccount()">
+            <main id="main-content" class="flex-1 flex flex-col min-h-screen" x-data="addAccount()">
+
+                <style>
+                    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+                    :root {
+                        --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        --gcp-gradient: linear-gradient(135deg, #4285F4 0%, #34A853 100%);
+                        --aws-orange: #ff9900;
+                        --azure-blue: #0078D4;
+                        --glass-bg: rgba(255, 255, 255, 0.95);
+                        --glass-border: rgba(255, 255, 255, 0.2);
+                    }
+
+                    [x-cloak] {
+                        display: none !important;
+                    }
+
+                    .glass-card {
+                        background: var(--glass-bg);
+                        backdrop-filter: blur(10px);
+                        border: 1px solid var(--glass-border);
+                        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+                    }
+
+                    .header-gradient {
+                        background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%);
+                        backdrop-filter: blur(10px);
+                        border-bottom: 1px solid rgba(229, 231, 235, 0.8);
+                    }
+
+                    .form-card {
+                        position: relative;
+                        overflow: hidden;
+                        background: var(--glass-bg);
+                        backdrop-filter: blur(10px);
+                        border: 1px solid var(--glass-border);
+                    }
+
+                    .form-input {
+                        background: var(--glass-bg);
+                        backdrop-filter: blur(10px);
+                        border: 1px solid var(--glass-border);
+                    }
+
+                    .btn-primary {
+                        background: var(--primary-gradient);
+                        border: none;
+                        color: white;
+                    }
+
+                    .radio-option {
+                        background: var(--glass-bg);
+                        border: 2px solid rgba(229, 231, 235, 0.8);
+                        transition: all 0.3s ease;
+                        cursor: pointer;
+                        display: block;
+                    }
+
+                    .radio-option:hover {
+                        border-color: #667eea;
+                        text-decoration: none;
+                    }
+
+                    .radio-option.selected {
+                        border-color: #667eea;
+                        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+                    }
+
+                    .step-number {
+                        width: 32px;
+                        height: 32px;
+                        border-radius: 50%;
+                        background: var(--primary-gradient);
+                        color: white;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        font-weight: 600;
+                        flex-shrink: 0;
+                        margin-right: 1rem;
+                    }
+
+                    .fade-in {
+                        animation: fadeIn 0.5s ease-in-out;
+                    }
+
+                    @keyframes fadeIn {
+                        from {
+                            opacity: 0;
+                            transform: translateY(20px);
+                        }
+
+                        to {
+                            opacity: 1;
+                            transform: translateY(0);
+                        }
+                    }
+
+                    .modal-overlay {
+                        background: rgba(0, 0, 0, 0.5);
+                        backdrop-filter: blur(4px);
+                    }
+
+                    .modal-content {
+                        background: var(--glass-bg);
+                        border: 1px solid var(--glass-border);
+                        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+                    }
+
+                    .loading-spinner {
+                        border: 2px solid #f3f4f6;
+                        border-top: 2px solid white;
+                        border-radius: 50%;
+                        width: 1rem;
+                        height: 1rem;
+                        animation: spin 1s linear infinite;
+                    }
+
+                    @keyframes spin {
+                        0% {
+                            transform: rotate(0deg);
+                        }
+
+                        100% {
+                            transform: rotate(360deg);
+                        }
+                    }
+                </style>
+
                 <header class="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-10">
                     <div class="flex items-center space-x-4">
                         <div class="w-12 h-12 bg-gradient-to-br rounded-xl flex items-center justify-center" :class="{
@@ -367,14 +379,13 @@
                                                 :disabled="isLoading || !accountName">
                                                 <span x-show="!isLoading">Launch Stack</span>
                                                 <span x-show="isLoading" class="flex items-center">
-                                                    <div
-                                                        class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2">
-                                                    </div>Generating...
+                                                    <div class="loading-spinner mr-2"></div>Generating...
                                                 </span>
                                             </button>
                                         </div>
                                     </form>
                                 </div>
+
                                 <div x-show="isVerifying" x-cloak class="fade-in">
                                     <div class="text-center mb-6">
                                         <h2 class="text-xl font-bold text-gray-800">Stack Launched!</h2>
@@ -404,8 +415,13 @@
                                             x-text="verificationError"></div>
                                         <div class="flex justify-end pt-4">
                                             <button type="submit"
-                                                class="btn-primary px-6 py-3 text-sm font-semibold rounded-lg shadow-md">Verify
-                                                & Connect</button>
+                                                class="btn-primary px-6 py-3 text-sm font-semibold rounded-lg shadow-md"
+                                                :disabled="isLoading">
+                                                <span x-show="!isLoading">Verify & Connect</span>
+                                                <span x-show="isLoading" class="flex items-center">
+                                                    <div class="loading-spinner mr-2"></div>Verifying...
+                                                </span>
+                                            </button>
                                         </div>
                                     </form>
                                 </div>
@@ -434,26 +450,7 @@
                             </div>
 
                             <div x-show="provider === 'azure'" x-cloak class="form-card rounded-2xl p-8 fade-in">
-
-                                <div class="space-y-4" x-data="{
-                                     copy(elementId) {
-                                         const text = document.getElementById(elementId).innerText;
-                                         navigator.clipboard.writeText(text);
-                                         
-                                         // Reset all buttons to 'Copy'
-                                         this.$refs.copyBtn1.innerText = 'Copy';
-                                         this.$refs.copyBtn2.innerText = 'Copy';
-                                         this.$refs.copyBtn3.innerText = 'Copy';
-                                         this.$refs.copyBtn4.innerText = 'Copy';
-                                         this.$refs.copyBtn5.innerText = 'Copy';
-
-                                         // Set the clicked button to 'Copied!'
-                                         const clickedButton = this.$el.querySelector(`[data-button-id='${elementId}']`);
-                                         if (clickedButton) {
-                                             clickedButton.innerText = 'Copied!';
-                                         }
-                                     }
-                                 }">
+                                <div class="space-y-4">
                                     <div class="flex items-center space-x-3 mb-6">
                                         <div class="step-number">2</div>
                                         <div>
@@ -465,60 +462,50 @@
                                     <p class="text-sm text-gray-600">
                                         Open the <a href="https://shell.azure.com/" target="_blank"
                                             class="text-blue-600 hover:underline font-medium">Azure Cloud Shell</a>,
-                                        select <strong>PowerShell</strong>,
-                                        and run the following commands one at a time.
+                                        select <strong>PowerShell</strong>, and run the following commands one at a
+                                        time.
                                     </p>
 
                                     <div class="relative bg-gray-900 text-white p-4 rounded-xl font-mono text-sm">
-                                        <button type="button" @click="copy('azure-script-1')" x-ref="copyBtn1"
-                                            data-button-id="azure-script-1"
-                                            class="absolute top-3 right-3 bg-gray-700 hover:bg-gray-600 text-white text-xs font-semibold py-1 px-3 rounded-md transition z-10">
-                                            Copy
-                                        </button>
-                                        <pre id="azure-script-1"
-                                            class="overflow-x-auto"><code class="language-powershell">Connect-AzAccount -UseDeviceAuthentication</code></pre>
+                                        <button type="button"
+                                            @click="copyToClipboard('Connect-AzAccount -UseDeviceAuthentication', $event)"
+                                            class="absolute top-3 right-3 bg-gray-700 hover:bg-gray-600 text-white text-xs font-semibold py-1 px-3 rounded-md transition z-10">Copy</button>
+                                        <pre
+                                            class="overflow-x-auto"><code>Connect-AzAccount -UseDeviceAuthentication</code></pre>
                                     </div>
 
                                     <div class="relative bg-gray-900 text-white p-4 rounded-xl font-mono text-sm">
-                                        <button type="button" @click="copy('azure-script-2')" x-ref="copyBtn2"
-                                            data-button-id="azure-script-2"
-                                            class="absolute top-3 right-3 bg-gray-700 hover:bg-gray-600 text-white text-xs font-semibold py-1 px-3 rounded-md transition z-10">
-                                            Copy
-                                        </button>
-                                        <pre id="azure-script-2"
-                                            class="overflow-x-auto"><code class="language-powershell">Set-AzContext -Subscription <span class="text-yellow-400">"YOUR_SUBSCRIPTION_ID"</span></code></pre>
+                                        <button type="button"
+                                            @click="copyToClipboard('Set-AzContext -Subscription &quot;YOUR_SUBSCRIPTION_ID&quot;', $event)"
+                                            class="absolute top-3 right-3 bg-gray-700 hover:bg-gray-600 text-white text-xs font-semibold py-1 px-3 rounded-md transition z-10">Copy</button>
+                                        <pre
+                                            class="overflow-x-auto"><code>Set-AzContext -Subscription <span class="text-yellow-400">"YOUR_SUBSCRIPTION_ID"</span></code></pre>
                                     </div>
 
                                     <div class="relative bg-gray-900 text-white p-4 rounded-xl font-mono text-sm">
-                                        <button type="button" @click="copy('azure-script-3')" x-ref="copyBtn3"
-                                            data-button-id="azure-script-3"
-                                            class="absolute top-3 right-3 bg-gray-700 hover:bg-gray-600 text-white text-xs font-semibold py-1 px-3 rounded-md transition z-10">
-                                            Copy
-                                        </button>
-                                        <pre id="azure-script-3"
-                                            class="overflow-x-auto"><code class="language-powershell">Invoke-WebRequest -Uri "https://xamops-azure-connector1.s3.ap-south-1.amazonaws.com/setup-xamops-connection1.ps" -OutFile "setup-xamops-connection.ps1"</code></pre>
+                                        <button type="button"
+                                            @click="copyToClipboard('Invoke-WebRequest -Uri &quot;https://xamops-azure-connector1.s3.ap-south-1.amazonaws.com/setup-xamops-connection1.ps&quot; -OutFile &quot;setup-xamops-connection.ps1&quot;', $event)"
+                                            class="absolute top-3 right-3 bg-gray-700 hover:bg-gray-600 text-white text-xs font-semibold py-1 px-3 rounded-md transition z-10">Copy</button>
+                                        <pre
+                                            class="overflow-x-auto"><code>Invoke-WebRequest -Uri "https://xamops-azure-connector1.s3.ap-south-1.amazonaws.com/setup-xamops-connection1.ps" -OutFile "setup-xamops-connection.ps1"</code></pre>
                                     </div>
 
                                     <div class="relative bg-gray-900 text-white p-4 rounded-xl font-mono text-sm">
-                                        <button type="button" @click="copy('azure-script-4')" x-ref="copyBtn4"
-                                            data-button-id="azure-script-4"
-                                            class="absolute top-3 right-3 bg-gray-700 hover:bg-gray-600 text-white text-xs font-semibold py-1 px-3 rounded-md transition z-10">
-                                            Copy
-                                        </button>
-                                        <pre id="azure-script-4"
-                                            class="overflow-x-auto"><code class="language-powershell">. .\setup-xamops-connection.ps1</code></pre>
+                                        <button type="button"
+                                            @click="copyToClipboard('. .\\setup-xamops-connection.ps1', $event)"
+                                            class="absolute top-3 right-3 bg-gray-700 hover:bg-gray-600 text-white text-xs font-semibold py-1 px-3 rounded-md transition z-10">Copy</button>
+                                        <pre class="overflow-x-auto"><code>. .\setup-xamops-connection.ps1</code></pre>
                                     </div>
 
                                     <div class="relative bg-gray-900 text-white p-4 rounded-xl font-mono text-sm">
-                                        <button type="button" @click="copy('azure-script-5')" x-ref="copyBtn5"
-                                            data-button-id="azure-script-5"
-                                            class="absolute top-3 right-3 bg-gray-700 hover:bg-gray-600 text-white text-xs font-semibold py-1 px-3 rounded-md transition z-10">
-                                            Copy
-                                        </button>
-                                        <pre id="azure-script-5"
-                                            class="overflow-x-auto"><code class="language-powershell">Setup-XamOpsConnection -SubscriptionId <span class="text-yellow-400">"YOUR_SUBSCRIPTION_ID"</span> -ApplicationName "XamOps" -CreateSpCredential $true</code></pre>
+                                        <button type="button"
+                                            @click="copyToClipboard('Setup-XamOpsConnection -SubscriptionId &quot;YOUR_SUBSCRIPTION_ID&quot; -ApplicationName &quot;XamOps&quot; -CreateSpCredential $true', $event)"
+                                            class="absolute top-3 right-3 bg-gray-700 hover:bg-gray-600 text-white text-xs font-semibold py-1 px-3 rounded-md transition z-10">Copy</button>
+                                        <pre
+                                            class="overflow-x-auto"><code>Setup-XamOpsConnection -SubscriptionId <span class="text-yellow-400">"YOUR_SUBSCRIPTION_ID"</span> -ApplicationName "XamOps" -CreateSpCredential $true</code></pre>
                                     </div>
                                 </div>
+
                                 <form @submit.prevent="addAzureAccount"
                                     class="space-y-6 pt-8 border-t border-gray-200 mt-8">
                                     <div class="flex items-center space-x-3 mb-6">
@@ -551,9 +538,7 @@
                                             :disabled="isLoading" style="background: var(--azure-blue);">
                                             <span x-show="!isLoading">Verify & Connect</span>
                                             <span x-show="isLoading" class="flex items-center">
-                                                <div
-                                                    class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2">
-                                                </div>Connecting...
+                                                <div class="loading-spinner mr-2"></div>Connecting...
                                             </span>
                                         </button>
                                     </div>
@@ -601,15 +586,12 @@
                                             :disabled="isLoading">
                                             <span x-show="!isLoading">Connect Jenkins</span>
                                             <span x-show="isLoading" class="flex items-center">
-                                                <div
-                                                    class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2">
-                                                </div>Connecting...
+                                                <div class="loading-spinner mr-2"></div>Connecting...
                                             </span>
                                         </button>
                                     </div>
                                 </form>
                             </div>
-
                         </div>
                     </div>
                 </div>
@@ -621,7 +603,6 @@
                         <h2 class="text-xl font-bold text-gray-800 mb-4">IAM Policies</h2>
                         <p class="text-sm text-gray-600 mb-6">The CloudFormation stack will create an IAM role (e.g.,
                             `XamOpsRole`) with these two policies attached.</p>
-
                         <h3 class="text-lg font-semibold text-gray-700 mb-2">1. AWSReadOnlyAccess</h3>
                         <div class="bg-gray-100 p-4 rounded-lg text-xs overflow-x-auto mb-6">
                             <p class="font-mono">
@@ -629,319 +610,149 @@
                                 <strong>ARN:</strong> `arn:aws:iam::aws:policy/ReadOnlyAccess`
                             </p>
                             <p class="mt-2 text-gray-700">This policy provides broad read-only access to all AWS
-                                services and resources, allowing XamOps to list and describe your infrastructure.</p>
+                                services and resources.</p>
                         </div>
-
-                        <h3 class="text-lg font-semibold text-gray-700 mb-2">2. XamOpsApplicationPermissions (Custom
-                            Policy)</h3>
-                        <pre class="bg-gray-100 p-4 rounded-lg text-xs overflow-x-auto"><code>{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Action": [
-                "acm:ListCertificates",
-                "access-analyzer:ListAnalyzers",
-                "access-analyzer:ListFindings",
-                "autoscaling:DescribeAutoScalingGroups",
-                "budgets:ViewBudget",
-                "budgets:ModifyBudget",
-                "ce:GetAnomalies",
-                "ce:GetCostAndUsage",
-                "ce:GetDimensionValues",
-                "ce:GetReservationCoverage",
-                "ce:GetReservationPurchaseRecommendation",
-                "ce:GetReservationUtilization",
-                "cloudtrail:DescribeTrails",
-                "cloudtrail:GetTrailStatus",
-                "cloudtrail:LookupEvents",
-                "cloudwatch:DescribeAlarms",
-                "cloudwatch:GetMetricData",
-                "cloudwatch:GetMetricStatistics",
-                "compute-optimizer:GetEBSVolumeRecommendations",
-                "compute-optimizer:GetEc2InstanceRecommendations",
-                "compute-optimizer:GetLambdaFunctionRecommendations",
-                "dynamodb:DescribeTable",
-                "dynamodb:ListTables",
-                "ec2:Describe*",
-                "ecr:DescribeRepositories",
-                "ecs:DescribeClusters",
-                "ecs:ListClusters",
-                "eks:DescribeCluster",
-                "eks:ListClusters",
-                "elasticache:DescribeCacheClusters",
-                "elasticloadbalancing:DescribeLoadBalancers",
-                "elasticloadbalancing:DescribeTargetGroups",
-                "elasticloadbalancing:DescribeTargetHealth",
-                "iam:GetAccountPasswordPolicy",
-                "iam:GetLoginProfile",
-                "iam:GetPolicyVersion",
-                "iam:GetRole",
-                "iam:ListAccessKeys",
-                "iam:ListAccountAliases",
-                "iam:ListGroups",
-                "iam:ListMFADevices",
-                "iam:ListPolicies",
-                "iam:ListRoles",
-                "iam:ListUsers",
-                "kms:DescribeKey",
-                "kms:GetKeyRotationStatus",
-                "kms:ListKeys",
-                "lambda:ListFunctions",
-                "lambda:ListProvisionedConcurrencyConfigs",
-                "lambda:ListVersionsByFunction",
-                "logs:DescribeLogGroups",
-                "logs:DescribeLogStreams",
-                "logs:GetQueryResults",
-                "logs:StartQuery",
-                "organizations:DescribeAccount",
-                "organizations:ListAccounts",
-                "pricing:DescribeServices",
-                "pricing:GetProducts",
-                "pricing:ListPriceLists",
-                "rds:DescribeDBInstances",
-                "rds:DescribeDBSnapshots",
-                "rds:ListTagsForResource",
-                "route53:ListHostedZones",
-                "s3:GetBucketAcl",
-                "s3:GetBucketLocation",
-                "s3:GetBucketPublicAccessBlock",
-                "s3:GetLifecycleConfiguration",
-                "s3:ListAccessGrantsInstances",
-                "s3:ListAccessGrantsLocations",
-                "s3:ListAllMyBuckets",
-                "s3:ListBucket",
-                "s3:ListBucketVersions",
-                "s3:ListMultiRegionAccessPoints",
-                "servicequotas:ListServiceQuotas",
-                "sns:ListTopics",
-                "sqs:GetQueueAttributes",
-                "sqs:ListQueues",
-                "sts:GetCallerIdentity"
-            ],
-            "Resource": "*",
-            "Effect": "Allow",
-            "Sid": "XamOpsApplicationPermissions"
-        }
-    ]
-}</code></pre>
-
                         <div class="flex justify-end mt-6">
                             <button @click="isPolicyModalOpen = false"
                                 class="btn-primary px-6 py-3 text-sm font-semibold rounded-lg shadow-md">Close</button>
                         </div>
                     </div>
                 </div>
+
+                <script>
+                    function addAccount() {
+                        return {
+                            provider: 'aws',
+                            accountName: '',
+                            accessType: 'read-only',
+                            isVerifying: false,
+                            verificationDetails: { awsAccountId: '', roleName: '', externalId: '' },
+                            azureDetails: { accountName: '', azureCredentialsJson: '' },
+                            jenkinsDetails: { url: '', username: '', token: '' },
+                            isLoading: false,
+                            isPolicyModalOpen: false,
+                            verificationError: '',
+
+                            getHeaderText() {
+                                switch (this.provider) {
+                                    case 'aws': return 'Connect your AWS account securely using CloudFormation';
+                                    case 'gcp': return 'Connect your Google Cloud project using a Service Account';
+                                    case 'azure': return 'Connect your Azure subscription using a Service Principal';
+                                    case 'jenkins': return 'Connect your Jenkins Server via API Token';
+                                    default: return 'Select a cloud provider to begin';
+                                }
+                            },
+
+                            addAzureAccount() {
+                                this.isLoading = true;
+                                let payload;
+                                try {
+                                    const parsedJson = JSON.parse(this.azureDetails.azureCredentialsJson);
+                                    const toCamel = (s) => s.replace(/([-_][a-z])/ig, ($1) => $1.toUpperCase().replace('-', '').replace('_', ''));
+                                    const credentials = Object.keys(parsedJson).reduce((acc, key) => {
+                                        acc[toCamel(key)] = parsedJson[key];
+                                        return acc;
+                                    }, {});
+                                    payload = { ...credentials, accountName: this.azureDetails.accountName };
+                                    const requiredFields = ['tenantId', 'subscriptionId', 'clientId', 'clientSecret'];
+                                    const missingFields = requiredFields.filter(field => !payload[field]);
+                                    if (missingFields.length > 0) throw new Error(`Missing fields: ${missingFields.join(', ')}`);
+                                } catch (e) {
+                                    alert(`Error: ${e.message}`);
+                                    this.isLoading = false;
+                                    return;
+                                }
+
+                                fetch('/api/xamops/account-manager/azure', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify(payload)
+                                })
+                                    .then(res => res.ok ? res.json() : res.text().then(text => { throw new Error(text || 'Failed to add Azure account.') }))
+                                    .then(data => {
+                                        alert('Azure account added successfully!');
+                                        window.location.href = '/account-manager.html';
+                                    })
+                                    .catch(err => alert(`Error: ${err.message}`))
+                                    .finally(() => this.isLoading = false);
+                            },
+
+                            addJenkinsAccount() {
+                                this.isLoading = true;
+                                fetch('/api/cicd/config/jenkins', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        jenkinsUrl: this.jenkinsDetails.url,
+                                        username: this.jenkinsDetails.username,
+                                        apiToken: this.jenkinsDetails.token
+                                    })
+                                })
+                                    .then(res => res.ok ? res.json() : (() => { throw new Error('Failed to connect to Jenkins.') })())
+                                    .then(data => {
+                                        alert('Jenkins server connected successfully!');
+                                        window.location.href = '/account-manager.html';
+                                    })
+                                    .catch(err => alert(`Error: ${err.message}`))
+                                    .finally(() => this.isLoading = false);
+                            },
+
+                            launchStack() {
+                                if (!this.accountName) {
+                                    alert('Please enter an account name.');
+                                    return;
+                                }
+                                this.isLoading = true;
+                                fetch('/api/xamops/account-manager/generate-stack-url', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        accountName: this.accountName,
+                                        awsAccountId: '',
+                                        accessType: this.accessType
+                                    })
+                                })
+                                    .then(res => res.ok ? res.json() : res.text().then(text => { throw new Error(text || 'Failed to generate stack URL.') }))
+                                    .then(data => {
+                                        window.open(data.url, '_blank');
+                                        this.verificationDetails.externalId = data.externalId;
+                                        this.isVerifying = true;
+                                    })
+                                    .catch(err => alert(`Error: ${err.message}`))
+                                    .finally(() => this.isLoading = false);
+                            },
+
+                            verifyAccount() {
+                                this.isLoading = true;
+                                this.verificationError = '';
+                                fetch('/api/xamops/account-manager/verify-account', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify(this.verificationDetails)
+                                })
+                                    .then(res => res.ok ? res.json() : res.json().then(err => { throw new Error(err.message || 'Verification failed.') }))
+                                    .then(data => {
+                                        window.location.href = '/account-manager.html';
+                                    })
+                                    .catch(err => this.verificationError = `Error: ${err.message}`)
+                                    .finally(() => this.isLoading = false);
+                            },
+
+                            copyToClipboard(text, event) {
+                                navigator.clipboard.writeText(text).then(() => {
+                                    const originalText = event.target.innerText;
+                                    event.target.innerText = 'Copied!';
+                                    setTimeout(() => {
+                                        event.target.innerText = originalText;
+                                    }, 2000);
+                                });
+                            }
+                        }
+                    }
+                </script>
             </main>
         </div>
     </div>
-
-    <script>
-        function addAccount() {
-            return {
-                provider: 'aws',
-                // AWS specific properties
-                accountName: '',
-                accessType: 'read-only',
-                isVerifying: false,
-                verificationDetails: {
-                    awsAccountId: '',
-                    roleName: '',
-                    externalId: ''
-                },
-                // Azure specific properties
-                azureDetails: {
-                    accountName: '',
-                    azureCredentialsJson: ''
-                },
-                // Jenkins details
-                jenkinsDetails: {
-                    url: '',
-                    username: '',
-                    token: ''
-                },
-                // Common properties
-                isLoading: false,
-                isPolicyModalOpen: false,
-                verificationError: '',
-
-                getHeaderText() {
-                    switch (this.provider) {
-                        case 'aws': return 'Connect your AWS account securely using CloudFormation';
-                        case 'gcp': return 'Connect your Google Cloud project using a Service Account';
-                        case 'azure': return 'Connect your Azure subscription using a Service Principal';
-                        case 'jenkins': return 'Connect your Jenkins Server via API Token';
-                        default: return 'Select a cloud provider to begin';
-                    }
-                },
-
-                // Azure Function
-                addAzureAccount() {
-                    this.isLoading = true;
-                    let payload;
-                    try {
-                        const parsedJson = JSON.parse(this.azureDetails.azureCredentialsJson);
-
-                        // Helper to convert snake_case and kebab-case keys to camelCase
-                        const toCamel = (s) => s.replace(/([-_][a-z])/ig, ($1) => {
-                            return $1.toUpperCase().replace('-', '').replace('_', '');
-                        });
-
-                        // Convert all keys in the parsed JSON to camelCase
-                        const credentials = Object.keys(parsedJson).reduce((acc, key) => {
-                            acc[toCamel(key)] = parsedJson[key];
-                            return acc;
-                        }, {});
-
-                        // Combine with account name from the form
-                        payload = {
-                            ...credentials,
-                            accountName: this.azureDetails.accountName
-                        };
-
-                        // Client-side validation for required fields after conversion
-                        const requiredFields = ['tenantId', 'subscriptionId', 'clientId', 'clientSecret'];
-                        const missingFields = requiredFields.filter(field => !payload[field]);
-
-                        if (missingFields.length > 0) {
-                            // More specific error message if fields are missing
-                            throw new Error(`The provided JSON is missing required fields: ${missingFields.join(', ')}.`);
-                        }
-
-                    } catch (e) {
-                        // Catches both JSON parsing errors and missing field errors
-                        alert(`Error: ${e.message}`);
-                        this.isLoading = false;
-                        return;
-                    }
-
-                    fetch('/api/xamops/account-manager/azure', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    })
-                        .then(res => {
-                            if (!res.ok) {
-                                // The backend error message is often more specific
-                                return res.text().then(text => { throw new Error(text || 'Failed to add Azure account.') });
-                            }
-                            return res.json();
-                        })
-                        .then(data => {
-                            alert('Azure account added successfully!');
-                            window.location.href = '/account-manager.html';
-                        })
-                        .catch(err => {
-                            // Display the specific error from the backend or the frontend validation
-                            let errorJson = {};
-                            try {
-                                errorJson = JSON.parse(err.message);
-                            } catch (e) {
-                                // It's not JSON, just show the text
-                                alert(`Error: ${err.message}`);
-                                console.error(err);
-                                return;
-                            }
-                            // If it is JSON, show the message from it
-                            alert(`Error: ${errorJson.message || 'An unknown error occurred.'}`);
-                            console.error(err);
-                        })
-                        .finally(() => {
-                            this.isLoading = false;
-                        });
-                },
-
-                // Jenkins Function
-                addJenkinsAccount() {
-                    this.isLoading = true;
-                    fetch('/api/cicd/config/jenkins', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            jenkinsUrl: this.jenkinsDetails.url,
-                            username: this.jenkinsDetails.username,
-                            apiToken: this.jenkinsDetails.token
-                        }),
-                        credentials: 'include'
-                    })
-                        .then(res => {
-                            if (!res.ok) throw new Error('Failed to connect to Jenkins.');
-                            return res.json();
-                        })
-                        .then(data => {
-                            alert('Jenkins server connected successfully!');
-                            window.location.href = '/account-manager.html';
-                        })
-                        .catch(err => {
-                            alert(`Error: ${err.message}`);
-                        })
-                        .finally(() => {
-                            this.isLoading = false;
-                        });
-                },
-
-                // AWS Functions
-                launchStack() {
-                    if (!this.accountName) {
-                        alert('Please enter an account name.');
-                        return;
-                    }
-                    this.isLoading = true;
-                    fetch('/api/xamops/account-manager/generate-stack-url', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            accountName: this.accountName,
-                            awsAccountId: '', // This is collected in step 2, send empty
-                            accessType: this.accessType
-                        })
-                    })
-                        .then(res => {
-                            if (!res.ok) {
-                                return res.text().then(text => { throw new Error(text || 'Failed to generate stack URL.') });
-                            }
-                            return res.json();
-                        })
-                        .then(data => {
-                            window.open(data.url, '_blank');
-                            this.verificationDetails.externalId = data.externalId;
-                            this.isVerifying = true;
-                        })
-                        .catch(err => {
-                            alert(`Error: ${err.message}`);
-                        })
-                        .finally(() => {
-                            this.isLoading = false;
-                        });
-                },
-
-                verifyAccount() {
-                    this.isLoading = true;
-                    this.verificationError = '';
-                    fetch('/api/xamops/account-manager/verify-account', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(this.verificationDetails)
-                    })
-                        .then(res => {
-                            if (!res.ok) {
-                                return res.json().then(err => { throw new Error(err.message || 'Verification failed.') });
-                            }
-                            return res.json();
-                        })
-                        .then(data => {
-                            window.location.href = '/account-manager.html';
-                        })
-                        .catch(err => {
-                            this.verificationError = `Error: ${err.message}`;
-                        })
-                        .finally(() => {
-                            this.isLoading = false;
-                        });
-                }
-            }
-        }
-    </script>
-
 </body>
 
 </html>

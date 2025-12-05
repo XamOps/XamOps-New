@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -10,614 +11,684 @@
     <link rel="apple-touch-icon" href="/icons/XamOps.png">
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
     <script type="module" src="/src/main.js"></script>
-
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-
-        :root {
-            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            --success-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
-            --warning-gradient: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-            --error-gradient: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-            --critical-gradient: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
-            --glass-bg: rgba(255, 255, 255, 0.95);
-            --glass-border: rgba(255, 255, 255, 0.2);
-        }
-
-        body {
-            font-family: 'Inter', sans-serif;
-            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-            min-height: 100vh;
-        }
-
-        [x-cloak] { display: none !important; }
-
-        .table-enhanced {
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            border-radius: 12px;
-            overflow: hidden;
-            border: 1px solid var(--glass-border);
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-        }
-
-        .table-enhanced table {
-            table-layout: fixed;
-            width: 100%;
-            border-collapse: collapse;
-        }
-
-        .table-enhanced th:nth-child(1) { width: 15%; }
-        .table-enhanced th:nth-child(2) { width: 40%; }
-        .table-enhanced th:nth-child(3) { width: 22%; }
-        .table-enhanced th:nth-child(4) { width: 23%; }
-
-        .table-enhanced thead {
-            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-            border-bottom: 2px solid #e5e7eb;
-        }
-
-        .table-enhanced th {
-            padding: 16px 12px;
-            text-align: left;
-            font-weight: 700;
-            font-size: 12px;
-            letter-spacing: 0.5px;
-            text-transform: uppercase;
-            color: #374151;
-            border-right: 1px solid #e5e7eb;
-        }
-
-        .table-enhanced th:last-child {
-            border-right: none;
-        }
-
-        .table-enhanced td {
-            padding: 14px 12px;
-            vertical-align: middle;
-            border-right: 1px solid #e5e7eb;
-            border-bottom: 1px solid #f3f4f6;
-        }
-
-        .table-enhanced td:last-child {
-            border-right: none;
-        }
-
-        .table-enhanced tbody tr {
-            transition: all 0.2s ease;
-        }
-
-        .table-enhanced tbody tr:hover {
-            background: rgba(102, 126, 234, 0.05);
-        }
-
-        .category-display { font-weight: 600; font-size: 14px; color: #1f2937; text-align: left; }
-        .description-text { font-size: 13px; line-height: 1.5; color: #374151; text-align: left; }
-        .resource-info { font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace; }
-        .resource-id { font-size: 12px; color: #1f2937; font-weight: 500; margin-bottom: 4px; word-break: break-all; }
-        .resource-region { font-size: 11px; color: #6b7280; font-weight: 400; }
-
-        .compliance-badge {
-            display: inline-block;
-            background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(59, 130, 246, 0.15) 100%);
-            border: 1px solid rgba(59, 130, 246, 0.25);
-            color: #1e40af;
-            padding: 6px 10px;
-            border-radius: 8px;
-            font-size: 11px;
-            font-weight: 600;
-            text-align: center;
-            white-space: nowrap;
-        }
-
-        .soc2-badge {
-             background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(16, 185, 129, 0.15) 100%);
-             border: 1px solid rgba(16, 185, 129, 0.25);
-             color: #047857;
-        }
-
-        .glass-card {
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--glass-border);
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-        }
-
-        .security-card {
-            position: relative;
-            overflow: hidden;
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--glass-border);
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .skeleton {
-            background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
-            background-size: 200% 100%; animation: shimmer 1.5s infinite;
-        }
-
-        @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
-
-        .header-gradient {
-            background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%);
-            backdrop-filter: blur(10px);
-            border-bottom: 1px solid rgba(229, 231, 235, 0.8);
-        }
-
-        .btn-primary { background: var(--primary-gradient); border: none; color: white; }
-        .btn-success { background: var(--success-gradient); border: none; color: white; }
-        .severity-section { background: var(--glass-bg); border: 1px solid var(--glass-border); }
-        .empty-state { background: var(--glass-bg); border: 2px dashed rgba(16, 185, 129, 0.3); }
-        .fade-in { animation: fadeIn 0.5s ease-in-out; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-        .gradient-text { background: var(--primary-gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
-        .severity-badge { display: inline-flex; align-items: center; padding: 6px 16px; border-radius: 20px; font-size: 12px; font-weight: 700; text-transform: uppercase; }
-        .pulse-dot { animation: pulse-dot 2s infinite; }
-        @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-    </style>
 </head>
+
 <body class="bg-gray-50">
 
-<div class="flex">
-  <include file="/_sidebar.html"></include>
+    <div class="flex">
+        <include file="/_sidebar.html"></include>
 
-    <div class="flex-1 pl-64">
-        <main class="flex-1 flex flex-col min-h-screen" x-data="securityCenter()">
-            <header class="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-20">
-                <div class="flex items-center space-x-4">
-                    <div class="w-12 h-12 bg-gradient-to-br from-red-500 to-pink-600 rounded-xl flex items-center justify-center">
-                        <i class="fas fa-shield-alt text-white text-xl"></i>
-                    </div>
-                    <div>
-                        <h1 class="text-2xl font-bold text-gray-800">Security Center</h1>
-                        <p class="text-sm text-gray-600">Monitor security findings and compliance status</p>
-                    </div>
-                </div>
-                <div class="flex items-center space-x-4">
-                    <div class="flex items-center space-x-2">
-                        <div class="w-2 h-2 bg-red-500 rounded-full pulse-dot"></div>
-                        <span class="text-sm text-gray-600">Security monitoring</span>
-                    </div>
-                    <button @click="exportData()" class="btn-success flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md" :disabled="isExporting">
-                        <i class="fas" :class="isExporting ? 'fa-spinner fa-spin' : 'fa-file-excel'"></i>
-                        <span x-text="isExporting ? 'Exporting...' : 'Export Report'"></span>
-                    </button>
-                    <button @click="loadFindings(true)" class="btn-primary flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md" :disabled="isRefreshing">
-                        <i class="fas fa-sync-alt" :class="{ 'fa-spin': isRefreshing }"></i>
-                        <span x-text="isRefreshing ? 'Scanning...' : 'Refresh Scan'"></span>
-                    </button>
-                </div>
-            </header>
+        <div class="flex-1 pl-64">
+            <main id="main-content" class="flex-1 flex flex-col min-h-screen" x-data="securityCenter()">
 
-            <div class="flex-1 p-8 space-y-8">
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                    <template x-if="isLoading">
-                        <div class="skeleton h-36 rounded-2xl"></div>
-                        <div class="skeleton h-36 rounded-2xl"></div>
-                        <div class="skeleton h-36 rounded-2xl"></div>
-                        <div class="skeleton h-36 rounded-2xl"></div>
-                    </template>
+                <style>
+                    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
-                    <template x-if="!isLoading">
-                        <div class="security-card rounded-2xl p-6 fade-in">
-                            <div class="flex justify-between items-start mb-4">
-                                <div class="flex-1">
-                                    <h3 class="text-gray-600 text-sm font-medium mb-2">Total Findings</h3>
-                                    <p class="text-4xl font-bold gradient-text mb-1" x-text="filteredFindings.length"></p>
-                                    <p class="text-xs text-gray-500">security issues detected</p>
-                                </div>
-                                <div class="w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center">
-                                    <i class="fas fa-search text-white text-xl"></i>
-                                </div>
-                            </div>
-                        </div>
+                    :root {
+                        --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        --success-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
+                        --warning-gradient: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+                        --error-gradient: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+                        --critical-gradient: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
+                        --glass-bg: rgba(255, 255, 255, 0.95);
+                        --glass-border: rgba(255, 255, 255, 0.2);
+                    }
 
-                        <div class="security-card rounded-2xl p-6 fade-in">
-                            <div class="flex justify-between items-start mb-4">
-                                <div class="flex-1">
-                                    <h3 class="text-gray-600 text-sm font-medium mb-2">Critical</h3>
-                                    <p class="text-4xl font-bold text-red-600 mb-1" x-text="severityCounts.Critical || 0"></p>
-                                    <p class="text-xs text-gray-500">immediate attention</p>
-                                </div>
-                                <div class="w-14 h-14 bg-gradient-to-br from-red-500 to-red-600 rounded-xl flex items-center justify-center">
-                                    <i class="fas fa-exclamation-triangle text-white text-xl"></i>
-                                </div>
-                            </div>
-                        </div>
+                    [x-cloak] {
+                        display: none !important;
+                    }
 
-                        <div class="security-card rounded-2xl p-6 fade-in">
-                            <div class="flex justify-between items-start mb-4">
-                                <div class="flex-1">
-                                    <h3 class="text-gray-600 text-sm font-medium mb-2">High Priority</h3>
-                                    <p class="text-4xl font-bold text-orange-500 mb-1" x-text="severityCounts.High || 0"></p>
-                                    <p class="text-xs text-gray-500">requires action</p>
-                                </div>
-                                <div class="w-14 h-14 bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl flex items-center justify-center">
-                                    <i class="fas fa-fire text-white text-xl"></i>
-                                </div>
-                            </div>
-                        </div>
+                    .table-enhanced {
+                        background: var(--glass-bg);
+                        backdrop-filter: blur(10px);
+                        border-radius: 12px;
+                        overflow: hidden;
+                        border: 1px solid var(--glass-border);
+                        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+                    }
 
-                        <div class="security-card rounded-2xl p-6 fade-in">
-                            <div class="flex justify-between items-start mb-4">
-                                <div class="flex-1">
-                                    <h3 class="text-gray-600 text-sm font-medium mb-2">Medium & Low</h3>
-                                    <p class="text-4xl font-bold text-yellow-500 mb-1" x-text="(severityCounts.Medium || 0) + (severityCounts.Low || 0)"></p>
-                                    <p class="text-xs text-gray-500">monitor closely</p>
-                                </div>
-                                <div class="w-14 h-14 bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-xl flex items-center justify-center">
-                                    <i class="fas fa-eye text-white text-xl"></i>
-                                </div>
-                            </div>
-                        </div>
-                    </template>
-                </div>
+                    .table-enhanced table {
+                        table-layout: fixed;
+                        width: 100%;
+                        border-collapse: collapse;
+                    }
 
-                <div class="bg-white/70 backdrop-blur-sm rounded-2xl p-4 border border-gray-200/50 shadow-lg">
+                    .table-enhanced th:nth-child(1) {
+                        width: 15%;
+                    }
+
+                    .table-enhanced th:nth-child(2) {
+                        width: 40%;
+                    }
+
+                    .table-enhanced th:nth-child(3) {
+                        width: 22%;
+                    }
+
+                    .table-enhanced th:nth-child(4) {
+                        width: 23%;
+                    }
+
+                    .table-enhanced thead {
+                        background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+                        border-bottom: 2px solid #e5e7eb;
+                    }
+
+                    .table-enhanced th {
+                        padding: 16px 12px;
+                        text-align: left;
+                        font-weight: 700;
+                        font-size: 12px;
+                        letter-spacing: 0.5px;
+                        text-transform: uppercase;
+                        color: #374151;
+                        border-right: 1px solid #e5e7eb;
+                    }
+
+                    .table-enhanced th:last-child {
+                        border-right: none;
+                    }
+
+                    .table-enhanced td {
+                        padding: 14px 12px;
+                        vertical-align: middle;
+                        border-right: 1px solid #e5e7eb;
+                        border-bottom: 1px solid #f3f4f6;
+                    }
+
+                    .table-enhanced td:last-child {
+                        border-right: none;
+                    }
+
+                    .table-enhanced tbody tr {
+                        transition: all 0.2s ease;
+                    }
+
+                    .table-enhanced tbody tr:hover {
+                        background: rgba(102, 126, 234, 0.05);
+                    }
+
+                    .category-display {
+                        font-weight: 600;
+                        font-size: 14px;
+                        color: #1f2937;
+                        text-align: left;
+                    }
+
+                    .description-text {
+                        font-size: 13px;
+                        line-height: 1.5;
+                        color: #374151;
+                        text-align: left;
+                    }
+
+                    .resource-info {
+                        font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+                    }
+
+                    .resource-id {
+                        font-size: 12px;
+                        color: #1f2937;
+                        font-weight: 500;
+                        margin-bottom: 4px;
+                        word-break: break-all;
+                    }
+
+                    .resource-region {
+                        font-size: 11px;
+                        color: #6b7280;
+                        font-weight: 400;
+                    }
+
+                    .compliance-badge {
+                        display: inline-block;
+                        background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(59, 130, 246, 0.15) 100%);
+                        border: 1px solid rgba(59, 130, 246, 0.25);
+                        color: #1e40af;
+                        padding: 6px 10px;
+                        border-radius: 8px;
+                        font-size: 11px;
+                        font-weight: 600;
+                        text-align: center;
+                        white-space: nowrap;
+                    }
+
+                    .soc2-badge {
+                        background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(16, 185, 129, 0.15) 100%);
+                        border: 1px solid rgba(16, 185, 129, 0.25);
+                        color: #047857;
+                    }
+
+                    .glass-card {
+                        background: var(--glass-bg);
+                        backdrop-filter: blur(10px);
+                        border: 1px solid var(--glass-border);
+                        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+                    }
+
+                    .security-card {
+                        position: relative;
+                        overflow: hidden;
+                        background: var(--glass-bg);
+                        backdrop-filter: blur(10px);
+                        border: 1px solid var(--glass-border);
+                        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                    }
+
+                    .skeleton {
+                        background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+                        background-size: 200% 100%;
+                        animation: shimmer 1.5s infinite;
+                    }
+
+                    @keyframes shimmer {
+                        0% {
+                            background-position: -200% 0;
+                        }
+
+                        100% {
+                            background-position: 200% 0;
+                        }
+                    }
+
+                    .header-gradient {
+                        background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%);
+                        backdrop-filter: blur(10px);
+                        border-bottom: 1px solid rgba(229, 231, 235, 0.8);
+                    }
+
+                    .btn-primary {
+                        background: var(--primary-gradient);
+                        border: none;
+                        color: white;
+                    }
+
+                    .btn-success {
+                        background: var(--success-gradient);
+                        border: none;
+                        color: white;
+                    }
+
+                    .severity-section {
+                        background: var(--glass-bg);
+                        border: 1px solid var(--glass-border);
+                    }
+
+                    .empty-state {
+                        background: var(--glass-bg);
+                        border: 2px dashed rgba(16, 185, 129, 0.3);
+                    }
+
+                    .fade-in {
+                        animation: fadeIn 0.5s ease-in-out;
+                    }
+
+                    @keyframes fadeIn {
+                        from {
+                            opacity: 0;
+                            transform: translateY(20px);
+                        }
+
+                        to {
+                            opacity: 1;
+                            transform: translateY(0);
+                        }
+                    }
+
+                    .gradient-text {
+                        background: var(--primary-gradient);
+                        -webkit-background-clip: text;
+                        -webkit-text-fill-color: transparent;
+                        background-clip: text;
+                    }
+
+                    .severity-badge {
+                        display: inline-flex;
+                        align-items: center;
+                        padding: 6px 16px;
+                        border-radius: 20px;
+                        font-size: 12px;
+                        font-weight: 700;
+                        text-transform: uppercase;
+                    }
+
+                    .pulse-dot {
+                        animation: pulse-dot 2s infinite;
+                    }
+
+                    @keyframes pulse-dot {
+
+                        0%,
+                        100% {
+                            opacity: 1;
+                        }
+
+                        50% {
+                            opacity: 0.5;
+                        }
+                    }
+                </style>
+
+                <header class="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-20">
                     <div class="flex items-center space-x-4">
-                        <i class="fas fa-filter text-indigo-600"></i>
-                        <label for="compliance-filter" class="text-sm font-semibold text-gray-700">Filter by Compliance:</label>
-                        <select id="compliance-filter" x-model="selectedCompliance" class="form-select px-4 py-2 rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200">
-                            <option value="All">All Compliance Frameworks</option>
-                            <template x-for="framework in complianceFrameworks" :key="framework">
-                                <option :value="framework" x-text="framework"></option>
-                            </template>
-                        </select>
-                    </div>
-                </div>
-
-                <div class="space-y-6">
-                    <div x-show="isLoading" class="skeleton h-96 rounded-2xl"></div>
-
-                    <div x-show="!isLoading && filteredFindings.length === 0" x-cloak class="empty-state text-center py-20 px-8 rounded-2xl">
-                        <div class="w-20 h-20 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6">
-                            <i class="fas fa-shield-alt text-white text-3xl"></i>
+                        <div
+                            class="w-12 h-12 bg-gradient-to-br from-red-500 to-pink-600 rounded-xl flex items-center justify-center">
+                            <i class="fas fa-shield-alt text-white text-xl"></i>
                         </div>
-                        <h3 class="text-2xl font-bold text-gray-800 mb-2">All Clear!</h3>
-                        <p class="text-gray-600 mb-6">No security findings detected. Your environment appears to be secure.</p>
-                        <button @click="loadFindings(true)" class="btn-primary px-6 py-3 text-sm font-semibold rounded-lg">
-                            <i class="fas fa-sync-alt mr-2"></i>Run Security Scan
+                        <div>
+                            <h1 class="text-2xl font-bold text-gray-800">Security Center</h1>
+                            <p class="text-sm text-gray-600">Monitor security findings and compliance status</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center space-x-4">
+                        <div class="flex items-center space-x-2">
+                            <div class="w-2 h-2 bg-red-500 rounded-full pulse-dot"></div>
+                            <span class="text-sm text-gray-600">Security monitoring</span>
+                        </div>
+                        <button @click="exportData()"
+                            class="btn-success flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md"
+                            :disabled="isExporting">
+                            <i class="fas" :class="isExporting ? 'fa-spinner fa-spin' : 'fa-file-excel'"></i>
+                            <span x-text="isExporting ? 'Exporting...' : 'Export Report'"></span>
+                        </button>
+                        <button @click="loadFindings(true)"
+                            class="btn-primary flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md"
+                            :disabled="isRefreshing">
+                            <i class="fas fa-sync-alt" :class="{ 'fa-spin': isRefreshing }"></i>
+                            <span x-text="isRefreshing ? 'Scanning...' : 'Refresh Scan'"></span>
                         </button>
                     </div>
+                </header>
 
-                    <template x-for="severity in ['Critical', 'High', 'Medium', 'Low']" :key="severity">
-                        <div x-show="!isLoading && getFindingsBySeverity(severity).length > 0" x-cloak class="fade-in">
-                            <div class="severity-section rounded-2xl shadow-lg overflow-hidden">
-                                <button @click="toggleSeverity(severity)" class="w-full flex justify-between items-center p-6 transition-all hover:bg-opacity-80" :class="getSeverityHeaderColor(severity)">
-                                    <div class="flex items-center space-x-4">
-                                        <div class="w-8 h-8 rounded-lg flex items-center justify-center" :class="getSeverityIconBg(severity)">
-                                            <i class="fas text-white" :class="getSeverityIcon(severity)"></i>
+                <div class="flex-1 p-8 space-y-8">
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                        <template x-if="isLoading">
+                            <div class="skeleton h-36 rounded-2xl"></div>
+                            <div class="skeleton h-36 rounded-2xl"></div>
+                            <div class="skeleton h-36 rounded-2xl"></div>
+                            <div class="skeleton h-36 rounded-2xl"></div>
+                        </template>
+
+                        <template x-if="!isLoading">
+                            <div class="security-card rounded-2xl p-6 fade-in">
+                                <div class="flex justify-between items-start mb-4">
+                                    <div class="flex-1">
+                                        <h3 class="text-gray-600 text-sm font-medium mb-2">Total Findings</h3>
+                                        <p class="text-4xl font-bold gradient-text mb-1"
+                                            x-text="filteredFindings.length"></p>
+                                        <p class="text-xs text-gray-500">security issues detected</p>
+                                    </div>
+                                    <div
+                                        class="w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center">
+                                        <i class="fas fa-search text-white text-xl"></i>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="security-card rounded-2xl p-6 fade-in">
+                                <div class="flex justify-between items-start mb-4">
+                                    <div class="flex-1">
+                                        <h3 class="text-gray-600 text-sm font-medium mb-2">Critical</h3>
+                                        <p class="text-4xl font-bold text-red-600 mb-1"
+                                            x-text="severityCounts.Critical || 0"></p>
+                                        <p class="text-xs text-gray-500">immediate attention</p>
+                                    </div>
+                                    <div
+                                        class="w-14 h-14 bg-gradient-to-br from-red-500 to-red-600 rounded-xl flex items-center justify-center">
+                                        <i class="fas fa-exclamation-triangle text-white text-xl"></i>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="security-card rounded-2xl p-6 fade-in">
+                                <div class="flex justify-between items-start mb-4">
+                                    <div class="flex-1">
+                                        <h3 class="text-gray-600 text-sm font-medium mb-2">High Priority</h3>
+                                        <p class="text-4xl font-bold text-orange-500 mb-1"
+                                            x-text="severityCounts.High || 0"></p>
+                                        <p class="text-xs text-gray-500">requires action</p>
+                                    </div>
+                                    <div
+                                        class="w-14 h-14 bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl flex items-center justify-center">
+                                        <i class="fas fa-fire text-white text-xl"></i>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="security-card rounded-2xl p-6 fade-in">
+                                <div class="flex justify-between items-start mb-4">
+                                    <div class="flex-1">
+                                        <h3 class="text-gray-600 text-sm font-medium mb-2">Medium & Low</h3>
+                                        <p class="text-4xl font-bold text-yellow-500 mb-1"
+                                            x-text="(severityCounts.Medium || 0) + (severityCounts.Low || 0)"></p>
+                                        <p class="text-xs text-gray-500">monitor closely</p>
+                                    </div>
+                                    <div
+                                        class="w-14 h-14 bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-xl flex items-center justify-center">
+                                        <i class="fas fa-eye text-white text-xl"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+
+                    <div class="bg-white/70 backdrop-blur-sm rounded-2xl p-4 border border-gray-200/50 shadow-lg">
+                        <div class="flex items-center space-x-4">
+                            <i class="fas fa-filter text-indigo-600"></i>
+                            <label for="compliance-filter" class="text-sm font-semibold text-gray-700">Filter by
+                                Compliance:</label>
+                            <select id="compliance-filter" x-model="selectedCompliance"
+                                class="form-select px-4 py-2 rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200">
+                                <option value="All">All Compliance Frameworks</option>
+                                <template x-for="framework in complianceFrameworks" :key="framework">
+                                    <option :value="framework" x-text="framework"></option>
+                                </template>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="space-y-6">
+                        <div x-show="isLoading" class="skeleton h-96 rounded-2xl"></div>
+
+                        <div x-show="!isLoading && filteredFindings.length === 0" x-cloak
+                            class="empty-state text-center py-20 px-8 rounded-2xl">
+                            <div
+                                class="w-20 h-20 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                                <i class="fas fa-shield-alt text-white text-3xl"></i>
+                            </div>
+                            <h3 class="text-2xl font-bold text-gray-800 mb-2">All Clear!</h3>
+                            <p class="text-gray-600 mb-6">No security findings detected. Your environment appears to be
+                                secure.</p>
+                            <button @click="loadFindings(true)"
+                                class="btn-primary px-6 py-3 text-sm font-semibold rounded-lg">
+                                <i class="fas fa-sync-alt mr-2"></i>Run Security Scan
+                            </button>
+                        </div>
+
+                        <template x-for="severity in ['Critical', 'High', 'Medium', 'Low']" :key="severity">
+                            <div x-show="!isLoading && getFindingsBySeverity(severity).length > 0" x-cloak
+                                class="fade-in">
+                                <div class="severity-section rounded-2xl shadow-lg overflow-hidden">
+                                    <button @click="toggleSeverity(severity)"
+                                        class="w-full flex justify-between items-center p-6 transition-all hover:bg-opacity-80"
+                                        :class="getSeverityHeaderColor(severity)">
+                                        <div class="flex items-center space-x-4">
+                                            <div class="w-8 h-8 rounded-lg flex items-center justify-center"
+                                                :class="getSeverityIconBg(severity)">
+                                                <i class="fas text-white" :class="getSeverityIcon(severity)"></i>
+                                            </div>
+                                            <h3 class="font-bold text-xl" x-text="`${severity} Severity Findings`"></h3>
                                         </div>
-                                        <h3 class="font-bold text-xl" x-text="`${severity} Severity Findings`"></h3>
-                                    </div>
-                                    <div class="flex items-center space-x-4">
-                                        <span class="severity-badge" :class="getSeverityPillColor(severity)" x-text="getFindingsBySeverity(severity).length"></span>
-                                        <i class="fas fa-chevron-down text-xl transition-transform duration-200" :class="{'rotate-180': openSeverities.includes(severity)}"></i>
-                                    </div>
-                                </button>
+                                        <div class="flex items-center space-x-4">
+                                            <span class="severity-badge" :class="getSeverityPillColor(severity)"
+                                                x-text="getFindingsBySeverity(severity).length"></span>
+                                            <i class="fas fa-chevron-down text-xl transition-transform duration-200"
+                                                :class="{'rotate-180': openSeverities.includes(severity)}"></i>
+                                        </div>
+                                    </button>
 
-                                <div x-show="openSeverities.includes(severity)" x-transition class="bg-white">
-                                    <div class="p-6">
-                                        <div class="table-enhanced">
-                                            <table>
-                                                <thead>
-                                                <tr>
-                                                    <th>Category</th>
-                                                    <th>Description</th>
-                                                    <th>Resource</th>
-                                                    <th>Compliance</th>
-                                                </tr>
-                                                </thead>
-                                                <tbody>
-                                                <template x-for="(finding, index) in getFindingsBySeverity(severity)" :key="finding.resourceId + '-' + index">
-                                                    <tr>
-                                                        <td>
-                                                            <div class="category-display" x-text="finding.category"></div>
-                                                        </td>
-                                                        <td>
-                                                            <div class="description-text" x-text="finding.description"></div>
-                                                        </td>
-                                                        <td>
-                                                            <div class="resource-info">
-                                                                <div class="resource-id" x-text="finding.resourceId"></div>
-                                                                <div class="resource-region" x-text="finding.region"></div>
-                                                            </div>
-                                                        </td>
-                                                        <td>
-                                                            <span class="compliance-badge" :class="finding.complianceFramework === 'SOC2' ? 'soc2-badge' : ''" x-text="finding.complianceFramework + ' ' + finding.controlId"></span>
-                                                        </td>
-                                                    </tr>
-                                                </template>
-                                                </tbody>
-                                            </table>
+                                    <div x-show="openSeverities.includes(severity)" x-transition class="bg-white">
+                                        <div class="p-6">
+                                            <div class="table-enhanced">
+                                                <table>
+                                                    <thead>
+                                                        <tr>
+                                                            <th>Category</th>
+                                                            <th>Description</th>
+                                                            <th>Resource</th>
+                                                            <th>Compliance</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        <template
+                                                            x-for="(finding, index) in getFindingsBySeverity(severity)"
+                                                            :key="finding.resourceId + '-' + index">
+                                                            <tr>
+                                                                <td>
+                                                                    <div class="category-display"
+                                                                        x-text="finding.category"></div>
+                                                                </td>
+                                                                <td>
+                                                                    <div class="description-text"
+                                                                        x-text="finding.description"></div>
+                                                                </td>
+                                                                <td>
+                                                                    <div class="resource-info">
+                                                                        <div class="resource-id"
+                                                                            x-text="finding.resourceId"></div>
+                                                                        <div class="resource-region"
+                                                                            x-text="finding.region"></div>
+                                                                    </div>
+                                                                </td>
+                                                                <td>
+                                                                    <span class="compliance-badge"
+                                                                        :class="finding.complianceFramework === 'SOC2' ? 'soc2-badge' : ''"
+                                                                        x-text="finding.complianceFramework + ' ' + finding.controlId"></span>
+                                                                </td>
+                                                            </tr>
+                                                        </template>
+                                                    </tbody>
+                                                </table>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
                             </div>
-                        </div>
-                    </template>
+                        </template>
+                    </div>
                 </div>
-            </div>
 
-        </main>
-    </div>
-</div>
+                <script>
+                    function securityCenter() {
+                        return {
+                            isLoading: true,
+                            isRefreshing: false,
+                            isExporting: false,
+                            findings: [],
+                            openSeverities: [],
+                            selectedCompliance: 'All',
+                            selectedAccountId: null,
 
-<script>
-    function securityCenter() {
-        return {
-            isLoading: true,
-            isRefreshing: false,
-            isExporting: false,
-            findings: [],
-            openSeverities: [],
-            selectedCompliance: 'All',
-            selectedAccountId: null,
+                            init() {
+                                const urlParams = new URLSearchParams(window.location.search);
+                                this.selectedAccountId = urlParams.get('accountIds');
 
-            init() {
-                console.log('=== SECURITY CENTER INIT ===');
-                const urlParams = new URLSearchParams(window.location.search);
-                this.selectedAccountId = urlParams.get('accountIds');
+                                if (!this.selectedAccountId) {
+                                    const storedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                                    if (storedIds.length > 0) {
+                                        this.selectedAccountId = storedIds.join(',');
+                                    }
+                                }
+                                this.loadFindings(false);
+                            },
 
-                if (!this.selectedAccountId) {
-                    const storedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-                    if (storedIds.length > 0) {
-                        this.selectedAccountId = storedIds.join(',');
-                    }
-                }
+                            loadFindings(forceRefresh = false) {
+                                if (!this.selectedAccountId) {
+                                    this.isLoading = false;
+                                    return;
+                                }
 
-                console.log('Selected Account ID:', this.selectedAccountId);
-                this.loadFindings(false);
-            },
+                                const cacheKey = `securityFindings-${this.selectedAccountId}`;
+                                const cachedData = sessionStorage.getItem(cacheKey);
 
-            loadFindings(forceRefresh = false) {
-                console.log('=== LOADING FINDINGS ===');
-                console.log('Account ID:', this.selectedAccountId);
-                console.log('Force refresh:', forceRefresh);
-                
-                if (!this.selectedAccountId) {
-                    console.warn('No account ID selected');
-                    this.isLoading = false;
-                    return;
-                }
+                                if (cachedData && !forceRefresh) {
+                                    try {
+                                        const parsed = JSON.parse(cachedData);
+                                        this.processFindings(parsed);
+                                        this.isLoading = false;
+                                        return;
+                                    } catch (e) {
+                                        sessionStorage.removeItem(cacheKey);
+                                    }
+                                }
 
-                const cacheKey = `securityFindings-${this.selectedAccountId}`;
-                const cachedData = sessionStorage.getItem(cacheKey);
-                
-                if (cachedData && !forceRefresh) {
-                    console.log('Loading from cache');
-                    try {
-                        const parsed = JSON.parse(cachedData);
-                        this.processFindings(parsed);
-                        this.isLoading = false;
-                        return;
-                    } catch (e) {
-                        console.error('Cache parse error:', e);
-                        sessionStorage.removeItem(cacheKey);
-                    }
-                }
+                                if (!cachedData) {
+                                    this.isLoading = true;
+                                }
 
-                if (!cachedData) {
-                    this.isLoading = true;
-                }
+                                if (forceRefresh) {
+                                    this.isRefreshing = true;
+                                    sessionStorage.removeItem(cacheKey);
+                                }
 
-                if (forceRefresh) {
-                    this.isRefreshing = true;
-                    sessionStorage.removeItem(cacheKey);
-                }
+                                const url = `/api/xamops/security/findings?accountId=${this.selectedAccountId}&forceRefresh=${forceRefresh}`;
 
-                const url = `/api/xamops/security/findings?accountId=${this.selectedAccountId}&forceRefresh=${forceRefresh}`;
-                console.log('Fetching from URL:', url);
+                                fetch(url)
+                                    .then(res => {
+                                        if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+                                        return res.json();
+                                    })
+                                    .then(data => {
+                                        sessionStorage.setItem(cacheKey, JSON.stringify(data));
+                                        this.processFindings(data);
+                                    })
+                                    .catch(err => {
+                                        console.error('Fetch error:', err);
+                                        this.findings = [];
+                                        alert(`Failed to load security findings: ${err.message}`);
+                                    })
+                                    .finally(() => {
+                                        this.isLoading = false;
+                                        this.isRefreshing = false;
+                                    });
+                            },
 
-                fetch(url)
-                    .then(res => {
-                        console.log('Response status:', res.status);
-                        console.log('Response OK:', res.ok);
-                        console.log('Response headers:', [...res.headers.entries()]);
-                        
-                        if (!res.ok) {
-                            throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+                            processFindings(data) {
+                                if (!data) {
+                                    this.findings = [];
+                                    return;
+                                }
+
+                                const findingsArray = Array.isArray(data) ? data : (data.findings || data);
+
+                                if (!Array.isArray(findingsArray)) {
+                                    this.findings = [];
+                                    return;
+                                }
+
+                                const validFindings = findingsArray.filter(f => f && typeof f === 'object' && f.severity);
+
+                                this.findings = validFindings.sort((a, b) => {
+                                    const severityOrder = { 'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3 };
+                                    const severityA = (a.severity || '').trim().toUpperCase();
+                                    const severityB = (b.severity || '').trim().toUpperCase();
+                                    return (severityOrder[severityA] || 4) - (severityOrder[severityB] || 4);
+                                });
+                            },
+
+                            exportData() {
+                                this.isExporting = true;
+                                const headers = ["Resource ID", "Region", "Category", "Severity", "Description", "Compliance Framework", "Control ID"];
+                                const rows = this.filteredFindings.map(finding => [
+                                    `"${finding.resourceId || ''}"`,
+                                    `"${finding.region || ''}"`,
+                                    `"${finding.category || ''}"`,
+                                    `"${finding.severity || ''}"`,
+                                    `"${(finding.description || '').replace(/"/g, '""')}"`,
+                                    `"${finding.complianceFramework || ''}"`,
+                                    `"${finding.controlId || ''}"`
+                                ]);
+
+                                let csvContent = "data:text/csv;charset=utf-8," + headers.join(",") + "\n" + rows.map(e => e.join(",")).join("\n");
+
+                                var encodedUri = encodeURI(csvContent);
+                                var link = document.createElement("a");
+                                link.setAttribute("href", encodedUri);
+                                link.setAttribute("download", "security_findings_export.csv");
+                                document.body.appendChild(link);
+                                link.click();
+                                document.body.removeChild(link);
+                                this.isExporting = false;
+                            },
+
+                            get complianceFrameworks() {
+                                const frameworks = this.findings.map(f => `${f.complianceFramework} ${f.controlId}`);
+                                return [...new Set(frameworks)].sort();
+                            },
+
+                            get filteredFindings() {
+                                if (!Array.isArray(this.findings)) return [];
+
+                                if (this.selectedCompliance === 'All' || !this.selectedCompliance) {
+                                    return this.findings;
+                                }
+
+                                return this.findings.filter(f => {
+                                    const framework = `${f.complianceFramework || ''} ${f.controlId || ''}`.trim();
+                                    return framework === this.selectedCompliance;
+                                });
+                            },
+
+                            get severityCounts() {
+                                return this.filteredFindings.reduce((acc, finding) => {
+                                    if (finding && finding.severity) {
+                                        const severity = finding.severity.trim().toUpperCase();
+                                        const properCase = severity.charAt(0) + severity.slice(1).toLowerCase();
+                                        acc[properCase] = (acc[properCase] || 0) + 1;
+                                    }
+                                    return acc;
+                                }, {});
+                            },
+
+                            getFindingsBySeverity(severity) {
+                                return this.filteredFindings.filter(f =>
+                                    f.severity && f.severity.trim().toLowerCase() === severity.toLowerCase()
+                                );
+                            },
+
+                            toggleSeverity(severity) {
+                                if (this.openSeverities.includes(severity)) {
+                                    this.openSeverities = this.openSeverities.filter(s => s !== severity);
+                                } else {
+                                    this.openSeverities.push(severity);
+                                }
+                            },
+
+                            getSeverityHeaderColor(severity) {
+                                const colors = {
+                                    'Critical': 'bg-gradient-to-r from-red-100 to-red-200 text-red-800',
+                                    'High': 'bg-gradient-to-r from-orange-100 to-orange-200 text-orange-800',
+                                    'Medium': 'bg-gradient-to-r from-yellow-100 to-yellow-200 text-yellow-800',
+                                    'Low': 'bg-gradient-to-r from-blue-100 to-blue-200 text-blue-800'
+                                };
+                                return colors[severity] || 'bg-gradient-to-r from-gray-100 to-gray-200 text-gray-800';
+                            },
+
+                            getSeverityPillColor(severity) {
+                                const colors = {
+                                    'Critical': 'bg-red-500 text-white border-red-600',
+                                    'High': 'bg-orange-500 text-white border-orange-600',
+                                    'Medium': 'bg-yellow-500 text-white border-yellow-600',
+                                    'Low': 'bg-blue-500 text-white border-blue-600'
+                                };
+                                return colors[severity] || 'bg-gray-500 text-white border-gray-600';
+                            },
+
+                            getSeverityIcon(severity) {
+                                const icons = {
+                                    'Critical': 'fa-skull-crossbones',
+                                    'High': 'fa-exclamation-triangle',
+                                    'Medium': 'fa-exclamation-circle',
+                                    'Low': 'fa-info-circle'
+                                };
+                                return icons[severity] || 'fa-question-circle';
+                            },
+
+                            getSeverityIconBg(severity) {
+                                const colors = {
+                                    'Critical': 'bg-red-600',
+                                    'High': 'bg-orange-600',
+                                    'Medium': 'bg-yellow-600',
+                                    'Low': 'bg-blue-600'
+                                };
+                                return colors[severity] || 'bg-gray-600';
+                            }
                         }
-                        return res.json();
-                    })
-                    .then(data => {
-                        console.log('=== DATA RECEIVED ===');
-                        console.log('Raw data type:', typeof data);
-                        console.log('Is array:', Array.isArray(data));
-                        console.log('Data length:', data.length);
-                        console.log('First 3 items:', data.slice(0, 3));
-                        
-                        sessionStorage.setItem(cacheKey, JSON.stringify(data));
-                        this.processFindings(data);
-                    })
-                    .catch(err => {
-                        console.error('=== FETCH ERROR ===');
-                        console.error('Error:', err);
-                        console.error('Error message:', err.message);
-                        console.error('Error stack:', err.stack);
-                        
-                        this.findings = [];
-                        alert(`Failed to load security findings: ${err.message}`);
-                    })
-                    .finally(() => {
-                        this.isLoading = false;
-                        this.isRefreshing = false;
-                        console.log('Loading complete');
-                    });
-            },
-
-            processFindings(data) {
-                console.log('=== PROCESSING FINDINGS ===');
-                console.log('Raw data received:', data);
-                console.log('Data type:', typeof data);
-                console.log('Is array:', Array.isArray(data));
-                
-                if (!data) {
-                    console.error('No data received');
-                    this.findings = [];
-                    return;
-                }
-                
-                // Handle both direct array and wrapped object
-                const findingsArray = Array.isArray(data) ? data : (data.findings || data);
-                
-                if (!Array.isArray(findingsArray)) {
-                    console.error('Data is not an array:', findingsArray);
-                    this.findings = [];
-                    return;
-                }
-                
-                console.log(`Total findings in array: ${findingsArray.length}`);
-                
-                // Validate and filter findings
-                const validFindings = findingsArray.filter(f => {
-                    const isValid = f && typeof f === 'object' && f.severity;
-                    if (!isValid) {
-                        console.warn('Invalid finding object:', f);
                     }
-                    return isValid;
-                });
-                
-                console.log(`Valid findings after filtering: ${validFindings.length}`);
-                
-                // Sort by severity (handle both uppercase and capitalized)
-                this.findings = validFindings.sort((a, b) => {
-                    const severityOrder = { 'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3 };
-                    const severityA = (a.severity || '').trim().toUpperCase();
-                    const severityB = (b.severity || '').trim().toUpperCase();
-                    return (severityOrder[severityA] || 4) - (severityOrder[severityB] || 4);
-                });
-                
-                console.log('Findings processed and sorted:', this.findings.length);
-                console.log('Sample finding:', this.findings[0]);
-                console.log('Severity counts:', this.severityCounts);
-            },
-
-            exportData() {
-                this.isExporting = true;
-                const headers = ["Resource ID", "Region", "Category", "Severity", "Description", "Compliance Framework", "Control ID"];
-                const rows = this.filteredFindings.map(finding => [
-                    `"${finding.resourceId || ''}"`,
-                    `"${finding.region || ''}"`,
-                    `"${finding.category || ''}"`,
-                    `"${finding.severity || ''}"`,
-                    `"${(finding.description || '').replace(/"/g, '""')}"`,
-                    `"${finding.complianceFramework || ''}"`,
-                    `"${finding.controlId || ''}"`
-                ]);
-
-                let csvContent = "data:text/csv;charset=utf-8,"
-                    + headers.join(",") + "\n"
-                    + rows.map(e => e.join(",")).join("\n");
-
-                var encodedUri = encodeURI(csvContent);
-                var link = document.createElement("a");
-                link.setAttribute("href", encodedUri);
-                link.setAttribute("download", "security_findings_export.csv");
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                this.isExporting = false;
-            },
-
-            get complianceFrameworks() {
-                const frameworks = this.findings.map(f => `${f.complianceFramework} ${f.controlId}`);
-                return [...new Set(frameworks)].sort();
-            },
-
-            get filteredFindings() {
-                console.log('Computing filtered findings. Total findings:', this.findings.length);
-                console.log('Selected compliance:', this.selectedCompliance);
-                
-                if (!Array.isArray(this.findings)) {
-                    console.error('this.findings is not an array:', this.findings);
-                    return [];
-                }
-                
-                if (this.selectedCompliance === 'All' || !this.selectedCompliance) {
-                    return this.findings;
-                }
-                
-                const filtered = this.findings.filter(f => {
-                    const framework = `${f.complianceFramework || ''} ${f.controlId || ''}`.trim();
-                    return framework === this.selectedCompliance;
-                });
-                
-                console.log('Filtered findings count:', filtered.length);
-                return filtered;
-            },
-
-            get severityCounts() {
-                const counts = this.filteredFindings.reduce((acc, finding) => {
-                    if (finding && finding.severity) {
-                        // Normalize severity to proper case (Critical, High, Medium, Low)
-                        const severity = finding.severity.trim().toUpperCase();
-                        const properCase = severity.charAt(0) + severity.slice(1).toLowerCase();
-                        acc[properCase] = (acc[properCase] || 0) + 1;
-                    }
-                    return acc;
-                }, {});
-                
-                console.log('Severity counts:', counts);
-                return counts;
-            },
-
-            getFindingsBySeverity(severity) {
-                return this.filteredFindings.filter(f => 
-                    f.severity && f.severity.trim().toLowerCase() === severity.toLowerCase()
-                );
-            },
-
-            toggleSeverity(severity) {
-                if (this.openSeverities.includes(severity)) {
-                    this.openSeverities = this.openSeverities.filter(s => s !== severity);
-                } else {
-                    this.openSeverities.push(severity);
-                }
-            },
-
-            getSeverityHeaderColor(severity) {
-                const colors = {
-                    'Critical': 'bg-gradient-to-r from-red-100 to-red-200 text-red-800',
-                    'High': 'bg-gradient-to-r from-orange-100 to-orange-200 text-orange-800',
-                    'Medium': 'bg-gradient-to-r from-yellow-100 to-yellow-200 text-yellow-800',
-                    'Low': 'bg-gradient-to-r from-blue-100 to-blue-200 text-blue-800'
-                };
-                return colors[severity] || 'bg-gradient-to-r from-gray-100 to-gray-200 text-gray-800';
-            },
-
-            getSeverityPillColor(severity) {
-                const colors = {
-                    'Critical': 'bg-red-500 text-white border-red-600',
-                    'High': 'bg-orange-500 text-white border-orange-600',
-                    'Medium': 'bg-yellow-500 text-white border-yellow-600',
-                    'Low': 'bg-blue-500 text-white border-blue-600'
-                };
-                return colors[severity] || 'bg-gray-500 text-white border-gray-600';
-            },
-
-            getSeverityIcon(severity) {
-                const icons = {
-                    'Critical': 'fa-skull-crossbones',
-                    'High': 'fa-exclamation-triangle',
-                    'Medium': 'fa-exclamation-circle',
-                    'Low': 'fa-info-circle'
-                };
-                return icons[severity] || 'fa-question-circle';
-            },
-
-            getSeverityIconBg(severity) {
-                const colors = {
-                    'Critical': 'bg-red-600',
-                    'High': 'bg-orange-600',
-                    'Medium': 'bg-yellow-600',
-                    'Low': 'bg-blue-600'
-                };
-                return colors[severity] || 'bg-gray-600';
-            }
-        }
-    }
-</script>
+                </script>
+            </main>
+        </div>
+    </div>
 </body>
+
 </html>
