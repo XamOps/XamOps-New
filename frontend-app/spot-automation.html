@@ -124,6 +124,171 @@
             <main class="flex-1 overflow-y-auto p-8">
                 <div class="max-w-7xl mx-auto space-y-6">
 
+                    <!-- AWS Account Connection Section -->
+                    <div x-show="!isAccountConnected" x-cloak class="mb-6">
+                        <div
+                            class="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl shadow-sm overflow-hidden">
+                            <div class="p-6">
+                                <div class="flex items-start">
+                                    <!-- Icon -->
+                                    <div class="flex-shrink-0">
+                                        <div
+                                            class="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                                            <i class="fas fa-cloud-upload-alt text-blue-600 text-xl"></i>
+                                        </div>
+                                    </div>
+
+                                    <!-- Content -->
+                                    <div class="ml-4 flex-1">
+                                        <h3 class="text-lg font-semibold text-gray-900 mb-2">
+                                            Connect Your AWS Account to AutoSpotting
+                                        </h3>
+                                        <p class="text-sm text-gray-600 mb-4">
+                                            Deploy the AutoSpotting integration stack to enable Spot instance
+                                            optimization.
+                                            This creates secure cross-account access and event forwarding in about 3
+                                            minutes.
+                                        </p>
+
+                                        <!-- Benefits Grid -->
+                                        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
+                                            <div class="flex items-center text-sm text-gray-700">
+                                                <i class="fas fa-check-circle text-green-500 mr-2"></i>
+                                                <span>Secure IAM roles</span>
+                                            </div>
+                                            <div class="flex items-center text-sm text-gray-700">
+                                                <i class="fas fa-check-circle text-green-500 mr-2"></i>
+                                                <span>Event forwarding</span>
+                                            </div>
+                                            <div class="flex items-center text-sm text-gray-700">
+                                                <i class="fas fa-check-circle text-green-500 mr-2"></i>
+                                                <span>Multi-region support</span>
+                                            </div>
+                                        </div>
+
+                                        <!-- Region Selection -->
+                                        <div class="mb-4">
+                                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                                Select AWS Regions to Monitor
+                                            </label>
+                                            <div
+                                                class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2 max-h-40 overflow-y-auto p-3 bg-white rounded-lg border border-gray-200">
+                                                <label class="flex items-center text-xs hover:bg-gray-50 p-1 rounded">
+                                                    <input type="checkbox" class="mr-1.5" value="us-east-1"
+                                                        x-model="selectedRegions">
+                                                    US East (N. Virginia)
+                                                </label>
+                                                <label class="flex items-center text-xs hover:bg-gray-50 p-1 rounded">
+                                                    <input type="checkbox" class="mr-1.5" value="us-east-2"
+                                                        x-model="selectedRegions">
+                                                    US East (Ohio)
+                                                </label>
+                                                <label class="flex items-center text-xs hover:bg-gray-50 p-1 rounded">
+                                                    <input type="checkbox" class="mr-1.5" value="us-west-1"
+                                                        x-model="selectedRegions">
+                                                    US West (N. California)
+                                                </label>
+                                                <label class="flex items-center text-xs hover:bg-gray-50 p-1 rounded">
+                                                    <input type="checkbox" class="mr-1.5" value="us-west-2"
+                                                        x-model="selectedRegions">
+                                                    US West (Oregon)
+                                                </label>
+                                                <label class="flex items-center text-xs hover:bg-gray-50 p-1 rounded">
+                                                    <input type="checkbox" class="mr-1.5" value="ap-south-1"
+                                                        x-model="selectedRegions" checked>
+                                                    Asia Pacific (Mumbai)
+                                                </label>
+                                                <label class="flex items-center text-xs hover:bg-gray-50 p-1 rounded">
+                                                    <input type="checkbox" class="mr-1.5" value="ap-southeast-1"
+                                                        x-model="selectedRegions">
+                                                    Asia Pacific (Singapore)
+                                                </label>
+                                                <label class="flex items-center text-xs hover:bg-gray-50 p-1 rounded">
+                                                    <input type="checkbox" class="mr-1.5" value="ap-southeast-2"
+                                                        x-model="selectedRegions">
+                                                    Asia Pacific (Sydney)
+                                                </label>
+                                                <label class="flex items-center text-xs hover:bg-gray-50 p-1 rounded">
+                                                    <input type="checkbox" class="mr-1.5" value="ap-northeast-1"
+                                                        x-model="selectedRegions">
+                                                    Asia Pacific (Tokyo)
+                                                </label>
+                                                <label class="flex items-center text-xs hover:bg-gray-50 p-1 rounded">
+                                                    <input type="checkbox" class="mr-1.5" value="eu-west-1"
+                                                        x-model="selectedRegions">
+                                                    Europe (Ireland)
+                                                </label>
+                                                <label class="flex items-center text-xs hover:bg-gray-50 p-1 rounded">
+                                                    <input type="checkbox" class="mr-1.5" value="eu-central-1"
+                                                        x-model="selectedRegions">
+                                                    Europe (Frankfurt)
+                                                </label>
+                                                <label class="flex items-center text-xs hover:bg-gray-50 p-1 rounded">
+                                                    <input type="checkbox" class="mr-1.5" value="eu-west-2"
+                                                        x-model="selectedRegions">
+                                                    Europe (London)
+                                                </label>
+                                                <label class="flex items-center text-xs hover:bg-gray-50 p-1 rounded">
+                                                    <input type="checkbox" class="mr-1.5" value="ca-central-1"
+                                                        x-model="selectedRegions">
+                                                    Canada (Central)
+                                                </label>
+                                            </div>
+                                            <p class="text-xs text-gray-500 mt-2">
+                                                <i class="fas fa-info-circle mr-1"></i>
+                                                <span x-text="selectedRegions.length"></span> region(s) selected
+                                            </p>
+                                        </div>
+
+                                        <!-- Deploy Region Selection -->
+                                        <div class="mb-4">
+                                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                                Deploy Stack In
+                                            </label>
+                                            <select x-model="deployRegion"
+                                                class="w-full md:w-64 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                                <option value="us-east-1">US East (N. Virginia)</option>
+                                                <option value="us-east-2">US East (Ohio)</option>
+                                                <option value="us-west-1">US West (N. California)</option>
+                                                <option value="us-west-2">US West (Oregon)</option>
+                                                <option value="ap-south-1" selected>Asia Pacific (Mumbai)</option>
+                                                <option value="ap-southeast-1">Asia Pacific (Singapore)</option>
+                                                <option value="eu-west-1">Europe (Ireland)</option>
+                                                <option value="eu-central-1">Europe (Frankfurt)</option>
+                                            </select>
+                                            <p class="text-xs text-gray-500 mt-1">
+                                                Choose where to deploy the CloudFormation stack
+                                            </p>
+                                        </div>
+
+                                        <!-- Deploy Button -->
+                                        <div class="flex items-center space-x-3">
+                                            <button @click="deployToAWS()"
+                                                :disabled="selectedRegions.length === 0 || deployingStack"
+                                                class="inline-flex items-center px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-semibold rounded-lg shadow-md transition-colors">
+                                                <i class="fas mr-2"
+                                                    :class="deployingStack ? 'fa-spinner fa-spin' : 'fa-rocket'"></i>
+                                                <span
+                                                    x-text="deployingStack ? 'Generating URL...' : 'Deploy to AWS'"></span>
+                                            </button>
+
+                                            <button @click="isAccountConnected = true"
+                                                class="text-sm text-gray-500 hover:text-gray-700 underline">
+                                                Skip for now
+                                            </button>
+                                        </div>
+
+                                        <p class="text-xs text-gray-500 mt-3 flex items-center">
+                                            <i class="fas fa-info-circle mr-1.5"></i>
+                                            You'll be redirected to AWS CloudFormation console. Click "Create stack" to
+                                            complete deployment.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Stats Cards -->
                     <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
                         <!-- Current Cost -->
@@ -139,7 +304,7 @@
                                 </div>
                             </div>
                             <div class="mt-4 text-sm text-gray-500">
-                                <span x-text="formatCurrency(costs.currentHourly) + '/hr'"></span>
+                                <span x-text="formatHourlyCost(costs.currentHourly) + '/hr'"></span>
                             </div>
                         </div>
 
@@ -258,14 +423,13 @@
                                             </div>
                                         </th>
                                         <th class="px-6 py-4 font-semibold text-center">AutoSpotting</th>
-                                        <th class="px-6 py-4 font-semibold text-right">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-gray-100">
                                     <!-- Loading State -->
                                     <template x-if="loading">
                                         <tr>
-                                            <td colspan="11" class="px-6 py-12 text-center">
+                                            <td colspan="10" class="px-6 py-12 text-center">
                                                 <div class="flex flex-col items-center justify-center space-y-3">
                                                     <i class="fas fa-spinner fa-spin text-4xl text-blue-500"></i>
                                                     <div>
@@ -282,7 +446,7 @@
                                     <!-- Empty State -->
                                     <template x-if="!loading && asgs.length === 0">
                                         <tr>
-                                            <td colspan="11" class="px-6 py-12">
+                                            <td colspan="10" class="px-6 py-12">
                                                 <div class="text-center">
                                                     <div class="text-yellow-500 mb-3">
                                                         <i class="fas fa-exclamation-triangle text-4xl"></i>
@@ -351,7 +515,7 @@
                                             <!-- Hourly Cost -->
                                             <td class="px-6 py-4">
                                                 <span class="text-sm font-semibold text-gray-900"
-                                                    x-text="formatCurrency(asg.currentCost || 0)"></span>
+                                                    x-text="formatHourlyCost(asg.currentCost || 0)"></span>
                                             </td>
 
                                             <!-- Monthly Cost -->
@@ -410,13 +574,6 @@
                                                     </div>
                                                 </div>
                                             </td>
-
-                                            <!-- Actions -->
-                                            <td class="px-6 py-4 text-right">
-                                                <button class="text-gray-400 hover:text-gray-600 transition-colors">
-                                                    <i class="fas fa-ellipsis-v"></i>
-                                                </button>
-                                            </td>
                                         </tr>
                                     </template>
                                 </tbody>
@@ -432,7 +589,7 @@
                                     <span class="font-medium" x-text="totalInstances"></span>
                                     <span>instance<span x-show="totalInstances !== 1">s</span> • </span>
                                     <span class="text-emerald-600 font-semibold"
-                                        x-text="formatCurrency(costs.hourlyActualSavings) + '/hr saved'"></span>
+                                        x-text="formatHourlyCost(costs.hourlyActualSavings) + '/hr saved'"></span>
                                 </div>
                                 <div class="flex items-center space-x-4">
                                     <div class="flex items-center space-x-2">
@@ -499,6 +656,12 @@
                 totalInstances: 0,
                 initialized: false,
 
+                // New properties for AWS connection
+                isAccountConnected: false,
+                selectedRegions: ['ap-south-1'],
+                deployRegion: 'ap-south-1',
+                deployingStack: false,
+
                 initDashboard() {
                     if (this.initialized) {
                         console.log('⚠️ Dashboard already initialized, skipping...');
@@ -548,6 +711,59 @@
                     console.log('📊 Loading initial data for account:', this.accountId);
                     this.fetchSavings();
                     this.fetchCostData();
+                },
+
+                async deployToAWS() {
+                    if (this.selectedRegions.length === 0) {
+                        this.dispatchNotification('Please select at least one region', 'error');
+                        return;
+                    }
+
+                    console.log('🚀 Deploying CloudFormation stack for regions:', this.selectedRegions);
+                    console.log('📍 Deploy region:', this.deployRegion);
+
+                    this.deployingStack = true;
+
+                    try {
+                        const regions = this.selectedRegions.join(',');
+                        const response = await fetch(
+                            `${backendBaseUrl}/api/cloudformation/deploy-url?regions=${encodeURIComponent(regions)}&deployRegion=${this.deployRegion}`,
+                            {
+                                credentials: 'include',
+                                headers: { 'X-Tenant-ID': tenantId }
+                            }
+                        );
+
+                        if (response.ok) {
+                            const data = await response.json();
+
+                            console.log('✅ CloudFormation URL generated:', data);
+
+                            // Open AWS CloudFormation console in new tab
+                            window.open(data.url, '_blank');
+
+                            // Show success message
+                            this.dispatchNotification(
+                                'Redirecting to AWS CloudFormation. Click "Create stack" to complete deployment.',
+                                'success'
+                            );
+
+                            // Optionally hide the connection banner after a delay
+                            setTimeout(() => {
+                                this.isAccountConnected = true;
+                            }, 3000);
+
+                        } else {
+                            const error = await response.json();
+                            console.error('❌ Failed to generate deployment URL:', error);
+                            this.dispatchNotification('Failed to generate deployment URL', 'error');
+                        }
+                    } catch (error) {
+                        console.error('❌ Error deploying stack:', error);
+                        this.dispatchNotification('Error initiating deployment', 'error');
+                    } finally {
+                        this.deployingStack = false;
+                    }
                 },
 
                 async checkAuth(response) {
@@ -653,7 +869,7 @@
                             const data = await response.json();
                             console.log('✓ Cost data received:', data);
 
-                            // Parse summary with SNAKE_CASE fields
+                            // Parse summary
                             if (data.summary) {
                                 console.log('  - Summary data:', data.summary);
 
@@ -664,18 +880,17 @@
                                     hourlyActualSavings: data.summary.total_actual_savings || 0.0
                                 };
 
-                                // Update monthly savings
                                 this.savings = {
                                     actualMonthlySavings: (data.summary.total_actual_savings || 0) * 730,
                                     potentialMonthlySavings: (data.summary.total_potential_savings || 0) * 730
                                 };
 
-                                console.log('  - Current hourly cost:', this.formatCurrency(this.costs.currentHourly));
+                                console.log('  - Current hourly cost:', this.formatHourlyCost(this.costs.currentHourly));
                                 console.log('  - Current monthly cost:', this.formatCurrency(this.costs.currentMonthlyCost));
-                                console.log('  - Hourly savings:', this.formatCurrency(this.costs.hourlyActualSavings));
+                                console.log('  - Hourly savings:', this.formatHourlyCost(this.costs.hourlyActualSavings));
                             }
 
-                            // Parse ASG data with SNAKE_CASE fields
+                            // Parse ASG data
                             if (data.asgs && data.asgs.length > 0) {
                                 console.log(`  - Mapping ${data.asgs.length} ASGs...`);
 
@@ -695,7 +910,6 @@
                                         updating: false
                                     };
 
-                                    // ✅ Check localStorage for recent toggle state
                                     const toggleKey = `asg-toggle-${this.accountId}-${mapped.region}-${mapped.name}`;
                                     const stored = localStorage.getItem(toggleKey);
 
@@ -704,12 +918,10 @@
                                             const toggle = JSON.parse(stored);
                                             const ageMinutes = (Date.now() - toggle.timestamp) / 1000 / 60;
 
-                                            // If toggle was within last 5 minutes, use stored state instead of API
                                             if (ageMinutes < 5) {
-                                                console.log(`  ⚡ Using stored toggle state for ${mapped.name}: ${toggle.state} (${ageMinutes.toFixed(1)} min ago)`);
+                                                console.log(`  ⚡ Using stored toggle state for ${mapped.name}: ${toggle.state}`);
                                                 mapped.isEnabled = toggle.state;
                                             } else {
-                                                // Toggle is old, remove it and trust API
                                                 localStorage.removeItem(toggleKey);
                                             }
                                         } catch (e) {
@@ -718,142 +930,113 @@
                                         }
                                     }
 
-                                    console.log(`    [${index + 1}] ${mapped.name}:`, {
-                                        name: mapped.name,
-                                        region: mapped.region,
-                                        enabled: mapped.isEnabled,
-                                        instances: mapped.instanceCount,
-                                        instanceTypes: mapped.instanceTypes
-                                    });
-
                                     return mapped;
                                 });
 
-                                // Count regions and instances
                                 this.enabledRegionsCount = new Set(this.asgs.map(a => a.region)).size;
                                 this.totalInstances = this.asgs.reduce((sum, asg) => sum + (asg.instanceCount || 0), 0);
 
                                 const enabledCount = this.asgs.filter(a => a.isEnabled).length;
                                 const disabledCount = this.asgs.filter(a => !a.isEnabled).length;
 
-                                console.log(`✓ Successfully loaded ${this.asgs.length} ASG(s)`);
-                                console.log(`  - Enabled: ${enabledCount}`);
-                                console.log(`  - Disabled: ${disabledCount}`);
-                                console.log(`  - Regions: ${this.enabledRegionsCount}`);
-                                console.log(`  - Total instances: ${this.totalInstances}`);
-
-                                this.dispatchNotification(
-                                    `Loaded ${this.asgs.length} ASG(s) with real-time cost data`,
-                                    'success'
-                                );
+                                console.log(`✅ Loaded ${this.asgs.length} ASGs (${enabledCount} enabled, ${disabledCount} disabled)`);
                             } else {
-                                console.warn('⚠️ No ASG data in response');
+                                console.log('⚠️ No ASGs found in response');
                                 this.asgs = [];
-                                this.enabledRegionsCount = 0;
-                                this.totalInstances = 0;
-                                this.dispatchNotification('No ASG cost data available', 'error');
                             }
                         } else {
-                            throw new Error('Failed to load cost data');
+                            console.error('❌ Failed to fetch cost data:', response.status);
+                            this.dispatchNotification('Failed to fetch cost data', 'error');
                         }
                     } catch (error) {
                         console.error('❌ Error fetching cost data:', error);
-                        if (error.message !== "Session expired") {
-                            this.dispatchNotification('Failed to fetch cost data from API. Ensure API key is configured.', 'error');
-                        }
+                        this.dispatchNotification('Error loading data', 'error');
                     } finally {
                         this.loading = false;
                     }
                 },
 
                 async toggleAsg(asg) {
-                    if (!this.accountId) {
-                        this.dispatchNotification('No Account ID selected', 'error');
-                        return;
-                    }
+                    console.log(`🔄 Toggling ASG: ${asg.name} (${asg.region})`);
 
-                    if (asg.updating) {
-                        return;
-                    }
-
-                    const originalState = asg.isEnabled;
-                    const newState = !originalState;
-
-                    // Optimistic update
-                    asg.isEnabled = newState;
                     asg.updating = true;
-
-                    const action = newState ? 'enable' : 'disable';
-                    const url = `${backendBaseUrl}/api/autospotting/asgs/${this.accountId}/${action}` +
-                        `?region=${encodeURIComponent(asg.region)}&asgName=${encodeURIComponent(asg.name)}`;
-
-                    console.log(`🔄 Toggling ASG: ${asg.name} in ${asg.region} to ${newState ? 'ENABLED' : 'DISABLED'}`);
-                    console.log(`  URL: ${url}`);
+                    const newState = !asg.isEnabled;
 
                     try {
-                        let response = await fetch(url, {
-                            method: 'POST',
-                            credentials: 'include',
-                            headers: {
-                                'X-Tenant-ID': tenantId
+                        const response = await fetch(
+                            `${backendBaseUrl}/api/autospotting/asg/toggle`,
+                            {
+                                method: 'POST',
+                                credentials: 'include',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'X-Tenant-ID': tenantId
+                                },
+                                body: JSON.stringify({
+                                    accountId: this.accountId,
+                                    region: asg.region,
+                                    asgName: asg.name,
+                                    enabled: newState
+                                })
                             }
-                        });
+                        );
+
                         await this.checkAuth(response);
 
                         if (response.ok) {
-                            console.log(`✓ Toggle request successful for ${asg.name}`);
-                            asg.updating = false;
+                            asg.isEnabled = newState;
 
-                            // ✅ Store the toggle state in localStorage with timestamp
                             const toggleKey = `asg-toggle-${this.accountId}-${asg.region}-${asg.name}`;
                             localStorage.setItem(toggleKey, JSON.stringify({
                                 state: newState,
                                 timestamp: Date.now()
                             }));
 
-                            console.log(`  💾 Stored toggle state in localStorage (expires in 5 minutes)`);
-
                             this.dispatchNotification(
-                                `✓ AutoSpotting ${newState ? 'enabled' : 'disabled'} for ${asg.name}.`,
+                                `AutoSpotting ${newState ? 'enabled' : 'disabled'} for ${asg.name}`,
                                 'success'
                             );
 
+                            setTimeout(() => {
+                                this.fetchCostData();
+                            }, 2000);
                         } else {
-                            const errorText = await response.text();
-                            console.error('  ❌ Toggle failed:', errorText);
-                            throw new Error('API failed: ' + errorText);
+                            throw new Error('Toggle failed');
                         }
                     } catch (error) {
-                        console.error(`❌ Error toggling ASG:`, error);
-                        // Revert on error
-                        asg.isEnabled = originalState;
+                        console.error('Error toggling ASG:', error);
+                        this.dispatchNotification('Failed to toggle AutoSpotting', 'error');
+                    } finally {
                         asg.updating = false;
-
-                        if (error.message !== "Session expired") {
-                            this.dispatchNotification(
-                                `Failed to update ${asg.name}. ${error.message}`,
-                                'error'
-                            );
-                        }
                     }
                 },
 
                 formatCurrency(value) {
+                    if (value === null || value === undefined || isNaN(value)) return '$0.00';
                     return new Intl.NumberFormat('en-US', {
                         style: 'currency',
                         currency: 'USD',
                         minimumFractionDigits: 2,
                         maximumFractionDigits: 2
-                    }).format(value || 0);
+                    }).format(value);
+                },
+
+                formatHourlyCost(value) {
+                    if (value === null || value === undefined || isNaN(value)) return '$0.0000';
+                    return new Intl.NumberFormat('en-US', {
+                        style: 'currency',
+                        currency: 'USD',
+                        minimumFractionDigits: 4,
+                        maximumFractionDigits: 4
+                    }).format(value);
                 },
 
                 dispatchNotification(message, type = 'success') {
-                    console.log(`📢 ${type.toUpperCase()}: ${message}`);
                     window.dispatchEvent(new CustomEvent('notify', {
                         detail: { message, type }
                     }));
                 }
-            }
+            };
         }
     </script>
 </body>
