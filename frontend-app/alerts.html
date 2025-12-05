@@ -1,58 +1,67 @@
-<!-- <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
+
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>XamOps - Alerts</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
-    <script type="module" src="/src/main.js"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>XamOps - Alerts</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png" />
+  <link rel="apple-touch-icon" href="/icons/XamOps.png" />
+  <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+  <script type="module" src="/src/main.js"></script>
+</head>
 
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+<body class="bg-gray-50">
+  <div class="flex">
+    <include file="/_sidebar.html"></include>
 
-        :root {
+    <div class="ml-64 flex-1">
+      <main id="main-content" class="flex-1 flex flex-col min-h-screen" x-data="alerts()">
+
+        <style>
+          @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap");
+
+          :root {
             --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             --success-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
             --warning-gradient: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
             --error-gradient: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
             --glass-bg: rgba(255, 255, 255, 0.95);
             --glass-border: rgba(255, 255, 255, 0.2);
-        }
+          }
 
-        body {
-            font-family: 'Inter', sans-serif;
-            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-            min-height: 100vh;
-        }
+          [x-cloak] {
+            display: none !important;
+          }
 
-        [x-cloak] { display: none !important; }
-
-        .glass-card {
+          .glass-card {
             background: var(--glass-bg);
             backdrop-filter: blur(10px);
             border: 1px solid var(--glass-border);
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1),
+              0 4px 6px -2px rgba(0, 0, 0, 0.05);
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
+          }
 
-        .glass-card:hover {
+          .glass-card:hover {
             transform: translateY(-2px);
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-        }
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1),
+              0 10px 10px -5px rgba(0, 0, 0, 0.04);
+          }
 
-        .quota-card {
+          .quota-card {
             position: relative;
             overflow: hidden;
             background: var(--glass-bg);
             backdrop-filter: blur(10px);
             border: 1px solid var(--glass-border);
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
+          }
 
-        .quota-card::before {
-            content: '';
+          .quota-card::before {
+            content: "";
             position: absolute;
             top: 0;
             left: 0;
@@ -61,135 +70,157 @@
             background: var(--primary-gradient);
             transform: scaleX(0);
             transition: transform 0.3s ease;
-        }
+          }
 
-        .quota-card:hover::before {
+          .quota-card:hover::before {
             transform: scaleX(1);
-        }
+          }
 
-        .quota-card:hover {
+          .quota-card:hover {
             transform: translateY(-4px) scale(1.02);
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-        }
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1),
+              0 10px 10px -5px rgba(0, 0, 0, 0.04);
+          }
 
-        .skeleton {
-            background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+          .skeleton {
+            background: linear-gradient(90deg,
+                #f1f5f9 25%,
+                #e2e8f0 50%,
+                #f1f5f9 75%);
             background-size: 200% 100%;
             animation: shimmer 1.5s infinite;
             border-radius: 8px;
-        }
+          }
 
-        @keyframes shimmer {
-            0% { background-position: -200% 0; }
-            100% { background-position: 200% 0; }
-        }
+          @keyframes shimmer {
+            0% {
+              background-position: -200% 0;
+            }
 
-        .header-gradient {
-            background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%);
+            100% {
+              background-position: 200% 0;
+            }
+          }
+
+          .header-gradient {
+            background: linear-gradient(135deg,
+                rgba(255, 255, 255, 0.95) 0%,
+                rgba(248, 250, 252, 0.95) 100%);
             backdrop-filter: blur(10px);
             border-bottom: 1px solid rgba(229, 231, 235, 0.8);
-        }
+          }
 
-        .btn-primary {
+          .btn-primary {
             background: var(--primary-gradient);
             border: none;
             color: white;
             transition: all 0.3s ease;
             position: relative;
             overflow: hidden;
-        }
+          }
 
-        .btn-primary::before {
-            content: '';
+          .btn-primary::before {
+            content: "";
             position: absolute;
             top: 0;
             left: -100%;
             width: 100%;
             height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            background: linear-gradient(90deg,
+                transparent,
+                rgba(255, 255, 255, 0.2),
+                transparent);
             transition: left 0.5s ease;
-        }
+          }
 
-        .btn-primary:hover::before {
+          .btn-primary:hover::before {
             left: 100%;
-        }
+          }
 
-        .btn-primary:hover {
+          .btn-primary:hover {
             transform: translateY(-2px);
             box-shadow: 0 10px 15px -3px rgba(102, 126, 234, 0.4);
-        }
+          }
 
-        .form-select {
+          .form-select {
             background: var(--glass-bg);
             backdrop-filter: blur(10px);
             border: 1px solid var(--glass-border);
             transition: all 0.3s ease;
-        }
+          }
 
-        .form-select:focus {
+          .form-select:focus {
             background: rgba(255, 255, 255, 1);
             border-color: #667eea;
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-        }
+          }
 
-        .progress-bar {
+          .progress-bar {
             background: linear-gradient(90deg, #e5e7eb 0%, #f3f4f6 100%);
             border-radius: 12px;
             overflow: hidden;
             height: 12px;
             box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
-        }
+          }
 
-        .progress-bar-fill {
+          .progress-bar-fill {
             height: 100%;
             transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
             border-radius: 12px;
             position: relative;
-        }
+          }
 
-        .progress-bar-fill::after {
-            content: '';
+          .progress-bar-fill::after {
+            content: "";
             position: absolute;
             top: 0;
             left: 0;
             right: 0;
             bottom: 0;
-            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+            background: linear-gradient(90deg,
+                transparent,
+                rgba(255, 255, 255, 0.3),
+                transparent);
             animation: shimmer-progress 2s infinite;
-        }
+          }
 
-        @keyframes shimmer-progress {
-            0% { transform: translateX(-100%); }
-            100% { transform: translateX(100%); }
-        }
+          @keyframes shimmer-progress {
+            0% {
+              transform: translateX(-100%);
+            }
 
-        .table-enhanced {
+            100% {
+              transform: translateX(100%);
+            }
+          }
+
+          .table-enhanced {
             background: var(--glass-bg);
             backdrop-filter: blur(10px);
             border-radius: 12px;
             overflow: hidden;
             border: 1px solid var(--glass-border);
-        }
+          }
 
-        .table-enhanced thead {
+          .table-enhanced thead {
             background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-        }
+          }
 
-        .table-enhanced tr {
+          .table-enhanced tr {
             transition: all 0.2s ease;
-        }
+          }
 
-        .table-enhanced tr:hover {
+          .table-enhanced tr:hover {
             background: rgba(102, 126, 234, 0.05);
             transform: translateX(2px);
-        }
+          }
 
-        .quota-cell-indicator {
+          .quota-cell-indicator {
             position: relative;
-        }
+          }
 
-        .quota-cell-indicator::before {
-            content: '';
+          .quota-cell-indicator::before {
+            content: "";
             position: absolute;
             left: 0;
             top: 0;
@@ -197,74 +228,95 @@
             width: 4px;
             transform: scaleY(0);
             transition: transform 0.2s ease;
-        }
+          }
 
-        tr.critical .quota-cell-indicator::before {
+          tr.critical .quota-cell-indicator::before {
             background: var(--error-gradient);
-        }
+          }
 
-        tr.warning .quota-cell-indicator::before {
+          tr.warning .quota-cell-indicator::before {
             background: var(--warning-gradient);
-        }
+          }
 
-        tr.normal .quota-cell-indicator::before {
+          tr.normal .quota-cell-indicator::before {
             background: var(--success-gradient);
-        }
+          }
 
-        tr:hover .quota-cell-indicator::before {
+          tr:hover .quota-cell-indicator::before {
             transform: scaleY(1);
-        }
+          }
 
-        .empty-state {
+          .empty-state {
             background: var(--glass-bg);
             backdrop-filter: blur(10px);
             border: 2px dashed rgba(16, 185, 129, 0.3);
             transition: all 0.3s ease;
-        }
+          }
 
-        .empty-state:hover {
+          .empty-state:hover {
             border-color: rgba(16, 185, 129, 0.5);
             background: rgba(255, 255, 255, 0.98);
-        }
+          }
 
-        .filter-section {
-            background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(102, 126, 234, 0.1) 100%);
+          .filter-section {
+            background: linear-gradient(135deg,
+                rgba(102, 126, 234, 0.05) 0%,
+                rgba(102, 126, 234, 0.1) 100%);
             border: 1px solid rgba(102, 126, 234, 0.2);
-        }
+          }
 
-        .pulse-dot {
+          .pulse-dot {
             animation: pulse-dot 2s infinite;
-        }
+          }
 
-        @keyframes pulse-dot {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
+          @keyframes pulse-dot {
 
-        .loading-spinner {
+            0%,
+            100% {
+              opacity: 1;
+            }
+
+            50% {
+              opacity: 0.5;
+            }
+          }
+
+          .loading-spinner {
             border: 3px solid #f3f4f6;
             border-top: 3px solid #667eea;
             border-radius: 50%;
             width: 20px;
             height: 20px;
             animation: spin 1s linear infinite;
-        }
+          }
 
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
+          @keyframes spin {
+            0% {
+              transform: rotate(0deg);
+            }
 
-        .fade-in {
+            100% {
+              transform: rotate(360deg);
+            }
+          }
+
+          .fade-in {
             animation: fadeIn 0.5s ease-in-out;
-        }
+          }
 
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
+          @keyframes fadeIn {
+            from {
+              opacity: 0;
+              transform: translateY(20px);
+            }
 
-        .usage-badge {
+            to {
+              opacity: 1;
+              transform: translateY(0);
+            }
+          }
+
+          .usage-badge {
             display: inline-flex;
             align-items: center;
             padding: 4px 12px;
@@ -275,1446 +327,590 @@
             letter-spacing: 0.5px;
             backdrop-filter: blur(10px);
             border: 1px solid rgba(255, 255, 255, 0.2);
-        }
+          }
 
-        .service-icon {
+          .service-icon {
             background: var(--glass-bg);
             backdrop-filter: blur(10px);
             border: 1px solid var(--glass-border);
             transition: all 0.3s ease;
-        }
+          }
 
-        .service-icon:hover {
+          .service-icon:hover {
             transform: scale(1.1) rotate(5deg);
-        }
+          }
 
-        .gradient-text {
+          .gradient-text {
             background: var(--primary-gradient);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
-        }
+          }
 
-        .summary-metrics {
-            background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(248, 250, 252, 0.9) 100%);
+          .summary-metrics {
+            background: linear-gradient(135deg,
+                rgba(255, 255, 255, 0.9) 0%,
+                rgba(248, 250, 252, 0.9) 100%);
             backdrop-filter: blur(10px);
             border: 1px solid rgba(229, 231, 235, 0.5);
-        }
-    </style>
-</head>
-<body class="bg-gray-50">
+          }
+        </style>
 
-<div class="flex">
-  <include file="/_sidebar.html"></include>
-
-
-    <div class="flex-1 pl-64">
-        <main class="flex-1 flex flex-col min-h-screen" x-data="alerts()">
-            <header class="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-10">
-                <div class="flex items-center space-x-4">
-                    <div class="w-12 h-12 bg-gradient-to-br from-orange-500 to-red-600 rounded-xl flex items-center justify-center">
-                        <i class="fas fa-bell text-white text-xl"></i>
-                    </div>
-                    <div>
-                        <h1 class="text-2xl font-bold text-gray-800">Alerts</h1>
-                        <p class="text-sm text-gray-600">Monitor critical alerts that require immediate attention</p>
-                    </div>
-                </div>
-                <div class="flex items-center space-x-4">
-                    <div class="flex items-center space-x-2">
-                        <div class="w-2 h-2 bg-orange-500 rounded-full pulse-dot"></div>
-                        <span class="text-sm text-gray-600">Active monitoring</span>
-                    </div>
-                    <button @click="loadAlerts(true)" class="btn-primary flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md" :disabled="isRefreshing">
-                        <i class="fas fa-sync-alt" :class="{ 'fa-spin': isRefreshing }"></i>
-                        <span x-text="isRefreshing ? 'Scanning...' : 'Refresh Alerts'"></span>
-                    </button>
-                </div>
-            </header>
-
-            <div class="flex-1 p-8 space-y-8">
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
-                    <div x-show="isLoading" x-cloak class="skeleton h-36"></div>
-                    <div x-show="isLoading" x-cloak class="skeleton h-36"></div>
-                    <div x-show="isLoading" x-cloak class="skeleton h-36"></div>
-                    <div x-show="isLoading" x-cloak class="skeleton h-36"></div>
-
-                    <div x-show="!isLoading" class="quota-card rounded-2xl p-6 fade-in">
-                        <div class="flex justify-between items-start mb-4">
-                            <div class="flex-1">
-                                <h3 class="text-gray-600 text-sm font-medium mb-2">Total Alerts</h3>
-                                <p class="text-4xl font-bold gradient-text mb-1" x-text="alerts.length"></p>
-                                <p class="text-xs text-gray-500">monitored services</p>
-                            </div>
-                            <div class="w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center">
-                                <i class="fas fa-list text-white text-xl"></i>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div x-show="!isLoading" class="quota-card rounded-2xl p-6 fade-in">
-                        <div class="flex justify-between items-start mb-4">
-                            <div class="flex-1">
-                                <h3 class="text-gray-600 text-sm font-medium mb-2">Critical Usage</h3>
-                                <p class="text-4xl font-bold text-red-600 mb-1" x-text="getCriticalCount()"></p>
-                                <p class="text-xs text-gray-500">above 90%</p>
-                            </div>
-                            <div class="w-14 h-14 bg-gradient-to-br from-red-500 to-red-600 rounded-xl flex items-center justify-center">
-                                <i class="fas fa-exclamation-triangle text-white text-xl"></i>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div x-show="!isLoading" class="quota-card rounded-2xl p-6 fade-in">
-                        <div class="flex justify-between items-start mb-4">
-                            <div class="flex-1">
-                                <h3 class="text-gray-600 text-sm font-medium mb-2">Warning</h3>
-                                <p class="text-4xl font-bold text-yellow-500 mb-1" x-text="getWarningCount()"></p>
-                                <p class="text-xs text-gray-500">75-90%</p>
-                            </div>
-                            <div class="w-14 h-14 bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-xl flex items-center justify-center">
-                                <i class="fas fa-exclamation-circle text-white text-xl"></i>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div x-show="!isLoading" class="quota-card rounded-2xl p-6 fade-in">
-                        <div class="flex justify-between items-start mb-4">
-                            <div class="flex-1">
-                                <h3 class="text-gray-600 text-sm font-medium mb-2">Healthy</h3>
-                                <p class="text-4xl font-bold text-green-600 mb-1" x-text="getHealthyCount()"></p>
-                                <p class="text-xs text-gray-500">below 75%</p>
-                            </div>
-                            <div class="w-14 h-14 bg-gradient-to-br from-green-500 to-green-600 rounded-xl flex items-center justify-center">
-                                <i class="fas fa-check-circle text-white text-xl"></i>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="glass-card rounded-2xl p-8 fade-in">
-                    <div class="flex items-center justify-between mb-8">
-                        <div class="flex items-center space-x-4">
-                            <div class="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center">
-                                <i class="fas fa-chart-bar text-white text-lg"></i>
-                            </div>
-                            <div>
-                                <h2 class="text-xl font-bold text-gray-800">Critical Alerts Overview</h2>
-                                <p class="text-sm text-gray-600">Monitor service limits and other critical alerts</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="filter-section rounded-xl p-4 mb-8">
-                        <div class="flex items-center justify-between">
-                            <div class="flex items-center space-x-4">
-                                <div class="flex items-center space-x-2">
-                                    <i class="fas fa-filter text-indigo-600"></i>
-                                    <label for="service-filter" class="text-sm font-semibold text-gray-700">Filter by Service:</label>
-                                </div>
-                                <select id="service-filter" x-model="selectedService" class="form-select px-4 py-2 rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200">
-                                    <option value="All">All Services</option>
-                                    <template x-for="service in services" :key="service">
-                                        <option :value="service" x-text="service"></option>
-                                    </template>
-                                </select>
-                            </div>
-                            <div class="text-sm text-gray-600">
-                                <span x-text="filteredAlerts.length"></span> alert<span x-show="filteredAlerts.length !== 1">s</span> shown
-                            </div>
-                        </div>
-                    </div>
-
-                    <div x-show="isLoading" x-cloak class="table-enhanced">
-                        <table class="w-full text-sm">
-                            <thead class="text-xs text-gray-700 uppercase bg-gradient-to-r from-gray-50 to-gray-100">
-                            <tr>
-                                <th class="px-6 py-4"><div class="h-4 skeleton rounded w-32"></div></th>
-                                <th class="px-6 py-4"><div class="h-4 skeleton rounded w-48"></div></th>
-                                <th class="px-6 py-4"><div class="h-4 skeleton rounded w-full"></div></th>
-                                <th class="px-6 py-4"><div class="h-4 skeleton rounded w-24"></div></th>
-                            </tr>
-                            </thead>
-                            <tbody>
-                            <template x-for="i in 8" :key="i">
-                                <tr class="border-b border-gray-200">
-                                    <td class="px-6 py-4"><div class="h-4 skeleton rounded w-24"></div></td>
-                                    <td class="px-6 py-4"><div class="h-4 skeleton rounded w-full"></div></td>
-                                    <td class="px-6 py-4"><div class="h-3 skeleton rounded-full w-full"></div></td>
-                                    <td class="px-6 py-4"><div class="h-8 skeleton rounded-md w-32"></div></td>
-                                </tr>
-                            </template>
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <div x-show="!isLoading && filteredAlerts.length === 0" x-cloak class="empty-state text-center py-20 px-8 rounded-2xl">
-                        <div class="w-20 h-20 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6">
-                            <i class="fas fa-check-circle text-white text-3xl"></i>
-                        </div>
-                        <h3 class="text-2xl font-bold text-gray-800 mb-2">All Clear!</h3>
-                        <p class="text-gray-600 mb-6">No critical alerts found for the selected filter.</p>
-                        <button @click="loadAlerts(true)" class="btn-primary px-6 py-3 text-sm font-semibold rounded-lg">
-                            <i class="fas fa-sync-alt mr-2"></i>Refresh Check
-                        </button>
-                    </div>
-
-                    <div x-show="!isLoading && filteredAlerts.length > 0" x-cloak class="table-enhanced">
-                        <table class="w-full text-sm">
-                            <thead class="text-xs text-gray-700 uppercase bg-gradient-to-r from-gray-50 to-gray-100">
-                            <tr>
-                                <th class="px-6 py-4 text-left font-bold">Service</th>
-                                <th class="px-6 py-4 text-left font-bold">Alert Type</th>
-                                <th class="px-6 py-4 text-left font-bold">Alert</th>
-                                <th class="px-6 py-4 text-left font-bold">Usage Progress</th>
-                                <th class="px-6 py-4 text-center font-bold">Action</th>
-                            </tr>
-                            </thead>
-                            <tbody class="divide-y divide-gray-200">
-                            <template x-for="alert in filteredAlerts" :key="alert.id">
-                                <tr class="hover:bg-gray-50 transition-all" :class="getAlertClass(alert)">
-                                    <td class="px-6 py-4 quota-cell-indicator">
-                                        <div class="flex items-center space-x-3">
-                                            <div class="service-icon w-8 h-8 rounded-lg flex items-center justify-center" :class="getServiceIconClass(alert.service)">
-                                                <i class="fas fa-cog text-white text-xs"></i>
-                                            </div>
-                                            <span class="font-semibold text-gray-800" x-text="alert.service"></span>
-                                        </div>
-                                    </td>
-                                    <td class="px-6 py-4">
-                                        <span class="font-medium text-gray-700" x-text="alert.type"></span>
-                                    </td>
-                                    <td class="px-6 py-4">
-                                        <div>
-                                            <p class="font-medium text-gray-800" x-text="alert.name"></p>
-                                            <p class="text-xs text-gray-500" x-text="alert.type === 'QUOTA' ? `${alert.region} - Limit: ${alert.limit.toLocaleString()}` : alert.description"></p>
-                                        </div>
-                                    </td>
-                                    <td class="px-6 py-4">
-                                        <div x-show="alert.type === 'QUOTA'">
-                                            <div class="space-y-2">
-                                                <div class="flex items-center justify-between">
-                                                    <span class="usage-badge" :class="getUsageBadgeClass(alert)" x-text="`${getUsagePercentage(alert).toFixed(1)}%`"></span>
-                                                    <span class="text-xs text-gray-600" x-text="`${alert.usage.toLocaleString()} / ${alert.limit.toLocaleString()}`"></span>
-                                                </div>
-                                                <div class="progress-bar">
-                                                    <div class="progress-bar-fill" :class="getUsageColor(alert)" :style="`width: ${getUsagePercentage(alert)}%`"></div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div x-show="alert.type === 'ANOMALY'">
-                                            <p class="font-bold text-red-600" x-text="`$` + alert.usage.toFixed(2)"></p>
-                                        </div>
-                                    </td>
-                                    <td class="px-6 py-4 text-center">
-                                        <a :href="getAwsConsoleLink(alert)" target="_blank" class="btn-primary inline-flex items-center space-x-2 px-4 py-2 text-xs font-semibold rounded-lg shadow-md hover:shadow-lg transition-all">
-                                            <i class="fas fa-external-link-alt"></i>
-                                            <span x-text="alert.type === 'QUOTA' ? 'Request Increase' : 'Investigate'"></span>
-                                        </a>
-                                    </td>
-                                </tr>
-                            </template>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+        <header class="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-10">
+          <div class="flex items-center space-x-4">
+            <div
+              class="w-12 h-12 bg-gradient-to-br from-orange-500 to-red-600 rounded-xl flex items-center justify-center">
+              <i class="fas fa-bell text-white text-xl"></i>
             </div>
-        </main>
-    </div>
-</div>
+            <div>
+              <h1 class="text-2xl font-bold text-gray-800">Alerts</h1>
+              <p class="text-sm text-gray-600">
+                Monitor critical alerts that require immediate attention
+              </p>
+            </div>
+          </div>
+          <div class="flex items-center space-x-4">
+            <div class="flex items-center space-x-2">
+              <div class="w-2 h-2 bg-orange-500 rounded-full pulse-dot"></div>
+              <span class="text-sm text-gray-600">Active monitoring</span>
+            </div>
+            <button @click="loadAlerts(true)"
+              class="btn-primary flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md"
+              :disabled="isRefreshing">
+              <i class="fas fa-sync-alt" :class="{ 'fa-spin': isRefreshing }"></i>
+              <span x-text="isRefreshing ? 'Scanning...' : 'Refresh Alerts'"></span>
+            </button>
+          </div>
+        </header>
 
-<script>
-    function alerts() {
-        return {
-            isLoading: true,
-            isRefreshing: false,
-            alerts: [],
-            selectedService: 'All',
+        <div class="px-4 md:px-8 border-b border-gray-200">
+          <nav class="-mb-px flex space-x-8" aria-label="Tabs">
+            <button @click="tab = 'cloudguard'"
+              :class="{ 'border-indigo-500 text-indigo-600': tab === 'cloudguard', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': tab !== 'cloudguard' }"
+              class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">
+              CloudGuard Alerts
+            </button>
+            <button @click="tab = 'grafana'"
+              :class="{ 'border-indigo-500 text-indigo-600': tab === 'grafana', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': tab !== 'grafana' }"
+              class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">
+              Grafana Alerts
+            </button>
+          </nav>
+        </div>
 
-            init() {
+        <div x-show="tab === 'cloudguard'">
+          <div class="flex-1 p-8 space-y-8">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+              <div x-show="isLoading" x-cloak class="skeleton h-36"></div>
+              <div x-show="isLoading" x-cloak class="skeleton h-36"></div>
+              <div x-show="isLoading" x-cloak class="skeleton h-36"></div>
+              <div x-show="isLoading" x-cloak class="skeleton h-36"></div>
+
+              <div x-show="!isLoading" class="quota-card rounded-2xl p-6 fade-in">
+                <div class="flex justify-between items-start mb-4">
+                  <div class="flex-1">
+                    <h3 class="text-gray-600 text-sm font-medium mb-2">
+                      Total Alerts
+                    </h3>
+                    <p class="text-4xl font-bold gradient-text mb-1" x-text="alerts.length">
+                    </p>
+                    <p class="text-xs text-gray-500">monitored services</p>
+                  </div>
+                  <div
+                    class="w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center">
+                    <i class="fas fa-list text-white text-xl"></i>
+                  </div>
+                </div>
+              </div>
+
+              <div x-show="!isLoading" class="quota-card rounded-2xl p-6 fade-in">
+                <div class="flex justify-between items-start mb-4">
+                  <div class="flex-1">
+                    <h3 class="text-gray-600 text-sm font-medium mb-2">
+                      Critical Usage
+                    </h3>
+                    <p class="text-4xl font-bold text-red-600 mb-1" x-text="getCriticalCount()">
+                    </p>
+                    <p class="text-xs text-gray-500">above 90%</p>
+                  </div>
+                  <div
+                    class="w-14 h-14 bg-gradient-to-br from-red-500 to-red-600 rounded-xl flex items-center justify-center">
+                    <i class="fas fa-exclamation-triangle text-white text-xl"></i>
+                  </div>
+                </div>
+              </div>
+
+              <div x-show="!isLoading" class="quota-card rounded-2xl p-6 fade-in">
+                <div class="flex justify-between items-start mb-4">
+                  <div class="flex-1">
+                    <h3 class="text-gray-600 text-sm font-medium mb-2">
+                      Warning
+                    </h3>
+                    <p class="text-4xl font-bold text-yellow-500 mb-1" x-text="getWarningCount()">
+                    </p>
+                    <p class="text-xs text-gray-500">75-90%</p>
+                  </div>
+                  <div
+                    class="w-14 h-14 bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-xl flex items-center justify-center">
+                    <i class="fas fa-exclamation-circle text-white text-xl"></i>
+                  </div>
+                </div>
+              </div>
+
+              <div x-show="!isLoading" class="quota-card rounded-2xl p-6 fade-in">
+                <div class="flex justify-between items-start mb-4">
+                  <div class="flex-1">
+                    <h3 class="text-gray-600 text-sm font-medium mb-2">
+                      Healthy
+                    </h3>
+                    <p class="text-4xl font-bold text-green-600 mb-1" x-text="getHealthyCount()">
+                    </p>
+                    <p class="text-xs text-gray-500">below 75%</p>
+                  </div>
+                  <div
+                    class="w-14 h-14 bg-gradient-to-br from-green-500 to-green-600 rounded-xl flex items-center justify-center">
+                    <i class="fas fa-check-circle text-white text-xl"></i>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="glass-card rounded-2xl p-8 fade-in">
+              <div class="flex items-center justify-between mb-8">
+                <div class="flex items-center space-x-4">
+                  <div
+                    class="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center">
+                    <i class="fas fa-chart-bar text-white text-lg"></i>
+                  </div>
+                  <div>
+                    <h2 class="text-xl font-bold text-gray-800">
+                      Critical Alerts Overview
+                    </h2>
+                    <p class="text-sm text-gray-600">
+                      Monitor service limits and other critical alerts
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="filter-section rounded-xl p-4 mb-8">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center space-x-4">
+                    <div class="flex items-center space-x-2">
+                      <i class="fas fa-filter text-indigo-600"></i>
+                      <label for="service-filter" class="text-sm font-semibold text-gray-700">Filter
+                        by Service:</label>
+                    </div>
+                    <select id="service-filter" x-model="selectedService"
+                      class="form-select px-4 py-2 rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200">
+                      <option value="All">All Services</option>
+                      <template x-for="service in services" :key="service">
+                        <option :value="service" x-text="service"></option>
+                      </template>
+                    </select>
+                  </div>
+                  <div class="text-sm text-gray-600">
+                    <span x-text="filteredAlerts.length"></span> alert<span
+                      x-show="filteredAlerts.length !== 1">s</span>
+                    shown
+                  </div>
+                </div>
+              </div>
+
+              <div x-show="isLoading" x-cloak class="table-enhanced">
+                <table class="w-full text-sm">
+                  <thead class="text-xs text-gray-700 uppercase bg-gradient-to-r from-gray-50 to-gray-100">
+                    <tr>
+                      <th class="px-6 py-4">
+                        <div class="h-4 skeleton rounded w-32"></div>
+                      </th>
+                      <th class="px-6 py-4">
+                        <div class="h-4 skeleton rounded w-48"></div>
+                      </th>
+                      <th class="px-6 py-4">
+                        <div class="h-4 skeleton rounded w-full"></div>
+                      </th>
+                      <th class="px-6 py-4">
+                        <div class="h-4 skeleton rounded w-24"></div>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="i in 8" :key="i">
+                      <tr class="border-b border-gray-200">
+                        <td class="px-6 py-4">
+                          <div class="h-4 skeleton rounded w-24"></div>
+                        </td>
+                        <td class="px-6 py-4">
+                          <div class="h-4 skeleton rounded w-full"></div>
+                        </td>
+                        <td class="px-6 py-4">
+                          <div class="h-3 skeleton rounded-full w-full"></div>
+                        </td>
+                        <td class="px-6 py-4">
+                          <div class="h-8 skeleton rounded-md w-32"></div>
+                        </td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+
+              <div x-show="!isLoading && filteredAlerts.length === 0" x-cloak
+                class="empty-state text-center py-20 px-8 rounded-2xl">
+                <div
+                  class="w-20 h-20 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <i class="fas fa-check-circle text-white text-3xl"></i>
+                </div>
+                <h3 class="text-2xl font-bold text-gray-800 mb-2">
+                  All Clear!
+                </h3>
+                <p class="text-gray-600 mb-6">
+                  No critical alerts found for the selected filter.
+                </p>
+                <button @click="loadAlerts(true)" class="btn-primary px-6 py-3 text-sm font-semibold rounded-lg">
+                  <i class="fas fa-sync-alt mr-2"></i>Refresh Check
+                </button>
+              </div>
+
+              <div x-show="!isLoading && filteredAlerts.length > 0" x-cloak class="table-enhanced">
+                <table class="w-full text-sm">
+                  <thead class="text-xs text-gray-700 uppercase bg-gradient-to-r from-gray-50 to-gray-100">
+                    <tr>
+                      <th class="px-6 py-4 text-left font-bold">Service</th>
+                      <th class="px-6 py-4 text-left font-bold">Alert Type</th>
+                      <th class="px-6 py-4 text-left font-bold">Alert</th>
+                      <th class="px-6 py-4 text-left font-bold">
+                        Usage Progress
+                      </th>
+                      <th class="px-6 py-4 text-center font-bold">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-gray-200">
+                    <template x-for="alert in filteredAlerts" :key="alert.id">
+                      <tr class="hover:bg-gray-50 transition-all" :class="getAlertClass(alert)">
+                        <td class="px-6 py-4 quota-cell-indicator">
+                          <div class="flex items-center space-x-3">
+                            <div class="service-icon w-8 h-8 rounded-lg flex items-center justify-center"
+                              :class="getServiceIconClass(alert.service)">
+                              <i class="fas fa-cog text-white text-xs"></i>
+                            </div>
+                            <span class="font-semibold text-gray-800" x-text="alert.service"></span>
+                          </div>
+                        </td>
+                        <td class="px-6 py-4">
+                          <span class="font-medium text-gray-700" x-text="alert.type"></span>
+                        </td>
+                        <td class="px-6 py-4">
+                          <div>
+                            <p class="font-medium text-gray-800" x-text="alert.name"></p>
+                            <p class="text-xs text-gray-500"
+                              x-text="alert.type === 'QUOTA' ? `${alert.region} - Limit: ${alert.limit.toLocaleString()}` : alert.description">
+                            </p>
+                          </div>
+                        </td>
+                        <td class="px-6 py-4">
+                          <div x-show="alert.type === 'QUOTA'">
+                            <div class="space-y-2">
+                              <div class="flex items-center justify-between">
+                                <span class="usage-badge" :class="getUsageBadgeClass(alert)"
+                                  x-text="`${getUsagePercentage(alert).toFixed(1)}%`"></span>
+                                <span class="text-xs text-gray-600"
+                                  x-text="`${alert.usage.toLocaleString()} / ${alert.limit.toLocaleString()}`"></span>
+                              </div>
+                              <div class="progress-bar">
+                                <div class="progress-bar-fill" :class="getUsageColor(alert)"
+                                  :style="`width: ${getUsagePercentage(alert)}%`"></div>
+                              </div>
+                            </div>
+                          </div>
+                          <div x-show="alert.type === 'ANOMALY'">
+                            <p class="font-bold text-red-600" x-text="`$` + alert.usage.toFixed(2)"></p>
+                          </div>
+                        </td>
+                        <td class="px-6 py-4 text-center">
+                          <a :href="getAwsConsoleLink(alert)" target="_blank"
+                            class="btn-primary inline-flex items-center space-x-2 px-4 py-2 text-xs font-semibold rounded-lg shadow-md hover:shadow-lg transition-all">
+                            <i class="fas fa-external-link-alt"></i>
+                            <span x-text="alert.type === 'QUOTA' ? 'Request Increase' : 'Investigate'"></span>
+                          </a>
+                        </td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div x-show="tab === 'grafana'" class="p-4 md:p-8 fade-in">
+          <div x-show="loadingGrafana" class="text-center py-10">
+            <p class="text-gray-500">Loading Grafana alerts...</p>
+            <div class="loading-spinner mx-auto mt-4"></div>
+          </div>
+
+          <div x-show="!loadingGrafana && grafanaAlerts.length === 0"
+            class="empty-state text-center py-20 px-8 rounded-2xl">
+            <div
+              class="w-20 h-20 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-6">
+              <svg class="text-white h-8 w-8" viewBox="0 0 16 16" fill="currentColor"
+                xmlns="http://www.w3.org/2000/svg">
+                <path
+                  d="M7.996 15.996a8 8 0 0 0 7.932-6.68H8v6.68ZM8 0v6.68h7.932a8 8 0 1 0-7.932 9.316V0Zm-.68 6.68H.064a8 8 0 0 0 7.256 9.316V6.68Z" />
+              </svg>
+            </div>
+            <h3 class="text-2xl font-bold text-gray-800 mb-2">No Grafana Alerts Yet</h3>
+            <p class="text-gray-600 mb-6">Go to your Grafana contact point settings and click the "Test"
+              button to send a sample alert.</p>
+          </div>
+
+          <table x-show="!loadingGrafana && grafanaAlerts.length > 0" class="table-enhanced w-full text-sm">
+            <thead class="text-xs text-gray-700 uppercase bg-gradient-to-r from-gray-50 to-gray-100">
+              <tr>
+                <th class="px-6 py-4 text-left font-bold">Name (from label)</th>
+                <th class="px-6 py-4 text-left font-bold">Status</th>
+                <th class="px-6 py-4 text-left font-bold">Description</th>
+                <th class="px-6 py-4 text-left font-bold">Region (from label)</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-200">
+              <template x-for="alert in grafanaAlerts" :key="alert.id + alert.name">
+                <tr class="hover:bg-gray-50 transition-all"
+                  :class="{ 'critical': alert.status === 'firing', 'normal': alert.status === 'resolved' }">
+                  <td class="px-6 py-4 quota-cell-indicator">
+                    <span class="font-semibold text-gray-800" x-text="alert.name"></span>
+                  </td>
+                  <td class="px-6 py-4">
+                    <span class="usage-badge"
+                      :class="{ 'bg-red-100 text-red-800 border-red-200': alert.status === 'firing', 'bg-green-100 text-green-800 border-green-200': alert.status === 'resolved' }"
+                      x-text="alert.status">
+                    </span>
+                  </td>
+                  <td class="px-6 py-4">
+                    <p class="font-medium text-gray-800" x-text="alert.description || 'N/A'"></p>
+                  </td>
+                  <td class="px-6 py-4">
+                    <span class="font-medium text-gray-700" x-text="alert.region || 'N/A'"></span>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+
+        <script>
+          function alerts() {
+            return {
+              tab: "cloudguard",
+              grafanaAlerts: [],
+              loadingGrafana: false,
+              isLoading: true,
+              isRefreshing: false,
+              alerts: [],
+              selectedService: "All",
+
+              init() {
                 this.loadAlerts(false);
-            },
+                this.fetchGrafanaAlerts();
+              },
 
-            loadAlerts(forceRefresh = false) {
-                const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-                const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;            if (!selectedAccountId) {
-                    this.isLoading = false;
-                    console.warn('No account selected. Cannot fetch alert data.');
-                    return;
+              loadAlerts(forceRefresh = false) {
+                const selectedAccountIds = JSON.parse(
+                  sessionStorage.getItem("selectedAccountIds") || "[]"
+                );
+                const selectedAccountId =
+                  selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
+                if (!selectedAccountId) {
+                  this.isLoading = false;
+                  console.warn("No account selected. Cannot fetch alert data.");
+                  return;
                 }
 
                 const cacheKey = `alertsData-${selectedAccountId}`;
                 const cachedData = sessionStorage.getItem(cacheKey);
 
                 if (cachedData && !forceRefresh) {
-                    this.processAlerts(JSON.parse(cachedData));
-                    this.isLoading = false;
-                    return;
+                  this.processAlerts(JSON.parse(cachedData));
+                  this.isLoading = false;
+                  return;
                 }
 
                 if (!cachedData) {
-                    this.isLoading = true;
+                  this.isLoading = true;
                 }
 
                 if (forceRefresh) {
-                    this.isRefreshing = true;
-                    sessionStorage.removeItem(cacheKey);
+                  this.isRefreshing = true;
+                  sessionStorage.removeItem(cacheKey);
                 }
 
-                fetch(`/api/xamops/cloudguard/alerts?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`)
-                    .then(res => {
-                        if (!res.ok) throw new Error('Failed to fetch alert data');
-                        return res.json();
-                    })
-                    .then(data => {
-                        // MODIFIED: Process a list of AlertDto objects from the backend
-                        const processedAlerts = data.map(alert => {
-                            if (alert.type === 'QUOTA') {
-                                return {
-                                    id: alert.id,
-                                    service: alert.service,
-                                    type: 'QUOTA',
-                                    name: alert.name,
-                                    limit: alert.limit,
-                                    usage: alert.usage,
-                                    description: alert.description,
-                                    region: alert.region
-                                };
-                            } else if (alert.type === 'ANOMALY') {
-                                return {
-                                    id: alert.id,
-                                    service: alert.service,
-                                    type: 'ANOMALY',
-                                    name: alert.name,
-                                    usage: alert.usage,
-                                    description: alert.description,
-                                    region: alert.region
-                                };
-                            }
-                            return null; // Should not happen with current backend
-                        }).filter(Boolean); // Filter out any nulls
+                fetch(
+                  `/api/xamops/cloudguard/alerts?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`
+                )
+                  .then((res) => {
+                    if (!res.ok) throw new Error("Failed to fetch alert data");
+                    return res.json();
+                  })
+                  .then((data) => {
+                    const processedAlerts = data
+                      .map((alert) => {
+                        if (alert.type === "QUOTA") {
+                          return {
+                            id: alert.id,
+                            service: alert.service,
+                            type: "QUOTA",
+                            name: alert.name,
+                            limit: alert.limit,
+                            usage: alert.usage,
+                            description: alert.description,
+                            region: alert.region,
+                          };
+                        } else if (alert.type === "ANOMALY") {
+                          return {
+                            id: alert.id,
+                            service: alert.service,
+                            type: "ANOMALY",
+                            name: alert.name,
+                            usage: alert.usage,
+                            description: alert.description,
+                            region: alert.region,
+                          };
+                        }
+                        return null;
+                      })
+                      .filter(Boolean);
 
-                        sessionStorage.setItem(cacheKey, JSON.stringify(processedAlerts));
-                        this.processAlerts(processedAlerts);
-                    })
-                    .catch(err => {
-                        console.error('Failed to load alert data', err);
-                        this.alerts = [];
-                    })
-                    .finally(() => {
-                        this.isLoading = false;
-                        this.isRefreshing = false;
-                    });
-            },
+                    sessionStorage.setItem(
+                      cacheKey,
+                      JSON.stringify(processedAlerts)
+                    );
+                    this.processAlerts(processedAlerts);
+                  })
+                  .catch((err) => {
+                    console.error("Failed to load alert data", err);
+                    this.alerts = [];
+                  })
+                  .finally(() => {
+                    this.isLoading = false;
+                    this.isRefreshing = false;
+                  });
+              },
 
-            processAlerts(data) {
+              processAlerts(data) {
                 this.alerts = data.sort((a, b) => {
-                    const percentageA = a.type === 'QUOTA' ? (a.usage / a.limit) || 0 : 1;
-                    const percentageB = b.type === 'QUOTA' ? (b.usage / b.limit) || 0 : 1;
-                    return percentageB - percentageA;
+                  const percentageA =
+                    a.type === "QUOTA" ? a.usage / a.limit || 0 : 1;
+                  const percentageB =
+                    b.type === "QUOTA" ? b.usage / b.limit || 0 : 1;
+                  return percentageB - percentageA;
                 });
-            },
+              },
 
-            get services() {
-                const serviceNames = this.alerts.map(q => q.service);
+              get services() {
+                const serviceNames = this.alerts.map((q) => q.service);
                 return [...new Set(serviceNames)].sort();
-            },
+              },
 
-            get filteredAlerts() {
-                if (this.selectedService === 'All') {
-                    return this.alerts;
+              get filteredAlerts() {
+                if (this.selectedService === "All") {
+                  return this.alerts;
                 }
-                return this.alerts.filter(q => q.service === this.selectedService);
-            },
+                return this.alerts.filter(
+                  (q) => q.service === this.selectedService
+                );
+              },
 
-            getUsagePercentage(alert) {
+              getUsagePercentage(alert) {
                 if (alert.limit === 0) return 0;
                 return (alert.usage / alert.limit) * 100;
-            },
+              },
 
-            getUsageColor(alert) {
+              getUsageColor(alert) {
                 const percentage = this.getUsagePercentage(alert);
-                if (percentage > 90) return 'bg-gradient-to-r from-red-500 to-red-600';
-                if (percentage > 75) return 'bg-gradient-to-r from-yellow-500 to-yellow-600';
-                return 'bg-gradient-to-r from-green-500 to-green-600';
-            },
+                if (percentage > 90)
+                  return "bg-gradient-to-r from-red-500 to-red-600";
+                if (percentage > 75)
+                  return "bg-gradient-to-r from-yellow-500 to-yellow-600";
+                return "bg-gradient-to-r from-green-500 to-green-600";
+              },
 
-            getUsageBadgeClass(alert) {
+              getUsageBadgeClass(alert) {
                 const percentage = this.getUsagePercentage(alert);
-                if (percentage > 90) return 'bg-red-100 text-red-800 border-red-200';
-                if (percentage > 75) return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-                return 'bg-green-100 text-green-800 border-green-200';
-            },
+                if (percentage > 90)
+                  return "bg-red-100 text-red-800 border-red-200";
+                if (percentage > 75)
+                  return "bg-yellow-100 text-yellow-800 border-yellow-200";
+                return "bg-green-100 text-green-800 border-green-200";
+              },
 
-            getAlertClass(alert) {
-                if (alert.type === 'ANOMALY') return 'critical';
+              getAlertClass(alert) {
+                if (alert.type === "ANOMALY") return "critical";
                 const percentage = this.getUsagePercentage(alert);
-                if (percentage > 90) return 'critical';
-                if (percentage > 75) return 'warning';
-                return 'normal';
-            },
+                if (percentage > 90) return "critical";
+                if (percentage > 75) return "warning";
+                return "normal";
+              },
 
-            getServiceIconClass(serviceName) {
+              getServiceIconClass(serviceName) {
                 const serviceColors = {
-                    'EC2': 'bg-orange-500',
-                    'S3': 'bg-green-500',
-                    'RDS': 'bg-blue-500',
-                    'Lambda': 'bg-yellow-500',
-                    'VPC': 'bg-purple-500',
-                    'IAM': 'bg-red-500',
-                    'CloudFormation': 'bg-indigo-500',
-                    'Route53': 'bg-pink-500'
+                  EC2: "bg-orange-500",
+                  S3: "bg-green-500",
+                  RDS: "bg-blue-500",
+                  Lambda: "bg-yellow-500",
+                  VPC: "bg-purple-500",
+                  IAM: "bg-red-500",
+                  CloudFormation: "bg-indigo-500",
+                  Route53: "bg-pink-500",
                 };
-                return serviceColors[serviceName] || 'bg-gray-500';
-            },
+                return serviceColors[serviceName] || "bg-gray-500";
+              },
 
-            getCriticalCount() {
-                return this.alerts.filter(q => q.type === 'ANOMALY' || this.getUsagePercentage(q) > 90).length;
-            },
+              getCriticalCount() {
+                return this.alerts.filter(
+                  (q) => q.type === "ANOMALY" || this.getUsagePercentage(q) > 90
+                ).length;
+              },
 
-            getWarningCount() {
-                return this.alerts.filter(q => {
-                    const p = this.getUsagePercentage(q);
-                    return q.type === 'QUOTA' && p > 75 && p <= 90;
+              getWarningCount() {
+                return this.alerts.filter((q) => {
+                  const p = this.getUsagePercentage(q);
+                  return q.type === "QUOTA" && p > 75 && p <= 90;
                 }).length;
-            },
+              },
 
-            getHealthyCount() {
-                return this.alerts.filter(q => q.type === 'QUOTA' && this.getUsagePercentage(q) <= 75).length;
-            },
+              getHealthyCount() {
+                return this.alerts.filter(
+                  (q) => q.type === "QUOTA" && this.getUsagePercentage(q) <= 75
+                ).length;
+              },
 
-            getAwsConsoleLink(alert) {
-                if (alert.type === 'ANOMALY') {
-                    return `https://console.aws.amazon.com/cost-management/home#/cost-anomalies`;
+              async fetchGrafanaAlerts() {
+                this.loadingGrafana = true;
+                try {
+                  const res = await fetch("/api/xamops/cloudguard/grafana-alerts");
+                  if (!res.ok) throw new Error("Failed to fetch Grafana alerts");
+                  this.grafanaAlerts = await res.json();
+                } catch (e) {
+                  console.error("Error fetching Grafana alerts:", e);
+                  this.grafanaAlerts = [];
+                } finally {
+                  this.loadingGrafana = false;
+                }
+              },
+
+              getAwsConsoleLink(alert) {
+                if (alert.type === "ANOMALY") {
+                  return `https://console.aws.amazon.com/cost-management/home#/cost-anomalies`;
                 }
                 return `https://console.aws.amazon.com/servicequotas/home?region=${alert.region}#/service-quotas/dashboard`;
-            }
-        }
-    }
-</script>
-
-</body>
-</html> -->
-
-
-
-
-
-
-
-
-
-
-<!DOCTYPE html>
-<html lang="en" xmlns:th="http://www.thymeleaf.org">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>XamOps - Alerts</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link
-      rel="stylesheet"
-      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
-    />
-    <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png" />
-    <link rel="apple-touch-icon" href="/icons/XamOps.png" />
-    <script
-      src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"
-      defer
-    ></script>
-    <script type="module" src="/src/main.js"></script>
-
-    <style>
-      @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap");
-
-      :root {
-        --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        --success-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
-        --warning-gradient: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-        --error-gradient: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-        --glass-bg: rgba(255, 255, 255, 0.95);
-        --glass-border: rgba(255, 255, 255, 0.2);
-      }
-
-      body {
-        font-family: "Inter", sans-serif;
-        background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-        min-height: 100vh;
-      }
-
-      [x-cloak] {
-        display: none !important;
-      }
-
-      .glass-card {
-        background: var(--glass-bg);
-        backdrop-filter: blur(10px);
-        border: 1px solid var(--glass-border);
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1),
-          0 4px 6px -2px rgba(0, 0, 0, 0.05);
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-      }
-
-      .glass-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1),
-          0 10px 10px -5px rgba(0, 0, 0, 0.04);
-      }
-
-      .quota-card {
-        position: relative;
-        overflow: hidden;
-        background: var(--glass-bg);
-        backdrop-filter: blur(10px);
-        border: 1px solid var(--glass-border);
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-      }
-
-      .quota-card::before {
-        content: "";
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 4px;
-        background: var(--primary-gradient);
-        transform: scaleX(0);
-        transition: transform 0.3s ease;
-      }
-
-      .quota-card:hover::before {
-        transform: scaleX(1);
-      }
-
-      .quota-card:hover {
-        transform: translateY(-4px) scale(1.02);
-        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1),
-          0 10px 10px -5px rgba(0, 0, 0, 0.04);
-      }
-
-      .skeleton {
-        background: linear-gradient(
-          90deg,
-          #f1f5f9 25%,
-          #e2e8f0 50%,
-          #f1f5f9 75%
-        );
-        background-size: 200% 100%;
-        animation: shimmer 1.5s infinite;
-        border-radius: 8px;
-      }
-
-      @keyframes shimmer {
-        0% {
-          background-position: -200% 0;
-        }
-        100% {
-          background-position: 200% 0;
-        }
-      }
-
-      .header-gradient {
-        background: linear-gradient(
-          135deg,
-          rgba(255, 255, 255, 0.95) 0%,
-          rgba(248, 250, 252, 0.95) 100%
-        );
-        backdrop-filter: blur(10px);
-        border-bottom: 1px solid rgba(229, 231, 235, 0.8);
-      }
-
-      .btn-primary {
-        background: var(--primary-gradient);
-        border: none;
-        color: white;
-        transition: all 0.3s ease;
-        position: relative;
-        overflow: hidden;
-      }
-
-      .btn-primary::before {
-        content: "";
-        position: absolute;
-        top: 0;
-        left: -100%;
-        width: 100%;
-        height: 100%;
-        background: linear-gradient(
-          90deg,
-          transparent,
-          rgba(255, 255, 255, 0.2),
-          transparent
-        );
-        transition: left 0.5s ease;
-      }
-
-      .btn-primary:hover::before {
-        left: 100%;
-      }
-
-      .btn-primary:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 10px 15px -3px rgba(102, 126, 234, 0.4);
-      }
-
-      .form-select {
-        background: var(--glass-bg);
-        backdrop-filter: blur(10px);
-        border: 1px solid var(--glass-border);
-        transition: all 0.3s ease;
-      }
-
-      .form-select:focus {
-        background: rgba(255, 255, 255, 1);
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-      }
-
-      .progress-bar {
-        background: linear-gradient(90deg, #e5e7eb 0%, #f3f4f6 100%);
-        border-radius: 12px;
-        overflow: hidden;
-        height: 12px;
-        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
-      }
-
-      .progress-bar-fill {
-        height: 100%;
-        transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
-        border-radius: 12px;
-        position: relative;
-      }
-
-      .progress-bar-fill::after {
-        content: "";
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: linear-gradient(
-          90deg,
-          transparent,
-          rgba(255, 255, 255, 0.3),
-          transparent
-        );
-        animation: shimmer-progress 2s infinite;
-      }
-
-      @keyframes shimmer-progress {
-        0% {
-          transform: translateX(-100%);
-        }
-        100% {
-          transform: translateX(100%);
-        }
-      }
-
-      .table-enhanced {
-        background: var(--glass-bg);
-        backdrop-filter: blur(10px);
-        border-radius: 12px;
-        overflow: hidden;
-        border: 1px solid var(--glass-border);
-      }
-
-      .table-enhanced thead {
-        background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-      }
-
-      .table-enhanced tr {
-        transition: all 0.2s ease;
-      }
-
-      .table-enhanced tr:hover {
-        background: rgba(102, 126, 234, 0.05);
-        transform: translateX(2px);
-      }
-
-      .quota-cell-indicator {
-        position: relative;
-      }
-
-      .quota-cell-indicator::before {
-        content: "";
-        position: absolute;
-        left: 0;
-        top: 0;
-        bottom: 0;
-        width: 4px;
-        transform: scaleY(0);
-        transition: transform 0.2s ease;
-      }
-
-      tr.critical .quota-cell-indicator::before {
-        background: var(--error-gradient);
-      }
-
-      tr.warning .quota-cell-indicator::before {
-        background: var(--warning-gradient);
-      }
-
-      tr.normal .quota-cell-indicator::before {
-        background: var(--success-gradient);
-      }
-
-      tr:hover .quota-cell-indicator::before {
-        transform: scaleY(1);
-      }
-
-      .empty-state {
-        background: var(--glass-bg);
-        backdrop-filter: blur(10px);
-        border: 2px dashed rgba(16, 185, 129, 0.3);
-        transition: all 0.3s ease;
-      }
-
-      .empty-state:hover {
-        border-color: rgba(16, 185, 129, 0.5);
-        background: rgba(255, 255, 255, 0.98);
-      }
-
-      .filter-section {
-        background: linear-gradient(
-          135deg,
-          rgba(102, 126, 234, 0.05) 0%,
-          rgba(102, 126, 234, 0.1) 100%
-        );
-        border: 1px solid rgba(102, 126, 234, 0.2);
-      }
-
-      .pulse-dot {
-        animation: pulse-dot 2s infinite;
-      }
-
-      @keyframes pulse-dot {
-        0%,
-        100% {
-          opacity: 1;
-        }
-        50% {
-          opacity: 0.5;
-        }
-      }
-
-      .loading-spinner {
-        border: 3px solid #f3f4f6;
-        border-top: 3px solid #667eea;
-        border-radius: 50%;
-        width: 20px;
-        height: 20px;
-        animation: spin 1s linear infinite;
-      }
-
-      @keyframes spin {
-        0% {
-          transform: rotate(0deg);
-        }
-        100% {
-          transform: rotate(360deg);
-        }
-      }
-
-      .fade-in {
-        animation: fadeIn 0.5s ease-in-out;
-      }
-
-      @keyframes fadeIn {
-        from {
-          opacity: 0;
-          transform: translateY(20px);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0);
-        }
-      }
-
-      .usage-badge {
-        display: inline-flex;
-        align-items: center;
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 11px;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        backdrop-filter: blur(10px);
-        border: 1px solid rgba(255, 255, 255, 0.2);
-      }
-
-      .service-icon {
-        background: var(--glass-bg);
-        backdrop-filter: blur(10px);
-        border: 1px solid var(--glass-border);
-        transition: all 0.3s ease;
-      }
-
-      .service-icon:hover {
-        transform: scale(1.1) rotate(5deg);
-      }
-
-      .gradient-text {
-        background: var(--primary-gradient);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-      }
-
-      .summary-metrics {
-        background: linear-gradient(
-          135deg,
-          rgba(255, 255, 255, 0.9) 0%,
-          rgba(248, 250, 252, 0.9) 100%
-        );
-        backdrop-filter: blur(10px);
-        border: 1px solid rgba(229, 231, 235, 0.5);
-      }
-    </style>
-  </head>
-  <body class="bg-gray-50">
-    <div class="flex">
-        <include file="/_sidebar.html"></include>
-
-
-      <div class="ml-64 flex-1">
-        <main class="flex-1 flex flex-col min-h-screen" x-data="alerts()">
-          <header
-            class="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-10"
-          >
-            <div class="flex items-center space-x-4">
-              <div
-                class="w-12 h-12 bg-gradient-to-br from-orange-500 to-red-600 rounded-xl flex items-center justify-center"
-              >
-                <i class="fas fa-bell text-white text-xl"></i>
-              </div>
-              <div>
-                <h1 class="text-2xl font-bold text-gray-800">Alerts</h1>
-                <p class="text-sm text-gray-600">
-                  Monitor critical alerts that require immediate attention
-                </p>
-              </div>
-            </div>
-            <div class="flex items-center space-x-4">
-              <div class="flex items-center space-x-2">
-                <div class="w-2 h-2 bg-orange-500 rounded-full pulse-dot"></div>
-                <span class="text-sm text-gray-600">Active monitoring</span>
-              </div>
-              <button
-                @click="loadAlerts(true)"
-                class="btn-primary flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md"
-                :disabled="isRefreshing"
-              >
-                <i
-                  class="fas fa-sync-alt"
-                  :class="{ 'fa-spin': isRefreshing }"
-                ></i>
-                <span
-                  x-text="isRefreshing ? 'Scanning...' : 'Refresh Alerts'"
-                ></span>
-              </button>
-            </div>
-          </header>
-
-          <div class="px-4 md:px-8 border-b border-gray-200">
-            <nav class="-mb-px flex space-x-8" aria-label="Tabs">
-                <button @click="tab = 'cloudguard'"
-                        :class="{ 'border-indigo-500 text-indigo-600': tab === 'cloudguard', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': tab !== 'cloudguard' }"
-                        class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">
-                    CloudGuard Alerts
-                </button>
-                <button @click="tab = 'grafana'"
-                        :class="{ 'border-indigo-500 text-indigo-600': tab === 'grafana', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': tab !== 'grafana' }"
-                        class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">
-                    Grafana Alerts
-                </button>
-            </nav>
-          </div>
-          <div x-show="tab === 'cloudguard'">
-            <div class="flex-1 p-8 space-y-8"> <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
-                <div x-show="isLoading" x-cloak class="skeleton h-36"></div>
-                <div x-show="isLoading" x-cloak class="skeleton h-36"></div>
-                <div x-show="isLoading" x-cloak class="skeleton h-36"></div>
-                <div x-show="isLoading" x-cloak class="skeleton h-36"></div>
-
-                <div
-                  x-show="!isLoading"
-                  class="quota-card rounded-2xl p-6 fade-in"
-                >
-                  <div class="flex justify-between items-start mb-4">
-                    <div class="flex-1">
-                      <h3 class="text-gray-600 text-sm font-medium mb-2">
-                        Total Alerts
-                      </h3>
-                      <p
-                        class="text-4xl font-bold gradient-text mb-1"
-                        x-text="alerts.length"
-                      ></p>
-                      <p class="text-xs text-gray-500">monitored services</p>
-                    </div>
-                    <div
-                      class="w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center"
-                    >
-                      <i class="fas fa-list text-white text-xl"></i>
-                    </div>
-                  </div>
-                </div>
-
-                <div
-                  x-show="!isLoading"
-                  class="quota-card rounded-2xl p-6 fade-in"
-                >
-                  <div class="flex justify-between items-start mb-4">
-                    <div class="flex-1">
-                      <h3 class="text-gray-600 text-sm font-medium mb-2">
-                        Critical Usage
-                      </h3>
-                      <p
-                        class="text-4xl font-bold text-red-600 mb-1"
-                        x-text="getCriticalCount()"
-                      ></p>
-                      <p class="text-xs text-gray-500">above 90%</p>
-                    </div>
-                    <div
-                      class="w-14 h-14 bg-gradient-to-br from-red-500 to-red-600 rounded-xl flex items-center justify-center"
-                    >
-                      <i
-                        class="fas fa-exclamation-triangle text-white text-xl"
-                      ></i>
-                    </div>
-                  </div>
-                </div>
-
-                <div
-                  x-show="!isLoading"
-                  class="quota-card rounded-2xl p-6 fade-in"
-                >
-                  <div class="flex justify-between items-start mb-4">
-                    <div class="flex-1">
-                      <h3 class="text-gray-600 text-sm font-medium mb-2">
-                        Warning
-                      </h3>
-                      <p
-                        class="text-4xl font-bold text-yellow-500 mb-1"
-                        x-text="getWarningCount()"
-                      ></p>
-                      <p class="text-xs text-gray-500">75-90%</p>
-                    </div>
-                    <div
-                      class="w-14 h-14 bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-xl flex items-center justify-center"
-                    >
-                      <i class="fas fa-exclamation-circle text-white text-xl"></i>
-                    </div>
-                  </div>
-                </div>
-
-                <div
-                  x-show="!isLoading"
-                  class="quota-card rounded-2xl p-6 fade-in"
-                >
-                  <div class="flex justify-between items-start mb-4">
-                    <div class="flex-1">
-                      <h3 class="text-gray-600 text-sm font-medium mb-2">
-                        Healthy
-                      </h3>
-                      <p
-                        class="text-4xl font-bold text-green-600 mb-1"
-                        x-text="getHealthyCount()"
-                      ></p>
-                      <p class="text-xs text-gray-500">below 75%</p>
-                    </div>
-                    <div
-                      class="w-14 h-14 bg-gradient-to-br from-green-500 to-green-600 rounded-xl flex items-center justify-center"
-                    >
-                      <i class="fas fa-check-circle text-white text-xl"></i>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="glass-card rounded-2xl p-8 fade-in">
-                <div class="flex items-center justify-between mb-8">
-                  <div class="flex items-center space-x-4">
-                    <div
-                      class="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center"
-                    >
-                      <i class="fas fa-chart-bar text-white text-lg"></i>
-                    </div>
-                    <div>
-                      <h2 class="text-xl font-bold text-gray-800">
-                        Critical Alerts Overview
-                      </h2>
-                      <p class="text-sm text-gray-600">
-                        Monitor service limits and other critical alerts
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="filter-section rounded-xl p-4 mb-8">
-                  <div class="flex items-center justify-between">
-                    <div class="flex items-center space-x-4">
-                      <div class="flex items-center space-x-2">
-                        <i class="fas fa-filter text-indigo-600"></i>
-                        <label
-                          for="service-filter"
-                          class="text-sm font-semibold text-gray-700"
-                          >Filter by Service:</label
-                        >
-                      </div>
-                      <select
-                        id="service-filter"
-                        x-model="selectedService"
-                        class="form-select px-4 py-2 rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
-                      >
-                        <option value="All">All Services</option>
-                        <template x-for="service in services" :key="service">
-                          <option :value="service" x-text="service"></option>
-                        </template>
-                      </select>
-                    </div>
-                    <div class="text-sm text-gray-600">
-                      <span x-text="filteredAlerts.length"></span> alert<span
-                        x-show="filteredAlerts.length !== 1"
-                        >s</span
-                      >
-                      shown
-                    </div>
-                  </div>
-                </div>
-
-                <div x-show="isLoading" x-cloak class="table-enhanced">
-                  <table class="w-full text-sm">
-                    <thead
-                      class="text-xs text-gray-700 uppercase bg-gradient-to-r from-gray-50 to-gray-100"
-                    >
-                      <tr>
-                        <th class="px-6 py-4">
-                          <div class="h-4 skeleton rounded w-32"></div>
-                        </th>
-                        <th class="px-6 py-4">
-                          <div class="h-4 skeleton rounded w-48"></div>
-                        </th>
-                        <th class="px-6 py-4">
-                          <div class="h-4 skeleton rounded w-full"></div>
-                        </th>
-                        <th class="px-6 py-4">
-                          <div class="h-4 skeleton rounded w-24"></div>
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <template x-for="i in 8" :key="i">
-                        <tr class="border-b border-gray-200">
-                          <td class="px-6 py-4">
-                            <div class="h-4 skeleton rounded w-24"></div>
-                          </td>
-                          <td class="px-6 py-4">
-                            <div class="h-4 skeleton rounded w-full"></div>
-                          </td>
-                          <td class="px-6 py-4">
-                            <div class="h-3 skeleton rounded-full w-full"></div>
-                          </td>
-                          <td class="px-6 py-4">
-                            <div class="h-8 skeleton rounded-md w-32"></div>
-                          </td>
-                        </tr>
-                      </template>
-                    </tbody>
-                  </table>
-                </div>
-
-                <div
-                  x-show="!isLoading && filteredAlerts.length === 0"
-                  x-cloak
-                  class="empty-state text-center py-20 px-8 rounded-2xl"
-                >
-                  <div
-                    class="w-20 h-20 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6"
-                  >
-                    <i class="fas fa-check-circle text-white text-3xl"></i>
-                  </div>
-                  <h3 class="text-2xl font-bold text-gray-800 mb-2">
-                    All Clear!
-                  </h3>
-                  <p class="text-gray-600 mb-6">
-                    No critical alerts found for the selected filter.
-                  </p>
-                  <button
-                    @click="loadAlerts(true)"
-                    class="btn-primary px-6 py-3 text-sm font-semibold rounded-lg"
-                  >
-                    <i class="fas fa-sync-alt mr-2"></i>Refresh Check
-                  </button>
-                </div>
-
-                <div
-                  x-show="!isLoading && filteredAlerts.length > 0"
-                  x-cloak
-                  class="table-enhanced"
-                >
-                  <table class="w-full text-sm">
-                    <thead
-                      class="text-xs text-gray-700 uppercase bg-gradient-to-r from-gray-50 to-gray-100"
-                    >
-                      <tr>
-                        <th class="px-6 py-4 text-left font-bold">Service</th>
-                        <th class="px-6 py-4 text-left font-bold">Alert Type</th>
-                        <th class="px-6 py-4 text-left font-bold">Alert</th>
-                        <th class="px-6 py-4 text-left font-bold">
-                          Usage Progress
-                        </th>
-                        <th class="px-6 py-4 text-center font-bold">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody class="divide-y divide-gray-200">
-                      <template x-for="alert in filteredAlerts" :key="alert.id">
-                        <tr
-                          class="hover:bg-gray-50 transition-all"
-                          :class="getAlertClass(alert)"
-                        >
-                          <td class="px-6 py-4 quota-cell-indicator">
-                            <div class="flex items-center space-x-3">
-                              <div
-                                class="service-icon w-8 h-8 rounded-lg flex items-center justify-center"
-                                :class="getServiceIconClass(alert.service)"
-                              >
-                                <i class="fas fa-cog text-white text-xs"></i>
-                              </div>
-                              <span
-                                class="font-semibold text-gray-800"
-                                x-text="alert.service"
-                              ></span>
-                            </div>
-                          </td>
-                          <td class="px-6 py-4">
-                            <span
-                              class="font-medium text-gray-700"
-                              x-text="alert.type"
-                            ></span>
-                          </td>
-                          <td class="px-6 py-4">
-                            <div>
-                              <p
-                                class="font-medium text-gray-800"
-                                x-text="alert.name"
-                              ></p>
-                              <p
-                                class="text-xs text-gray-500"
-                                x-text="alert.type === 'QUOTA' ? `${alert.region} - Limit: ${alert.limit.toLocaleString()}` : alert.description"
-                              ></p>
-                            </div>
-                          </td>
-                          <td class="px-6 py-4">
-                            <div x-show="alert.type === 'QUOTA'">
-                              <div class="space-y-2">
-                                <div class="flex items-center justify-between">
-                                  <span
-                                    class="usage-badge"
-                                    :class="getUsageBadgeClass(alert)"
-                                    x-text="`${getUsagePercentage(alert).toFixed(1)}%`"
-                                  ></span>
-                                  <span
-                                    class="text-xs text-gray-600"
-                                    x-text="`${alert.usage.toLocaleString()} / ${alert.limit.toLocaleString()}`"
-                                  ></span>
-                                </div>
-                                <div class="progress-bar">
-                                  <div
-                                    class="progress-bar-fill"
-                                    :class="getUsageColor(alert)"
-                                    :style="`width: ${getUsagePercentage(alert)}%`"
-                                  ></div>
-                                </div>
-                              </div>
-                            </div>
-                            <div x-show="alert.type === 'ANOMALY'">
-                              <p
-                                class="font-bold text-red-600"
-                                x-text="`$` + alert.usage.toFixed(2)"
-                              ></p>
-                            </div>
-                          </td>
-                          <td class="px-6 py-4 text-center">
-                            <a
-                              :href="getAwsConsoleLink(alert)"
-                              target="_blank"
-                              class="btn-primary inline-flex items-center space-x-2 px-4 py-2 text-xs font-semibold rounded-lg shadow-md hover:shadow-lg transition-all"
-                            >
-                              <i class="fas fa-external-link-alt"></i>
-                              <span
-                                x-text="alert.type === 'QUOTA' ? 'Request Increase' : 'Investigate'"
-                              ></span>
-                            </a>
-                          </td>
-                        </tr>
-                      </template>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div> </div> <div x-show="tab === 'grafana'" class="p-4 md:p-8 fade-in">
-
-            <div x-show="loadingGrafana" class="text-center py-10">
-                <p class="text-gray-500">Loading Grafana alerts...</p>
-                <div class="loading-spinner mx-auto mt-4"></div>
-            </div>
-
-            <div x-show="!loadingGrafana && grafanaAlerts.length === 0" class="empty-state text-center py-20 px-8 rounded-2xl">
-                <div class="w-20 h-20 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-6">
-                    <svg class="text-white h-8 w-8" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M7.996 15.996a8 8 0 0 0 7.932-6.68H8v6.68ZM8 0v6.68h7.932a8 8 0 1 0-7.932 9.316V0Zm-.68 6.68H.064a8 8 0 0 0 7.256 9.316V6.68Z"/></svg>
-                </div>
-                <h3 class="text-2xl font-bold text-gray-800 mb-2">No Grafana Alerts Yet</h3>
-                <p class="text-gray-600 mb-6">Go to your Grafana contact point settings and click the "Test" button to send a sample alert.</p>
-            </div>
-
-            <table x-show="!loadingGrafana && grafanaAlerts.length > 0" class="table-enhanced w-full text-sm">
-                <thead class="text-xs text-gray-700 uppercase bg-gradient-to-r from-gray-50 to-gray-100">
-                    <tr>
-                        <th class="px-6 py-4 text-left font-bold">Name (from label)</th>
-                        <th class="px-6 py-4 text-left font-bold">Status</th>
-                        <th class="px-6 py-4 text-left font-bold">Description</th>
-                        <th class="px-6 py-4 text-left font-bold">Region (from label)</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-gray-200">
-                    <template x-for="alert in grafanaAlerts" :key="alert.id + alert.name"> <tr class="hover:bg-gray-50 transition-all"
-                            :class="{ 'critical': alert.status === 'firing', 'normal': alert.status === 'resolved' }">
-                            <td class="px-6 py-4 quota-cell-indicator">
-                                <span class="font-semibold text-gray-800" x-text="alert.name"></span>
-                            </td>
-                            <td class="px-6 py-4">
-                                <span class="usage-badge"
-                                    :class="{ 'bg-red-100 text-red-800 border-red-200': alert.status === 'firing', 'bg-green-100 text-green-800 border-green-200': alert.status === 'resolved' }"
-                                    x-text="alert.status">
-                                </span>
-                            </td>
-                            <td class="px-6 py-4">
-                                 <p class="font-medium text-gray-800" x-text="alert.description || 'N/A'"></p>
-                            </td>
-                            <td class="px-6 py-4">
-                                 <span class="font-medium text-gray-700" x-text="alert.region || 'N/A'"></span>
-                            </td>
-                        </tr>
-                    </template>
-                </tbody>
-            </table>
-          </div>
-          </main> </div>
-    </div>
-
-    <script>
-      function alerts() {
-        return {
-          tab: "cloudguard", // New
-          grafanaAlerts: [], // New
-          loadingGrafana: false, // New
-          isLoading: true,
-          isRefreshing: false,
-          alerts: [],
-          selectedService: "All",
-
-          init() {
-            this.loadAlerts(false);
-            this.fetchGrafanaAlerts(); // New
-          },
-
-          loadAlerts(forceRefresh = false) {
-            const selectedAccountIds = JSON.parse(
-              sessionStorage.getItem("selectedAccountIds") || "[]"
-            );
-            const selectedAccountId =
-              selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
-            if (!selectedAccountId) {
-              this.isLoading = false;
-              console.warn("No account selected. Cannot fetch alert data.");
-              return;
-            }
-
-            const cacheKey = `alertsData-${selectedAccountId}`;
-            const cachedData = sessionStorage.getItem(cacheKey);
-
-            if (cachedData && !forceRefresh) {
-              this.processAlerts(JSON.parse(cachedData));
-              this.isLoading = false;
-              return;
-            }
-
-            if (!cachedData) {
-              this.isLoading = true;
-            }
-
-            if (forceRefresh) {
-              this.isRefreshing = true;
-              sessionStorage.removeItem(cacheKey);
-            }
-
-            fetch(
-              `/api/xamops/cloudguard/alerts?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`
-            )
-              .then((res) => {
-                if (!res.ok) throw new Error("Failed to fetch alert data");
-                return res.json();
-              })
-              .then((data) => {
-                // MODIFIED: Process a list of AlertDto objects from the backend
-                const processedAlerts = data
-                  .map((alert) => {
-                    if (alert.type === "QUOTA") {
-                      return {
-                        id: alert.id,
-                        service: alert.service,
-                        type: "QUOTA",
-                        name: alert.name,
-                        limit: alert.limit,
-                        usage: alert.usage,
-                        description: alert.description,
-                        region: alert.region,
-                      };
-                    } else if (alert.type === "ANOMALY") {
-                      return {
-                        id: alert.id,
-                        service: alert.service,
-                        type: "ANOMALY",
-                        name: alert.name,
-                        usage: alert.usage,
-                        description: alert.description,
-                        region: alert.region,
-                      };
-                    }
-                    return null; // Should not happen with current backend
-                  })
-                  .filter(Boolean); // Filter out any nulls
-
-                sessionStorage.setItem(
-                  cacheKey,
-                  JSON.stringify(processedAlerts)
-                );
-                this.processAlerts(processedAlerts);
-              })
-              .catch((err) => {
-                console.error("Failed to load alert data", err);
-                this.alerts = [];
-              })
-              .finally(() => {
-                this.isLoading = false;
-                this.isRefreshing = false;
-              });
-          },
-
-          processAlerts(data) {
-            this.alerts = data.sort((a, b) => {
-              const percentageA =
-                a.type === "QUOTA" ? a.usage / a.limit || 0 : 1;
-              const percentageB =
-                b.type === "QUOTA" ? b.usage / b.limit || 0 : 1;
-              return percentageB - percentageA;
-            });
-          },
-
-          get services() {
-            const serviceNames = this.alerts.map((q) => q.service);
-            return [...new Set(serviceNames)].sort();
-          },
-
-          get filteredAlerts() {
-            if (this.selectedService === "All") {
-              return this.alerts;
-            }
-            return this.alerts.filter(
-              (q) => q.service === this.selectedService
-            );
-          },
-
-          getUsagePercentage(alert) {
-            if (alert.limit === 0) return 0;
-            return (alert.usage / alert.limit) * 100;
-          },
-
-          getUsageColor(alert) {
-            const percentage = this.getUsagePercentage(alert);
-            if (percentage > 90)
-              return "bg-gradient-to-r from-red-500 to-red-600";
-            if (percentage > 75)
-              return "bg-gradient-to-r from-yellow-500 to-yellow-600";
-            return "bg-gradient-to-r from-green-500 to-green-600";
-          },
-
-          getUsageBadgeClass(alert) {
-            const percentage = this.getUsagePercentage(alert);
-            if (percentage > 90)
-              return "bg-red-100 text-red-800 border-red-200";
-            if (percentage > 75)
-              return "bg-yellow-100 text-yellow-800 border-yellow-200";
-            return "bg-green-100 text-green-800 border-green-200";
-          },
-
-          getAlertClass(alert) {
-            if (alert.type === "ANOMALY") return "critical";
-            const percentage = this.getUsagePercentage(alert);
-            if (percentage > 90) return "critical";
-            if (percentage > 75) return "warning";
-            return "normal";
-          },
-
-          getServiceIconClass(serviceName) {
-            const serviceColors = {
-              EC2: "bg-orange-500",
-              S3: "bg-green-500",
-              RDS: "bg-blue-500",
-              Lambda: "bg-yellow-500",
-              VPC: "bg-purple-500",
-              IAM: "bg-red-500",
-              CloudFormation: "bg-indigo-500",
-              Route53: "bg-pink-500",
+              },
             };
-            return serviceColors[serviceName] || "bg-gray-500";
-          },
+          }
+        </script>
+      </main>
+    </div>
+  </div>
+</body>
 
-          getCriticalCount() {
-            return this.alerts.filter(
-              (q) => q.type === "ANOMALY" || this.getUsagePercentage(q) > 90
-            ).length;
-          },
-
-          getWarningCount() {
-            return this.alerts.filter((q) => {
-              const p = this.getUsagePercentage(q);
-              return q.type === "QUOTA" && p > 75 && p <= 90;
-            }).length;
-          },
-
-          getHealthyCount() {
-            return this.alerts.filter(
-              (q) => q.type === "QUOTA" && this.getUsagePercentage(q) <= 75
-            ).length;
-          },
-
-          // --- ADD THIS ENTIRE NEW FUNCTION ---
-          async fetchGrafanaAlerts() {
-            this.loadingGrafana = true;
-            try {
-              // Fetch from the new endpoint added to AlertsApiController.java
-              const res = await fetch("/api/xamops/cloudguard/grafana-alerts");
-              if (!res.ok) throw new Error("Failed to fetch Grafana alerts");
-              this.grafanaAlerts = await res.json();
-            } catch (e) {
-              console.error("Error fetching Grafana alerts:", e);
-              this.grafanaAlerts = []; // Clear on error
-            } finally {
-              this.loadingGrafana = false;
-            }
-          },
-          // --- END OF NEW FUNCTION ---
-
-          getAwsConsoleLink(alert) {
-            if (alert.type === "ANOMALY") {
-              return `https://console.aws.amazon.com/cost-management/home#/cost-anomalies`;
-            }
-            return `https://console.aws.amazon.com/servicequotas/home?region=${alert.region}#/service-quotas/dashboard`;
-          },
-        };
-      }
-    </script>
-  </body>
 </html>

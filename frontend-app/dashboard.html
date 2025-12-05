@@ -592,7 +592,7 @@
     </style>
 </head>
 
-<body x-data="dashboardApp()">
+<body class="bg-gray-50">
 
     <div style="height: 0; width: 0; position: absolute; visibility: hidden;">
         <svg height="0" width="0">
@@ -603,51 +603,6 @@
             </filter>
         </svg>
     </div>
-    <div x-show="isMultiAccountMode && dashboardData.selectedAccount" 
-     x-cloak
-     class="bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-        <div class="flex items-center justify-between flex-wrap gap-3">
-            <div class="flex items-center space-x-4">
-                <div class="flex items-center space-x-2">
-                    <i class="fas fa-layer-group text-2xl"></i>
-                    <div>
-                        <h3 class="font-semibold text-lg">Multi-Account View Active</h3>
-                        <p class="text-sm text-indigo-100">
-                            Viewing aggregated data from 
-                            <span class="font-bold" x-text="selectedAccountIds.length"></span> AWS accounts
-                        </p>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="flex items-center space-x-3">
-                <div class="flex flex-wrap gap-2">
-                    <template x-for="(name, index) in dashboardData.selectedAccountNames" :key="index">
-                        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-white bg-opacity-20 backdrop-blur-sm">
-                            <i class="fas fa-check-circle mr-1.5"></i>
-                            <span x-text="name"></span>
-                        </span>
-                    </template>
-                </div>
-            </div>
-        </div>
-        
-        <div x-show="dashboardData.failedAccounts && dashboardData.failedAccounts.length > 0" 
-             class="mt-3 bg-yellow-500 bg-opacity-20 backdrop-blur-sm rounded-lg p-3 border border-yellow-300 border-opacity-30">
-            <div class="flex items-start space-x-2">
-                <i class="fas fa-exclamation-triangle text-yellow-200 mt-0.5"></i>
-                <div class="flex-1">
-                    <p class="font-semibold text-sm">Warning: Some accounts failed to load</p>
-                    <p class="text-xs text-indigo-100 mt-1">
-                        Could not fetch data from some accounts. Displaying available data only.
-                    </p>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
 
     <div id="errorState" class="hidden fixed inset-0 flex items-center justify-center bg-red-50 text-red-700 z-50">
         <div class="bg-white p-8 rounded-lg shadow-xl max-w-md w-full mx-4">
@@ -681,40 +636,74 @@
         <include file="/_sidebar.html"></include>
 
 
-    <div class="flex-1 pl-64">
-        <main class="flex-1 p-6 bg-transparent space-y-6">
-            <header class="h-20 flex items-center justify-between glass-card px-6 -mx-6 -mt-6 mb-6 border-b sticky top-0 z-10 fade-in">
-                <div class="flex items-center space-x-4">
-                    <div class="flex items-center space-x-2">
-                        <div class="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center">
-                            <i class="fas fa-cloud text-white text-lg"></i>
-                        </div>
-                        <div>
-                            <h1 class="text-xl font-bold text-gray-800">Live Dashboard</h1>
-                            <div class="flex items-center space-x-2">
-                                <div class="w-2 h-2 bg-green-500 rounded-full pulse-dot"></div>
-                                <p id="updateTime" class="text-xs text-gray-500">Connected</p>
+        <div class="flex-1 pl-64">
+            <!-- MOVED x-data to main and added ID for soft navigation -->
+            <main id="main-content" class="flex-1 p-6 bg-transparent space-y-6" x-data="dashboardApp()">
+                <header
+                    class="h-20 flex items-center justify-between glass-card px-6 -mx-6 -mt-6 mb-6 border-b sticky top-0 z-10 fade-in relative">
+                    <div class="flex items-center space-x-4">
+
+                        <div x-show="!hasAnyRole('ROLE_SUPER_ADMIN')" class="flex items-center space-x-2">
+                            <div
+                                class="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center">
+                                <i class="fas fa-cloud text-white text-lg"></i>
+                            </div>
+                            <div>
+                                <h1 class="text-xl font-bold text-gray-800">Live Dashboard</h1>
+                                <div class="flex items-center space-x-2">
+                                    <div class="w-2 h-2 bg-green-500 rounded-full pulse-dot"></div>
+                                    <p id="updateTime" class="text-xs text-gray-500">Connected</p>
+                                </div>
                             </div>
                         </div>
+
+
+                        <div x-show="hasAnyRole('ROLE_SUPER_ADMIN')" x-cloak class="flex items-center space-x-3">
+                            <div
+                                class="bg-white bg-opacity-90 backdrop-blur-sm p-1.5 rounded-xl shadow-sm border border-gray-200 flex items-center space-x-2">
+                                <select x-model="selectedTenant" @change="switchTenant()"
+                                    class="text-sm border border-gray-300 rounded-lg shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:ring-opacity-50 py-2 px-3 outline-none hover:border-gray-400 bg-white font-medium text-gray-700">
+                                    <option value="">-- Select Customer --</option>
+                                    <template x-for="tenant in tenantList" :key="tenant.tenantId">
+                                        <option :value="tenant.tenantId" x-text="tenant.companyName"
+                                            :selected="selectedTenant === tenant.tenantId"></option>
+                                    </template>
+                                </select>
+
+                                <select x-show="selectedTenant" x-model="impersonateUser" @change="switchUser()"
+                                    class="text-sm border border-gray-300 rounded-lg shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:ring-opacity-50 py-2 px-3 outline-none hover:border-gray-400 bg-white font-medium text-gray-700">
+                                    <option value="">-- Impersonate User --</option>
+                                    <template x-for="user in tenantUsers" :key="user.id">
+                                        <option :value="user.id" x-text="user.username"
+                                            :selected="impersonateUser === user.id"></option>
+                                    </template>
+                                </select>
+
+                                <button x-show="selectedTenant" @click="resetContext()"
+                                    class="text-red-500 hover:text-red-700 hover:bg-red-50 p-2 rounded-lg transition-colors"
+                                    title="Reset Context">
+                                    <i class="fas fa-times-circle text-lg"></i>
+                                </button>
+                            </div>
+                        </div>
+
                     </div>
-                </div>
-                <div class="flex items-center space-x-4">
-                    <a :href="getLink('/cloudmap.html')" class="my-auto" :class="{'opacity-50 pointer-events-none': selectedAccountIds.length === 0}">
-                        <div class="map-btn-wrapper">
-                            <div class="map-btn">CloudMap</div>
-                            <div class="pinpoint"></div>
-                            <div class="map-container">
-                                <div class="map fold-1"></div>
-                                <div class="map fold-2"></div>
-                                <div class="map fold-3"></div>
-                                <div class="map fold-4"></div>
+
+                    <div class="flex items-center space-x-4">
+                        <a :href="getLink('/cloudmap.html')" class="my-auto"
+                            :class="{'opacity-50 pointer-events-none': selectedAccountIds.length === 0}">
+                            <div class="map-btn-wrapper">
+                                <div class="map-btn">CloudMap</div>
+                                <div class="pinpoint"></div>
+                                <div class="map-container">
+                                    <div class="map fold-1"></div>
+                                    <div class="map fold-2"></div>
+                                    <div class="map fold-3"></div>
+                                    <div class="map fold-4"></div>
+                                </div>
                             </div>
-                        </div>
-                    </a>
-                    <button
-                            @click="saveLayout()"
-                            x-show="layoutChanged"
-                            x-cloak
+                        </a>
+                        <button @click="saveLayout()" x-show="layoutChanged" x-cloak
                             class="flex items-center text-sm font-semibold text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 px-6 py-2.5 rounded-lg shadow-md transition-all transform hover:scale-105 hover:shadow-lg">
                             <i class="fas fa-save mr-2"></i> Save Layout
                         </button>
@@ -829,442 +818,540 @@
                             <div id="optimizationHub"></div>
                         </div>
 
-                    <div id="widget-costs" class="widget grid gap-6 lg:grid-cols-3 fade-in">
-                        <div class="lg:col-span-2 chart-container p-6 rounded-xl">
-                            <div class="flex items-center justify-between mb-6">
-                                <h3 class="text-lg font-bold text-gray-800 flex items-center">
-                                    <i class="fas fa-arrows-alt widget-handle mr-3 text-gray-400"></i>
-                                    <i class="fas fa-chart-bar mr-2 text-green-500"></i>
-                                    Cost History (Last 6 Months)
-                                </h3>
-                                <div class="flex items-center space-x-2 text-sm text-gray-500">
-                                    <i class="fas fa-exclamation-triangle text-orange-500"></i>
-                                    <span>Anomaly detection</span>
+                        <div id="widget-costs" class="widget grid gap-6 lg:grid-cols-3 fade-in">
+                            <div class="lg:col-span-2 chart-container p-6 rounded-xl">
+                                <div class="flex items-center justify-between mb-6">
+                                    <h3 class="text-lg font-bold text-gray-800 flex items-center">
+                                        <i class="fas fa-arrows-alt widget-handle mr-3 text-gray-400"></i>
+                                        <i class="fas fa-chart-bar mr-2 text-green-500"></i>
+                                        Cost History (Last 6 Months)
+                                    </h3>
+                                    <div class="flex items-center space-x-2 text-sm text-gray-500">
+                                        <i class="fas fa-exclamation-triangle text-orange-500"></i>
+                                        <span>Anomaly detection</span>
+                                    </div>
+                                </div>
+                                <div class="h-80 p-4 bg-gray-50 rounded-lg">
+                                    <canvas id="costHistoryChart"></canvas>
                                 </div>
                             </div>
-                            <div class="h-80 p-4 bg-gray-50 rounded-lg">
-                                <canvas id="costHistoryChart"></canvas>
-                            </div>
-                        </div>
-                        <div class="chart-container p-6 rounded-xl">
-                            <div class="flex items-center justify-between mb-6">
-                                <h3 class="text-lg font-bold text-gray-800 flex items-center">
-                                    <i class="fas fa-arrows-alt widget-handle mr-3 text-gray-400"></i>
-                                    <i class="fas fa-receipt mr-2 text-blue-500"></i>
-                                    Billing Summary
-                                </h3>
-                                <div class="text-sm text-gray-500">MTD</div>
-                            </div>
-                            <div class="overflow-y-auto max-h-80 custom-scrollbar">
-                                <table class="w-full text-sm text-left text-gray-500">
-                                    <thead class="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0 rounded-lg">
-                                    <tr>
-                                        <th class="px-4 py-3 rounded-l-lg">Service</th>
-                                        <th class="px-4 py-3 text-right rounded-r-lg">Cost (USD)</th>
-                                    </tr>
-                                    </thead>
-                                    <tbody id="billingSummary"></tbody>
-                                </table>
+                            <div class="chart-container p-6 rounded-xl">
+                                <div class="flex items-center justify-between mb-6">
+                                    <h3 class="text-lg font-bold text-gray-800 flex items-center">
+                                        <i class="fas fa-arrows-alt widget-handle mr-3 text-gray-400"></i>
+                                        <i class="fas fa-receipt mr-2 text-blue-500"></i>
+                                        Billing Summary
+                                    </h3>
+                                    <div class="text-sm text-gray-500">MTD</div>
+                                </div>
+                                <div class="overflow-y-auto max-h-80 custom-scrollbar">
+                                    <table class="w-full text-sm text-left text-gray-500">
+                                        <thead
+                                            class="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0 rounded-lg">
+                                            <tr>
+                                                <th class="px-4 py-3 rounded-l-lg">Service</th>
+                                                <th class="px-4 py-3 text-right rounded-r-lg">Cost (USD)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="billingSummary"></tbody>
+                                    </table>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
-        </main>
-    </div>
-</div>
+                <!-- MOVED script inside main -->
+                <script>
+                    function dashboardApp() {
+                        return {
+                            isLoading: true,
+                            isRefreshing: false,
+                            stompClient: null,
+                            layoutChanged: false,
+                            showQuickActions: false,
+                            selectedAccountIds: [],
+                            dashboardData: {},
+                            userRoles: [],
+                            accounts: [],
 
+                            // --- SuperAdmin State ---
+                            tenantList: [],
+                            tenantUsers: [],
+                            selectedTenant: sessionStorage.getItem('selectedTenantId') || '',
+                            impersonateUser: sessionStorage.getItem('impersonateUserId') || '',
 
-    <script>
-        function dashboardApp() {
-            return {
-                isLoading: true,
-                isRefreshing: false,
-                stompClient: null,
-                layoutChanged: false,
-                showQuickActions: false,
-                selectedAccountIds: [],
-                dashboardData: {},
-                userRoles: [],
-                accounts: [],
+                            init() {
+                                console.log('[Dashboard] Initializing dashboardApp...');
 
-                init() {
-                    console.log('[Dashboard] Initializing dashboardApp...');
-
-                    if (window.Highcharts) {
-                        console.log('[Map Debug] Highcharts object found on window.', window.Highcharts);
-                    } else {
-                        console.error('[Map Debug] CRITICAL: Highcharts object NOT found on window.');
-                    }
-
-                    const urlParams = new URLSearchParams(window.location.search);
-                    const accountIdsParam = urlParams.get('accountId') || urlParams.get('accountIds');
-                    const multiAccountParam = urlParams.get('multiAccount') === 'true';
-
-                    if (accountIdsParam) {
-                        this.selectedAccountIds = accountIdsParam.split(',');
-                        sessionStorage.setItem('selectedAccountIds', JSON.stringify(this.selectedAccountIds));
-                        sessionStorage.setItem('multiAccountMode', multiAccountParam.toString());
-                    } else {
-                        this.selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-                    }
-
-                    this.isMultiAccountMode = this.selectedAccountIds.length > 1 ||
-                        sessionStorage.getItem('multiAccountMode') === 'true';
-                    this.selectedAccountId = this.selectedAccountIds.length > 0 ? this.selectedAccountIds[0] : null;
-
-                    console.log('[Dashboard] Selected accounts:', this.selectedAccountIds);
-                    console.log('[Dashboard] Multi-account mode:', this.isMultiAccountMode);
-
-                    this.fetchUserRoles();
-                    this.fetchAccounts();
-
-                    // Event listeners for sidebar account changes
-                    window.addEventListener('multi-account-selection-changed', (event) => {
-                        console.log('[Dashboard] Multi-account selection changed:', event.detail.accountIds);
-                        this.selectedAccountIds = event.detail.accountIds;
-                        this.isMultiAccountMode = this.selectedAccountIds.length > 1;
-                        sessionStorage.setItem('selectedAccountIds', JSON.stringify(this.selectedAccountIds));
-                        sessionStorage.setItem('multiAccountMode', 'true');
-                        this.loadDashboardData(false);
-                    });
-
-                    window.addEventListener('account-changed', (event) => {
-                        console.log('[Dashboard] Single account changed:', event.detail.accountId);
-                        this.selectedAccountIds = [event.detail.accountId];
-                        this.isMultiAccountMode = false;
-                        this.selectedAccountId = event.detail.accountId;
-                        sessionStorage.setItem('selectedAccountIds', JSON.stringify(this.selectedAccountIds));
-                        sessionStorage.setItem('multiAccountMode', 'false');
-                        this.loadDashboardData(false);
-                    });
-
-                    window.addEventListener('storage', (event) => {
-                        if (event.key === 'selectedAccountIds') {
-                            window.location.reload();
-                        }
-                    });
-
-                    this.initializeDashboardLayout();
-                    this.loadDashboardData(false);
-                },
-
-                async apiFetch(url, options = {}) {
-                    const csrfToken = document.cookie
-                        .split('; ')
-                        .find(row => row.startsWith('XSRF-TOKEN='))
-                        ?.split('=')[1];
-
-                    const response = await fetch(url, {
-                        ...options,
-                        credentials: 'include',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-XSRF-TOKEN': csrfToken,
-                            ...options.headers
-                        }
-                    });
-
-                    if (!response.ok) {
-                        console.error('API Error:', response.status, await response.text());
-                        throw new Error(`HTTP ${response.status}`);
-                    }
-                    return response;
-                },
-
-                fetchUserRoles() {
-                    this.apiFetch('/api/xamops/user/profile')
-                        .then(res => res.json())
-                        .then(data => {
-                            this.userRoles = data.roles || [];
-                        })
-                        .catch(err => {
-                            console.error('Could not fetch user profile:', err);
-                        });
-                },
-
-                fetchAccounts() {
-                    this.apiFetch('/api/xamops/account-manager/accounts')
-                        .then(res => res.json())
-                        .then(data => {
-                            this.accounts = data.filter(acc => acc.status === 'CONNECTED');
-                        })
-                        .catch(err => {
-                            console.error('Failed to fetch accounts:', err);
-                            this.accounts = [];
-                        });
-                },
-
-                hasAnyRole(requiredRoles) {
-                    if (!Array.isArray(requiredRoles)) {
-                        requiredRoles = [requiredRoles];
-                    }
-                    return requiredRoles.some(role => this.userRoles.includes(role));
-                },
-
-                getLink(basePath) {
-                    const selectedIds = this.selectedAccountIds;
-                    if (selectedIds.length === 0) {
-                        if (basePath.includes('account-manager.html') || basePath.includes('dashboard.html') || basePath.includes('Xamops_user_management.html')) {
-                            return basePath;
-                        }
-                        return '#';
-                    }
-
-                    const firstAccountId = selectedIds[0];
-                    const account = this.accounts.find(a => a.id === firstAccountId);
-                    const provider = account ? account.provider : 'AWS';
-
-                    let finalPath = basePath;
-
-                    if (basePath.includes('/billops/')) {
-                        if (basePath.includes('billing.html')) {
-                            switch (provider) {
-                                case 'GCP':
-                                    finalPath = '/billops/gcp-billing.html';
-                                    break;
-                                case 'AZURE':
-                                    finalPath = '/billops/azure-billing.html';
-                                    break;
-                                case 'AWS':
-                                default:
-                                    finalPath = '/billops/billing.html';
-                                    break;
-                            }
-                        }
-                    }
-                    else {
-                        if (provider === 'GCP') {
-                            if (basePath === '/reservation.html') finalPath = '/gcp_reservations.html';
-                            else if (basePath === '/cloudmap.html') finalPath = '/gcp_cloudmap.html';
-                            else if (basePath === '/dashboard.html') finalPath = '/gcp_dashboard.html';
-                            else if (basePath.startsWith('/') && !basePath.startsWith('/gcp_') && !basePath.includes('account-manager.html') && !basePath.includes('Xamops_user_management.html')) {
-                                finalPath = basePath.replace('.html', '').replace('/', '/gcp_') + '.html';
-                            }
-                        } else if (provider === 'AZURE') {
-                            if (basePath.startsWith('/') && !basePath.includes('account-manager.html') && !basePath.includes('Xamops_user_management.html')) {
-                                finalPath = '/azure_dashboard.html';
-                            }
-                        }
-                    }
-
-                    const url = new URL(window.location.origin + finalPath);
-                    url.searchParams.append('accountIds', selectedIds.join(','));
-                    return url.toString();
-                },
-
-                connectWebSocket() {
-                    if (!this.selectedAccountId || this.stompClient) return;
-
-                    const socket = new SockJS('/ws');
-                    this.stompClient = Stomp.over(socket);
-                    this.stompClient.debug = null;
-                    this.stompClient.connect({}, (frame) => {
-                        this.stompClient.subscribe(`/topic/dashboard/${this.selectedAccountId}/inventory`, (message) => {
-                            this.populateResourceInventory(JSON.parse(message.body));
-                        });
-                    });
-                },
-
-                loadDashboardData(forceRefresh = false) {
-                    if (!this.selectedAccountIds || this.selectedAccountIds.length === 0) {
-                        console.warn('[Dashboard] No accounts selected');
-                        this.isLoading = false;
-                        return;
-                    }
-
-                    const isMultiAccount = this.selectedAccountIds.length > 1;
-
-                    console.log('[Dashboard] Loading data for:', this.selectedAccountIds);
-                    console.log('[Dashboard] Multi-account mode:', isMultiAccount);
-
-                    if (forceRefresh) {
-                        this.isRefreshing = true;
-                    } else {
-                        this.isLoading = true;
-                    }
-
-                    let apiUrl;
-                    if (isMultiAccount) {
-                        const accountIdsParam = this.selectedAccountIds.join(',');
-                        apiUrl = `/api/xamops/dashboard/data/multi-account?accountIds=${accountIdsParam}&forceRefresh=${forceRefresh}`;
-                        console.log('[Dashboard] Using multi-account endpoint:', apiUrl);
-                    } else {
-                        apiUrl = `/api/xamops/dashboard/data?accountId=${this.selectedAccountIds[0]}&forceRefresh=${forceRefresh}`;
-                        console.log('[Dashboard] Using single-account endpoint:', apiUrl);
-                    }
-
-                    fetch(apiUrl)
-                        .then(res => {
-                            if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-                            return res.json();
-                        })
-                        .then(data => {
-                            console.log('[Dashboard] Data received:', data);
-
-                            if (data && data.selectedAccount) {
-                                this.dashboardData = data;
-                                this.isMultiAccountMode = data.isMultiAccountView || false;
-
-                                setTimeout(() => {
-                                    this.populatePage(data.selectedAccount);
-                                    this.renderAllCharts(data.selectedAccount);
-
-                                    if (!this.isMultiAccountMode) {
-                                        this.connectWebSocket();
-                                    }
-                                }, 0);
-                            } else {
-                                console.error('[Dashboard] Invalid data structure:', data);
-                                this.showNotification('error', 'Received invalid data from server.');
-                            }
-                        })
-                        .catch(error => {
-                            console.error('[Dashboard] Failed to load dashboard data:', error);
-                            this.showNotification('error', 'Failed to load dashboard: ' + error.message);
-                        })
-                        .finally(() => {
-                            this.isLoading = false;
-                            this.isRefreshing = false;
-                            if (forceRefresh) {
-                                this.showNotification('success', 'Dashboard refreshed successfully!');
-                            }
-                        });
-                },
-
-                showNotification(type, message) {
-                    const notification = document.getElementById(type + 'Notification');
-                    if (notification.querySelector('span')) {
-                        notification.querySelector('span').textContent = message;
-                    }
-                    if (notification) {
-                        notification.classList.add('show');
-                        setTimeout(() => {
-                            notification.classList.remove('show');
-                        }, 3000);
-                    }
-                },
-
-                initializeDashboardLayout() {
-                    const container = document.getElementById('widgets-container');
-                    fetch('/api/xamops/dashboard/layout')
-                        .then(res => res.json())
-                        .then(layout => {
-                            if (layout && layout.layoutConfig) {
-                                const widgetOrder = JSON.parse(layout.layoutConfig);
-                                if (widgetOrder && widgetOrder.length > 0) {
-                                    widgetOrder.forEach(widgetId => {
-                                        const widget = document.getElementById(widgetId);
-                                        if (widget) container.appendChild(widget);
-                                    });
+                                if (window.Highcharts) {
+                                    console.log('[Map Debug] Highcharts object found on window.', window.Highcharts);
+                                } else {
+                                    console.error('[Map Debug] CRITICAL: Highcharts object NOT found on window.');
                                 }
-                            }
-                            new Sortable(container, {
-                                animation: 200,
-                                ghostClass: 'sortable-ghost',
-                                chosenClass: 'sortable-chosen',
-                                handle: '.widget-handle',
-                                onEnd: () => { this.layoutChanged = true; }
-                            });
-                        }).catch(err => {
-                            console.error("Failed to load layout, using default.", err);
-                            new Sortable(container, {
-                                animation: 200,
-                                ghostClass: 'sortable-ghost',
-                                chosenClass: 'sortable-chosen',
-                                handle: '.widget-handle',
-                                onEnd: () => { this.layoutChanged = true; }
-                            });
-                        });
-                },
 
-                saveLayout() {
-                    const container = document.getElementById('widgets-container');
-                    const widgetOrder = [...container.children].map(w => w.id);
-                    fetch('/api/xamops/dashboard/layout', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(widgetOrder)
-                    }).then(res => {
-                        if (res.ok) {
-                            this.layoutChanged = false;
-                            this.showNotification('success', 'Layout saved successfully!');
-                        } else {
-                            alert('Failed to save layout.');
-                        }
-                    });
-                },
+                                const urlParams = new URLSearchParams(window.location.search);
+                                const accountIdsParam = urlParams.get('accountId') || urlParams.get('accountIds');
+                                const multiAccountParam = urlParams.get('multiAccount') === 'true';
 
-                renderAllCharts(account) {
-                    console.log('[Map Debug] renderAllCharts called.');
-                    if (!account) {
-                        console.warn('[Map Debug] renderAllCharts called with no account data. Aborting.');
-                        return;
-                    }
-                    this.renderCostHistoryChart(account.costHistory);
+                                if (accountIdsParam) {
+                                    this.selectedAccountIds = accountIdsParam.split(',');
+                                    sessionStorage.setItem('selectedAccountIds', JSON.stringify(this.selectedAccountIds));
+                                    sessionStorage.setItem('multiAccountMode', multiAccountParam.toString());
+                                } else {
+                                    this.selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                                }
 
-                    console.log('[Map Debug] Preparing to render map with regionStatus:', account.regionStatus);
-                    this.renderHighchartMap(account.regionStatus);
-                },
+                                this.isMultiAccountMode = this.selectedAccountIds.length > 1 ||
+                                    sessionStorage.getItem('multiAccountMode') === 'true';
+                                this.selectedAccountId = this.selectedAccountIds.length > 0 ? this.selectedAccountIds[0] : null;
 
-                populatePage(data) {
-                    if (!data) return;
-                    document.getElementById('updateTime').textContent = `Updated ${new Date().toLocaleTimeString()}`;
-                    this.populateKpiCards(data);
-                    this.populateResourceInventory(data.resourceInventory);
-                    this.populateOptimizationHub(data.optimizationSummary, data.costAnomalies, data.ec2Recommendations, data.ebsRecommendations, data.lambdaRecommendations);
-                    this.populateBillingSummary(data.billingSummary);
-                },
+                                console.log('[Dashboard] Selected accounts:', this.selectedAccountIds);
+                                console.log('[Dashboard] Multi-account mode:', this.isMultiAccountMode);
 
-                populateKpiCards(account) {
-                    const kpiContainer = document.getElementById('kpi-cards');
-                    if (!kpiContainer || !account || !account.costHistory) return;
+                                this.fetchUserRoles();
+                                this.fetchAccounts();
 
-                    const costHistory = account.costHistory;
-                    const mtdSpend = costHistory.costs.length > 0 ? costHistory.costs[costHistory.costs.length - 1] : 0;
-                    const lastMonthSpend = costHistory.costs.length > 1 ? costHistory.costs[costHistory.costs.length - 2] : 0;
-                    const forecastedSpend = (mtdSpend / new Date().getDate()) * new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
+                                // Event listeners for sidebar account changes
+                                window.addEventListener('multi-account-selection-changed', (event) => {
+                                    console.log('[Dashboard] Multi-account selection changed:', event.detail.accountIds);
+                                    this.selectedAccountIds = event.detail.accountIds;
+                                    this.isMultiAccountMode = this.selectedAccountIds.length > 1;
+                                    sessionStorage.setItem('selectedAccountIds', JSON.stringify(this.selectedAccountIds));
+                                    sessionStorage.setItem('multiAccountMode', 'true');
+                                    this.loadDashboardData(false);
+                                });
 
-                    const kpis = [
-                        {
-                            id: 'mtdSpend',
-                            title: 'Month-to-Date Spend',
-                            value: this.formatCurrency(mtdSpend),
-                            icon: 'fa-dollar-sign',
-                            color: { iconClass: 'text-blue-500', chartColor: '#3b82f6', gradientClass: 'from-blue-500 to-blue-600' },
-                            trendData: costHistory.costs,
-                            change: lastMonthSpend > 0 ? ((mtdSpend - lastMonthSpend) / lastMonthSpend * 100) : 0
-                        },
-                        {
-                            id: 'forecastedSpend',
-                            title: 'Forecasted Spend',
-                            value: this.formatCurrency(forecastedSpend),
-                            icon: 'fa-chart-line',
-                            color: { iconClass: 'text-yellow-500', chartColor: '#f59e0b', gradientClass: 'from-yellow-500 to-yellow-600' },
-                            trendData: [...costHistory.costs, forecastedSpend],
-                            change: mtdSpend > 0 ? ((forecastedSpend - mtdSpend) / mtdSpend * 100) : 0
-                        },
-                        {
-                            id: 'lastMonthSpend',
-                            title: 'Last Month Spend',
-                            value: this.formatCurrency(lastMonthSpend),
-                            icon: 'fa-calendar-alt',
-                            color: { iconClass: 'text-gray-500', chartColor: '#6b7280', gradientClass: 'from-gray-500 to-gray-600' },
-                            trendData: costHistory.costs.slice(0, -1),
-                            change: costHistory.costs.length > 2 ? ((lastMonthSpend - costHistory.costs[costHistory.costs.length - 3]) / costHistory.costs[costHistory.costs.length - 3] * 100) : 0
-                        },
-                        {
-                            id: 'potentialSavings',
-                            title: 'Potential Savings',
-                            value: this.formatCurrency(account.optimizationSummary.totalPotentialSavings),
-                            icon: 'fa-piggy-bank',
-                            color: { iconClass: 'text-green-500', chartColor: '#22c55e', gradientClass: 'from-green-500 to-green-600' },
-                            trendData: [0, account.optimizationSummary.totalPotentialSavings],
-                            change: 100
-                        }
-                    ];
+                                window.addEventListener('account-changed', (event) => {
+                                    console.log('[Dashboard] Single account changed:', event.detail.accountId);
+                                    this.selectedAccountIds = [event.detail.accountId];
+                                    this.isMultiAccountMode = false;
+                                    this.selectedAccountId = event.detail.accountId;
+                                    sessionStorage.setItem('selectedAccountIds', JSON.stringify(this.selectedAccountIds));
+                                    sessionStorage.setItem('multiAccountMode', 'false');
+                                    this.loadDashboardData(false);
+                                });
 
-                    kpiContainer.innerHTML = kpis.map(kpi => `
+                                window.addEventListener('storage', (event) => {
+                                    if (event.key === 'selectedAccountIds') {
+                                        window.location.reload();
+                                    }
+                                });
+
+                                this.initializeDashboardLayout();
+                                this.loadDashboardData(false);
+                            },
+
+                            async apiFetch(url, options = {}) {
+                                const csrfToken = document.cookie
+                                    .split('; ')
+                                    .find(row => row.startsWith('XSRF-TOKEN='))
+                                    ?.split('=')[1];
+
+                                const response = await fetch(url, {
+                                    ...options,
+                                    credentials: 'include',
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                        'X-XSRF-TOKEN': csrfToken,
+                                        ...options.headers
+                                    }
+                                });
+
+                                if (!response.ok) {
+                                    console.error('API Error:', response.status, await response.text());
+                                    throw new Error(`HTTP ${response.status}`);
+                                }
+                                return response;
+                            },
+
+                            fetchUserRoles() {
+                                this.apiFetch('/api/xamops/user/profile')
+                                    .then(res => res.json())
+                                    .then(data => {
+                                        this.userRoles = data.roles || [];
+                                        console.log('User Roles Loaded:', this.userRoles);
+
+                                        // Trigger SuperAdmin data load if role matches
+                                        if (this.hasAnyRole('ROLE_SUPER_ADMIN')) {
+                                            console.log('SuperAdmin Detected in Dashboard. Fetching tenants...');
+                                            this.fetchTenants();
+                                            if (this.selectedTenant) {
+                                                this.fetchTenantUsers(this.selectedTenant);
+                                            }
+                                        }
+                                    })
+                                    .catch(err => {
+                                        console.error('Could not fetch user profile:', err);
+                                    });
+                            },
+
+                            // --- SuperAdmin Functions ---
+                            async fetchTenants() {
+                                try {
+                                    // Using raw fetch so the sidebar's interceptor runs (it handles X-Tenant-ID removal)
+                                    const response = await fetch('/api/xamops/superadmin/tenants');
+
+                                    if (response.ok) {
+                                        this.tenantList = await response.json();
+                                        console.log('Tenants Fetched:', this.tenantList);
+
+                                        // Re-apply selection to ensure UI updates after options load
+                                        const stored = sessionStorage.getItem('selectedTenantId');
+                                        if (stored) {
+                                            this.selectedTenant = stored;
+                                        }
+                                    } else {
+                                        console.error('Failed to fetch tenants', response.status);
+                                    }
+                                } catch (e) {
+                                    console.error('Failed to load tenants', e);
+                                }
+                            },
+
+                            async fetchTenantUsers(tenantId) {
+                                try {
+                                    // The interceptor or apiFetch will handle headers. 
+                                    // If tenantId is passed explicitly to backend, we use query param.
+                                    const res = await this.apiFetch(`/api/xamops/superadmin/users?tenantId=${tenantId}`);
+                                    this.tenantUsers = await res.json();
+                                    console.log('Tenant Users Fetched:', this.tenantUsers);
+
+                                    // Re-apply selection
+                                    const storedUser = sessionStorage.getItem('impersonateUserId');
+                                    if (storedUser) {
+                                        this.impersonateUser = storedUser;
+                                    }
+                                } catch (e) {
+                                    console.error('Failed to load tenant users', e);
+                                }
+                            },
+
+                            switchTenant() {
+                                if (this.selectedTenant) {
+                                    sessionStorage.setItem('selectedTenantId', this.selectedTenant);
+                                    sessionStorage.removeItem('impersonateUserId'); // Reset user on tenant switch
+                                    window.location.reload(); // Reload to apply new DB context globally
+                                } else {
+                                    this.resetContext();
+                                }
+                            },
+
+                            switchUser() {
+                                if (this.impersonateUser) {
+                                    sessionStorage.setItem('impersonateUserId', this.impersonateUser);
+                                    window.location.reload();
+                                }
+                            },
+
+                            resetContext() {
+                                sessionStorage.removeItem('selectedTenantId');
+                                sessionStorage.removeItem('impersonateUserId');
+                                this.selectedTenant = '';
+                                this.impersonateUser = '';
+                                window.location.reload();
+                            },
+                            // ---------------------------
+
+                            fetchAccounts() {
+                                this.apiFetch('/api/xamops/account-manager/accounts')
+                                    .then(res => res.json())
+                                    .then(data => {
+                                        // Filter only connected accounts
+                                        this.accounts = data.filter(acc => acc.status === 'CONNECTED');
+
+                                        // --- AUTO-SELECT LOGIC START ---
+                                        // If no account is currently selected (e.g., fresh login) but we have accounts available:
+                                        if (this.selectedAccountIds.length === 0 && this.accounts.length > 0) {
+                                            console.log('[Dashboard] Auto-selecting first account:', this.accounts[0].id);
+
+                                            // 1. Set internal state for the dashboard
+                                            this.selectedAccountIds = [this.accounts[0].id];
+                                            this.selectedAccountId = this.accounts[0].id;
+
+                                            // 2. Persist to Session Storage (Critical so the Sidebar sees it on next reload)
+                                            sessionStorage.setItem('selectedAccountIds', JSON.stringify(this.selectedAccountIds));
+
+                                            // 3. Immediately trigger data load so the user sees charts instead of "Get Started"
+                                            this.loadDashboardData(false);
+                                        }
+                                        // --- AUTO-SELECT LOGIC END ---
+                                    })
+                                    .catch(err => {
+                                        console.error('Failed to fetch accounts:', err);
+                                        this.accounts = [];
+                                    });
+                            },
+
+                            hasAnyRole(requiredRoles) {
+                                if (!Array.isArray(requiredRoles)) {
+                                    requiredRoles = [requiredRoles];
+                                }
+                                return requiredRoles.some(role => this.userRoles.includes(role));
+                            },
+
+                            getLink(basePath) {
+                                const selectedIds = this.selectedAccountIds;
+                                if (selectedIds.length === 0) {
+                                    if (basePath.includes('account-manager.html') || basePath.includes('dashboard.html') || basePath.includes('Xamops_user_management.html')) {
+                                        return basePath;
+                                    }
+                                    return '#';
+                                }
+
+                                const firstAccountId = selectedIds[0];
+                                const account = this.accounts.find(a => a.id === firstAccountId);
+                                const provider = account ? account.provider : 'AWS';
+
+                                let finalPath = basePath;
+
+                                if (basePath.includes('/billops/')) {
+                                    if (basePath.includes('billing.html')) {
+                                        switch (provider) {
+                                            case 'GCP':
+                                                finalPath = '/billops/gcp-billing.html';
+                                                break;
+                                            case 'AZURE':
+                                                finalPath = '/billops/azure-billing.html';
+                                                break;
+                                            case 'AWS':
+                                            default:
+                                                finalPath = '/billops/billing.html';
+                                                break;
+                                        }
+                                    }
+                                }
+                                else {
+                                    if (provider === 'GCP') {
+                                        if (basePath === '/reservation.html') finalPath = '/gcp_reservations.html';
+                                        else if (basePath === '/cloudmap.html') finalPath = '/gcp_cloudmap.html';
+                                        else if (basePath === '/dashboard.html') finalPath = '/gcp_dashboard.html';
+                                        else if (basePath.startsWith('/') && !basePath.startsWith('/gcp_') && !basePath.includes('account-manager.html') && !basePath.includes('Xamops_user_management.html')) {
+                                            finalPath = basePath.replace('.html', '').replace('/', '/gcp_') + '.html';
+                                        }
+                                    } else if (provider === 'AZURE') {
+                                        if (basePath.startsWith('/') && !basePath.includes('account-manager.html') && !basePath.includes('Xamops_user_management.html')) {
+                                            finalPath = '/azure_dashboard.html';
+                                        }
+                                    }
+                                }
+
+                                const url = new URL(window.location.origin + finalPath);
+                                url.searchParams.append('accountIds', selectedIds.join(','));
+                                return url.toString();
+                            },
+
+                            connectWebSocket() {
+                                if (!this.selectedAccountId || this.stompClient) return;
+
+                                const socket = new SockJS('/ws');
+                                this.stompClient = Stomp.over(socket);
+                                this.stompClient.debug = null;
+                                this.stompClient.connect({}, (frame) => {
+                                    this.stompClient.subscribe(`/topic/dashboard/${this.selectedAccountId}/inventory`, (message) => {
+                                        this.populateResourceInventory(JSON.parse(message.body));
+                                    });
+                                });
+                            },
+
+                            loadDashboardData(forceRefresh = false) {
+                                if (!this.selectedAccountIds || this.selectedAccountIds.length === 0) {
+                                    console.warn('[Dashboard] No accounts selected');
+                                    this.isLoading = false;
+                                    return;
+                                }
+
+                                const isMultiAccount = this.selectedAccountIds.length > 1;
+
+                                console.log('[Dashboard] Loading data for:', this.selectedAccountIds);
+                                console.log('[Dashboard] Multi-account mode:', isMultiAccount);
+
+                                if (forceRefresh) {
+                                    this.isRefreshing = true;
+                                } else {
+                                    this.isLoading = true;
+                                }
+
+                                let apiUrl;
+                                if (isMultiAccount) {
+                                    const accountIdsParam = this.selectedAccountIds.join(',');
+                                    apiUrl = `/api/xamops/dashboard/data/multi-account?accountIds=${accountIdsParam}&forceRefresh=${forceRefresh}`;
+                                    console.log('[Dashboard] Using multi-account endpoint:', apiUrl);
+                                } else {
+                                    apiUrl = `/api/xamops/dashboard/data?accountId=${this.selectedAccountIds[0]}&forceRefresh=${forceRefresh}`;
+                                    console.log('[Dashboard] Using single-account endpoint:', apiUrl);
+                                }
+
+                                fetch(apiUrl)
+                                    .then(res => {
+                                        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                                        return res.json();
+                                    })
+                                    .then(data => {
+                                        console.log('[Dashboard] Data received:', data);
+
+                                        if (data && data.selectedAccount) {
+                                            this.dashboardData = data;
+                                            this.isMultiAccountMode = data.isMultiAccountView || false;
+
+                                            setTimeout(() => {
+                                                this.populatePage(data.selectedAccount);
+                                                this.renderAllCharts(data.selectedAccount);
+
+                                                if (!this.isMultiAccountMode) {
+                                                    this.connectWebSocket();
+                                                }
+                                            }, 0);
+                                        } else {
+                                            console.error('[Dashboard] Invalid data structure:', data);
+                                            this.showNotification('error', 'Received invalid data from server.');
+                                        }
+                                    })
+                                    .catch(error => {
+                                        console.error('[Dashboard] Failed to load dashboard data:', error);
+                                        this.showNotification('error', 'Failed to load dashboard: ' + error.message);
+                                    })
+                                    .finally(() => {
+                                        this.isLoading = false;
+                                        this.isRefreshing = false;
+                                        if (forceRefresh) {
+                                            this.showNotification('success', 'Dashboard refreshed successfully!');
+                                        }
+                                    });
+                            },
+
+                            showNotification(type, message) {
+                                const notification = document.getElementById(type + 'Notification');
+                                if (notification.querySelector('span')) {
+                                    notification.querySelector('span').textContent = message;
+                                }
+                                if (notification) {
+                                    notification.classList.add('show');
+                                    setTimeout(() => {
+                                        notification.classList.remove('show');
+                                    }, 3000);
+                                }
+                            },
+
+                            initializeDashboardLayout() {
+                                const container = document.getElementById('widgets-container');
+                                fetch('/api/xamops/dashboard/layout')
+                                    .then(res => res.json())
+                                    .then(layout => {
+                                        if (layout && layout.layoutConfig) {
+                                            const widgetOrder = JSON.parse(layout.layoutConfig);
+                                            if (widgetOrder && widgetOrder.length > 0) {
+                                                widgetOrder.forEach(widgetId => {
+                                                    const widget = document.getElementById(widgetId);
+                                                    if (widget) container.appendChild(widget);
+                                                });
+                                            }
+                                        }
+                                        new Sortable(container, {
+                                            animation: 200,
+                                            ghostClass: 'sortable-ghost',
+                                            chosenClass: 'sortable-chosen',
+                                            handle: '.widget-handle',
+                                            onEnd: () => { this.layoutChanged = true; }
+                                        });
+                                    }).catch(err => {
+                                        console.error("Failed to load layout, using default.", err);
+                                        new Sortable(container, {
+                                            animation: 200,
+                                            ghostClass: 'sortable-ghost',
+                                            chosenClass: 'sortable-chosen',
+                                            handle: '.widget-handle',
+                                            onEnd: () => { this.layoutChanged = true; }
+                                        });
+                                    });
+                            },
+
+                            saveLayout() {
+                                const container = document.getElementById('widgets-container');
+                                const widgetOrder = [...container.children].map(w => w.id);
+                                fetch('/api/xamops/dashboard/layout', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify(widgetOrder)
+                                }).then(res => {
+                                    if (res.ok) {
+                                        this.layoutChanged = false;
+                                        this.showNotification('success', 'Layout saved successfully!');
+                                    } else {
+                                        alert('Failed to save layout.');
+                                    }
+                                });
+                            },
+
+                            renderAllCharts(account) {
+                                console.log('[Map Debug] renderAllCharts called.');
+                                if (!account) {
+                                    console.warn('[Map Debug] renderAllCharts called with no account data. Aborting.');
+                                    return;
+                                }
+                                this.renderCostHistoryChart(account.costHistory);
+
+                                console.log('[Map Debug] Preparing to render map with regionStatus:', account.regionStatus);
+                                this.renderHighchartMap(account.regionStatus);
+                            },
+
+                            populatePage(data) {
+                                if (!data) return;
+                                document.getElementById('updateTime').textContent = `Updated ${new Date().toLocaleTimeString()}`;
+                                this.populateKpiCards(data);
+                                this.populateResourceInventory(data.resourceInventory);
+                                this.populateOptimizationHub(data.optimizationSummary, data.costAnomalies, data.ec2Recommendations, data.ebsRecommendations, data.lambdaRecommendations);
+                                this.populateBillingSummary(data.billingSummary);
+                            },
+
+                            populateKpiCards(account) {
+                                const kpiContainer = document.getElementById('kpi-cards');
+                                if (!kpiContainer || !account || !account.costHistory) return;
+
+                                const costHistory = account.costHistory;
+                                const mtdSpend = costHistory.costs.length > 0 ? costHistory.costs[costHistory.costs.length - 1] : 0;
+                                const lastMonthSpend = costHistory.costs.length > 1 ? costHistory.costs[costHistory.costs.length - 2] : 0;
+                                const forecastedSpend = (mtdSpend / new Date().getDate()) * new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
+
+                                const kpis = [
+                                    {
+                                        id: 'mtdSpend',
+                                        title: 'Month-to-Date Spend',
+                                        value: this.formatCurrency(mtdSpend),
+                                        icon: 'fa-dollar-sign',
+                                        color: { iconClass: 'text-blue-500', chartColor: '#3b82f6', gradientClass: 'from-blue-500 to-blue-600' },
+                                        trendData: costHistory.costs,
+                                        change: lastMonthSpend > 0 ? ((mtdSpend - lastMonthSpend) / lastMonthSpend * 100) : 0
+                                    },
+                                    {
+                                        id: 'forecastedSpend',
+                                        title: 'Forecasted Spend',
+                                        value: this.formatCurrency(forecastedSpend),
+                                        icon: 'fa-chart-line',
+                                        color: { iconClass: 'text-yellow-500', chartColor: '#f59e0b', gradientClass: 'from-yellow-500 to-yellow-600' },
+                                        trendData: [...costHistory.costs, forecastedSpend],
+                                        change: mtdSpend > 0 ? ((forecastedSpend - mtdSpend) / mtdSpend * 100) : 0
+                                    },
+                                    {
+                                        id: 'lastMonthSpend',
+                                        title: 'Last Month Spend',
+                                        value: this.formatCurrency(lastMonthSpend),
+                                        icon: 'fa-calendar-alt',
+                                        color: { iconClass: 'text-gray-500', chartColor: '#6b7280', gradientClass: 'from-gray-500 to-gray-600' },
+                                        trendData: costHistory.costs.slice(0, -1),
+                                        change: costHistory.costs.length > 2 ? ((lastMonthSpend - costHistory.costs[costHistory.costs.length - 3]) / costHistory.costs[costHistory.costs.length - 3] * 100) : 0
+                                    },
+                                    {
+                                        id: 'potentialSavings',
+                                        title: 'Potential Savings',
+                                        value: this.formatCurrency(account.optimizationSummary.totalPotentialSavings),
+                                        icon: 'fa-piggy-bank',
+                                        color: { iconClass: 'text-green-500', chartColor: '#22c55e', gradientClass: 'from-green-500 to-green-600' },
+                                        trendData: [0, account.optimizationSummary.totalPotentialSavings],
+                                        change: 100
+                                    }
+                                ];
+
+                                kpiContainer.innerHTML = kpis.map(kpi => `
                     <div class="kpi-card rounded-xl p-6 group" @mouseenter="renderSparkline('sparkline-${kpi.id}', [${kpi.trendData.join(',')}], '${kpi.color.chartColor}')">
                         <div class="main-content">
                             <div class="flex justify-between items-start">
@@ -1290,27 +1377,27 @@
                         </div>
                     </div>
                 `).join('');
-                },
+                            },
 
-                populateResourceInventory(inv) {
-                    if (!inv) return;
-                    const container = document.getElementById('resourceInventory');
-                    const resources = [
-                        { name: 'EC2 Instances', count: inv.ec2, type: 'EC2 Instance', icon: 'ec2-instances.png' },
-                        { name: 'S3 Buckets', count: inv.s3Buckets, type: 'S3 Bucket', icon: 's3-bucket.png' },
-                        { name: 'RDS Instances', count: inv.rdsInstances, type: 'RDS Instance', icon: 'rds-instance.png' },
-                        { name: 'VPC Networks', count: inv.vpc, type: 'VPC', icon: 'vpc.png' },
-                        { name: 'Lambda Functions', count: inv.lambdas, type: 'Lambda Function', icon: 'aws-lambda.png' },
-                        { name: 'EBS Volumes', count: inv.ebsVolumes, type: 'EBS Volume', icon: 'aws-ebs.png' },
-                        { name: 'Route 53 Zones', count: inv.route53Zones, type: 'Route 53 Zone', icon: 'aws-route53.png' },
-                        { name: 'Load Balancers', count: inv.loadBalancers, type: 'Load Balancer', icon: 'load-balanceraws.png' },
-                        { name: 'ECS Clusters', count: inv.ecs, type: 'ECS', icon: 'aws-ecs.png' },
-                        { name: 'EKS Clusters', count: inv.kubernetes, type: 'EKS', icon: 'aws-eks.png' },
-                        { name: 'Lightsail Instances', count: inv.lightsail, type: 'Lightsail Instance', icon: 'lightsail.png' },
-                        { name: 'Amplify Apps', count: inv.amplify, type: 'Amplify App', icon: 'amplify.png' }
-                    ];
+                            populateResourceInventory(inv) {
+                                if (!inv) return;
+                                const container = document.getElementById('resourceInventory');
+                                const resources = [
+                                    { name: 'EC2 Instances', count: inv.ec2, type: 'EC2 Instance', icon: 'ec2-instances.png' },
+                                    { name: 'S3 Buckets', count: inv.s3Buckets, type: 'S3 Bucket', icon: 's3-bucket.png' },
+                                    { name: 'RDS Instances', count: inv.rdsInstances, type: 'RDS Instance', icon: 'rds-instance.png' },
+                                    { name: 'VPC Networks', count: inv.vpc, type: 'VPC', icon: 'vpc.png' },
+                                    { name: 'Lambda Functions', count: inv.lambdas, type: 'Lambda Function', icon: 'aws-lambda.png' },
+                                    { name: 'EBS Volumes', count: inv.ebsVolumes, type: 'EBS Volume', icon: 'aws-ebs.png' },
+                                    { name: 'Route 53 Zones', count: inv.route53Zones, type: 'Route 53 Zone', icon: 'aws-route53.png' },
+                                    { name: 'Load Balancers', count: inv.loadBalancers, type: 'Load Balancer', icon: 'load-balanceraws.png' },
+                                    { name: 'ECS Clusters', count: inv.ecs, type: 'ECS', icon: 'aws-ecs.png' },
+                                    { name: 'EKS Clusters', count: inv.kubernetes, type: 'EKS', icon: 'aws-eks.png' },
+                                    { name: 'Lightsail Instances', count: inv.lightsail, type: 'Lightsail Instance', icon: 'lightsail.png' },
+                                    { name: 'Amplify Apps', count: inv.amplify, type: 'Amplify App', icon: 'amplify.png' }
+                                ];
 
-                    container.innerHTML = resources.map(res => `
+                                container.innerHTML = resources.map(res => `
                         <a href="/cloudlist.html?service=${encodeURIComponent(res.type)}" class="resource-card flex items-center gap-4 p-4 rounded-xl hover:shadow-md transition-all group">                        <div class="resource-icon w-10 h-10 flex-shrink-0">
                             <img src="/icons/${res.icon}" alt="${res.name}" class="w-full h-full rounded-xl object-cover">
                         </div>
@@ -1324,14 +1411,14 @@
                         </div>
                     </a>
                 `).join('');
-                },
+                            },
 
-                populateOptimizationHub(summary, anomalies, ec2Recs, ebsRecs, lambdaRecs) {
-                    const container = document.getElementById('optimizationHub');
-                    if (!summary || !container) return;
+                            populateOptimizationHub(summary, anomalies, ec2Recs, ebsRecs, lambdaRecs) {
+                                const container = document.getElementById('optimizationHub');
+                                if (!summary || !container) return;
 
-                    if (this.isMultiAccountMode) {
-                        container.innerHTML = `
+                                if (this.isMultiAccountMode) {
+                                    container.innerHTML = `
                         <div class="bg-blue-50 border-2 border-dashed border-blue-200 rounded-lg p-8 text-center">
                             <i class="fas fa-eye-slash text-blue-400 text-4xl mb-3"></i>
                             <h3 class="text-lg font-semibold text-gray-700 mb-2">Account-Specific Insights Hidden</h3>
@@ -1341,12 +1428,12 @@
                             </p>
                         </div>
                     `;
-                        return;
-                    }
+                                    return;
+                                }
 
-                    const recsHtml = (title, recs, icon, color, gradientClass) => {
-                        if (!recs || recs.length === 0) return '';
-                        return `
+                                const recsHtml = (title, recs, icon, color, gradientClass) => {
+                                    if (!recs || recs.length === 0) return '';
+                                    return `
                         <div class="optimization-card rounded-xl p-6 border-t-4 border-${color}-500 mt-6">
                             <div class="flex items-center justify-between mb-4">
                                 <h4 class="font-bold text-lg text-gray-800 flex items-center">
@@ -1393,11 +1480,11 @@
                             ` : ''}
                         </div>
                     `;
-                    };
+                                };
 
-                    const anomaliesHtml = (anomalies) => {
-                        if (!anomalies || anomalies.length === 0) return '';
-                        return `
+                                const anomaliesHtml = (anomalies) => {
+                                    if (!anomalies || anomalies.length === 0) return '';
+                                    return `
                         <div class="anomaly-card rounded-xl p-6 border-t-4 border-red-500 mt-6">
                             <div class="flex items-center justify-between mb-4">
                                 <h4 class="font-bold text-lg text-gray-800 flex items-center">
@@ -1430,9 +1517,9 @@
                             </div>
                         </div>
                     `;
-                };
+                                };
 
-                    container.innerHTML = `
+                                container.innerHTML = `
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                         <div class="bg-gradient-to-br from-green-50 to-green-100 border border-green-200 p-6 rounded-xl text-center">
                             <div class="flex items-center justify-center mb-3">
@@ -1460,13 +1547,13 @@
                     ${recsHtml('Lambda Function Optimization', lambdaRecs, 'fa-bolt', 'yellow', 'from-yellow-500 to-yellow-600')}
                     ${anomaliesHtml(anomalies)}
                 `;
-                },
+                            },
 
-                populateBillingSummary(summary) {
-                    const container = document.getElementById('billingSummary');
-                    if (!container || !summary) return;
-                    if (summary.length > 0) {
-                        container.innerHTML = summary.sort((a, b) => b.monthToDateCost - a.monthToDateCost).map((item, index) => `
+                            populateBillingSummary(summary) {
+                                const container = document.getElementById('billingSummary');
+                                if (!container || !summary) return;
+                                if (summary.length > 0) {
+                                    container.innerHTML = summary.sort((a, b) => b.monthToDateCost - a.monthToDateCost).map((item, index) => `
                         <tr class="border-b hover:bg-gray-50 transition-colors">
                             <th class="px-4 py-4 font-semibold text-gray-800 text-left">
                                 <div class="flex items-center space-x-2">
@@ -1479,8 +1566,8 @@
                             </td>
                         </tr>
                     `).join('');
-                    } else {
-                        container.innerHTML = `
+                                } else {
+                                    container.innerHTML = `
                         <tr>
                             <td colspan="2" class="px-4 py-8 text-center text-gray-500">
                                 <i class="fas fa-receipt text-2xl mb-2"></i>
@@ -1488,309 +1575,309 @@
                             </td>
                         </tr>
                     `;
-                    }
-                },
-
-                renderCostHistoryChart(costHistory) {
-                    if (!costHistory || !costHistory.labels) return;
-                    const ctx = document.getElementById('costHistoryChart');
-                    if (!ctx) return;
-                    if (window.costHistoryChartInstance) window.costHistoryChartInstance.destroy();
-
-                    const backgroundColors = costHistory.anomalies.map(isAnomaly =>
-                        isAnomaly ? 'rgba(239, 68, 68, 0.8)' : 'rgba(79, 70, 229, 0.8)'
-                    );
-                    const borderColors = costHistory.anomalies.map(isAnomaly =>
-                        isAnomaly ? 'rgba(220, 38, 38, 1)' : 'rgba(79, 70, 229, 1)'
-                    );
-
-                    window.costHistoryChartInstance = new Chart(ctx, {
-                        type: 'bar',
-                        data: {
-                            labels: costHistory.labels,
-                            datasets: [{
-                                label: 'Monthly Cost',
-                                data: costHistory.costs,
-                                backgroundColor: backgroundColors,
-                                borderColor: borderColors,
-                                borderWidth: 2,
-                                borderRadius: 8,
-                                borderSkipped: false
-                            }]
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            plugins: {
-                                legend: { display: false },
-                                tooltip: {
-                                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                                    titleColor: 'white',
-                                    bodyColor: 'white',
-                                    borderColor: 'rgba(79, 70, 229, 0.8)',
-                                    borderWidth: 1,
-                                    cornerRadius: 8,
-                                    callbacks: {
-                                        label: (c) => `Cost: ${this.formatCurrency(c.parsed.y)}`,
-                                        afterLabel: (c) => costHistory.anomalies[c.dataIndex] ? 'Anomaly detected!' : ''
-                                    }
                                 }
                             },
-                            scales: {
-                                y: {
-                                    beginAtZero: true,
-                                    ticks: {
-                                        callback: v => this.formatCurrency(v),
-                                        color: '#6b7280'
+
+                            renderCostHistoryChart(costHistory) {
+                                if (!costHistory || !costHistory.labels) return;
+                                const ctx = document.getElementById('costHistoryChart');
+                                if (!ctx) return;
+                                if (window.costHistoryChartInstance) window.costHistoryChartInstance.destroy();
+
+                                const backgroundColors = costHistory.anomalies.map(isAnomaly =>
+                                    isAnomaly ? 'rgba(239, 68, 68, 0.8)' : 'rgba(79, 70, 229, 0.8)'
+                                );
+                                const borderColors = costHistory.anomalies.map(isAnomaly =>
+                                    isAnomaly ? 'rgba(220, 38, 38, 1)' : 'rgba(79, 70, 229, 1)'
+                                );
+
+                                window.costHistoryChartInstance = new Chart(ctx, {
+                                    type: 'bar',
+                                    data: {
+                                        labels: costHistory.labels,
+                                        datasets: [{
+                                            label: 'Monthly Cost',
+                                            data: costHistory.costs,
+                                            backgroundColor: backgroundColors,
+                                            borderColor: borderColors,
+                                            borderWidth: 2,
+                                            borderRadius: 8,
+                                            borderSkipped: false
+                                        }]
                                     },
-                                    grid: {
-                                        color: 'rgba(0, 0, 0, 0.05)'
-                                    }
-                                },
-                                x: {
-                                    ticks: {
-                                        color: '#6b7280'
-                                    },
-                                    grid: {
-                                        display: false
-                                    }
-                                }
-                            },
-                            onClick: (evt, elements) => {
-                                if (elements.length > 0) {
-                                    const index = elements[0].index;
-                                    if (costHistory.anomalies[index]) {
-                                        alert(`Cost Anomaly Detected!\n\nMonth: ${costHistory.labels[index]}\nCost: ${this.formatCurrency(costHistory.costs[index])}\n\nThis cost is significantly higher than expected. Consider investigating your resource usage for this period.`);
-                                    }
-                                }
-                            }
-                        }
-                    });
-                },
-
-                renderHighchartMap(regionStatus) {
-                    if (!regionStatus || !document.getElementById('highcharts-map-container')) {
-                        console.warn('Map container or region data not available');
-                        return;
-                    }
-
-                    const statusColors = {
-                        'ACTIVE': '#3b82f6',
-                        'SEMI_ACTIVE': '#ef4444',
-                        'SUSTAINABLE': '#22c55e',
-                        'NON_ACTIVE': '#6b7280'
-                    };
-
-                    const regionPoints = regionStatus.map(r => ({
-                        name: r.regionId,
-                        fullName: `${r.regionId} (${r.status})`,
-                        lat: r.latitude,
-                        lon: r.longitude,
-                        color: statusColors[r.status] || '#6b7280',
-                        id: r.regionId,
-                        status: r.status
-                    }));
-
-                    console.log('Rendering map with', regionPoints.length, 'regions');
-
-                    fetch('https://code.highcharts.com/mapdata/custom/world.topo.json')
-                        .then(response => {
-                            if (!response.ok) {
-                                throw new Error('Failed to fetch world map data');
-                            }
-                            return response.json();
-                        })
-                        .then(worldMap => {
-                            console.log('World map data loaded successfully');
-
-                            Highcharts.mapChart('highcharts-map-container', {
-                                chart: {
-                                    map: worldMap,
-                                    backgroundColor: 'transparent',
-                                    style: {
-                                        fontFamily: 'Inter, sans-serif'
-                                    }
-                                },
-                                title: { text: null },
-                                credits: { enabled: false },
-                                mapNavigation: {
-                                    enabled: true,
-                                    enableMouseWheelZoom: true,
-                                    buttonOptions: {
-                                        verticalAlign: 'bottom',
-                                        theme: {
-                                            'stroke-width': 1,
-                                            stroke: '#FF9900',
-                                            r: 4,
-                                            fill: 'white'
-                                        }
-                                    }
-                                },
-                                tooltip: {
-                                    useHTML: true,
-                                    backgroundColor: 'rgba(0, 0, 0, 0.85)',
-                                    borderColor: 'rgba(255, 153, 0, 0.8)',
-                                    borderRadius: 8,
-                                    style: {
-                                        color: 'white',
-                                        fontSize: '12px'
-                                    },
-                                    pointFormat: '<div style="padding: 4px;">' +
-                                        '<b>{point.fullName}</b><br/>' +
-                                        '<span style="font-size: 10px;">Click to filter dashboard</span>' +
-                                        '</div>'
-                                },
-                                plotOptions: {
-                                    mappoint: {
-                                        point: {
-                                            events: {
-                                                click: (e) => {
-                                                    console.log('Region clicked:', e.point.id);
-                                                    if (this.filterByRegion) {
-                                                        this.filterByRegion(e.point.id);
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                },
-                                series: [
-                                    {
-                                        type: 'map',
-                                        name: 'World',
-                                        mapData: worldMap,
-                                        color: '#f1f5f9',
-                                        nullColor: '#e5e7eb',
-                                        enableMouseTracking: false,
-                                        states: {
-                                            hover: {
-                                                color: '#e2e8f0',
-                                                brightness: 0.05
-                                            }
-                                        },
-                                        borderColor: '#cbd5e1',
-                                        borderWidth: 0.5,
-                                        dataLabels: {
-                                            enabled: false
-                                        }
-                                    },
-                                    {
-                                        type: 'mappoint',
-                                        name: 'AWS Regions',
-                                        data: regionPoints,
-                                        marker: {
-                                            lineWidth: 2,
-                                            lineColor: '#ffffff',
-                                            radius: 8,
-                                            symbol: 'circle',
-                                            states: {
-                                                hover: {
-                                                    lineWidth: 3,
-                                                    radius: 12,
-                                                    animation: {
-                                                        duration: 200
-                                                    }
+                                    options: {
+                                        responsive: true,
+                                        maintainAspectRatio: false,
+                                        plugins: {
+                                            legend: { display: false },
+                                            tooltip: {
+                                                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                                                titleColor: 'white',
+                                                bodyColor: 'white',
+                                                borderColor: 'rgba(79, 70, 229, 0.8)',
+                                                borderWidth: 1,
+                                                cornerRadius: 8,
+                                                callbacks: {
+                                                    label: (c) => `Cost: ${this.formatCurrency(c.parsed.y)}`,
+                                                    afterLabel: (c) => costHistory.anomalies[c.dataIndex] ? 'Anomaly detected!' : ''
                                                 }
                                             }
                                         },
-                                        cursor: 'pointer',
-                                        dataLabels: {
-                                            enabled: true,
-                                            format: '{point.name}',
-                                            style: {
-                                                color: '#1f2937',
-                                                fontSize: '10px',
-                                                fontWeight: 'bold',
-                                                textOutline: '2px white'
+                                        scales: {
+                                            y: {
+                                                beginAtZero: true,
+                                                ticks: {
+                                                    callback: v => this.formatCurrency(v),
+                                                    color: '#6b7280'
+                                                },
+                                                grid: {
+                                                    color: 'rgba(0, 0, 0, 0.05)'
+                                                }
                                             },
-                                            y: -15
+                                            x: {
+                                                ticks: {
+                                                    color: '#6b7280'
+                                                },
+                                                grid: {
+                                                    display: false
+                                                }
+                                            }
+                                        },
+                                        onClick: (evt, elements) => {
+                                            if (elements.length > 0) {
+                                                const index = elements[0].index;
+                                                if (costHistory.anomalies[index]) {
+                                                    alert(`Cost Anomaly Detected!\n\nMonth: ${costHistory.labels[index]}\nCost: ${this.formatCurrency(costHistory.costs[index])}\n\nThis cost is significantly higher than expected. Consider investigating your resource usage for this period.`);
+                                                }
+                                            }
                                         }
                                     }
-                                ]
-                            });
-
-                            console.log('Map rendered successfully');
-                        })
-                        .catch(error => {
-                            console.error('Failed to load world map:', error);
-                            const container = document.getElementById('highcharts-map-container');
-                            if (container) {
-                                container.innerHTML =
-                                    '<div class="flex items-center justify-center h-full">' +
-                                    '<div class="text-center p-8">' +
-                                    '<i class="fas fa-exclamation-triangle text-red-500 text-4xl mb-4"></i>' +
-                                    '<p class="text-red-600 font-semibold">Failed to load world map</p>' +
-                                    '<p class="text-sm text-gray-500 mt-2">' + error.message + '</p>' +
-                                    '</div></div>';
-                            }
-                        });
-                },
-
-                hexToRgba(hex, alpha) {
-                    const r = parseInt(hex.slice(1, 3), 16);
-                    const g = parseInt(hex.slice(3, 5), 16);
-                    const b = parseInt(hex.slice(5, 7), 16);
-                    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-                },
-
-                renderSparkline(canvasId, data, chartColor) {
-                    const ctx = document.getElementById(canvasId);
-                    if (!ctx || !data) return;
-                    if (window[canvasId + '_instance']) window[canvasId + '_instance'].destroy();
-
-                    window[canvasId + '_instance'] = new Chart(ctx, {
-                        type: 'line',
-                        data: {
-                            labels: data.map((_, i) => i),
-                            datasets: [{
-                                data: data,
-                                borderColor: chartColor,
-                                backgroundColor: this.hexToRgba(chartColor, 0.1),
-                                borderWidth: 3,
-                                pointRadius: 0,
-                                pointHoverRadius: 6,
-                                pointHoverBackgroundColor: chartColor,
-                                pointHoverBorderColor: '#ffffff',
-                                pointHoverBorderWidth: 2,
-                                tension: 0.4,
-                                fill: true
-                            }]
-                        },
-
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            scales: {
-                                x: { display: false },
-                                y: { display: false }
+                                });
                             },
-                            plugins: {
-                                legend: { display: false },
-                                tooltip: {
-                                    enabled: true,
-                                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                                    titleColor: 'white',
-                                    bodyColor: 'white',
-                                    borderColor: chartColor,
-                                    borderWidth: 1,
-                                    cornerRadius: 6,
-                                    callbacks: {
-                                        label: (context) => `Value: ${context.parsed.y}`
-                                    }
+
+                            renderHighchartMap(regionStatus) {
+                                if (!regionStatus || !document.getElementById('highcharts-map-container')) {
+                                    console.warn('Map container or region data not available');
+                                    return;
                                 }
-                            },
-                            interaction: {
-                                intersect: false,
-                                mode: 'index'
-                            }
-                        }
-                    });
-                },
 
-                filterByRegion(regionId) {
-                    const notification = document.createElement('div');
-                    notification.className = 'fixed top-4 right-4 bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded-lg shadow-lg z-50 max-w-sm';
-                    notification.innerHTML = `
+                                const statusColors = {
+                                    'ACTIVE': '#3b82f6',
+                                    'SEMI_ACTIVE': '#ef4444',
+                                    'SUSTAINABLE': '#22c55e',
+                                    'NON_ACTIVE': '#6b7280'
+                                };
+
+                                const regionPoints = regionStatus.map(r => ({
+                                    name: r.regionId,
+                                    fullName: `${r.regionId} (${r.status})`,
+                                    lat: r.latitude,
+                                    lon: r.longitude,
+                                    color: statusColors[r.status] || '#6b7280',
+                                    id: r.regionId,
+                                    status: r.status
+                                }));
+
+                                console.log('Rendering map with', regionPoints.length, 'regions');
+
+                                fetch('https://code.highcharts.com/mapdata/custom/world.topo.json')
+                                    .then(response => {
+                                        if (!response.ok) {
+                                            throw new Error('Failed to fetch world map data');
+                                        }
+                                        return response.json();
+                                    })
+                                    .then(worldMap => {
+                                        console.log('World map data loaded successfully');
+
+                                        Highcharts.mapChart('highcharts-map-container', {
+                                            chart: {
+                                                map: worldMap,
+                                                backgroundColor: 'transparent',
+                                                style: {
+                                                    fontFamily: 'Inter, sans-serif'
+                                                }
+                                            },
+                                            title: { text: null },
+                                            credits: { enabled: false },
+                                            mapNavigation: {
+                                                enabled: true,
+                                                enableMouseWheelZoom: true,
+                                                buttonOptions: {
+                                                    verticalAlign: 'bottom',
+                                                    theme: {
+                                                        'stroke-width': 1,
+                                                        stroke: '#FF9900',
+                                                        r: 4,
+                                                        fill: 'white'
+                                                    }
+                                                }
+                                            },
+                                            tooltip: {
+                                                useHTML: true,
+                                                backgroundColor: 'rgba(0, 0, 0, 0.85)',
+                                                borderColor: 'rgba(255, 153, 0, 0.8)',
+                                                borderRadius: 8,
+                                                style: {
+                                                    color: 'white',
+                                                    fontSize: '12px'
+                                                },
+                                                pointFormat: '<div style="padding: 4px;">' +
+                                                    '<b>{point.fullName}</b><br/>' +
+                                                    '<span style="font-size: 10px;">Click to filter dashboard</span>' +
+                                                    '</div>'
+                                            },
+                                            plotOptions: {
+                                                mappoint: {
+                                                    point: {
+                                                        events: {
+                                                            click: (e) => {
+                                                                console.log('Region clicked:', e.point.id);
+                                                                if (this.filterByRegion) {
+                                                                    this.filterByRegion(e.point.id);
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            series: [
+                                                {
+                                                    type: 'map',
+                                                    name: 'World',
+                                                    mapData: worldMap,
+                                                    color: '#f1f5f9',
+                                                    nullColor: '#e5e7eb',
+                                                    enableMouseTracking: false,
+                                                    states: {
+                                                        hover: {
+                                                            color: '#e2e8f0',
+                                                            brightness: 0.05
+                                                        }
+                                                    },
+                                                    borderColor: '#cbd5e1',
+                                                    borderWidth: 0.5,
+                                                    dataLabels: {
+                                                        enabled: false
+                                                    }
+                                                },
+                                                {
+                                                    type: 'mappoint',
+                                                    name: 'AWS Regions',
+                                                    data: regionPoints,
+                                                    marker: {
+                                                        lineWidth: 2,
+                                                        lineColor: '#ffffff',
+                                                        radius: 8,
+                                                        symbol: 'circle',
+                                                        states: {
+                                                            hover: {
+                                                                lineWidth: 3,
+                                                                radius: 12,
+                                                                animation: {
+                                                                    duration: 200
+                                                                }
+                                                            }
+                                                        }
+                                                    },
+                                                    cursor: 'pointer',
+                                                    dataLabels: {
+                                                        enabled: true,
+                                                        format: '{point.name}',
+                                                        style: {
+                                                            color: '#1f2937',
+                                                            fontSize: '10px',
+                                                            fontWeight: 'bold',
+                                                            textOutline: '2px white'
+                                                        },
+                                                        y: -15
+                                                    }
+                                                }
+                                            ]
+                                        });
+
+                                        console.log('Map rendered successfully');
+                                    })
+                                    .catch(error => {
+                                        console.error('Failed to load world map:', error);
+                                        const container = document.getElementById('highcharts-map-container');
+                                        if (container) {
+                                            container.innerHTML =
+                                                '<div class="flex items-center justify-center h-full">' +
+                                                '<div class="text-center p-8">' +
+                                                '<i class="fas fa-exclamation-triangle text-red-500 text-4xl mb-4"></i>' +
+                                                '<p class="text-red-600 font-semibold">Failed to load world map</p>' +
+                                                '<p class="text-sm text-gray-500 mt-2">' + error.message + '</p>' +
+                                                '</div></div>';
+                                        }
+                                    });
+                            },
+
+                            hexToRgba(hex, alpha) {
+                                const r = parseInt(hex.slice(1, 3), 16);
+                                const g = parseInt(hex.slice(3, 5), 16);
+                                const b = parseInt(hex.slice(5, 7), 16);
+                                return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+                            },
+
+                            renderSparkline(canvasId, data, chartColor) {
+                                const ctx = document.getElementById(canvasId);
+                                if (!ctx || !data) return;
+                                if (window[canvasId + '_instance']) window[canvasId + '_instance'].destroy();
+
+                                window[canvasId + '_instance'] = new Chart(ctx, {
+                                    type: 'line',
+                                    data: {
+                                        labels: data.map((_, i) => i),
+                                        datasets: [{
+                                            data: data,
+                                            borderColor: chartColor,
+                                            backgroundColor: this.hexToRgba(chartColor, 0.1),
+                                            borderWidth: 3,
+                                            pointRadius: 0,
+                                            pointHoverRadius: 6,
+                                            pointHoverBackgroundColor: chartColor,
+                                            pointHoverBorderColor: '#ffffff',
+                                            pointHoverBorderWidth: 2,
+                                            tension: 0.4,
+                                            fill: true
+                                        }]
+                                    },
+
+                                    options: {
+                                        responsive: true,
+                                        maintainAspectRatio: false,
+                                        scales: {
+                                            x: { display: false },
+                                            y: { display: false }
+                                        },
+                                        plugins: {
+                                            legend: { display: false },
+                                            tooltip: {
+                                                enabled: true,
+                                                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                                                titleColor: 'white',
+                                                bodyColor: 'white',
+                                                borderColor: chartColor,
+                                                borderWidth: 1,
+                                                cornerRadius: 6,
+                                                callbacks: {
+                                                    label: (context) => `Value: ${context.parsed.y}`
+                                                }
+                                            }
+                                        },
+                                        interaction: {
+                                            intersect: false,
+                                            mode: 'index'
+                                        }
+                                    }
+                                });
+                            },
+
+                            filterByRegion(regionId) {
+                                const notification = document.createElement('div');
+                                notification.className = 'fixed top-4 right-4 bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded-lg shadow-lg z-50 max-w-sm';
+                                notification.innerHTML = `
                     <div class="flex items-center space-x-2">
                         <i class="fas fa-filter text-blue-600"></i>
                         <div>
@@ -1799,27 +1886,26 @@
                         </div>
                     </div>
                 `;
-                    document.body.appendChild(notification);
+                                document.body.appendChild(notification);
 
-                    setTimeout(() => {
-                        notification.remove();
-                    }, 4000);
-                },
+                                setTimeout(() => {
+                                    notification.remove();
+                                }, 4000);
+                            },
 
 
-                formatCurrency(num) {
-                    return '$' + (num != null ? num.toLocaleString('en-US', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2
-                    }) : '0.00');
-                },
-            }
-        }
+                            formatCurrency(num) {
+                                return '$' + (num != null ? num.toLocaleString('en-US', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2
+                                }) : '0.00');
+                            },
+                        }
+                    }
 
-</script>
+                </script>
 
-<div id="xamops-chatbot" class="fixed bottom-6 right-6 z-50 font-sans" 
-     x-data="{ 
+                <div id="xamops-chatbot" class="fixed bottom-6 right-6 z-50 font-sans" x-data="{ 
         open: false, 
         newMessage: '', 
         isLoading: false,
@@ -1885,85 +1971,83 @@
         }
      }">
 
-  <button 
-    @click="open = !open; if(open) scrollToBottom()" 
-    class="w-14 h-14 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-full shadow-2xl flex items-center justify-center hover:scale-110 transition-all duration-300 focus:outline-none z-50"
-    title="Ask XamOps AI">
-    <i class="fas fa-robot text-white text-2xl"></i>
-    <span class="absolute -top-1 -right-1 flex h-4 w-4">
-      <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-      <span class="relative inline-flex rounded-full h-4 w-4 bg-green-500"></span>
-    </span>
-  </button>
+                    <button @click="open = !open; if(open) scrollToBottom()"
+                        class="w-14 h-14 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-full shadow-2xl flex items-center justify-center hover:scale-110 transition-all duration-300 focus:outline-none z-50"
+                        title="Ask XamOps AI">
+                        <i class="fas fa-robot text-white text-2xl"></i>
+                        <span class="absolute -top-1 -right-1 flex h-4 w-4">
+                            <span
+                                class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                            <span class="relative inline-flex rounded-full h-4 w-4 bg-green-500"></span>
+                        </span>
+                    </button>
 
-  <div 
-    x-show="open" 
-    x-cloak
-    x-transition:enter="transition ease-out duration-300"
-    x-transition:enter-start="opacity-0 transform scale-95 translate-y-10"
-    x-transition:enter-end="opacity-100 transform scale-100 translate-y-0"
-    x-transition:leave="transition ease-in duration-200"
-    x-transition:leave-start="opacity-100 transform scale-100 translate-y-0"
-    x-transition:leave-end="opacity-0 transform scale-95 translate-y-10"
-    class="absolute bottom-20 right-0 w-96 h-[500px] bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col overflow-hidden z-40">
-    
-    <div class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-4 flex items-center justify-between shadow-md">
-      <div class="flex items-center space-x-3">
-        <div class="w-8 h-8 bg-white bg-opacity-20 rounded-full flex items-center justify-center backdrop-blur-sm">
-            <i class="fas fa-robot text-sm"></i>
-        </div>
-        <div>
-          <h3 class="font-bold text-sm">XamOps AI Assistant</h3>
-          <p class="text-xs opacity-80 flex items-center gap-1">
-            <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span> Online
-          </p>
-        </div>
-      </div>
-      <button @click="open = false" class="hover:bg-white hover:bg-opacity-20 rounded-lg p-2 transition-colors">
-        <i class="fas fa-times"></i>
-      </button>
-    </div>
+                    <div x-show="open" x-cloak x-transition:enter="transition ease-out duration-300"
+                        x-transition:enter-start="opacity-0 transform scale-95 translate-y-10"
+                        x-transition:enter-end="opacity-100 transform scale-100 translate-y-0"
+                        x-transition:leave="transition ease-in duration-200"
+                        x-transition:leave-start="opacity-100 transform scale-100 translate-y-0"
+                        x-transition:leave-end="opacity-0 transform scale-95 translate-y-10"
+                        class="absolute bottom-20 right-0 w-96 h-[500px] bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col overflow-hidden z-40">
 
-    <div id="chat-history" class="flex-1 p-4 overflow-y-auto bg-gray-50 space-y-4 custom-scrollbar">
-        <template x-for="(msg, index) in messages" :key="index">
-            <div :class="msg.isUser ? 'flex justify-end' : 'flex justify-start'">
-                <div :class="msg.isUser ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-white text-gray-800 border border-gray-200 rounded-bl-none'" 
-                     class="max-w-[85%] rounded-2xl px-4 py-3 shadow-sm text-sm leading-relaxed">
-                    <p x-text="msg.text"></p>
+                        <div
+                            class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-4 flex items-center justify-between shadow-md">
+                            <div class="flex items-center space-x-3">
+                                <div
+                                    class="w-8 h-8 bg-white bg-opacity-20 rounded-full flex items-center justify-center backdrop-blur-sm">
+                                    <i class="fas fa-robot text-sm"></i>
+                                </div>
+                                <div>
+                                    <h3 class="font-bold text-sm">XamOps AI Assistant</h3>
+                                    <p class="text-xs opacity-80 flex items-center gap-1">
+                                        <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span> Online
+                                    </p>
+                                </div>
+                            </div>
+                            <button @click="open = false"
+                                class="hover:bg-white hover:bg-opacity-20 rounded-lg p-2 transition-colors">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+
+                        <div id="chat-history" class="flex-1 p-4 overflow-y-auto bg-gray-50 space-y-4 custom-scrollbar">
+                            <template x-for="(msg, index) in messages" :key="index">
+                                <div :class="msg.isUser ? 'flex justify-end' : 'flex justify-start'">
+                                    <div :class="msg.isUser ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-white text-gray-800 border border-gray-200 rounded-bl-none'"
+                                        class="max-w-[85%] rounded-2xl px-4 py-3 shadow-sm text-sm leading-relaxed">
+                                        <p x-text="msg.text"></p>
+                                    </div>
+                                </div>
+                            </template>
+
+                            <div x-show="isLoading" class="flex justify-start">
+                                <div
+                                    class="bg-white border border-gray-200 text-gray-500 rounded-2xl rounded-bl-none px-4 py-3 text-xs flex items-center shadow-sm">
+                                    <i class="fas fa-circle-notch fa-spin mr-2 text-indigo-500"></i>
+                                    Thinking...
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="p-4 bg-white border-t border-gray-100">
+                            <div class="relative flex items-center">
+                                <input type="text" x-model="newMessage" @keydown.enter="sendMessage()"
+                                    placeholder="Ask about costs, instances, or alerts..."
+                                    class="w-full bg-gray-100 text-gray-800 text-sm rounded-xl pl-4 pr-12 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all border-0">
+                                <button @click="sendMessage()" :disabled="isLoading || newMessage.trim() === ''"
+                                    class="absolute right-2 p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm">
+                                    <i class="fas fa-paper-plane text-xs"></i>
+                                </button>
+                            </div>
+                            <div class="text-center mt-2">
+                                <p class="text-[10px] text-gray-400">AI generated responses can be inaccurate.</p>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-            </div>
-        </template>
-
-        <div x-show="isLoading" class="flex justify-start">
-            <div class="bg-white border border-gray-200 text-gray-500 rounded-2xl rounded-bl-none px-4 py-3 text-xs flex items-center shadow-sm">
-                <i class="fas fa-circle-notch fa-spin mr-2 text-indigo-500"></i> 
-                Thinking...
-            </div>
+            </main>
         </div>
     </div>
-
-    <div class="p-4 bg-white border-t border-gray-100">
-        <div class="relative flex items-center">
-            <input 
-                type="text" 
-                x-model="newMessage" 
-                @keydown.enter="sendMessage()"
-                placeholder="Ask about costs, instances, or alerts..." 
-                class="w-full bg-gray-100 text-gray-800 text-sm rounded-xl pl-4 pr-12 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all border-0"
-            >
-            <button 
-                @click="sendMessage()"
-                :disabled="isLoading || newMessage.trim() === ''"
-                class="absolute right-2 p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm">
-                <i class="fas fa-paper-plane text-xs"></i>
-            </button>
-        </div>
-        <div class="text-center mt-2">
-             <p class="text-[10px] text-gray-400">AI generated responses can be inaccurate.</p>
-        </div>
-    </div>
-  </div>
-</div>
 </body>
 
 </html>

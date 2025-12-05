@@ -1,627 +1,680 @@
 <!DOCTYPE html>
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>XamOps - GCP Rightsizing</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-        <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
-<link rel="apple-touch-icon" href="/icons/XamOps.png">
-       <script type="module" src="/src/main.js"></script>
+    <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
+    <link rel="apple-touch-icon" href="/icons/XamOps.png">
 
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-
-        :root {
-            --primary-gradient: linear-gradient(135deg, #4285F4 0%, #34A853 100%);
-            --success-gradient: linear-gradient(135deg, #34A853 0%, #0F9D58 100%);
-            --warning-gradient: linear-gradient(135deg, #FBBC04 0%, #F57C00 100%);
-            --danger-gradient: linear-gradient(135deg, #EA4335 0%, #C5221F 100%);
-            --glass-bg: rgba(255, 255, 255, 0.95);
-            --glass-border: rgba(229, 231, 235, 0.8);
-        }
-
-        body {
-            font-family: 'Inter', sans-serif;
-            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-            min-height: 100vh;
-        }
-
-        [x-cloak] { display: none !important; }
-
-        .glass-card {
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--glass-border);
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .kpi-card {
-            position: relative;
-            overflow: hidden;
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--glass-border);
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .kpi-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 4px;
-            background: var(--success-gradient);
-            transform: scaleX(0);
-            transition: transform 0.3s ease;
-        }
-
-        .kpi-card:hover::before {
-            transform: scaleX(1);
-        }
-
-        .kpi-card:hover {
-            transform: translateY(-4px) scale(1.02);
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-        }
-
-        .skeleton {
-            background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
-            background-size: 200% 100%;
-            animation: shimmer 1.5s infinite;
-            border-radius: 12px;
-        }
-
-        @keyframes shimmer {
-            0% { background-position: -200% 0; }
-            100% { background-position: 200% 0; }
-        }
-
-        .header-gradient {
-            background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%);
-            backdrop-filter: blur(10px);
-            border-bottom: 1px solid var(--glass-border);
-        }
-
-        .btn-primary {
-            background: var(--primary-gradient);
-            border: none;
-            color: white;
-            transition: all 0.3s ease;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .btn-primary:hover:not(:disabled) {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 15px -3px rgba(66, 133, 244, 0.4);
-        }
-
-        .btn-primary:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
-
-        .filter-button {
-            transition: all 0.3s ease;
-            background: white;
-            border: 1px solid #e5e7eb;
-            color: #6b7280;
-        }
-
-        .filter-button.active {
-            background: var(--primary-gradient);
-            color: white;
-            box-shadow: 0 4px 6px -1px rgba(66, 133, 244, 0.4);
-            border-color: transparent;
-        }
-
-        .form-input {
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--glass-border);
-        }
-
-        .table-enhanced {
-            background: var(--glass-bg);
-            border-radius: 12px;
-            overflow: hidden;
-            border: 1px solid var(--glass-border);
-        }
-
-        .table-enhanced thead {
-            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-        }
-
-        .table-enhanced tr {
-            transition: all 0.2s ease;
-        }
-
-        .table-enhanced tr:hover {
-            background: rgba(66, 133, 244, 0.05);
-            transform: translateX(2px);
-        }
-
-        .first-cell-indicator {
-            position: relative;
-        }
-
-        .first-cell-indicator::before {
-            content: '';
-            position: absolute;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            width: 4px;
-            background: var(--success-gradient);
-            transform: scaleY(0);
-            transition: transform 0.2s ease;
-            transform-origin: center;
-        }
-
-        .table-enhanced tr:hover .first-cell-indicator::before {
-            transform: scaleY(1);
-        }
-
-        .empty-state {
-            background: var(--glass-bg);
-            border: 2px dashed rgba(52, 168, 83, 0.3);
-        }
-
-        .savings-badge {
-            background: var(--success-gradient);
-            color: white;
-            box-shadow: 0 2px 4px rgba(52, 168, 83, 0.3);
-            border-radius: 9999px;
-            padding: 0.25rem 0.75rem;
-            font-weight: 600;
-        }
-
-        .cost-increase-badge {
-            background: var(--warning-gradient);
-            color: white;
-            box-shadow: 0 2px 4px rgba(251, 188, 4, 0.3);
-            border-radius: 9999px;
-            padding: 0.25rem 0.75rem;
-            font-weight: 600;
-        }
-
-        .performance-badge {
-            background: linear-gradient(135deg, #8B5CF6 0%, #6366F1 100%);
-            color: white;
-            box-shadow: 0 2px 4px rgba(139, 92, 246, 0.3);
-            border-radius: 9999px;
-            padding: 0.125rem 0.5rem;
-            font-size: 0.75rem;
-            font-weight: 600;
-        }
-
-        .reason-text {
-            max-width: 350px;
-            font-size: 0.8rem;
-            color: #4b5563;
-            line-height: 1.4;
-        }
-
-        .fade-in {
-            animation: fadeIn 0.5s ease-in-out;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .gradient-text {
-            background: var(--success-gradient);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
-        .warning-text {
-            background: var(--warning-gradient);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-    </style>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script type="module" src="/src/main.js"></script>
 </head>
+
 <body class="bg-gray-50">
 
-<div class="flex">
-  <include file="/_sidebar.html"></include>
+    <div class="flex h-screen overflow-hidden">
+        <include file="/_sidebar.html"></include>
 
+        <div class="flex-1 flex flex-col h-screen overflow-hidden pl-64">
 
-    <div class="flex-1 pl-64">
-        <main class="flex-1 flex flex-col min-h-screen" x-data="gcpRightsizing()">
-            <header class="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-20">
-                <div class="flex items-center space-x-4">
-                    <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-green-600 rounded-xl flex items-center justify-center">
-                        <i class="fas fa-compress-arrows-alt text-white text-xl"></i>
+            <main id="main-content" class="flex-1 flex flex-col h-full overflow-hidden" x-data="gcpRightsizing()"
+                x-init="init()">
+
+                <style>
+                    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+                    :root {
+                        --primary-gradient: linear-gradient(135deg, #4285F4 0%, #34A853 100%);
+                        --success-gradient: linear-gradient(135deg, #34A853 0%, #0F9D58 100%);
+                        --warning-gradient: linear-gradient(135deg, #FBBC04 0%, #F57C00 100%);
+                        --danger-gradient: linear-gradient(135deg, #EA4335 0%, #C5221F 100%);
+                        --glass-bg: rgba(255, 255, 255, 0.95);
+                        --glass-border: rgba(229, 231, 235, 0.8);
+                    }
+
+                    #main-content {
+                        font-family: 'Inter', sans-serif;
+                    }
+
+                    [x-cloak] {
+                        display: none !important;
+                    }
+
+                    .glass-card {
+                        background: var(--glass-bg);
+                        backdrop-filter: blur(10px);
+                        border: 1px solid var(--glass-border);
+                        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+                        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                    }
+
+                    .kpi-card {
+                        position: relative;
+                        overflow: hidden;
+                        background: var(--glass-bg);
+                        backdrop-filter: blur(10px);
+                        border: 1px solid var(--glass-border);
+                        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                    }
+
+                    .kpi-card::before {
+                        content: '';
+                        position: absolute;
+                        top: 0;
+                        left: 0;
+                        right: 0;
+                        height: 4px;
+                        background: var(--success-gradient);
+                        transform: scaleX(0);
+                        transition: transform 0.3s ease;
+                    }
+
+                    .kpi-card:hover::before {
+                        transform: scaleX(1);
+                    }
+
+                    .kpi-card:hover {
+                        transform: translateY(-4px) scale(1.02);
+                        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+                    }
+
+                    .skeleton {
+                        background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+                        background-size: 200% 100%;
+                        animation: shimmer 1.5s infinite;
+                        border-radius: 12px;
+                    }
+
+                    @keyframes shimmer {
+                        0% {
+                            background-position: -200% 0;
+                        }
+
+                        100% {
+                            background-position: 200% 0;
+                        }
+                    }
+
+                    .header-gradient {
+                        background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%);
+                        backdrop-filter: blur(10px);
+                        border-bottom: 1px solid var(--glass-border);
+                    }
+
+                    .btn-primary {
+                        background: var(--primary-gradient);
+                        border: none;
+                        color: white;
+                        transition: all 0.3s ease;
+                        position: relative;
+                        overflow: hidden;
+                    }
+
+                    .btn-primary:hover:not(:disabled) {
+                        transform: translateY(-2px);
+                        box-shadow: 0 10px 15px -3px rgba(66, 133, 244, 0.4);
+                    }
+
+                    .btn-primary:disabled {
+                        opacity: 0.6;
+                        cursor: not-allowed;
+                    }
+
+                    .filter-button {
+                        transition: all 0.3s ease;
+                        background: white;
+                        border: 1px solid #e5e7eb;
+                        color: #6b7280;
+                    }
+
+                    .filter-button.active {
+                        background: var(--primary-gradient);
+                        color: white;
+                        box-shadow: 0 4px 6px -1px rgba(66, 133, 244, 0.4);
+                        border-color: transparent;
+                    }
+
+                    .form-input {
+                        background: var(--glass-bg);
+                        backdrop-filter: blur(10px);
+                        border: 1px solid var(--glass-border);
+                    }
+
+                    .table-enhanced {
+                        background: var(--glass-bg);
+                        border-radius: 12px;
+                        overflow: hidden;
+                        border: 1px solid var(--glass-border);
+                    }
+
+                    .table-enhanced thead {
+                        background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+                    }
+
+                    .table-enhanced tr {
+                        transition: all 0.2s ease;
+                    }
+
+                    .table-enhanced tr:hover {
+                        background: rgba(66, 133, 244, 0.05);
+                        transform: translateX(2px);
+                    }
+
+                    .first-cell-indicator {
+                        position: relative;
+                    }
+
+                    .first-cell-indicator::before {
+                        content: '';
+                        position: absolute;
+                        left: 0;
+                        top: 0;
+                        bottom: 0;
+                        width: 4px;
+                        background: var(--success-gradient);
+                        transform: scaleY(0);
+                        transition: transform 0.2s ease;
+                        transform-origin: center;
+                    }
+
+                    .table-enhanced tr:hover .first-cell-indicator::before {
+                        transform: scaleY(1);
+                    }
+
+                    .empty-state {
+                        background: var(--glass-bg);
+                        border: 2px dashed rgba(52, 168, 83, 0.3);
+                    }
+
+                    .savings-badge {
+                        background: var(--success-gradient);
+                        color: white;
+                        box-shadow: 0 2px 4px rgba(52, 168, 83, 0.3);
+                        border-radius: 9999px;
+                        padding: 0.25rem 0.75rem;
+                        font-weight: 600;
+                    }
+
+                    .cost-increase-badge {
+                        background: var(--warning-gradient);
+                        color: white;
+                        box-shadow: 0 2px 4px rgba(251, 188, 4, 0.3);
+                        border-radius: 9999px;
+                        padding: 0.25rem 0.75rem;
+                        font-weight: 600;
+                    }
+
+                    .performance-badge {
+                        background: linear-gradient(135deg, #8B5CF6 0%, #6366F1 100%);
+                        color: white;
+                        box-shadow: 0 2px 4px rgba(139, 92, 246, 0.3);
+                        border-radius: 9999px;
+                        padding: 0.125rem 0.5rem;
+                        font-size: 0.75rem;
+                        font-weight: 600;
+                    }
+
+                    .reason-text {
+                        max-width: 350px;
+                        font-size: 0.8rem;
+                        color: #4b5563;
+                        line-height: 1.4;
+                    }
+
+                    .fade-in {
+                        animation: fadeIn 0.5s ease-in-out;
+                    }
+
+                    @keyframes fadeIn {
+                        from {
+                            opacity: 0;
+                            transform: translateY(20px);
+                        }
+
+                        to {
+                            opacity: 1;
+                            transform: translateY(0);
+                        }
+                    }
+
+                    .gradient-text {
+                        background: var(--success-gradient);
+                        -webkit-background-clip: text;
+                        -webkit-text-fill-color: transparent;
+                        background-clip: text;
+                    }
+
+                    .warning-text {
+                        background: var(--warning-gradient);
+                        -webkit-background-clip: text;
+                        -webkit-text-fill-color: transparent;
+                        background-clip: text;
+                    }
+
+                    /* Scrollbar for the main content area */
+                    .custom-scrollbar::-webkit-scrollbar {
+                        width: 8px;
+                    }
+
+                    .custom-scrollbar::-webkit-scrollbar-track {
+                        background: #f1f1f1;
+                    }
+
+                    .custom-scrollbar::-webkit-scrollbar-thumb {
+                        background: #cbd5e0;
+                        border-radius: 4px;
+                    }
+
+                    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+                        background: #a0aec0;
+                    }
+                </style>
+
+                <header
+                    class="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-20 flex-shrink-0">
+                    <div class="flex items-center space-x-4">
+                        <div
+                            class="w-12 h-12 bg-gradient-to-br from-blue-500 to-green-600 rounded-xl flex items-center justify-center">
+                            <i class="fas fa-compress-arrows-alt text-white text-xl"></i>
+                        </div>
+                        <div>
+                            <h1 class="text-2xl font-bold text-gray-800">GCP Rightsizing</h1>
+                            <p class="text-sm text-gray-600">Optimize your GCP resource sizing</p>
+                        </div>
                     </div>
-                    <div>
-                        <h1 class="text-2xl font-bold text-gray-800">GCP Rightsizing</h1>
-                        <p class="text-sm text-gray-600">Optimize your GCP resource sizing</p>
-                    </div>
-                </div>
-                <div class="flex items-center space-x-4">
-                    <button @click="loadRecommendations(true)" class="btn-primary flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md" :disabled="isRefreshing">
-                        <i class="fas fa-sync-alt" :class="{ 'fa-spin': isRefreshing }"></i>
-                        <span x-text="isRefreshing ? 'Analyzing...' : 'Refresh Analysis'"></span>
-                    </button>
-                </div>
-            </header>
-
-            <div class="flex-1 p-8 space-y-8">
-                <!-- KPI Cards -->
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
-                    <!-- Loading Skeletons -->
-                    <template x-if="isLoading">
-                        <div class="skeleton h-36 rounded-2xl"></div>
-                    </template>
-                    <template x-if="isLoading">
-                        <div class="skeleton h-36 rounded-2xl"></div>
-                    </template>
-                    <template x-if="isLoading">
-                        <div class="skeleton h-36 rounded-2xl"></div>
-                    </template>
-                    <template x-if="isLoading">
-                        <div class="skeleton h-36 rounded-2xl"></div>
-                    </template>
-
-                    <!-- Actual Cards -->
-                    <div x-show="!isLoading" class="kpi-card rounded-2xl p-6 fade-in flex items-center justify-between">
-                        <div class="flex-1">
-                            <h3 class="text-gray-600 text-sm font-medium mb-2">Potential Savings</h3>
-                            <p class="text-4xl font-bold gradient-text mb-1" x-text="formatCurrency(potentialSavings)"></p>
-                            <p class="text-xs text-gray-500">per month</p>
-                        </div>
-                        <div class="w-14 h-14 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center">
-                            <i class="fas fa-piggy-bank text-white text-xl"></i>
-                        </div>
-                    </div>
-
-                    <div x-show="!isLoading" class="kpi-card rounded-2xl p-6 fade-in flex items-center justify-between">
-                        <div class="flex-1">
-                            <h3 class="text-gray-600 text-sm font-medium mb-2">Current Costs</h3>
-                            <p class="text-4xl font-bold warning-text mb-1" x-text="formatCurrency(totalCurrentCosts)"></p>
-                            <p class="text-xs text-gray-500">underprovisioned resources</p>
-                        </div>
-                        <div class="w-14 h-14 bg-gradient-to-br from-yellow-500 to-orange-600 rounded-xl flex items-center justify-center">
-                            <i class="fas fa-chart-line text-white text-xl"></i>
-                        </div>
-                    </div>
-
-                    <div x-show="!isLoading" class="kpi-card rounded-2xl p-6 fade-in flex items-center justify-between">
-                        <div class="flex-1">
-                            <h3 class="text-gray-600 text-sm font-medium mb-2">Recommendations</h3>
-                            <p class="text-4xl font-bold text-blue-600 mb-1" x-text="recommendationCount"></p>
-                            <p class="text-xs text-gray-500">optimization opportunities</p>
-                        </div>
-                        <div class="w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center">
-                            <i class="fas fa-lightbulb text-white text-xl"></i>
-                        </div>
-                    </div>
-
-                    <div x-show="!isLoading" class="kpi-card rounded-2xl p-6 fade-in flex items-center justify-between">
-                        <div class="flex-1">
-                            <h3 class="text-gray-600 text-sm font-medium mb-2">Top Service</h3>
-                            <p class="text-2xl font-bold text-purple-600 mb-1" x-text="topService"></p>
-                            <p class="text-xs text-gray-500">needs optimization</p>
-                        </div>
-                        <div class="w-14 h-14 bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl flex items-center justify-center">
-                            <i class="fas fa-crown text-white text-xl"></i>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Recommendations Table -->
-                <div class="glass-card rounded-2xl p-8 fade-in">
-                    <div class="flex items-center justify-between mb-8">
-                        <div class="flex items-center space-x-4">
-                            <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-green-600 rounded-xl flex items-center justify-center">
-                                <i class="fas fa-list text-white"></i>
-                            </div>
-                            <div>
-                                <h2 class="text-xl font-bold text-gray-800">Optimization Recommendations</h2>
-                                <p class="text-sm text-gray-600">Right-size your resources for optimal performance and cost</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Filters -->
-                    <div class="flex flex-wrap justify-between items-center gap-6 mb-8">
-                        <div class="flex items-center space-x-4 bg-white/70 backdrop-blur-sm rounded-xl p-4 border border-gray-200/50">
-                            <div class="flex items-center space-x-2">
-                                <i class="fas fa-filter text-gray-500"></i>
-                                <span class="text-sm font-semibold text-gray-700">Filter by service:</span>
-                            </div>
-                            <div class="flex space-x-2">
-                                <template x-for="service in services" :key="service">
-                                    <button
-                                            @click="filter = service"
-                                            :class="filter === service ? 'active' : ''"
-                                            class="filter-button px-4 py-2 text-sm rounded-xl font-semibold"
-                                            x-text="service">
-                                    </button>
-                                </template>
-                            </div>
-                        </div>
-
-                        <div class="relative w-full sm:w-1/3">
-                            <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"></i>
-                            <input
-                                    type="text"
-                                    x-model="searchTerm"
-                                    placeholder="Search by resource name..."
-                                    class="form-input w-full pl-12 pr-4 py-3 text-sm rounded-xl border-gray-300 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200">
-                        </div>
-                    </div>
-
-                    <!-- Loading State -->
-                    <div x-show="isLoading" x-cloak class="skeleton h-96 rounded-2xl"></div>
-
-                    <!-- Empty State -->
-                    <div x-show="!isLoading && filteredRecommendations.length === 0" x-cloak class="empty-state text-center py-20 px-8 rounded-2xl">
-                        <div class="w-20 h-20 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6">
-                            <i class="fas fa-check-circle text-white text-3xl"></i>
-                        </div>
-                        <h3 class="text-2xl font-bold text-gray-800 mb-2">All Optimized!</h3>
-                        <p class="text-gray-600 mb-6">No rightsizing recommendations found. Your resources are well-optimized.</p>
-                        <button @click="loadRecommendations(true)" class="btn-primary px-6 py-3 text-sm font-semibold rounded-lg">
-                            <i class="fas fa-sync-alt mr-2"></i>Refresh Analysis
+                    <div class="flex items-center space-x-4">
+                        <button @click="loadRecommendations(true)"
+                            class="btn-primary flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md"
+                            :disabled="isRefreshing">
+                            <i class="fas fa-sync-alt" :class="{ 'fa-spin': isRefreshing }"></i>
+                            <span x-text="isRefreshing ? 'Analyzing...' : 'Refresh Analysis'"></span>
                         </button>
                     </div>
+                </header>
 
-                    <!-- Data Table -->
-                    <div x-show="!isLoading && filteredRecommendations.length > 0" x-cloak class="overflow-x-auto">
-                        <div class="table-enhanced">
-                            <table class="w-full text-sm">
-                                <thead class="text-xs text-gray-700 uppercase">
-                                <tr>
-                                    <th class="px-6 py-4 text-left font-bold">Resource Name</th>
-                                    <th class="px-6 py-4 text-left font-bold">Service</th>
-                                    <th class="px-6 py-4 text-left font-bold">Location</th>
-                                    <th class="px-6 py-4 text-left font-bold">Machine Type Comparison</th>
-                                    <th class="px-6 py-4 text-left font-bold">Recommendation</th>
-                                    <th class="px-6 py-4 text-left font-bold">Impact</th>
-                                </tr>
-                                </thead>
-                                <tbody class="divide-y divide-gray-200">
-                                <template x-for="rec in filteredRecommendations" :key="rec.recommendationId || rec.resourceName">
-                                    <tr>
-                                        <td class="px-6 py-4 first-cell-indicator">
-                                            <div class="flex items-center space-x-3">
-                                                <div class="w-8 h-8 bg-blue-50 rounded-lg flex-shrink-0 flex items-center justify-center">
-                                                    <i :class="rec.service === 'Cloud SQL' ? 'fas fa-database' : 'fas fa-server'" class="text-blue-500 text-sm"></i>
-                                                </div>
-                                                <span class="font-mono text-gray-800 font-medium" x-text="rec.resourceName"></span>
-                                            </div>
-                                        </td>
-                                        <td class="px-6 py-4">
-                                            <div class="flex items-center space-x-2">
-                                                <span class="text-gray-600 font-medium" x-text="rec.service || 'N/A'"></span>
-                                                <span x-show="rec.recommendationType === 'PERFORMANCE_IMPROVEMENT'" class="performance-badge">
-                                                    <i class="fas fa-bolt text-xs mr-1"></i>Performance
-                                                </span>
-                                            </div>
-                                        </td>
-                                        <td class="px-6 py-4">
-                                            <span class="text-xs text-gray-500 font-medium" x-text="rec.location || 'global'"></span>
-                                        </td>
-                                        <td class="px-6 py-4">
-                                            <div class="flex items-center justify-between space-x-4 max-w-md">
-                                                <div class="text-left flex-1">
-                                                    <p class="font-bold text-gray-700 text-xs mb-1" x-text="rec.currentMachineType || 'N/A'"></p>
-                                                    <p class="text-xs text-gray-500">Current</p>
-                                                </div>
-                                                <div class="flex items-center justify-center px-2">
-                                                    <i class="fas fa-arrow-right text-blue-500 text-sm"></i>
-                                                </div>
-                                                <div class="text-left flex-1">
-                                                    <p class="font-bold text-blue-600 text-xs mb-1" x-text="rec.recommendedMachineType || 'N/A'"></p>
-                                                    <p class="text-xs text-blue-500">Recommended</p>
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td class="px-6 py-4">
-                                            <div class="reason-text">
-                                                <i class="fas fa-info-circle text-blue-500 mr-1"></i>
-                                                <span x-text="getReasonText(rec)"></span>
-                                            </div>
-                                        </td>
-                                        <td class="px-6 py-4">
-                                            <div class="flex flex-col items-start space-y-1">
-                                                <span
-                                                        :class="isUnderprovisioned(rec) ? 'cost-increase-badge' : 'savings-badge'"
-                                                        x-text="formatImpact(rec)">
-                                                </span>
-                                                <span class="text-xs font-medium" :class="isUnderprovisioned(rec) ? 'text-orange-600' : 'text-green-600'">
-                                                    <i class="fas fa-info-circle mr-1"></i>
-                                                    <span x-text="isUnderprovisioned(rec) ? '30-day cost' : 'Potential savings'"></span>
-                                                </span>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                </template>
-                                </tbody>
-                            </table>
+                <div class="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar bg-gray-50">
+
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                        <template x-if="isLoading">
+                            <div class="skeleton h-36 rounded-2xl"></div>
+                        </template>
+                        <template x-if="isLoading">
+                            <div class="skeleton h-36 rounded-2xl"></div>
+                        </template>
+                        <template x-if="isLoading">
+                            <div class="skeleton h-36 rounded-2xl"></div>
+                        </template>
+                        <template x-if="isLoading">
+                            <div class="skeleton h-36 rounded-2xl"></div>
+                        </template>
+
+                        <div x-show="!isLoading"
+                            class="kpi-card rounded-2xl p-6 fade-in flex items-center justify-between">
+                            <div class="flex-1">
+                                <h3 class="text-gray-600 text-sm font-medium mb-2">Potential Savings</h3>
+                                <p class="text-4xl font-bold gradient-text mb-1"
+                                    x-text="formatCurrency(potentialSavings)"></p>
+                                <p class="text-xs text-gray-500">per month</p>
+                            </div>
+                            <div
+                                class="w-14 h-14 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center">
+                                <i class="fas fa-piggy-bank text-white text-xl"></i>
+                            </div>
+                        </div>
+
+                        <div x-show="!isLoading"
+                            class="kpi-card rounded-2xl p-6 fade-in flex items-center justify-between">
+                            <div class="flex-1">
+                                <h3 class="text-gray-600 text-sm font-medium mb-2">Current Costs</h3>
+                                <p class="text-4xl font-bold warning-text mb-1"
+                                    x-text="formatCurrency(totalCurrentCosts)"></p>
+                                <p class="text-xs text-gray-500">underprovisioned resources</p>
+                            </div>
+                            <div
+                                class="w-14 h-14 bg-gradient-to-br from-yellow-500 to-orange-600 rounded-xl flex items-center justify-center">
+                                <i class="fas fa-chart-line text-white text-xl"></i>
+                            </div>
+                        </div>
+
+                        <div x-show="!isLoading"
+                            class="kpi-card rounded-2xl p-6 fade-in flex items-center justify-between">
+                            <div class="flex-1">
+                                <h3 class="text-gray-600 text-sm font-medium mb-2">Recommendations</h3>
+                                <p class="text-4xl font-bold text-blue-600 mb-1" x-text="recommendationCount"></p>
+                                <p class="text-xs text-gray-500">optimization opportunities</p>
+                            </div>
+                            <div
+                                class="w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center">
+                                <i class="fas fa-lightbulb text-white text-xl"></i>
+                            </div>
+                        </div>
+
+                        <div x-show="!isLoading"
+                            class="kpi-card rounded-2xl p-6 fade-in flex items-center justify-between">
+                            <div class="flex-1">
+                                <h3 class="text-gray-600 text-sm font-medium mb-2">Top Service</h3>
+                                <p class="text-2xl font-bold text-purple-600 mb-1" x-text="topService"></p>
+                                <p class="text-xs text-gray-500">needs optimization</p>
+                            </div>
+                            <div
+                                class="w-14 h-14 bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl flex items-center justify-center">
+                                <i class="fas fa-crown text-white text-xl"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="glass-card rounded-2xl p-8 fade-in">
+                        <div class="flex items-center justify-between mb-8">
+                            <div class="flex items-center space-x-4">
+                                <div
+                                    class="w-10 h-10 bg-gradient-to-br from-blue-500 to-green-600 rounded-xl flex items-center justify-center">
+                                    <i class="fas fa-list text-white"></i>
+                                </div>
+                                <div>
+                                    <h2 class="text-xl font-bold text-gray-800">Optimization Recommendations</h2>
+                                    <p class="text-sm text-gray-600">Right-size your resources for optimal performance
+                                        and cost</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex flex-wrap justify-between items-center gap-6 mb-8">
+                            <div
+                                class="flex items-center space-x-4 bg-white/70 backdrop-blur-sm rounded-xl p-4 border border-gray-200/50">
+                                <div class="flex items-center space-x-2">
+                                    <i class="fas fa-filter text-gray-500"></i>
+                                    <span class="text-sm font-semibold text-gray-700">Filter by service:</span>
+                                </div>
+                                <div class="flex space-x-2">
+                                    <template x-for="service in services" :key="service">
+                                        <button @click="filter = service" :class="filter === service ? 'active' : ''"
+                                            class="filter-button px-4 py-2 text-sm rounded-xl font-semibold"
+                                            x-text="service">
+                                        </button>
+                                    </template>
+                                </div>
+                            </div>
+
+                            <div class="relative w-full sm:w-1/3">
+                                <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                                <input type="text" x-model="searchTerm" placeholder="Search by resource name..."
+                                    class="form-input w-full pl-12 pr-4 py-3 text-sm rounded-xl border-gray-300 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200">
+                            </div>
+                        </div>
+
+                        <div x-show="isLoading" x-cloak class="skeleton h-96 rounded-2xl"></div>
+
+                        <div x-show="!isLoading && filteredRecommendations.length === 0" x-cloak
+                            class="empty-state text-center py-20 px-8 rounded-2xl">
+                            <div
+                                class="w-20 h-20 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                                <i class="fas fa-check-circle text-white text-3xl"></i>
+                            </div>
+                            <h3 class="text-2xl font-bold text-gray-800 mb-2">All Optimized!</h3>
+                            <p class="text-gray-600 mb-6">No rightsizing recommendations found. Your resources are
+                                well-optimized.</p>
+                            <button @click="loadRecommendations(true)"
+                                class="btn-primary px-6 py-3 text-sm font-semibold rounded-lg">
+                                <i class="fas fa-sync-alt mr-2"></i>Refresh Analysis
+                            </button>
+                        </div>
+
+                        <div x-show="!isLoading && filteredRecommendations.length > 0" x-cloak class="overflow-x-auto">
+                            <div class="table-enhanced">
+                                <table class="w-full text-sm">
+                                    <thead class="text-xs text-gray-700 uppercase">
+                                        <tr>
+                                            <th class="px-6 py-4 text-left font-bold">Resource Name</th>
+                                            <th class="px-6 py-4 text-left font-bold">Service</th>
+                                            <th class="px-6 py-4 text-left font-bold">Location</th>
+                                            <th class="px-6 py-4 text-left font-bold">Machine Type Comparison</th>
+                                            <th class="px-6 py-4 text-left font-bold">Recommendation</th>
+                                            <th class="px-6 py-4 text-left font-bold">Impact</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-gray-200">
+                                        <template x-for="rec in filteredRecommendations"
+                                            :key="rec.recommendationId || rec.resourceName">
+                                            <tr>
+                                                <td class="px-6 py-4 first-cell-indicator">
+                                                    <div class="flex items-center space-x-3">
+                                                        <div
+                                                            class="w-8 h-8 bg-blue-50 rounded-lg flex-shrink-0 flex items-center justify-center">
+                                                            <i :class="rec.service === 'Cloud SQL' ? 'fas fa-database' : 'fas fa-server'"
+                                                                class="text-blue-500 text-sm"></i>
+                                                        </div>
+                                                        <span class="font-mono text-gray-800 font-medium"
+                                                            x-text="rec.resourceName"></span>
+                                                    </div>
+                                                </td>
+                                                <td class="px-6 py-4">
+                                                    <div class="flex items-center space-x-2">
+                                                        <span class="text-gray-600 font-medium"
+                                                            x-text="rec.service || 'N/A'"></span>
+                                                        <span
+                                                            x-show="rec.recommendationType === 'PERFORMANCE_IMPROVEMENT'"
+                                                            class="performance-badge">
+                                                            <i class="fas fa-bolt text-xs mr-1"></i>Performance
+                                                        </span>
+                                                    </div>
+                                                </td>
+                                                <td class="px-6 py-4">
+                                                    <span class="text-xs text-gray-500 font-medium"
+                                                        x-text="rec.location || 'global'"></span>
+                                                </td>
+                                                <td class="px-6 py-4">
+                                                    <div class="flex items-center justify-between space-x-4 max-w-md">
+                                                        <div class="text-left flex-1">
+                                                            <p class="font-bold text-gray-700 text-xs mb-1"
+                                                                x-text="rec.currentMachineType || 'N/A'"></p>
+                                                            <p class="text-xs text-gray-500">Current</p>
+                                                        </div>
+                                                        <div class="flex items-center justify-center px-2">
+                                                            <i class="fas fa-arrow-right text-blue-500 text-sm"></i>
+                                                        </div>
+                                                        <div class="text-left flex-1">
+                                                            <p class="font-bold text-blue-600 text-xs mb-1"
+                                                                x-text="rec.recommendedMachineType || 'N/A'"></p>
+                                                            <p class="text-xs text-blue-500">Recommended</p>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td class="px-6 py-4">
+                                                    <div class="reason-text">
+                                                        <i class="fas fa-info-circle text-blue-500 mr-1"></i>
+                                                        <span x-text="getReasonText(rec)"></span>
+                                                    </div>
+                                                </td>
+                                                <td class="px-6 py-4">
+                                                    <div class="flex flex-col items-start space-y-1">
+                                                        <span
+                                                            :class="isUnderprovisioned(rec) ? 'cost-increase-badge' : 'savings-badge'"
+                                                            x-text="formatImpact(rec)">
+                                                        </span>
+                                                        <span class="text-xs font-medium"
+                                                            :class="isUnderprovisioned(rec) ? 'text-orange-600' : 'text-green-600'">
+                                                            <i class="fas fa-info-circle mr-1"></i>
+                                                            <span
+                                                                x-text="isUnderprovisioned(rec) ? '30-day cost' : 'Potential savings'"></span>
+                                                        </span>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
-        </main>
+
+                <script>
+                    function gcpRightsizing() {
+                        return {
+                            isLoading: true,
+                            isRefreshing: false,
+                            recommendations: [],
+                            filter: 'All',
+                            searchTerm: '',
+                            services: ['All', 'Compute Engine', 'Cloud SQL', 'Commitment'],
+
+                            init() {
+                                console.log('Initializing GCP Rightsizing page...');
+                                this.loadFromCache();
+                                this.loadRecommendations(false);
+                            },
+
+                            loadFromCache() {
+                                try {
+                                    const urlParams = new URLSearchParams(window.location.search);
+                                    const accountId = (urlParams.get('accountIds') || 'xamops').split(',')[0];
+
+                                    const cached = localStorage.getItem(`rightsizing_recs_${accountId}`);
+                                    if (cached) {
+                                        this.recommendations = JSON.parse(cached);
+                                        console.log('Loaded rightsizing recommendations from cache:', this.recommendations.length);
+                                    }
+                                } catch (err) {
+                                    console.error('Failed to load from cache:', err);
+                                }
+                            },
+
+                            loadRecommendations(forceRefresh = false) {
+                                const urlParams = new URLSearchParams(window.location.search);
+                                const accountIds = urlParams.get('accountIds') || 'xamops';
+                                const accountId = accountIds.split(',')[0];
+
+                                if (!accountId) {
+                                    console.error('No accountId found');
+                                    this.isLoading = false;
+                                    return;
+                                }
+
+                                if (forceRefresh) {
+                                    this.isRefreshing = true;
+                                    this.isLoading = true;
+                                    localStorage.removeItem(`rightsizing_recs_${accountId}`);
+                                    localStorage.removeItem(`rightsizing_recs_${accountId}_expiry`);
+                                    console.log('Force refresh - clearing cache');
+                                } else {
+                                    const cacheExpiry = localStorage.getItem(`rightsizing_recs_${accountId}_expiry`);
+                                    const isCacheExpired = !cacheExpiry || Date.now() > parseInt(cacheExpiry);
+
+                                    if (!isCacheExpired && localStorage.getItem(`rightsizing_recs_${accountId}`)) {
+                                        console.log('Using cached data');
+                                        this.isLoading = false;
+                                        return;
+                                    }
+
+                                    this.isLoading = true;
+                                }
+
+                                console.log(`Fetching rightsizing recommendations for: ${accountId}`);
+
+                                fetch(`/api/xamops/gcp/rightsizing/recommendations?accountId=${accountId}`)
+                                    .then(res => {
+                                        console.log('API Response status:', res.status);
+                                        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                                        return res.json();
+                                    })
+                                    .then(data => {
+                                        console.log('Rightsizing recommendations received:', data);
+                                        this.recommendations = Array.isArray(data) ? data : [];
+
+                                        localStorage.setItem(`rightsizing_recs_${accountId}`, JSON.stringify(this.recommendations));
+
+                                        const expiry = Date.now() + (24 * 60 * 60 * 1000);
+                                        localStorage.setItem(`rightsizing_recs_${accountId}_expiry`, expiry.toString());
+                                    })
+                                    .catch(err => {
+                                        console.error('Failed to load GCP rightsizing recommendations:', err);
+                                        this.recommendations = [];
+                                    })
+                                    .finally(() => {
+                                        this.isLoading = false;
+                                        this.isRefreshing = false;
+                                        console.log('Fetch complete');
+                                    });
+                            },
+
+                            get filteredRecommendations() {
+                                const term = this.searchTerm.toLowerCase();
+                                return this.recommendations.filter(rec => {
+                                    const serviceMatch = this.filter === 'All' || (rec.service && rec.service === this.filter);
+                                    const searchMatch = term === '' || (rec.resourceName && rec.resourceName.toLowerCase().includes(term));
+                                    return serviceMatch && searchMatch;
+                                });
+                            },
+
+                            get potentialSavings() {
+                                return this.filteredRecommendations
+                                    .filter(rec => rec.recommendationType === 'COST_SAVINGS')
+                                    .reduce((total, rec) => total + (rec.monthlySavings || 0), 0);
+                            },
+
+                            get totalCurrentCosts() {
+                                return this.filteredRecommendations
+                                    .filter(rec => rec.recommendationType === 'PERFORMANCE_IMPROVEMENT')
+                                    .reduce((total, rec) => total + (rec.monthlySavings || 0), 0);
+                            },
+
+                            get recommendationCount() {
+                                return this.filteredRecommendations.length;
+                            },
+
+                            get topService() {
+                                if (this.recommendationCount === 0) return 'N/A';
+                                const counts = this.filteredRecommendations.reduce((acc, r) => {
+                                    const service = r.service || 'Other';
+                                    acc[service] = (acc[service] || 0) + 1;
+                                    return acc;
+                                }, {});
+                                return Object.keys(counts).reduce((a, b) => counts[a] > counts[b] ? a : b);
+                            },
+
+                            isUnderprovisioned(rec) {
+                                return rec.recommendationType === 'PERFORMANCE_IMPROVEMENT';
+                            },
+
+                            formatImpact(rec) {
+                                const value = rec.monthlySavings || 0;
+                                return this.formatCurrency(Math.abs(value)) + ' / mo';
+                            },
+
+                            getReasonText(rec) {
+                                if (rec.reason && rec.reason !== 'No details available') {
+                                    return rec.reason;
+                                }
+
+                                if (rec.recommendationType === 'PERFORMANCE_IMPROVEMENT') {
+                                    return 'Resource is underprovisioned. Upgrade recommended for better performance.';
+                                } else if (rec.recommendationType === 'COST_SAVINGS') {
+                                    return 'Resource is overprovisioned. Downgrade recommended to reduce costs.';
+                                }
+
+                                return rec.description || 'Optimization recommended';
+                            },
+
+                            formatCurrency(value) {
+                                if (value === null || value === undefined || isNaN(value)) return '₹0.00';
+                                return new Intl.NumberFormat('en-IN', {
+                                    style: 'currency',
+                                    currency: 'INR',
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2
+                                }).format(value);
+                            }
+                        }
+                    }
+                </script>
+            </main>
+        </div>
     </div>
-</div>
-
-<script>
-    function gcpRightsizing() {
-        return {
-            isLoading: true,
-            isRefreshing: false,
-            recommendations: [],
-            filter: 'All',
-            searchTerm: '',
-            services: ['All', 'Compute Engine', 'Cloud SQL', 'Commitment'],
-
-            init() {
-                console.log('Initializing GCP Rightsizing page...');
-                this.loadFromCache();
-                this.loadRecommendations(false);
-            },
-
-            loadFromCache() {
-                try {
-                    const urlParams = new URLSearchParams(window.location.search);
-                    const accountId = (urlParams.get('accountIds') || 'xamops').split(',')[0];
-
-                    const cached = localStorage.getItem(`rightsizing_recs_${accountId}`);
-                    if (cached) {
-                        this.recommendations = JSON.parse(cached);
-                        console.log('Loaded rightsizing recommendations from cache:', this.recommendations.length);
-                    }
-                } catch (err) {
-                    console.error('Failed to load from cache:', err);
-                }
-            },
-
-            loadRecommendations(forceRefresh = false) {
-                const urlParams = new URLSearchParams(window.location.search);
-                const accountIds = urlParams.get('accountIds') || 'xamops';
-                const accountId = accountIds.split(',')[0];
-
-                if (!accountId) {
-                    console.error('No accountId found');
-                    this.isLoading = false;
-                    return;
-                }
-
-                if (forceRefresh) {
-                    this.isRefreshing = true;
-                    this.isLoading = true;
-                    localStorage.removeItem(`rightsizing_recs_${accountId}`);
-                    localStorage.removeItem(`rightsizing_recs_${accountId}_expiry`);
-                    console.log('Force refresh - clearing cache');
-                } else {
-                    const cacheExpiry = localStorage.getItem(`rightsizing_recs_${accountId}_expiry`);
-                    const isCacheExpired = !cacheExpiry || Date.now() > parseInt(cacheExpiry);
-
-                    if (!isCacheExpired && localStorage.getItem(`rightsizing_recs_${accountId}`)) {
-                        console.log('Using cached data');
-                        this.isLoading = false;
-                        return;
-                    }
-
-                    this.isLoading = true;
-                }
-
-                console.log(`Fetching rightsizing recommendations for: ${accountId}`);
-
-                fetch(`/api/xamops/gcp/rightsizing/recommendations?accountId=${accountId}`)
-                    .then(res => {
-                        console.log('API Response status:', res.status);
-                        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-                        return res.json();
-                    })
-                    .then(data => {
-                        console.log('Rightsizing recommendations received:', data);
-                        this.recommendations = Array.isArray(data) ? data : [];
-
-                        localStorage.setItem(`rightsizing_recs_${accountId}`, JSON.stringify(this.recommendations));
-
-                        const expiry = Date.now() + (24 * 60 * 60 * 1000);
-                        localStorage.setItem(`rightsizing_recs_${accountId}_expiry`, expiry.toString());
-                    })
-                    .catch(err => {
-                        console.error('Failed to load GCP rightsizing recommendations:', err);
-                        this.recommendations = [];
-                    })
-                    .finally(() => {
-                        this.isLoading = false;
-                        this.isRefreshing = false;
-                        console.log('Fetch complete');
-                    });
-            },
-
-            get filteredRecommendations() {
-                const term = this.searchTerm.toLowerCase();
-                return this.recommendations.filter(rec => {
-                    const serviceMatch = this.filter === 'All' || (rec.service && rec.service === this.filter);
-                    const searchMatch = term === '' || (rec.resourceName && rec.resourceName.toLowerCase().includes(term));
-                    return serviceMatch && searchMatch;
-                });
-            },
-
-            // ✅ FIXED: Only count COST_SAVINGS recommendations
-            get potentialSavings() {
-                return this.filteredRecommendations
-                    .filter(rec => rec.recommendationType === 'COST_SAVINGS')
-                    .reduce((total, rec) => total + (rec.monthlySavings || 0), 0);
-            },
-
-            // ✅ FIXED: Show historical cost for underprovisioned resources
-            get totalCurrentCosts() {
-                return this.filteredRecommendations
-                    .filter(rec => rec.recommendationType === 'PERFORMANCE_IMPROVEMENT')
-                    .reduce((total, rec) => total + (rec.monthlySavings || 0), 0);
-            },
-
-            get recommendationCount() {
-                return this.filteredRecommendations.length;
-            },
-
-            get topService() {
-                if (this.recommendationCount === 0) return 'N/A';
-                const counts = this.filteredRecommendations.reduce((acc, r) => {
-                    const service = r.service || 'Other';
-                    acc[service] = (acc[service] || 0) + 1;
-                    return acc;
-                }, {});
-                return Object.keys(counts).reduce((a, b) => counts[a] > counts[b] ? a : b);
-            },
-
-            // ✅ FIXED: Check by recommendationType
-            isUnderprovisioned(rec) {
-                return rec.recommendationType === 'PERFORMANCE_IMPROVEMENT';
-            },
-
-            // ✅ FIXED: Format impact properly
-            formatImpact(rec) {
-                const value = rec.monthlySavings || 0;
-                return this.formatCurrency(Math.abs(value)) + ' / mo';
-            },
-
-            // ✅ NEW: Get proper reason text
-            getReasonText(rec) {
-                if (rec.reason && rec.reason !== 'No details available') {
-                    return rec.reason;
-                }
-
-                if (rec.recommendationType === 'PERFORMANCE_IMPROVEMENT') {
-                    return 'Resource is underprovisioned. Upgrade recommended for better performance.';
-                } else if (rec.recommendationType === 'COST_SAVINGS') {
-                    return 'Resource is overprovisioned. Downgrade recommended to reduce costs.';
-                }
-
-                return rec.description || 'Optimization recommended';
-            },
-
-            formatCurrency(value) {
-                if (value === null || value === undefined || isNaN(value)) return '₹0.00';
-                return new Intl.NumberFormat('en-IN', {
-                    style: 'currency',
-                    currency: 'INR',
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2
-                }).format(value);
-            }
-        }
-    }
-</script>
 
 </body>
+
 </html>

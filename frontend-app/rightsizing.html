@@ -1,840 +1,932 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>XamOps - Rightsizing</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-        <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
-<link rel="apple-touch-icon" href="/icons/XamOps.png">
+    <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
+    <link rel="apple-touch-icon" href="/icons/XamOps.png">
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.0/dist/cdn.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script type="module" src="/src/main.js"></script>
-
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-
-        :root {
-            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            --success-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
-            --warning-gradient: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-            --glass-bg: rgba(255, 255, 255, 0.95);
-            --glass-border: rgba(229, 231, 235, 0.8);
-            --transition: 0.3s;
-        }
-
-        body {
-            font-family: 'Inter', sans-serif;
-            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-            overflow: hidden;
-            margin: 0;
-            padding: 0;
-        }
-
-        [x-cloak] { display: none !important; }
-
-        .main-container {
-            margin-left: 16rem;
-            width: calc(100vw - 16rem);
-            height: 100vh;
-            overflow: hidden;
-        }
-
-        .glass-card {
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--glass-border);
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            border-radius: 1.5rem;
-            max-width: 100%;
-            overflow: hidden;
-        }
-
-        .skeleton {
-            background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
-            background-size: 200% 100%;
-            animation: shimmer 1.5s infinite;
-            border-radius: 12px;
-        }
-
-        @keyframes shimmer {
-            0% { background-position: -200% 0; }
-            100% { background-position: 200% 0; }
-        }
-
-        .header-gradient {
-            background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%);
-            backdrop-filter: blur(10px);
-            border-bottom: 1px solid var(--glass-border);
-        }
-
-        .btn-primary {
-            background: var(--primary-gradient);
-            border: none;
-            color: white;
-            transition: all 0.3s ease;
-        }
-
-        .btn-primary:hover:not(:disabled) {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 15px -3px rgba(102, 126, 234, 0.4);
-        }
-
-        .btn-primary:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
-
-        .table-enhanced {
-            background: var(--glass-bg);
-            border-radius: 12px;
-            overflow-x: auto;
-            border: 1px solid var(--glass-border);
-            max-width: 100%;
-        }
-
-        .table-enhanced table {
-            width: 100%;
-            min-width: 1400px;
-            border-collapse: collapse;
-            font-size: 0.75rem;
-        }
-
-        .table-enhanced thead {
-            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-            position: sticky;
-            top: 0;
-            z-index: 10;
-        }
-
-        .table-enhanced th {
-            padding: 12px 8px;
-            text-align: left;
-            font-weight: 700;
-            font-size: 0.65rem;
-            letter-spacing: 0.5px;
-            text-transform: uppercase;
-            color: #374151;
-            white-space: nowrap;
-        }
-
-        .table-enhanced td {
-            padding: 10px 8px;
-            vertical-align: middle;
-            border-top: 1px solid #f3f4f6;
-            font-size: 0.75rem;
-        }
-
-        .table-enhanced tbody tr {
-            transition: all 0.2s ease;
-        }
-
-        .table-enhanced tbody tr:hover {
-            background: rgba(102, 126, 234, 0.05);
-            transform: translateX(2px);
-        }
-
-        .first-cell-indicator {
-            position: relative;
-        }
-
-        .first-cell-indicator::before {
-            content: '';
-            position: absolute;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            width: 3px;
-            background: var(--success-gradient);
-            transform: scaleY(0);
-            transition: transform 0.2s ease;
-        }
-
-        .table-enhanced tr:hover .first-cell-indicator::before {
-            transform: scaleY(1);
-        }
-
-        .empty-state {
-            background: var(--glass-bg);
-            border: 2px dashed rgba(16, 185, 129, 0.3);
-        }
-
-        .savings-badge {
-            background: var(--success-gradient);
-            color: white;
-            box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
-            border-radius: 4px;
-            display: inline-block;
-            padding: 3px 8px;
-            font-size: 0.65rem;
-            font-weight: 600;
-            white-space: nowrap;
-        }
-
-        .fade-in {
-            animation: fadeIn 0.5s ease-in-out;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .tab-button {
-            transition: all 0.3s ease;
-            border-bottom: 2px solid transparent;
-        }
-
-        .tab-button.active {
-            color: #667eea;
-            border-bottom-color: #667eea;
-        }
-
-        .sparkle-button-compact {
-            --active: 0;
-            --bg: radial-gradient(40% 50% at center 100%, hsl(270 calc(var(--active) * 97%) 72% / var(--active)), transparent),
-                  radial-gradient(80% 100% at center 120%, hsl(260 calc(var(--active) * 97%) 70% / var(--active)), transparent),
-                  hsl(260 calc(var(--active) * 97%) calc((var(--active) * 44%) + 12%));
-            background: var(--bg);
-            border: 0;
-            cursor: pointer;
-            padding: 0.4em 0.6em;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.15em;
-            white-space: nowrap;
-            border-radius: 50px;
-            position: relative;
-            box-shadow: 0 0 calc(var(--active) * 2em) calc(var(--active) * 0.5em) hsl(260 97% 61% / 0.75),
-                        0 0em 0 0 hsl(260 calc(var(--active) * 97%) calc((var(--active) * 50%) + 30%)) inset,
-                        0 -0.05em 0 0 hsl(260 calc(var(--active) * 97%) calc(var(--active) * 60%)) inset;
-            transition: all var(--transition);
-            scale: calc(1 + (var(--active) * 0.08));
-            font-size: 0.7rem;
-        }
-
-        .sparkle-button-compact:active {
-            scale: 1;
-        }
-
-        .sparkle-button-compact:is(:hover, :focus-visible) {
-            --active: 1;
-        }
-
-        .sparkle-compact {
-            width: 0.9em;
-            height: 0.9em;
-        }
-
-        .sparkle-compact path {
-            color: hsl(0 0% calc((var(--active, 0) * 70%) + 30%));
-            transform-box: fill-box;
-            transform-origin: center;
-            fill: currentColor;
-            stroke: currentColor;
-            transition: color var(--transition);
-        }
-
-        .sparkle-button-compact:is(:hover, :focus-visible) .sparkle-compact path {
-            animation: bounce 0.6s;
-        }
-
-        @keyframes bounce {
-            35%, 65% {
-                scale: 1.5;
-            }
-        }
-
-        .sparkle-button-compact::before {
-            content: "";
-            position: absolute;
-            inset: -0.15em;
-            z-index: -1;
-            border: 0.15em solid hsl(260 97% 50% / 0.5);
-            border-radius: 50px;
-            opacity: var(--active, 0);
-            transition: opacity var(--transition);
-        }
-
-        .truncate-text {
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            max-width: 200px;
-        }
-
-        .ai-content {
-            line-height: 1.8;
-            color: #1f2937;
-        }
-
-        .ai-content h1, .ai-content h2, .ai-content h3 {
-            font-weight: 700;
-            margin-top: 1.5rem;
-            margin-bottom: 0.75rem;
-            color: #111827;
-        }
-
-        .ai-content h1 { font-size: 1.5rem; }
-        .ai-content h2 { font-size: 1.25rem; }
-        .ai-content h3 { font-size: 1.1rem; }
-
-        .ai-content p { margin-bottom: 1rem; }
-        .ai-content ul, .ai-content ol {
-            margin-left: 1.5rem;
-            margin-bottom: 1rem;
-            list-style-position: outside;
-        }
-
-        .ai-content ul { list-style-type: disc; }
-        .ai-content ol { list-style-type: decimal; }
-        .ai-content li { margin-bottom: 0.5rem; padding-left: 0.25rem; }
-        .ai-content strong { font-weight: 700; color: #111827; }
-        .ai-content code {
-            background: #f3f4f6;
-            padding: 0.125rem 0.375rem;
-            border-radius: 0.25rem;
-            font-size: 0.875rem;
-            font-family: 'Courier New', monospace;
-        }
-
-        .ai-content pre {
-            background: #1f2937;
-            color: #f9fafb;
-            padding: 1rem;
-            border-radius: 0.5rem;
-            overflow-x: auto;
-            margin-bottom: 1rem;
-        }
-
-        .ai-content pre code {
-            background: transparent;
-            padding: 0;
-            color: inherit;
-        }
-
-        .ai-content blockquote {
-            border-left: 4px solid #6366f1;
-            padding-left: 1rem;
-            margin-left: 0;
-            font-style: italic;
-            color: #4b5563;
-        }
-
-        ::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
-        }
-
-        ::-webkit-scrollbar-track {
-            background: #f1f5f9;
-        }
-
-        ::-webkit-scrollbar-thumb {
-            background: #cbd5e1;
-            border-radius: 4px;
-        }
-
-        ::-webkit-scrollbar-thumb:hover {
-            background: #94a3b8;
-        }
-    </style>
 </head>
+
 <body class="bg-gray-50">
 
-<div class="flex h-screen overflow-hidden">
-  <include file="/_sidebar.html"></include>
+    <div class="flex">
+        <include file="/_sidebar.html"></include>
 
+        <div class="flex-1 pl-64">
 
-    <div class="main-container flex flex-col">
-        <main class="flex-1 flex flex-col overflow-y-auto overflow-x-hidden" x-data="rightsizing()">
-            <header class="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-20">
-                <div class="flex items-center space-x-4">
-                    <div class="w-12 h-12 bg-gradient-to-br from-green-500 to-blue-600 rounded-xl flex items-center justify-center">
-                        <i class="fas fa-compress-arrows-alt text-white text-xl"></i>
+            <main id="main-content" class="flex-1 flex flex-col min-h-screen" x-data="rightsizing()">
+
+                <style>
+                    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+                    :root {
+                        --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        --success-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
+                        --warning-gradient: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+                        --glass-bg: rgba(255, 255, 255, 0.95);
+                        --glass-border: rgba(229, 231, 235, 0.8);
+                        --transition: 0.3s;
+                    }
+
+                    /* CHANGE: Removed 'body' styles here to prevent global conflicts */
+
+                    [x-cloak] {
+                        display: none !important;
+                    }
+
+                    /* CHANGE: Removed .main-container class as we are using Tailwind utilities now */
+
+                    .glass-card {
+                        background: var(--glass-bg);
+                        backdrop-filter: blur(10px);
+                        border: 1px solid var(--glass-border);
+                        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+                        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                        border-radius: 1.5rem;
+                        max-width: 100%;
+                        overflow: hidden;
+                    }
+
+                    .skeleton {
+                        background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+                        background-size: 200% 100%;
+                        animation: shimmer 1.5s infinite;
+                        border-radius: 12px;
+                    }
+
+                    @keyframes shimmer {
+                        0% {
+                            background-position: -200% 0;
+                        }
+
+                        100% {
+                            background-position: 200% 0;
+                        }
+                    }
+
+                    .header-gradient {
+                        background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%);
+                        backdrop-filter: blur(10px);
+                        border-bottom: 1px solid var(--glass-border);
+                    }
+
+                    .btn-primary {
+                        background: var(--primary-gradient);
+                        border: none;
+                        color: white;
+                        transition: all 0.3s ease;
+                    }
+
+                    .btn-primary:hover:not(:disabled) {
+                        transform: translateY(-2px);
+                        box-shadow: 0 10px 15px -3px rgba(102, 126, 234, 0.4);
+                    }
+
+                    .btn-primary:disabled {
+                        opacity: 0.6;
+                        cursor: not-allowed;
+                    }
+
+                    .table-enhanced {
+                        background: var(--glass-bg);
+                        border-radius: 12px;
+                        overflow-x: auto;
+                        border: 1px solid var(--glass-border);
+                        max-width: 100%;
+                    }
+
+                    .table-enhanced table {
+                        width: 100%;
+                        min-width: 1400px;
+                        border-collapse: collapse;
+                        font-size: 0.75rem;
+                    }
+
+                    .table-enhanced thead {
+                        background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+                        position: sticky;
+                        top: 0;
+                        z-index: 10;
+                    }
+
+                    .table-enhanced th {
+                        padding: 12px 8px;
+                        text-align: left;
+                        font-weight: 700;
+                        font-size: 0.65rem;
+                        letter-spacing: 0.5px;
+                        text-transform: uppercase;
+                        color: #374151;
+                        white-space: nowrap;
+                    }
+
+                    .table-enhanced td {
+                        padding: 10px 8px;
+                        vertical-align: middle;
+                        border-top: 1px solid #f3f4f6;
+                        font-size: 0.75rem;
+                    }
+
+                    .table-enhanced tbody tr {
+                        transition: all 0.2s ease;
+                    }
+
+                    .table-enhanced tbody tr:hover {
+                        background: rgba(102, 126, 234, 0.05);
+                        transform: translateX(2px);
+                    }
+
+                    .first-cell-indicator {
+                        position: relative;
+                    }
+
+                    .first-cell-indicator::before {
+                        content: '';
+                        position: absolute;
+                        left: 0;
+                        top: 0;
+                        bottom: 0;
+                        width: 3px;
+                        background: var(--success-gradient);
+                        transform: scaleY(0);
+                        transition: transform 0.2s ease;
+                    }
+
+                    .table-enhanced tr:hover .first-cell-indicator::before {
+                        transform: scaleY(1);
+                    }
+
+                    .empty-state {
+                        background: var(--glass-bg);
+                        border: 2px dashed rgba(16, 185, 129, 0.3);
+                    }
+
+                    .savings-badge {
+                        background: var(--success-gradient);
+                        color: white;
+                        box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
+                        border-radius: 4px;
+                        display: inline-block;
+                        padding: 3px 8px;
+                        font-size: 0.65rem;
+                        font-weight: 600;
+                        white-space: nowrap;
+                    }
+
+                    .fade-in {
+                        animation: fadeIn 0.5s ease-in-out;
+                    }
+
+                    @keyframes fadeIn {
+                        from {
+                            opacity: 0;
+                            transform: translateY(20px);
+                        }
+
+                        to {
+                            opacity: 1;
+                            transform: translateY(0);
+                        }
+                    }
+
+                    .tab-button {
+                        transition: all 0.3s ease;
+                        border-bottom: 2px solid transparent;
+                    }
+
+                    .tab-button.active {
+                        color: #667eea;
+                        border-bottom-color: #667eea;
+                    }
+
+                    .sparkle-button-compact {
+                        --active: 0;
+                        --bg: radial-gradient(40% 50% at center 100%, hsl(270 calc(var(--active) * 97%) 72% / var(--active)), transparent),
+                            radial-gradient(80% 100% at center 120%, hsl(260 calc(var(--active) * 97%) 70% / var(--active)), transparent),
+                            hsl(260 calc(var(--active) * 97%) calc((var(--active) * 44%) + 12%));
+                        background: var(--bg);
+                        border: 0;
+                        cursor: pointer;
+                        padding: 0.4em 0.6em;
+                        display: inline-flex;
+                        align-items: center;
+                        justify-content: center;
+                        gap: 0.15em;
+                        white-space: nowrap;
+                        border-radius: 50px;
+                        position: relative;
+                        box-shadow: 0 0 calc(var(--active) * 2em) calc(var(--active) * 0.5em) hsl(260 97% 61% / 0.75),
+                            0 0em 0 0 hsl(260 calc(var(--active) * 97%) calc((var(--active) * 50%) + 30%)) inset,
+                            0 -0.05em 0 0 hsl(260 calc(var(--active) * 97%) calc(var(--active) * 60%)) inset;
+                        transition: all var(--transition);
+                        scale: calc(1 + (var(--active) * 0.08));
+                        font-size: 0.7rem;
+                    }
+
+                    .sparkle-button-compact:active {
+                        scale: 1;
+                    }
+
+                    .sparkle-button-compact:is(:hover, :focus-visible) {
+                        --active: 1;
+                    }
+
+                    .sparkle-compact {
+                        width: 0.9em;
+                        height: 0.9em;
+                    }
+
+                    .sparkle-compact path {
+                        color: hsl(0 0% calc((var(--active, 0) * 70%) + 30%));
+                        transform-box: fill-box;
+                        transform-origin: center;
+                        fill: currentColor;
+                        stroke: currentColor;
+                        transition: color var(--transition);
+                    }
+
+                    .sparkle-button-compact:is(:hover, :focus-visible) .sparkle-compact path {
+                        animation: bounce 0.6s;
+                    }
+
+                    @keyframes bounce {
+
+                        35%,
+                        65% {
+                            scale: 1.5;
+                        }
+                    }
+
+                    .sparkle-button-compact::before {
+                        content: "";
+                        position: absolute;
+                        inset: -0.15em;
+                        z-index: -1;
+                        border: 0.15em solid hsl(260 97% 50% / 0.5);
+                        border-radius: 50px;
+                        opacity: var(--active, 0);
+                        transition: opacity var(--transition);
+                    }
+
+                    .truncate-text {
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
+                        max-width: 200px;
+                    }
+
+                    .ai-content {
+                        line-height: 1.8;
+                        color: #1f2937;
+                    }
+
+                    .ai-content h1,
+                    .ai-content h2,
+                    .ai-content h3 {
+                        font-weight: 700;
+                        margin-top: 1.5rem;
+                        margin-bottom: 0.75rem;
+                        color: #111827;
+                    }
+
+                    .ai-content h1 {
+                        font-size: 1.5rem;
+                    }
+
+                    .ai-content h2 {
+                        font-size: 1.25rem;
+                    }
+
+                    .ai-content h3 {
+                        font-size: 1.1rem;
+                    }
+
+                    .ai-content p {
+                        margin-bottom: 1rem;
+                    }
+
+                    .ai-content ul,
+                    .ai-content ol {
+                        margin-left: 1.5rem;
+                        margin-bottom: 1rem;
+                        list-style-position: outside;
+                    }
+
+                    .ai-content ul {
+                        list-style-type: disc;
+                    }
+
+                    .ai-content ol {
+                        list-style-type: decimal;
+                    }
+
+                    .ai-content li {
+                        margin-bottom: 0.5rem;
+                        padding-left: 0.25rem;
+                    }
+
+                    .ai-content strong {
+                        font-weight: 700;
+                        color: #111827;
+                    }
+
+                    .ai-content code {
+                        background: #f3f4f6;
+                        padding: 0.125rem 0.375rem;
+                        border-radius: 0.25rem;
+                        font-size: 0.875rem;
+                        font-family: 'Courier New', monospace;
+                    }
+
+                    .ai-content pre {
+                        background: #1f2937;
+                        color: #f9fafb;
+                        padding: 1rem;
+                        border-radius: 0.5rem;
+                        overflow-x: auto;
+                        margin-bottom: 1rem;
+                    }
+
+                    .ai-content pre code {
+                        background: transparent;
+                        padding: 0;
+                        color: inherit;
+                    }
+
+                    .ai-content blockquote {
+                        border-left: 4px solid #6366f1;
+                        padding-left: 1rem;
+                        margin-left: 0;
+                        font-style: italic;
+                        color: #4b5563;
+                    }
+
+                    ::-webkit-scrollbar {
+                        width: 8px;
+                        height: 8px;
+                    }
+
+                    ::-webkit-scrollbar-track {
+                        background: #f1f5f9;
+                    }
+
+                    ::-webkit-scrollbar-thumb {
+                        background: #cbd5e1;
+                        border-radius: 4px;
+                    }
+
+                    ::-webkit-scrollbar-thumb:hover {
+                        background: #94a3b8;
+                    }
+                </style>
+
+                <header class="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-20">
+                    <div class="flex items-center space-x-4">
+                        <div
+                            class="w-12 h-12 bg-gradient-to-br from-green-500 to-blue-600 rounded-xl flex items-center justify-center">
+                            <i class="fas fa-compress-arrows-alt text-white text-xl"></i>
+                        </div>
+                        <div>
+                            <h1 class="text-2xl font-bold text-gray-800">Rightsizing</h1>
+                            <p class="text-sm text-gray-600">Optimize your cloud resource sizing</p>
+                        </div>
                     </div>
-                    <div>
-                        <h1 class="text-2xl font-bold text-gray-800">Rightsizing</h1>
-                        <p class="text-sm text-gray-600">Optimize your cloud resource sizing</p>
+                    <div class="flex items-center space-x-4">
+                        <button @click="refreshAll()"
+                            class="btn-primary flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md"
+                            :disabled="isRefreshing">
+                            <i class="fas fa-sync-alt" :class="{ 'fa-spin': isRefreshing }"></i>
+                            <span x-text="isRefreshing ? 'Analyzing...' : 'Refresh Analysis'"></span>
+                        </button>
                     </div>
-                </div>
-                <div class="flex items-center space-x-4">
-                    <button @click="refreshAll()" class="btn-primary flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md" :disabled="isRefreshing">
-                        <i class="fas fa-sync-alt" :class="{ 'fa-spin': isRefreshing }"></i>
-                        <span x-text="isRefreshing ? 'Analyzing...' : 'Refresh Analysis'"></span>
-                    </button>
-                </div>
-            </header>
+                </header>
 
-            <div class="flex-1 p-8 space-y-8">
-                <div class="flex border-b border-gray-200">
-                    <button @click="activeTab = 'aws'" class="tab-button px-6 py-3 text-sm font-semibold" :class="{ 'active': activeTab === 'aws' }">
-                        <i class="fab fa-aws mr-2"></i>AWS Recommendations
-                    </button>
-                    <button @click="activeTab = 'xamops'" class="tab-button px-6 py-3 text-sm font-semibold" :class="{ 'active': activeTab === 'xamops' }">
-                        <i class="fas fa-bolt mr-2"></i>XamAi Recommendations
-                    </button>
-                </div>
-
-                <div x-show="activeTab === 'aws'" x-cloak class="fade-in">
-                    <div class="glass-card p-8">
-                        <div x-show="isLoading" class="skeleton h-96 rounded-2xl"></div>
-
-                        <div x-show="!isLoading && filteredRecommendations.length === 0" x-cloak class="empty-state text-center py-20 px-8 rounded-2xl">
-                            <div class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                                <i class="fas fa-inbox text-gray-400 text-2xl"></i>
-                            </div>
-                            <h3 class="text-2xl font-bold text-gray-800 mb-2">No Recommendations</h3>
-                            <p class="text-gray-600">No rightsizing recommendations available at this time.</p>
-                        </div>
-
-                        <div x-show="!isLoading && filteredRecommendations.length > 0" x-cloak class="table-enhanced">
-                            <table class="w-full text-sm">
-                                <thead class="text-xs text-gray-700 uppercase bg-gradient-to-r from-gray-50 to-gray-100">
-                                <tr>
-                                    <th class="px-6 py-4 text-left font-bold">Resource ID</th>
-                                    <th class="px-6 py-4 text-left font-bold">Cost Comparison</th>
-                                    <th class="px-6 py-4 text-left font-bold">Savings</th>
-                                    <th class="px-6 py-4 text-left font-bold">Reason</th>
-                                    <th class="px-6 py-4 text-center font-bold">AI</th>
-                                </tr>
-                                </thead>
-                                <tbody class="divide-y divide-gray-200">
-                                <template x-for="rec in filteredRecommendations" :key="rec.resourceId">
-                                    <tr class="hover:bg-gray-50 transition-all">
-                                        <td class="px-6 py-4 first-cell-indicator">
-                                            <div class="flex items-center space-x-3">
-                                                <div class="w-8 h-8 rounded-lg flex-shrink-0">
-                                                    <img :src="'/icons/' + getServiceIcon(rec.service)" :alt="rec.service" class="w-full h-full rounded-lg object-cover">
-                                                </div>
-                                                <span class="font-mono text-gray-800 font-medium" x-text="rec.resourceId"></span>
-                                            </div>
-                                        </td>
-                                        <td class="px-6 py-4">
-                                            <div class="flex items-center justify-between space-x-4">
-                                                <div class="text-center">
-                                                    <p class="font-bold text-red-600" x-text="`$${rec.currentMonthlyCost.toFixed(2)}`"></p>
-                                                    <p class="text-xs text-gray-500" x-text="rec.currentType"></p>
-                                                </div>
-                                                <i class="fas fa-arrow-right text-gray-400"></i>
-                                                <div class="text-center">
-                                                    <p class="font-bold text-green-600" x-text="`$${rec.recommendedMonthlyCost.toFixed(2)}`"></p>
-                                                    <p class="text-xs text-gray-500" x-text="rec.recommendedType"></p>
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td class="px-6 py-4">
-                                            <div class="flex flex-col space-y-1">
-                                                <span class="savings-badge px-3 py-1 text-xs font-semibold" x-text="'$' + rec.estimatedMonthlySavings.toFixed(2)"></span>
-                                                <span class="text-xs text-gray-500" x-text="`${((rec.estimatedMonthlySavings / rec.currentMonthlyCost) * 100).toFixed(1)}% savings`" x-show="rec.currentMonthlyCost > 0"></span>
-                                            </div>
-                                        </td>
-                                        <td class="px-6 py-4">
-                                            <p class="text-sm text-gray-700 break-words" x-text="rec.recommendationReason"></p>
-                                        </td>
-                                        <td class="px-6 py-4 text-center">
-                                            <button @click="getAiRecommendation(rec)" class="sparkle-button-compact">
-                                                <svg class="sparkle-compact" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                                    <path d="M14.187 8.096L15 5.25L15.813 8.096C16.0231 8.83114 16.4171 9.50062 16.9577 10.0413C17.4984 10.5819 18.1679 10.9759 18.903 11.186L21.75 12L18.904 12.813C18.1689 13.0231 17.4994 13.4171 16.9587 13.9577C16.4181 14.4984 16.0241 15.1679 15.814 15.903L15 18.75L14.187 15.904C13.9769 15.1689 13.5829 14.4994 13.0423 13.9587C12.5016 13.4181 11.8321 13.0241 11.097 12.814L8.25 12L11.096 11.187C11.8311 10.9769 12.5006 10.5829 13.0413 10.0423C13.5819 9.50162 13.9759 8.83214 14.186 8.097L14.187 8.096Z" fill="currentColor" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"></path>
-                                                </svg>
-                                            </button>
-                                        </td>
-                                    </tr>
-                                </template>
-                                </tbody>
-                            </table>
-                        </div>
+                <div class="flex-1 p-8 space-y-8">
+                    <div class="flex border-b border-gray-200">
+                        <button @click="activeTab = 'aws'" class="tab-button px-6 py-3 text-sm font-semibold"
+                            :class="{ 'active': activeTab === 'aws' }">
+                            <i class="fab fa-aws mr-2"></i>AWS Recommendations
+                        </button>
+                        <button @click="activeTab = 'xamops'" class="tab-button px-6 py-3 text-sm font-semibold"
+                            :class="{ 'active': activeTab === 'xamops' }">
+                            <i class="fas fa-bolt mr-2"></i>XamAi Recommendations
+                        </button>
                     </div>
-                </div>
 
-                <div x-show="activeTab === 'xamops'" x-cloak class="fade-in">
-                    <div class="glass-card p-6">
-                        <div class="flex items-center justify-between mb-6">
-                            <div class="flex items-center space-x-4">
-                                <div class="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center">
-                                    <i class="fas fa-bolt text-white"></i>
+                    <div x-show="activeTab === 'aws'" x-cloak class="fade-in">
+                        <div class="glass-card p-8">
+                            <div x-show="isLoading" class="skeleton h-96 rounded-2xl"></div>
+
+                            <div x-show="!isLoading && filteredRecommendations.length === 0" x-cloak
+                                class="empty-state text-center py-20 px-8 rounded-2xl">
+                                <div
+                                    class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <i class="fas fa-inbox text-gray-400 text-2xl"></i>
                                 </div>
-                                <div>
-                                    <h2 class="text-xl font-bold text-gray-800">XamAi Recommendations</h2>
-                                    <p class="text-sm text-gray-600">Proprietary analysis for enhanced optimization</p>
-                                </div>
+                                <h3 class="text-2xl font-bold text-gray-800 mb-2">No Recommendations</h3>
+                                <p class="text-gray-600">No rightsizing recommendations available at this time.</p>
                             </div>
-                        </div>
 
-                        <div x-show="isLoadingXamOps" class="skeleton h-96 rounded-2xl"></div>
-
-                        <div x-show="!isLoadingXamOps && xamopsRecommendations.length === 0" x-cloak class="empty-state text-center py-20 px-8 rounded-2xl">
-                            <div class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                                <i class="fas fa-lightbulb text-gray-400 text-2xl"></i>
+                            <div x-show="!isLoading && filteredRecommendations.length > 0" x-cloak
+                                class="table-enhanced">
+                                <table class="w-full text-sm">
+                                    <thead
+                                        class="text-xs text-gray-700 uppercase bg-gradient-to-r from-gray-50 to-gray-100">
+                                        <tr>
+                                            <th class="px-6 py-4 text-left font-bold">Resource ID</th>
+                                            <th class="px-6 py-4 text-left font-bold">Cost Comparison</th>
+                                            <th class="px-6 py-4 text-left font-bold">Savings</th>
+                                            <th class="px-6 py-4 text-left font-bold">Reason</th>
+                                            <th class="px-6 py-4 text-center font-bold">AI</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-gray-200">
+                                        <template x-for="rec in filteredRecommendations" :key="rec.resourceId">
+                                            <tr class="hover:bg-gray-50 transition-all">
+                                                <td class="px-6 py-4 first-cell-indicator">
+                                                    <div class="flex items-center space-x-3">
+                                                        <div class="w-8 h-8 rounded-lg flex-shrink-0">
+                                                            <img :src="'/icons/' + getServiceIcon(rec.service)"
+                                                                :alt="rec.service"
+                                                                class="w-full h-full rounded-lg object-cover">
+                                                        </div>
+                                                        <span class="font-mono text-gray-800 font-medium"
+                                                            x-text="rec.resourceId"></span>
+                                                    </div>
+                                                </td>
+                                                <td class="px-6 py-4">
+                                                    <div class="flex items-center justify-between space-x-4">
+                                                        <div class="text-center">
+                                                            <p class="font-bold text-red-600"
+                                                                x-text="`$${rec.currentMonthlyCost.toFixed(2)}`"></p>
+                                                            <p class="text-xs text-gray-500" x-text="rec.currentType">
+                                                            </p>
+                                                        </div>
+                                                        <i class="fas fa-arrow-right text-gray-400"></i>
+                                                        <div class="text-center">
+                                                            <p class="font-bold text-green-600"
+                                                                x-text="`$${rec.recommendedMonthlyCost.toFixed(2)}`">
+                                                            </p>
+                                                            <p class="text-xs text-gray-500"
+                                                                x-text="rec.recommendedType"></p>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td class="px-6 py-4">
+                                                    <div class="flex flex-col space-y-1">
+                                                        <span class="savings-badge px-3 py-1 text-xs font-semibold"
+                                                            x-text="'$' + rec.estimatedMonthlySavings.toFixed(2)"></span>
+                                                        <span class="text-xs text-gray-500"
+                                                            x-text="`${((rec.estimatedMonthlySavings / rec.currentMonthlyCost) * 100).toFixed(1)}% savings`"
+                                                            x-show="rec.currentMonthlyCost > 0"></span>
+                                                    </div>
+                                                </td>
+                                                <td class="px-6 py-4">
+                                                    <p class="text-sm text-gray-700 break-words"
+                                                        x-text="rec.recommendationReason"></p>
+                                                </td>
+                                                <td class="px-6 py-4 text-center">
+                                                    <button @click="getAiRecommendation(rec)"
+                                                        class="sparkle-button-compact">
+                                                        <svg class="sparkle-compact" viewBox="0 0 24 24" fill="none"
+                                                            xmlns="http://www.w3.org/2000/svg">
+                                                            <path
+                                                                d="M14.187 8.096L15 5.25L15.813 8.096C16.0231 8.83114 16.4171 9.50062 16.9577 10.0413C17.4984 10.5819 18.1679 10.9759 18.903 11.186L21.75 12L18.904 12.813C18.1689 13.0231 17.4994 13.4171 16.9587 13.9577C16.4181 14.4984 16.0241 15.1679 15.814 15.903L15 18.75L14.187 15.904C13.9769 15.1689 13.5829 14.4994 13.0423 13.9587C12.5016 13.4181 11.8321 13.0241 11.097 12.814L8.25 12L11.096 11.187C11.8311 10.9769 12.5006 10.5829 13.0413 10.0423C13.5819 9.50162 13.9759 8.83214 14.186 8.097L14.187 8.096Z"
+                                                                fill="currentColor" stroke="currentColor"
+                                                                stroke-linecap="round" stroke-linejoin="round"></path>
+                                                        </svg>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </table>
                             </div>
-                            <h3 class="text-2xl font-bold text-gray-800 mb-2">No XamOps Recommendations</h3>
-                            <p class="text-gray-600">Could not load custom recommendations at this time.</p>
-                        </div>
-
-                        <div x-show="!isLoadingXamOps && xamopsRecommendations.length > 0" x-cloak class="table-enhanced">
-                            <table>
-                                <thead>
-                                <tr>
-                                    <th style="width: 140px;">Instance ID</th>
-                                    <th style="width: 110px;">Current<br>Instance</th>
-                                    <th style="width: 90px;">Load Range</th>
-                                    <th style="width: 130px;">Intel Rec</th>
-                                    <th style="width: 130px;">AMD Rec</th>
-                                    <th style="width: 90px;">Projected<br>Max Util</th>
-                                    <th style="width: 100px;">Approx.<br>Savings</th>
-                                    <th style="width: 180px;">Reason</th>
-                                    <th style="width: 50px;" class="text-center">AI</th>
-                                </tr>
-                                </thead>
-                                <tbody>
-                                <template x-for="(rec, i) in xamopsRecommendations" :key="(rec.instanceId || rec.currentInstance) + '-' + i">
-                                    <tr>
-                                        <td class="first-cell-indicator">
-                                            <div class="flex items-center space-x-1">
-                                                <i class="fas fa-server text-indigo-600" style="font-size: 0.6rem;"></i>
-                                                <span class="font-mono text-gray-800 font-medium" style="font-size: 0.7rem;" x-text="rec.instanceId || 'N/A'"></span>
-                                            </div>
-                                        </td>
-                                        <td>
-                                            <div class="flex flex-col">
-                                                <span class="font-mono font-semibold text-gray-800" x-text="rec.currentInstance"></span>
-                                                <span class="text-indigo-600 font-medium" style="font-size: 0.65rem;" x-text="rec.currentUtilization" x-show="rec.currentUtilization"></span>
-                                            </div>
-                                        </td>
-                                        <td class="text-gray-700" x-text="rec.loadRange"></td>
-                                        <td>
-                                            <div class="flex flex-col">
-                                                <span class="font-medium text-gray-800" style="font-size: 0.7rem;" x-text="rec.intelRecommendation.split('(')[0]"></span>
-                                                <span class="text-gray-500" style="font-size: 0.6rem;" x-text="rec.intelRecommendation.includes('(') ? rec.intelRecommendation.match(/\((.*?)\)/)[0] : ''"></span>
-                                            </div>
-                                        </td>
-                                        <td>
-                                            <div class="flex flex-col">
-                                                <span class="font-medium text-gray-800" style="font-size: 0.7rem;" x-text="rec.amdRecommendation.split('(')[0]"></span>
-                                                <span class="text-gray-500" style="font-size: 0.6rem;" x-text="rec.amdRecommendation.includes('(') ? rec.amdRecommendation.match(/\((.*?)\)/)[0] : ''"></span>
-                                            </div>
-                                        </td>
-                                        <td class="text-gray-700" x-text="rec.projectedMaxUtil"></td>
-                                        <td>
-                                            <span class="savings-badge" x-text="rec.approxCostSavings"></span>
-                                        </td>
-                                        <td class="text-gray-700 truncate-text" :title="rec.reason" x-text="rec.reason"></td>
-                                        <td class="text-center">
-                                            <button @click="getAiRecommendation(rec)" class="sparkle-button-compact">
-                                                <svg class="sparkle-compact" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                                    <path d="M14.187 8.096L15 5.25L15.813 8.096C16.0231 8.83114 16.4171 9.50062 16.9577 10.0413C17.4984 10.5819 18.1679 10.9759 18.903 11.186L21.75 12L18.904 12.813C18.1689 13.0231 17.4994 13.4171 16.9587 13.9577C16.4181 14.4984 16.0241 15.1679 15.814 15.903L15 18.75L14.187 15.904C13.9769 15.1689 13.5829 14.4994 13.0423 13.9587C12.5016 13.4181 11.8321 13.0241 11.097 12.814L8.25 12L11.096 11.187C11.8311 10.9769 12.5006 10.5829 13.0413 10.0423C13.5819 9.50162 13.9759 8.83214 14.186 8.097L14.187 8.096Z" fill="currentColor" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"></path>
-                                                </svg>
-                                            </button>
-                                        </td>
-                                    </tr>
-                                </template>
-                                </tbody>
-                            </table>
                         </div>
                     </div>
-                </div>
-            </div>
 
-            <div x-show="showAiModal"
-                 @keydown.escape.window="showAiModal = false"
-                 class="fixed inset-0 z-50 overflow-y-auto bg-black bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4"
-                 x-cloak
-                 x-transition>
-
-                <div class="relative bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden"
-                     @click.away="showAiModal = false"
-                     x-transition>
-
-                    <div class="sticky top-0 z-10 bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 px-8 py-6 text-white">
-                        <div class="flex items-center justify-between">
-                            <div class="flex items-center space-x-3">
-                                <div class="w-12 h-12 bg-white bg-opacity-20 rounded-xl flex items-center justify-center backdrop-blur-sm">
-                                    <i class="fas fa-robot text-2xl"></i>
-                                </div>
-                                <div>
-                                    <h2 class="text-2xl font-bold">AI-Powered Analysis</h2>
-                                    <p class="text-sm text-white text-opacity-90">Smart recommendations by XamAi</p>
+                    <div x-show="activeTab === 'xamops'" x-cloak class="fade-in">
+                        <div class="glass-card p-6">
+                            <div class="flex items-center justify-between mb-6">
+                                <div class="flex items-center space-x-4">
+                                    <div
+                                        class="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center">
+                                        <i class="fas fa-bolt text-white"></i>
+                                    </div>
+                                    <div>
+                                        <h2 class="text-xl font-bold text-gray-800">XamAi Recommendations</h2>
+                                        <p class="text-sm text-gray-600">Proprietary analysis for enhanced optimization
+                                        </p>
+                                    </div>
                                 </div>
                             </div>
-                            <button @click="showAiModal = false"
+
+                            <div x-show="isLoadingXamOps" class="skeleton h-96 rounded-2xl"></div>
+
+                            <div x-show="!isLoadingXamOps && xamopsRecommendations.length === 0" x-cloak
+                                class="empty-state text-center py-20 px-8 rounded-2xl">
+                                <div
+                                    class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <i class="fas fa-lightbulb text-gray-400 text-2xl"></i>
+                                </div>
+                                <h3 class="text-2xl font-bold text-gray-800 mb-2">No XamOps Recommendations</h3>
+                                <p class="text-gray-600">Could not load custom recommendations at this time.</p>
+                            </div>
+
+                            <div x-show="!isLoadingXamOps && xamopsRecommendations.length > 0" x-cloak
+                                class="table-enhanced">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th style="width: 140px;">Instance ID</th>
+                                            <th style="width: 110px;">Current<br>Instance</th>
+                                            <th style="width: 90px;">Load Range</th>
+                                            <th style="width: 130px;">Intel Rec</th>
+                                            <th style="width: 130px;">AMD Rec</th>
+                                            <th style="width: 90px;">Projected<br>Max Util</th>
+                                            <th style="width: 100px;">Approx.<br>Savings</th>
+                                            <th style="width: 180px;">Reason</th>
+                                            <th style="width: 50px;" class="text-center">AI</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <template x-for="(rec, i) in xamopsRecommendations"
+                                            :key="(rec.instanceId || rec.currentInstance) + '-' + i">
+                                            <tr>
+                                                <td class="first-cell-indicator">
+                                                    <div class="flex items-center space-x-1">
+                                                        <i class="fas fa-server text-indigo-600"
+                                                            style="font-size: 0.6rem;"></i>
+                                                        <span class="font-mono text-gray-800 font-medium"
+                                                            style="font-size: 0.7rem;"
+                                                            x-text="rec.instanceId || 'N/A'"></span>
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    <div class="flex flex-col">
+                                                        <span class="font-mono font-semibold text-gray-800"
+                                                            x-text="rec.currentInstance"></span>
+                                                        <span class="text-indigo-600 font-medium"
+                                                            style="font-size: 0.65rem;" x-text="rec.currentUtilization"
+                                                            x-show="rec.currentUtilization"></span>
+                                                    </div>
+                                                </td>
+                                                <td class="text-gray-700" x-text="rec.loadRange"></td>
+                                                <td>
+                                                    <div class="flex flex-col">
+                                                        <span class="font-medium text-gray-800"
+                                                            style="font-size: 0.7rem;"
+                                                            x-text="rec.intelRecommendation.split('(')[0]"></span>
+                                                        <span class="text-gray-500" style="font-size: 0.6rem;"
+                                                            x-text="rec.intelRecommendation.includes('(') ? rec.intelRecommendation.match(/\((.*?)\)/)[0] : ''"></span>
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    <div class="flex flex-col">
+                                                        <span class="font-medium text-gray-800"
+                                                            style="font-size: 0.7rem;"
+                                                            x-text="rec.amdRecommendation.split('(')[0]"></span>
+                                                        <span class="text-gray-500" style="font-size: 0.6rem;"
+                                                            x-text="rec.amdRecommendation.includes('(') ? rec.amdRecommendation.match(/\((.*?)\)/)[0] : ''"></span>
+                                                    </div>
+                                                </td>
+                                                <td class="text-gray-700" x-text="rec.projectedMaxUtil"></td>
+                                                <td>
+                                                    <span class="savings-badge" x-text="rec.approxCostSavings"></span>
+                                                </td>
+                                                <td class="text-gray-700 truncate-text" :title="rec.reason"
+                                                    x-text="rec.reason"></td>
+                                                <td class="text-center">
+                                                    <button @click="getAiRecommendation(rec)"
+                                                        class="sparkle-button-compact">
+                                                        <svg class="sparkle-compact" viewBox="0 0 24 24" fill="none"
+                                                            xmlns="http://www.w3.org/2000/svg">
+                                                            <path
+                                                                d="M14.187 8.096L15 5.25L15.813 8.096C16.0231 8.83114 16.4171 9.50062 16.9577 10.0413C17.4984 10.5819 18.1679 10.9759 18.903 11.186L21.75 12L18.904 12.813C18.1689 13.0231 17.4994 13.4171 16.9587 13.9577C16.4181 14.4984 16.0241 15.1679 15.814 15.903L15 18.75L14.187 15.904C13.9769 15.1689 13.5829 14.4994 13.0423 13.9587C12.5016 13.4181 11.8321 13.0241 11.097 12.814L8.25 12L11.096 11.187C11.8311 10.9769 12.5006 10.5829 13.0413 10.0423C13.5819 9.50162 13.9759 8.83214 14.186 8.097L14.187 8.096Z"
+                                                                fill="currentColor" stroke="currentColor"
+                                                                stroke-linecap="round" stroke-linejoin="round"></path>
+                                                        </svg>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div x-show="showAiModal" @keydown.escape.window="showAiModal = false"
+                    class="fixed inset-0 z-50 overflow-y-auto bg-black bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4"
+                    x-cloak x-transition>
+
+                    <div class="relative bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden"
+                        @click.away="showAiModal = false" x-transition>
+
+                        <div
+                            class="sticky top-0 z-10 bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 px-8 py-6 text-white">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center space-x-3">
+                                    <div
+                                        class="w-12 h-12 bg-white bg-opacity-20 rounded-xl flex items-center justify-center backdrop-blur-sm">
+                                        <i class="fas fa-robot text-2xl"></i>
+                                    </div>
+                                    <div>
+                                        <h2 class="text-2xl font-bold">AI-Powered Analysis</h2>
+                                        <p class="text-sm text-white text-opacity-90">Smart recommendations by XamAi</p>
+                                    </div>
+                                </div>
+                                <button @click="showAiModal = false"
                                     class="w-10 h-10 rounded-full bg-white bg-opacity-20 hover:bg-opacity-30 transition-all flex items-center justify-center">
-                                <i class="fas fa-times text-xl"></i>
+                                    <i class="fas fa-times text-xl"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="overflow-y-auto max-h-[calc(90vh-200px)] px-8 py-6">
+                            <div x-show="isAiLoading" class="flex flex-col items-center justify-center py-12">
+                                <div class="relative">
+                                    <div
+                                        class="w-16 h-16 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin">
+                                    </div>
+                                    <div class="absolute inset-0 flex items-center justify-center">
+                                        <i class="fas fa-brain text-indigo-600 text-xl animate-pulse"></i>
+                                    </div>
+                                </div>
+                                <p class="mt-4 text-gray-600 font-medium">Analyzing with AI...</p>
+                                <p class="text-sm text-gray-500">This may take a few seconds</p>
+                            </div>
+
+                            <div x-show="!isAiLoading">
+                                <div
+                                    class="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-6 border border-indigo-100 mb-4">
+                                    <div class="flex items-center space-x-2 mb-4">
+                                        <div class="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
+                                            <i class="fas fa-sparkles text-white text-sm"></i>
+                                        </div>
+                                        <span class="text-sm font-semibold text-indigo-900">AI Recommendation</span>
+                                    </div>
+                                    <div x-html="aiRecommendation" class="ai-content"></div>
+                                </div>
+
+                                <div
+                                    class="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-200">
+                                    <div class="flex items-center space-x-2 text-sm text-gray-600">
+                                        <i class="fas fa-info-circle text-indigo-600"></i>
+                                        <span>Powered by <strong>XamAi</strong></span>
+                                    </div>
+                                    <div class="flex items-center space-x-2 text-sm text-gray-500">
+                                        <i class="fas fa-clock"></i>
+                                        <span x-text="new Date().toLocaleTimeString()"></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div
+                            class="sticky bottom-0 bg-white border-t border-gray-200 px-8 py-4 flex items-center justify-between">
+                            <button @click="copyToClipboard()"
+                                class="flex items-center space-x-2 px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-all">
+                                <i class="fas fa-copy"></i>
+                                <span>Copy</span>
+                            </button>
+                            <button @click="showAiModal = false"
+                                class="px-6 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-lg hover:from-indigo-700 hover:to-purple-700 transition-all font-medium shadow-lg">
+                                <i class="fas fa-check mr-2"></i>Close
                             </button>
                         </div>
                     </div>
-
-                    <div class="overflow-y-auto max-h-[calc(90vh-200px)] px-8 py-6">
-                        <div x-show="isAiLoading" class="flex flex-col items-center justify-center py-12">
-                            <div class="relative">
-                                <div class="w-16 h-16 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
-                                <div class="absolute inset-0 flex items-center justify-center">
-                                    <i class="fas fa-brain text-indigo-600 text-xl animate-pulse"></i>
-                                </div>
-                            </div>
-                            <p class="mt-4 text-gray-600 font-medium">Analyzing with AI...</p>
-                            <p class="text-sm text-gray-500">This may take a few seconds</p>
-                        </div>
-
-                        <div x-show="!isAiLoading">
-                            <div class="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-6 border border-indigo-100 mb-4">
-                                <div class="flex items-center space-x-2 mb-4">
-                                    <div class="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
-                                        <i class="fas fa-sparkles text-white text-sm"></i>
-                                    </div>
-                                    <span class="text-sm font-semibold text-indigo-900">AI Recommendation</span>
-                                </div>
-                                <div x-html="aiRecommendation" class="ai-content"></div>
-                            </div>
-
-                            <div class="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-200">
-                                <div class="flex items-center space-x-2 text-sm text-gray-600">
-                                    <i class="fas fa-info-circle text-indigo-600"></i>
-                                    <span>Powered by <strong>XamAi</strong></span>
-                                </div>
-                                <div class="flex items-center space-x-2 text-sm text-gray-500">
-                                    <i class="fas fa-clock"></i>
-                                    <span x-text="new Date().toLocaleTimeString()"></span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="sticky bottom-0 bg-white border-t border-gray-200 px-8 py-4 flex items-center justify-between">
-                        <button @click="copyToClipboard()"
-                                class="flex items-center space-x-2 px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-all">
-                            <i class="fas fa-copy"></i>
-                            <span>Copy</span>
-                        </button>
-                        <button @click="showAiModal = false"
-                                class="px-6 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-lg hover:from-indigo-700 hover:to-purple-700 transition-all font-medium shadow-lg">
-                            <i class="fas fa-check mr-2"></i>Close
-                        </button>
-                    </div>
                 </div>
-            </div>
-        </main>
-    </div>
-</div>
 
-<script>
-    window.addEventListener('unhandledrejection', function(event) {
-        if (event.reason && event.reason.isFromCancelledTransition) {
-            event.preventDefault();
-        }
-    });
+                <script>
+                    // CHANGE: Kept existing logic but ensure it runs when this main block is loaded
+                    window.addEventListener('unhandledrejection', function (event) {
+                        if (event.reason && event.reason.isFromCancelledTransition) {
+                            event.preventDefault();
+                        }
+                    });
 
-    function rightsizing() {
-        return {
-            isLoading: true,
-            isLoadingXamOps: true,
-            isRefreshing: false,
-            isRefreshingXamOps: false,
-            activeTab: 'xamops',
-            recommendations: [],
-            xamopsRecommendations: [],
-            showAiModal: false,
-            aiRecommendation: '',
-            isAiLoading: false,
+                    function rightsizing() {
+                        return {
+                            isLoading: true,
+                            isLoadingXamOps: true,
+                            isRefreshing: false,
+                            isRefreshingXamOps: false,
+                            activeTab: 'xamops',
+                            recommendations: [],
+                            xamopsRecommendations: [],
+                            showAiModal: false,
+                            aiRecommendation: '',
+                            isAiLoading: false,
 
-            init() {
-                console.log('🚀 Initializing Rightsizing page...');
-                this.loadRecommendations(false);
-                this.loadXamOpsRecommendations(false);
-            },
+                            init() {
+                                console.log('🚀 Initializing Rightsizing page...');
+                                this.loadRecommendations(false);
+                                this.loadXamOpsRecommendations(false);
+                            },
 
-            loadXamOpsRecommendations(forceRefresh = false) {
-                const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-                const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
+                            loadXamOpsRecommendations(forceRefresh = false) {
+                                const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                                const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
 
-                if (!selectedAccountId) {
-                    console.warn('⚠️ No account ID found for XamOps recommendations');
-                    this.isLoadingXamOps = false;
-                    return;
-                }
+                                if (!selectedAccountId) {
+                                    console.warn('⚠️ No account ID found for XamOps recommendations');
+                                    this.isLoadingXamOps = false;
+                                    return;
+                                }
 
-                if (this.isRefreshingXamOps && forceRefresh) {
-                    console.warn('⚠️ XamOps refresh already in progress, skipping...');
-                    return;
-                }
+                                if (this.isRefreshingXamOps && forceRefresh) {
+                                    console.warn('⚠️ XamOps refresh already in progress, skipping...');
+                                    return;
+                                }
 
-                const cacheKey = `xamopsRightsizing-${selectedAccountId}`;
+                                const cacheKey = `xamopsRightsizing-${selectedAccountId}`;
 
-                if (!forceRefresh) {
-                    const cachedData = sessionStorage.getItem(cacheKey);
-                    if (cachedData) {
-                        try {
-                            const parsed = JSON.parse(cachedData);
-                            if (Array.isArray(parsed) && parsed.length > 0) {
-                                this.xamopsRecommendations = parsed;
-                                this.isLoadingXamOps = false;
-                                console.log(`✅ Loaded ${parsed.length} XamOps recommendations from cache`);
-                                return;
+                                if (!forceRefresh) {
+                                    const cachedData = sessionStorage.getItem(cacheKey);
+                                    if (cachedData) {
+                                        try {
+                                            const parsed = JSON.parse(cachedData);
+                                            if (Array.isArray(parsed) && parsed.length > 0) {
+                                                this.xamopsRecommendations = parsed;
+                                                this.isLoadingXamOps = false;
+                                                console.log(`✅ Loaded ${parsed.length} XamOps recommendations from cache`);
+                                                return;
+                                            }
+                                        } catch (e) {
+                                            console.error('Failed to parse cached XamOps data:', e);
+                                            sessionStorage.removeItem(cacheKey);
+                                        }
+                                    }
+                                } else {
+                                    sessionStorage.removeItem(cacheKey);
+                                }
+
+                                console.log(`🌐 Fetching XamOps recommendations from server (forceRefresh: ${forceRefresh})...`);
+                                this.isLoadingXamOps = true;
+                                this.isRefreshingXamOps = true;
+
+                                fetch(`/api/xamops/optimization/rightsizing/live?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`)
+                                    .then(res => {
+                                        if (!res.ok) {
+                                            throw new Error(`HTTP error! status: ${res.status}`);
+                                        }
+                                        return res.json();
+                                    })
+                                    .then(data => {
+                                        console.log(`✅ Received ${data.length} XamOps recommendations from server`);
+                                        this.xamopsRecommendations = Array.isArray(data) ? data : [];
+
+                                        if (this.xamopsRecommendations.length > 0) {
+                                            sessionStorage.setItem(cacheKey, JSON.stringify(this.xamopsRecommendations));
+                                            console.log(`💾 Cached ${this.xamopsRecommendations.length} XamOps recommendations`);
+                                        }
+                                    })
+                                    .catch(err => {
+                                        console.error('❌ Failed to load XamOps recommendations:', err);
+                                        this.xamopsRecommendations = [];
+                                    })
+                                    .finally(() => {
+                                        this.isLoadingXamOps = false;
+                                        this.isRefreshingXamOps = false;
+                                    });
+                            },
+
+                            loadRecommendations(forceRefresh = false) {
+                                const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                                const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
+
+                                if (!selectedAccountId) {
+                                    this.isLoading = false;
+                                    return;
+                                }
+
+                                const cacheKey = `rightsizingRecs-${selectedAccountId}`;
+                                const cachedData = sessionStorage.getItem(cacheKey);
+
+                                if (cachedData && !forceRefresh) {
+                                    this.recommendations = JSON.parse(cachedData);
+                                    this.isLoading = false;
+                                    return;
+                                }
+
+                                if (!cachedData) {
+                                    this.isLoading = true;
+                                }
+
+                                if (forceRefresh) {
+                                    sessionStorage.removeItem(cacheKey);
+                                }
+
+                                fetch(`/api/xamops/rightsizing/recommendations?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`)
+                                    .then(res => res.json())
+                                    .then(data => {
+                                        this.recommendations = data;
+                                        sessionStorage.setItem(cacheKey, JSON.stringify(data));
+                                    })
+                                    .catch(err => {
+                                        console.error('Failed to load rightsizing recommendations:', err);
+                                        this.recommendations = [];
+                                    })
+                                    .finally(() => {
+                                        this.isLoading = false;
+                                    });
+                            },
+
+                            refreshAll() {
+                                if (this.isRefreshing) {
+                                    console.warn('⚠️ Refresh already in progress');
+                                    return;
+                                }
+
+                                console.log('🔄 Refreshing all recommendations...');
+                                this.isRefreshing = true;
+
+                                this.loadRecommendations(true);
+                                this.loadXamOpsRecommendations(true);
+
+                                setTimeout(() => {
+                                    this.isRefreshing = false;
+                                    console.log('✅ All recommendations refreshed');
+                                }, 2000);
+                            },
+
+                            getAiRecommendation(recommendation) {
+                                this.showAiModal = true;
+                                this.isAiLoading = true;
+                                this.aiRecommendation = '';
+
+                                fetch('/api/ai-advisor/rightsizing', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify(recommendation)
+                                })
+                                    .then(res => {
+                                        if (!res.ok) {
+                                            throw new Error(`HTTP error! status: ${res.status}`);
+                                        }
+                                        return res.text();
+                                    })
+                                    .then(text => {
+                                        this.aiRecommendation = marked.parse(text);
+                                    })
+                                    .catch(err => {
+                                        this.aiRecommendation = '<p class="text-red-600">⚠️ <strong>Error</strong>: Could not get AI recommendations.</p><p class="text-sm text-gray-600 mt-2">Please check your API key and network connection.</p>';
+                                        console.error('Failed to load AI recommendations:', err);
+                                    })
+                                    .finally(() => {
+                                        this.isAiLoading = false;
+                                    });
+                            },
+
+                            copyToClipboard() {
+                                const temp = document.createElement('div');
+                                temp.innerHTML = this.aiRecommendation;
+                                const plainText = temp.textContent || temp.innerText || '';
+
+                                navigator.clipboard.writeText(plainText).then(() => {
+                                    const button = event.target.closest('button');
+                                    const originalHTML = button.innerHTML;
+                                    button.innerHTML = '<i class="fas fa-check mr-2"></i><span>Copied!</span>';
+                                    button.classList.add('bg-green-100', 'text-green-700');
+                                    button.classList.remove('bg-gray-100', 'text-gray-700');
+                                    setTimeout(() => {
+                                        button.innerHTML = originalHTML;
+                                        button.classList.remove('bg-green-100', 'text-green-700');
+                                        button.classList.add('bg-gray-100', 'text-gray-700');
+                                    }, 2000);
+                                }).catch(err => {
+                                    console.error('Failed to copy:', err);
+                                });
+                            },
+
+                            get filteredRecommendations() {
+                                return this.recommendations;
+                            },
+
+                            getServiceIcon(serviceType) {
+                                const iconMap = {
+                                    'EC2': 'ec2-instances.png',
+                                    'EBS': 'aws-ebs.png',
+                                    'Lambda': 'aws-lambda.png'
+                                };
+                                return iconMap[serviceType] || 'default-icon.png';
                             }
-                        } catch (e) {
-                            console.error('Failed to parse cached XamOps data:', e);
-                            sessionStorage.removeItem(cacheKey);
                         }
                     }
-                } else {
-                    sessionStorage.removeItem(cacheKey);
-                }
-
-                console.log(`🌐 Fetching XamOps recommendations from server (forceRefresh: ${forceRefresh})...`);
-                this.isLoadingXamOps = true;
-                this.isRefreshingXamOps = true;
-
-                fetch(`/api/xamops/optimization/rightsizing/live?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`)
-                    .then(res => {
-                        if (!res.ok) {
-                            throw new Error(`HTTP error! status: ${res.status}`);
-                        }
-                        return res.json();
-                    })
-                    .then(data => {
-                        console.log(`✅ Received ${data.length} XamOps recommendations from server`);
-                        this.xamopsRecommendations = Array.isArray(data) ? data : [];
-
-                        if (this.xamopsRecommendations.length > 0) {
-                            sessionStorage.setItem(cacheKey, JSON.stringify(this.xamopsRecommendations));
-                            console.log(`💾 Cached ${this.xamopsRecommendations.length} XamOps recommendations`);
-                        }
-                    })
-                    .catch(err => {
-                        console.error('❌ Failed to load XamOps recommendations:', err);
-                        this.xamopsRecommendations = [];
-                    })
-                    .finally(() => {
-                        this.isLoadingXamOps = false;
-                        this.isRefreshingXamOps = false;
-                    });
-            },
-
-            loadRecommendations(forceRefresh = false) {
-                const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-                const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
-
-                if (!selectedAccountId) {
-                    this.isLoading = false;
-                    return;
-                }
-
-                const cacheKey = `rightsizingRecs-${selectedAccountId}`;
-                const cachedData = sessionStorage.getItem(cacheKey);
-
-                if (cachedData && !forceRefresh) {
-                    this.recommendations = JSON.parse(cachedData);
-                    this.isLoading = false;
-                    return;
-                }
-
-                if (!cachedData) {
-                    this.isLoading = true;
-                }
-
-                if (forceRefresh) {
-                    sessionStorage.removeItem(cacheKey);
-                }
-
-                fetch(`/api/xamops/rightsizing/recommendations?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`)
-                    .then(res => res.json())
-                    .then(data => {
-                        this.recommendations = data;
-                        sessionStorage.setItem(cacheKey, JSON.stringify(data));
-                    })
-                    .catch(err => {
-                        console.error('Failed to load rightsizing recommendations:', err);
-                        this.recommendations = [];
-                    })
-                    .finally(() => {
-                        this.isLoading = false;
-                    });
-            },
-
-            refreshAll() {
-                if (this.isRefreshing) {
-                    console.warn('⚠️ Refresh already in progress');
-                    return;
-                }
-
-                console.log('🔄 Refreshing all recommendations...');
-                this.isRefreshing = true;
-
-                this.loadRecommendations(true);
-                this.loadXamOpsRecommendations(true);
-
-                setTimeout(() => {
-                    this.isRefreshing = false;
-                    console.log('✅ All recommendations refreshed');
-                }, 2000);
-            },
-
-            getAiRecommendation(recommendation) {
-                this.showAiModal = true;
-                this.isAiLoading = true;
-                this.aiRecommendation = '';
-
-                fetch('/api/ai-advisor/rightsizing', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(recommendation)
-                })
-                .then(res => {
-                    if (!res.ok) {
-                        throw new Error(`HTTP error! status: ${res.status}`);
-                    }
-                    return res.text();
-                })
-                .then(text => {
-                    this.aiRecommendation = marked.parse(text);
-                })
-                .catch(err => {
-                    this.aiRecommendation = '<p class="text-red-600">⚠️ <strong>Error</strong>: Could not get AI recommendations.</p><p class="text-sm text-gray-600 mt-2">Please check your API key and network connection.</p>';
-                    console.error('Failed to load AI recommendations:', err);
-                })
-                .finally(() => {
-                    this.isAiLoading = false;
-                });
-            },
-
-            copyToClipboard() {
-                const temp = document.createElement('div');
-                temp.innerHTML = this.aiRecommendation;
-                const plainText = temp.textContent || temp.innerText || '';
-
-                navigator.clipboard.writeText(plainText).then(() => {
-                    const button = event.target.closest('button');
-                    const originalHTML = button.innerHTML;
-                    button.innerHTML = '<i class="fas fa-check mr-2"></i><span>Copied!</span>';
-                    button.classList.add('bg-green-100', 'text-green-700');
-                    button.classList.remove('bg-gray-100', 'text-gray-700');
-                    setTimeout(() => {
-                        button.innerHTML = originalHTML;
-                        button.classList.remove('bg-green-100', 'text-green-700');
-                        button.classList.add('bg-gray-100', 'text-gray-700');
-                    }, 2000);
-                }).catch(err => {
-                    console.error('Failed to copy:', err);
-                });
-            },
-
-            get filteredRecommendations() {
-                return this.recommendations;
-            },
-
-            getServiceIcon(serviceType) {
-                const iconMap = {
-                    'EC2': 'ec2-instances.png',
-                    'EBS': 'aws-ebs.png',
-                    'Lambda': 'aws-lambda.png'
-                };
-                return iconMap[serviceType] || 'default-icon.png';
-            }
-        }
-    }
-</script>
+                </script>
+            </main>
+        </div>
+    </div>
 
 </body>
+
 </html>

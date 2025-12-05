@@ -11,199 +11,6 @@
     <link rel="apple-touch-icon" href="/icons/XamOps.png">
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.0/dist/cdn.min.js"></script>
     <script type="module" src="/src/main.js"></script>
-
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-
-        body {
-            font-family: 'Inter', sans-serif;
-        }
-
-        /* Status Text Colors */
-        .status-success {
-            color: #16a34a;
-        }
-
-        .status-failure {
-            color: #dc2626;
-        }
-
-        .status-running {
-            color: #2563eb;
-        }
-
-        .status-cancelled {
-            color: #6b7280;
-        }
-
-        .status-unknown {
-            color: #f59e0b;
-        }
-
-        /* Card Borders */
-        .border-success {
-            border-left-color: #16a34a;
-        }
-
-        .border-failure {
-            border-left-color: #dc2626;
-        }
-
-        .border-running {
-            border-left-color: #2563eb;
-        }
-
-        .border-cancelled {
-            border-left-color: #6b7280;
-        }
-
-        .border-unknown {
-            border-left-color: #f59e0b;
-        }
-
-        /* Tabs */
-        .tab-button {
-            padding: 0.75rem 1.5rem;
-            border-bottom: 3px solid transparent;
-            transition: all 0.2s ease-in-out;
-            font-weight: 600;
-            color: #4b5563;
-        }
-
-        .tab-button:hover {
-            color: #1f2937;
-        }
-
-        .tab-button.active {
-            color: #4f46e5;
-            border-bottom-color: #4f46e5;
-        }
-
-        /* History List */
-        .history-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 0.75rem 1rem;
-            border-bottom: 1px solid #e5e7eb;
-            cursor: pointer;
-            transition: background-color 0.15s;
-        }
-
-        .history-item:last-child {
-            border-bottom: none;
-        }
-
-        .history-item:hover {
-            background-color: #f9fafb;
-        }
-
-        .history-item.active-run {
-            background-color: #eff6ff;
-            border-left: 3px solid #3b82f6;
-        }
-
-        /* === Pipeline Visual Styles === */
-        .pipeline-container {
-            display: flex;
-            align-items: center;
-            overflow-x: auto;
-            padding: 20px 10px;
-            margin-bottom: 20px;
-            scrollbar-width: thin;
-        }
-
-        .pipeline-stage {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            position: relative;
-            min-width: 120px;
-            z-index: 1;
-            flex-shrink: 0;
-        }
-
-        .stage-node {
-            width: 32px;
-            height: 32px;
-            border-radius: 50%;
-            border: 3px solid #e5e7eb;
-            background: white;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.3s ease;
-            font-size: 14px;
-            z-index: 10;
-        }
-
-        /* Connector Lines */
-        .pipeline-stage:not(:last-child)::after {
-            content: '';
-            position: absolute;
-            top: 16px;
-            /* Half of node height (32px) */
-            left: 50%;
-            width: 100%;
-            height: 3px;
-            background: #e5e7eb;
-            z-index: 0;
-        }
-
-        /* Completed Connector */
-        .pipeline-stage.completed:not(:last-child)::after {
-            background: #16a34a;
-        }
-
-        /* Node States */
-        .stage-success .stage-node {
-            border-color: #16a34a;
-            background: #16a34a;
-            color: white;
-            box-shadow: 0 2px 4px rgba(22, 163, 74, 0.2);
-        }
-
-        .stage-failure .stage-node {
-            border-color: #dc2626;
-            background: #dc2626;
-            color: white;
-            box-shadow: 0 2px 4px rgba(220, 38, 38, 0.2);
-        }
-
-        .stage-running .stage-node {
-            border-color: #2563eb;
-            border-top-color: transparent;
-            color: #2563eb;
-            animation: spin 1s linear infinite;
-        }
-
-        .stage-skipped .stage-node {
-            border-color: #9ca3af;
-            background: #f3f4f6;
-            color: #9ca3af;
-        }
-
-        .stage-pending .stage-node {
-            border-color: #d1d5db;
-            border-style: dashed;
-            background: #ffffff;
-            color: #d1d5db;
-        }
-
-        @keyframes spin {
-            0% {
-                transform: rotate(0deg);
-            }
-
-            100% {
-                transform: rotate(360deg);
-            }
-        }
-
-        [x-cloak] {
-            display: none !important;
-        }
-    </style>
 </head>
 
 <body class="bg-gray-50">
@@ -211,7 +18,195 @@
         <include file="/_sidebar.html"></include>
 
         <div class="flex-1 flex flex-col overflow-hidden pl-64">
-            <main class="flex-1 overflow-y-auto p-8" x-data="cicdPipelines()">
+            <main id="main-content" class="flex-1 overflow-y-auto p-8" x-data="cicdPipelines()">
+
+                <style>
+                    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+                    [x-cloak] {
+                        display: none !important;
+                    }
+
+                    /* Status Text Colors */
+                    .status-success {
+                        color: #16a34a;
+                    }
+
+                    .status-failure {
+                        color: #dc2626;
+                    }
+
+                    .status-running {
+                        color: #2563eb;
+                    }
+
+                    .status-cancelled {
+                        color: #6b7280;
+                    }
+
+                    .status-unknown {
+                        color: #f59e0b;
+                    }
+
+                    /* Card Borders */
+                    .border-success {
+                        border-left-color: #16a34a;
+                    }
+
+                    .border-failure {
+                        border-left-color: #dc2626;
+                    }
+
+                    .border-running {
+                        border-left-color: #2563eb;
+                    }
+
+                    .border-cancelled {
+                        border-left-color: #6b7280;
+                    }
+
+                    .border-unknown {
+                        border-left-color: #f59e0b;
+                    }
+
+                    /* Tabs */
+                    .tab-button {
+                        padding: 0.75rem 1.5rem;
+                        border-bottom: 3px solid transparent;
+                        transition: all 0.2s ease-in-out;
+                        font-weight: 600;
+                        color: #4b5563;
+                    }
+
+                    .tab-button:hover {
+                        color: #1f2937;
+                    }
+
+                    .tab-button.active {
+                        color: #4f46e5;
+                        border-bottom-color: #4f46e5;
+                    }
+
+                    /* History List */
+                    .history-item {
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        padding: 0.75rem 1rem;
+                        border-bottom: 1px solid #e5e7eb;
+                        cursor: pointer;
+                        transition: background-color 0.15s;
+                    }
+
+                    .history-item:last-child {
+                        border-bottom: none;
+                    }
+
+                    .history-item:hover {
+                        background-color: #f9fafb;
+                    }
+
+                    .history-item.active-run {
+                        background-color: #eff6ff;
+                        border-left: 3px solid #3b82f6;
+                    }
+
+                    /* === Pipeline Visual Styles === */
+                    .pipeline-container {
+                        display: flex;
+                        align-items: center;
+                        overflow-x: auto;
+                        padding: 20px 10px;
+                        margin-bottom: 20px;
+                        scrollbar-width: thin;
+                    }
+
+                    .pipeline-stage {
+                        display: flex;
+                        flex-direction: column;
+                        align-items: center;
+                        position: relative;
+                        min-width: 120px;
+                        z-index: 1;
+                        flex-shrink: 0;
+                    }
+
+                    .stage-node {
+                        width: 32px;
+                        height: 32px;
+                        border-radius: 50%;
+                        border: 3px solid #e5e7eb;
+                        background: white;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        transition: all 0.3s ease;
+                        font-size: 14px;
+                        z-index: 10;
+                    }
+
+                    /* Connector Lines */
+                    .pipeline-stage:not(:last-child)::after {
+                        content: '';
+                        position: absolute;
+                        top: 16px;
+                        left: 50%;
+                        width: 100%;
+                        height: 3px;
+                        background: #e5e7eb;
+                        z-index: 0;
+                    }
+
+                    .pipeline-stage.completed:not(:last-child)::after {
+                        background: #16a34a;
+                    }
+
+                    /* Node States */
+                    .stage-success .stage-node {
+                        border-color: #16a34a;
+                        background: #16a34a;
+                        color: white;
+                        box-shadow: 0 2px 4px rgba(22, 163, 74, 0.2);
+                    }
+
+                    .stage-failure .stage-node {
+                        border-color: #dc2626;
+                        background: #dc2626;
+                        color: white;
+                        box-shadow: 0 2px 4px rgba(220, 38, 38, 0.2);
+                    }
+
+                    .stage-running .stage-node {
+                        border-color: #2563eb;
+                        border-top-color: transparent;
+                        color: #2563eb;
+                        animation: spin 1s linear infinite;
+                    }
+
+                    .stage-skipped .stage-node {
+                        border-color: #9ca3af;
+                        background: #f3f4f6;
+                        color: #9ca3af;
+                    }
+
+                    .stage-pending .stage-node {
+                        border-color: #d1d5db;
+                        border-style: dashed;
+                        background: #ffffff;
+                        color: #d1d5db;
+                    }
+
+                    @keyframes spin {
+                        0% {
+                            transform: rotate(0deg);
+                        }
+
+                        100% {
+                            transform: rotate(360deg);
+                        }
+                    }
+                </style>
+
                 <header class="mb-8">
                     <div class="flex items-center justify-between">
                         <div class="flex items-center space-x-4">
@@ -434,13 +429,13 @@
                                     <div x-show="pipelineStages.length > 0" class="pipeline-container">
                                         <template x-for="(stage, index) in pipelineStages" :key="index">
                                             <div class="pipeline-stage" :class="{ 
-                                                    'completed': stage.status === 'success',
-                                                    'stage-success': stage.status === 'success',
-                                                    'stage-failure': stage.status === 'failure',
-                                                    'stage-running': stage.status === 'running',
-                                                    'stage-skipped': stage.status === 'skipped',
-                                                    'stage-pending': stage.status === 'pending'
-                                                 }">
+                                                'completed': stage.status === 'success',
+                                                'stage-success': stage.status === 'success',
+                                                'stage-failure': stage.status === 'failure',
+                                                'stage-running': stage.status === 'running',
+                                                'stage-skipped': stage.status === 'skipped',
+                                                'stage-pending': stage.status === 'pending'
+                                            }">
 
                                                 <div class="stage-node shadow-sm">
                                                     <i x-show="stage.status === 'success'" class="fas fa-check"></i>
@@ -461,244 +456,195 @@
                                         </template>
                                     </div>
                                 </div>
-
                             </div>
                         </div>
                     </div>
                 </div>
 
+                <script>
+                    function cicdPipelines() {
+                        return {
+                            activeTab: 'github',
+                            isLoadingGithub: true,
+                            isLoadingJenkins: true,
+                            githubRuns: [],
+                            jenkinsJobs: [],
+                            selectedWorkflow: null,
+                            isLoadingHistory: false,
+                            workflowHistory: [],
+                            selectedRun: null,
+                            isStagesLoading: false,
+                            pipelineStages: [],
+                            selectedRunNumber: '',
+                            selectedRunUrl: '',
+
+                            init() {
+                                this.fetchGithubData();
+                                this.fetchJenkinsData();
+                            },
+
+                            fetchGithubData() {
+                                this.isLoadingGithub = true;
+                                fetch('/api/cicd/github/runs', { credentials: 'include' })
+                                    .then(res => {
+                                        if (res.status === 401 || res.status === 403) throw new Error('Authentication failed.');
+                                        if (!res.ok) throw new Error('Network response was not ok.');
+                                        return res.json();
+                                    })
+                                    .then(data => { this.githubRuns = data; })
+                                    .catch(err => {
+                                        console.error('Error fetching GitHub data:', err);
+                                        this.githubRuns = [];
+                                    })
+                                    .finally(() => { this.isLoadingGithub = false; });
+                            },
+
+                            fetchJenkinsData() {
+                                this.isLoadingJenkins = true;
+                                fetch('/api/cicd/jenkins/jobs', { credentials: 'include' })
+                                    .then(res => {
+                                        if (!res.ok) throw new Error('Failed to fetch Jenkins jobs');
+                                        return res.json();
+                                    })
+                                    .then(data => { this.jenkinsJobs = data; })
+                                    .catch(err => {
+                                        console.error('Error fetching Jenkins data:', err);
+                                        this.jenkinsJobs = [];
+                                    })
+                                    .finally(() => { this.isLoadingJenkins = false; });
+                            },
+
+                            refreshData() {
+                                this.fetchGithubData();
+                                this.fetchJenkinsData();
+                            },
+
+                            viewWorkflowHistory(item) {
+                                this.selectedWorkflow = item;
+                                this.isLoadingHistory = true;
+                                this.workflowHistory = [];
+                                this.pipelineStages = [];
+                                this.selectedRun = null;
+
+                                if (item.repository) {
+                                    if (!item.workflow_id || !item.repository.full_name) return;
+                                    const [owner, repo] = item.repository.full_name.split('/');
+                                    const workflowId = item.workflow_id;
+
+                                    fetch(`/api/cicd/github/runs/${owner}/${repo}/${workflowId}?count=15`, { credentials: 'include' })
+                                        .then(res => res.json())
+                                        .then(data => {
+                                            this.workflowHistory = data;
+                                            if (data.length > 0) this.selectRunFromHistory(data[0]);
+                                        })
+                                        .catch(console.error)
+                                        .finally(() => this.isLoadingHistory = false);
+
+                                } else if (item.lastBuild) {
+                                    fetch(`/api/cicd/jenkins/jobs/${item.name}/builds`, { credentials: 'include' })
+                                        .then(res => {
+                                            if (!res.ok) throw new Error("Failed to fetch Jenkins history");
+                                            return res.json();
+                                        })
+                                        .then(data => {
+                                            this.workflowHistory = data;
+                                            if (data.length > 0) {
+                                                this.selectRunFromHistory(data[0]);
+                                            } else {
+                                                const fallbackRun = {
+                                                    run_number: item.lastBuild.number,
+                                                    name: item.name,
+                                                    displayStatus: item.displayStatus,
+                                                    updated_at: item.lastBuild.timestamp,
+                                                    html_url: item.lastBuild.url
+                                                };
+                                                this.workflowHistory = [fallbackRun];
+                                                this.selectRunFromHistory(fallbackRun);
+                                            }
+                                        })
+                                        .catch(err => {
+                                            console.error(err);
+                                            this.workflowHistory = [];
+                                        })
+                                        .finally(() => this.isLoadingHistory = false);
+                                } else {
+                                    this.isLoadingHistory = false;
+                                }
+                            },
+
+                            selectRunFromHistory(run) {
+                                this.selectedRun = run;
+                                this.isStagesLoading = true;
+                                this.pipelineStages = [];
+                                const runNumber = this.getRunNumber(run);
+                                this.selectedRunNumber = runNumber;
+                                this.selectedRunUrl = run.html_url || run.url;
+
+                                if (this.selectedWorkflow.repository) {
+                                    const [owner, repo] = this.selectedWorkflow.repository.full_name.split('/');
+                                    const runId = run.id;
+                                    fetch(`/api/cicd/github/runs/${owner}/${repo}/${runId}/stages`, { credentials: 'include' })
+                                        .then(res => res.json())
+                                        .then(data => this.pipelineStages = data)
+                                        .catch(console.error)
+                                        .finally(() => this.isStagesLoading = false);
+                                } else {
+                                    const jobName = this.selectedWorkflow.name;
+                                    fetch(`/api/cicd/jenkins/jobs/${jobName}/${runNumber}/stages`, { credentials: 'include' })
+                                        .then(res => res.json())
+                                        .then(data => this.pipelineStages = data)
+                                        .catch(console.error)
+                                        .finally(() => this.isStagesLoading = false);
+                                }
+                            },
+
+                            getRunId(run) { return run.id || run.number || run.run_number; },
+                            getRunNumber(run) { return run.run_number || run.number || run.id; },
+                            isRunSelected(run) { return this.selectedRun && this.getRunId(this.selectedRun) === this.getRunId(run); },
+
+                            formatTime(timeValue) {
+                                if (!timeValue) return 'N/A';
+                                try {
+                                    const date = typeof timeValue === 'number' ? new Date(timeValue) : new Date(timeValue);
+                                    return date.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                                } catch (e) { return timeValue; }
+                            },
+
+                            getRunStatusColor(status) {
+                                const s = (status || '').toLowerCase();
+                                if (s === 'success' || s === 'completed') return 'status-success';
+                                if (s === 'failure' || s === 'failed') return 'status-failure';
+                                if (s === 'in_progress' || s === 'running' || s === 'building') return 'status-running';
+                                if (s === 'cancelled' || s === 'aborted') return 'status-cancelled';
+                                if (s === 'unstable') return 'text-yellow-600';
+                                return 'status-unknown';
+                            },
+
+                            getRunStatusIconColor(status) {
+                                const s = (status || '').toLowerCase();
+                                if (s === 'success' || s === 'completed') return 'text-green-600';
+                                if (s === 'failure' || s === 'failed') return 'text-red-600';
+                                if (s === 'in_progress' || s === 'running' || s === 'building') return 'text-blue-600';
+                                if (s === 'cancelled' || s === 'aborted') return 'text-gray-500';
+                                if (s === 'unstable') return 'text-yellow-500';
+                                return 'text-gray-400';
+                            },
+
+                            getRunBorderColor(status) {
+                                const s = (status || '').toLowerCase();
+                                if (s === 'success' || s === 'completed') return 'border-success';
+                                if (s === 'failure' || s === 'failed') return 'border-failure';
+                                if (s === 'in_progress' || s === 'running' || s === 'building') return 'border-running';
+                                if (s === 'cancelled' || s === 'aborted') return 'border-cancelled';
+                                if (s === 'unstable') return 'border-l-yellow-500';
+                                return 'border-unknown';
+                            }
+                        };
+                    }
+                </script>
             </main>
         </div>
     </div>
-
-    <script>
-        function cicdPipelines() {
-            return {
-                activeTab: 'github',
-                isLoadingGithub: true,
-                isLoadingJenkins: true,
-                githubRuns: [],
-                jenkinsJobs: [],
-
-                // Modal & Selection state
-                selectedWorkflow: null, // The parent job/workflow object
-                isLoadingHistory: false,
-                workflowHistory: [], // List of runs
-
-                // Stage view state
-                selectedRun: null, // The specific run selected from history
-                isStagesLoading: false,
-                pipelineStages: [],
-                selectedRunNumber: '',
-                selectedRunUrl: '',
-
-                init() {
-                    this.fetchGithubData();
-                    this.fetchJenkinsData();
-                },
-
-                fetchGithubData() {
-                    this.isLoadingGithub = true;
-                    fetch('/api/cicd/github/runs', { credentials: 'include' })
-                        .then(res => {
-                            if (res.status === 401 || res.status === 403) { throw new Error('Authentication failed.'); }
-                            if (!res.ok) { throw new Error('Network response was not ok.'); }
-                            return res.json();
-                        })
-                        .then(data => {
-                            this.githubRuns = data;
-                        })
-                        .catch(err => {
-                            console.error('Error fetching GitHub data:', err);
-                            this.githubRuns = [];
-                        })
-                        .finally(() => {
-                            this.isLoadingGithub = false;
-                        });
-                },
-
-                fetchJenkinsData() {
-                    this.isLoadingJenkins = true;
-                    fetch('/api/cicd/jenkins/jobs', { credentials: 'include' })
-                        .then(res => {
-                            if (!res.ok) throw new Error('Failed to fetch Jenkins jobs');
-                            return res.json();
-                        })
-                        .then(data => {
-                            this.jenkinsJobs = data;
-                        })
-                        .catch(err => {
-                            console.error('Error fetching Jenkins data:', err);
-                            this.jenkinsJobs = [];
-                        })
-                        .finally(() => {
-                            this.isLoadingJenkins = false;
-                        });
-                },
-
-                refreshData() {
-                    this.fetchGithubData();
-                    this.fetchJenkinsData();
-                },
-
-                // Open Modal and Load History
-                viewWorkflowHistory(item) {
-                    this.selectedWorkflow = item;
-                    this.isLoadingHistory = true;
-                    this.workflowHistory = [];
-                    this.pipelineStages = [];
-                    this.selectedRun = null;
-
-                    if (item.repository) {
-                        // === GitHub Logic ===
-                        if (!item.workflow_id || !item.repository.full_name) return;
-
-                        const [owner, repo] = item.repository.full_name.split('/');
-                        const workflowId = item.workflow_id;
-
-                        // Fetch Run History
-                        fetch(`/api/cicd/github/runs/${owner}/${repo}/${workflowId}?count=15`, { credentials: 'include' })
-                            .then(res => res.json())
-                            .then(data => {
-                                this.workflowHistory = data;
-                                // Auto-select the first run (most recent)
-                                if (data.length > 0) {
-                                    this.selectRunFromHistory(data[0]);
-                                }
-                            })
-                            .catch(console.error)
-                            .finally(() => this.isLoadingHistory = false);
-
-                    } else if (item.lastBuild) {
-                        // === Jenkins Logic ===
-                        console.log(`Fetching history for Jenkins job: ${item.name}`);
-
-                        fetch(`/api/cicd/jenkins/jobs/${item.name}/builds`, { credentials: 'include' })
-                            .then(res => {
-                                if (!res.ok) throw new Error("Failed to fetch Jenkins history");
-                                return res.json();
-                            })
-                            .then(data => {
-                                this.workflowHistory = data;
-                                // Auto-select first run
-                                if (data.length > 0) {
-                                    this.selectRunFromHistory(data[0]);
-                                } else {
-                                    // Fallback if no history array but lastBuild exists
-                                    const fallbackRun = {
-                                        run_number: item.lastBuild.number,
-                                        name: item.name,
-                                        displayStatus: item.displayStatus,
-                                        updated_at: item.lastBuild.timestamp,
-                                        html_url: item.lastBuild.url
-                                    };
-                                    this.workflowHistory = [fallbackRun];
-                                    this.selectRunFromHistory(fallbackRun);
-                                }
-                            })
-                            .catch(err => {
-                                console.error(err);
-                                this.workflowHistory = [];
-                            })
-                            .finally(() => this.isLoadingHistory = false);
-                    } else {
-                        this.isLoadingHistory = false;
-                    }
-                },
-
-                // Click handler for history items
-                selectRunFromHistory(run) {
-                    this.selectedRun = run;
-                    this.isStagesLoading = true;
-                    this.pipelineStages = [];
-
-                    const runNumber = this.getRunNumber(run);
-                    this.selectedRunNumber = runNumber;
-                    this.selectedRunUrl = run.html_url || run.url;
-
-                    if (this.selectedWorkflow.repository) {
-                        // GitHub Stage Fetch
-                        const [owner, repo] = this.selectedWorkflow.repository.full_name.split('/');
-                        // GitHub uses the numeric ID for the run, NOT the run_number for API calls usually,
-                        // but let's check if 'id' is present. GitHub DTO usually has 'id'.
-                        const runId = run.id;
-
-                        fetch(`/api/cicd/github/runs/${owner}/${repo}/${runId}/stages`, { credentials: 'include' })
-                            .then(res => res.json())
-                            .then(data => this.pipelineStages = data)
-                            .catch(console.error)
-                            .finally(() => this.isStagesLoading = false);
-
-                    } else {
-                        // Jenkins Stage Fetch
-                        const jobName = this.selectedWorkflow.name;
-                        // For Jenkins, 'run_number' is the build number
-                        fetch(`/api/cicd/jenkins/jobs/${jobName}/${runNumber}/stages`, { credentials: 'include' })
-                            .then(res => res.json())
-                            .then(data => this.pipelineStages = data)
-                            .catch(console.error)
-                            .finally(() => this.isStagesLoading = false);
-                    }
-                },
-
-                // Utility to get run ID/Number reliably across GitHub/Jenkins DTOs
-                getRunId(run) {
-                    return run.id || run.number || run.run_number;
-                },
-
-                getRunNumber(run) {
-                    return run.run_number || run.number || run.id;
-                },
-
-                isRunSelected(run) {
-                    return this.selectedRun && this.getRunId(this.selectedRun) === this.getRunId(run);
-                },
-
-                formatTime(timeValue) {
-                    if (!timeValue) return 'N/A';
-                    try {
-                        const date = typeof timeValue === 'number' ? new Date(timeValue) : new Date(timeValue);
-                        return date.toLocaleString(undefined, {
-                            month: 'short', day: 'numeric',
-                            hour: '2-digit', minute: '2-digit'
-                        });
-                    } catch (e) {
-                        return timeValue;
-                    }
-                },
-
-                getRunStatusColor(status) {
-                    const s = (status || '').toLowerCase();
-                    if (s === 'success' || s === 'completed') return 'status-success';
-                    if (s === 'failure' || s === 'failed') return 'status-failure';
-                    if (s === 'in_progress' || s === 'running' || s === 'building') return 'status-running';
-                    if (s === 'cancelled' || s === 'aborted') return 'status-cancelled';
-                    if (s === 'unstable') return 'text-yellow-600';
-                    return 'status-unknown';
-                },
-
-                getRunStatusIconColor(status) {
-                    const s = (status || '').toLowerCase();
-                    if (s === 'success' || s === 'completed') return 'text-green-600';
-                    if (s === 'failure' || s === 'failed') return 'text-red-600';
-                    if (s === 'in_progress' || s === 'running' || s === 'building') return 'text-blue-600';
-                    if (s === 'cancelled' || s === 'aborted') return 'text-gray-500';
-                    if (s === 'unstable') return 'text-yellow-500';
-                    return 'text-gray-400';
-                },
-
-                getRunBorderColor(status) {
-                    const s = (status || '').toLowerCase();
-                    if (s === 'success' || s === 'completed') return 'border-success';
-                    if (s === 'failure' || s === 'failed') return 'border-failure';
-                    if (s === 'in_progress' || s === 'running' || s === 'building') return 'border-running';
-                    if (s === 'cancelled' || s === 'aborted') return 'border-cancelled';
-                    if (s === 'unstable') return 'border-l-yellow-500';
-                    return 'border-unknown';
-                }
-            }
-        }
-    </script>
 </body>
 
 </html>

@@ -10,417 +10,432 @@
     <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
     <link rel="apple-touch-icon" href="/icons/XamOps.png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
-    <style>
-        [x-cloak] { display: none !important; }
-        
-        .updating-spinner {
-             display: inline-block;
-             width: 16px;
-             height: 16px;
-             border: 2px solid #4f46e5;
-             border-radius: 50%;
-             border-top-color: transparent;
-             animation: spin 0.8s linear infinite;
-             margin-left: 8px;
-             vertical-align: middle;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        
-        .skeleton-pulse {
-            background-color: #e5e7eb;
-            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-        }
-        @keyframes pulse { 50% { opacity: .5; } }
-    </style>
 </head>
 
 <body class="bg-gray-100">
-<div class="flex h-screen">
-  <include file="/_sidebar.html"></include>
+    <div class="flex">
+        <include file="/_sidebar.html"></include>
+        <div class="flex-1 pl-64">
 
-    <div class="flex-1 flex flex-col overflow-y-auto pl-64" x-data="supportCaseApp()">
+            <main id="main-content" class="flex-1 flex flex-col min-h-screen" x-data="supportCaseApp()">
 
-        <div class="p-10">
-            <div class="flex items-center justify-between mb-8">
-                <div>
-                    <h1 class="text-3xl font-bold text-gray-800 flex items-center">
-                        Support Tickets (Technical)
-                        <span x-show="isUpdating" class="updating-spinner" title="Refreshing data..."></span>
-                    </h1> 
-                    <p class="text-sm text-gray-500 mt-1" x-show="selectedAccountId" x-text="`Account: ${selectedAccountId}`"></p>
-                </div>
-                
-                <div class="flex items-center gap-3">
-                    <button @click="fetchFreshData(true)" 
-                            class="bg-white text-gray-600 p-3 rounded-lg shadow hover:text-indigo-600 transition border border-gray-200"
-                            :disabled="loading || isUpdating"
-                            title="Refresh Tickets">
-                        <i class="fas fa-sync-alt" :class="{'fa-spin': isUpdating}"></i>
-                    </button>
+                <style>
+                    [x-cloak] {
+                        display: none !important;
+                    }
 
-                    <button @click="openCreateModal"
-                            class="bg-indigo-600 text-white rounded-lg px-6 py-3 font-semibold shadow hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                            :disabled="userLoading">
-                        <i class="fas fa-plus mr-2"></i>Create a Case
-                    </button>
-                </div>
-            </div>
+                    .updating-spinner {
+                        display: inline-block;
+                        width: 16px;
+                        height: 16px;
+                        border: 2px solid #4f46e5;
+                        border-radius: 50%;
+                        border-top-color: transparent;
+                        animation: spin 0.8s linear infinite;
+                        margin-left: 8px;
+                        vertical-align: middle;
+                    }
 
-            <div x-show="loading" class="space-y-6">
-                <template x-for="i in 3">
-                    <div class="bg-white rounded-xl shadow p-6 border border-gray-100">
-                        <div class="flex justify-between mb-4">
-                            <div class="w-2/3">
-                                <div class="h-6 bg-gray-200 rounded w-1/2 mb-2 skeleton-pulse"></div>
-                                <div class="h-4 bg-gray-200 rounded w-1/3 skeleton-pulse"></div>
-                            </div>
-                            <div class="h-6 bg-gray-200 rounded w-16 skeleton-pulse"></div>
+                    @keyframes spin {
+                        to {
+                            transform: rotate(360deg);
+                        }
+                    }
+
+                    .skeleton-pulse {
+                        background-color: #e5e7eb;
+                        animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+                    }
+
+                    @keyframes pulse {
+                        50% {
+                            opacity: .5;
+                        }
+                    }
+                </style>
+
+                <div class="p-10">
+                    <div class="flex items-center justify-between mb-8">
+                        <div>
+                            <h1 class="text-3xl font-bold text-gray-800 flex items-center">
+                                Support Tickets (Technical)
+                                <span x-show="isUpdating" class="updating-spinner" title="Refreshing data..."></span>
+                            </h1>
+                            <p class="text-sm text-gray-500 mt-1" x-show="selectedAccountId"
+                                x-text="`Account: ${selectedAccountId}`"></p>
                         </div>
-                        <div class="h-4 bg-gray-200 rounded w-full mb-2 skeleton-pulse"></div>
-                        <div class="h-4 bg-gray-200 rounded w-3/4 skeleton-pulse"></div>
-                    </div>
-                </template>
-            </div>
 
-            <div class="space-y-6" x-show="!loading && tickets.length > 0" x-cloak>
-                <template x-for="ticket in tickets" :key="ticket.id">
-                    <a :href="`xamops_ticket_detail.html?id=${ticket.id}`" class="block bg-white rounded-xl shadow p-6 hover:shadow-lg transition border border-transparent hover:border-indigo-100">
-                        <div class="flex justify-between mb-4">
-                            <div>
-                                <div class="flex items-center gap-2 mb-1">
-                                    <h2 class="font-bold text-lg text-gray-900" x-text="ticket.subject"></h2>
-                                    <span x-show="ticket.accountId" class="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded" x-text="`Account: ${ticket.accountId}`"></span>
+                        <div class="flex items-center gap-3">
+                            <button @click="fetchFreshData(true)"
+                                class="bg-white text-gray-600 p-3 rounded-lg shadow hover:text-indigo-600 transition border border-gray-200"
+                                :disabled="loading || isUpdating" title="Refresh Tickets">
+                                <i class="fas fa-sync-alt" :class="{'fa-spin': isUpdating}"></i>
+                            </button>
+
+                            <button @click="openCreateModal"
+                                class="bg-indigo-600 text-white rounded-lg px-6 py-3 font-semibold shadow hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                :disabled="userLoading">
+                                <i class="fas fa-plus mr-2"></i>Create a Case
+                            </button>
+                        </div>
+                    </div>
+
+                    <div x-show="loading" class="space-y-6">
+                        <template x-for="i in 3">
+                            <div class="bg-white rounded-xl shadow p-6 border border-gray-100">
+                                <div class="flex justify-between mb-4">
+                                    <div class="w-2/3">
+                                        <div class="h-6 bg-gray-200 rounded w-1/2 mb-2 skeleton-pulse"></div>
+                                        <div class="h-4 bg-gray-200 rounded w-1/3 skeleton-pulse"></div>
+                                    </div>
+                                    <div class="h-6 bg-gray-200 rounded w-16 skeleton-pulse"></div>
                                 </div>
-                                <p class="text-sm text-gray-600" x-text="`${ticket.category} | ${ticket.service} | Severity: ${ticket.severity}`"></p>
+                                <div class="h-4 bg-gray-200 rounded w-full mb-2 skeleton-pulse"></div>
+                                <div class="h-4 bg-gray-200 rounded w-3/4 skeleton-pulse"></div>
                             </div>
-                            <div>
-                                <span class="text-xs font-medium px-3 py-1 rounded-full capitalize"
-                                      :class="{ 'bg-blue-100 text-blue-800': ticket.status === 'OPEN', 'bg-yellow-100 text-yellow-800': ticket.status === 'IN_PROGRESS', 'bg-gray-200 text-gray-800': ticket.status === 'CLOSED' }"
-                                      x-text="ticket.status">
-                                </span>
-                            </div>
-                        </div>
-                        <p class="mb-4 text-gray-700 whitespace-pre-wrap truncate" x-text="ticket.description"></p>
-                        <div class="text-xs text-gray-400" x-text="'Created on: ' + new Date(ticket.createdAt).toLocaleString()"></div>
-                    </a>
-                </template>
-            </div>
-            
-            <div x-show="!loading && tickets.length === 0" class="text-center text-gray-500 py-16 bg-white rounded-xl shadow-sm" x-cloak>
-                <i class="fas fa-ticket-alt text-4xl mb-4 text-gray-300"></i>
-                <h3 class="text-lg font-medium">No tickets found</h3>
-                <p class="text-sm mt-1" x-text="selectedAccountId ? 'No technical tickets found for this account.' : 'There are no tickets in the Technical category.'"></p>
-            </div>
+                        </template>
+                    </div>
 
-            <div x-show="error && !hasData" class="text-center p-6 bg-red-50 rounded-lg border border-red-200 mt-6" x-cloak>
-                <p class="text-red-700 font-medium" x-text="error"></p>
-                <button @click="fetchFreshData(true)" class="mt-2 text-indigo-600 hover:underline">Try Refreshing</button>
-            </div>
+                    <div class="space-y-6" x-show="!loading && tickets.length > 0" x-cloak>
+                        <template x-for="ticket in tickets" :key="ticket.id">
+                            <a :href="`xamops_ticket_detail.html?id=${ticket.id}`"
+                                class="block bg-white rounded-xl shadow p-6 hover:shadow-lg transition border border-transparent hover:border-indigo-100">
+                                <div class="flex justify-between mb-4">
+                                    <div>
+                                        <div class="flex items-center gap-2 mb-1">
+                                            <h2 class="font-bold text-lg text-gray-900" x-text="ticket.subject"></h2>
+                                            <span x-show="ticket.accountId"
+                                                class="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded"
+                                                x-text="`Account: ${ticket.accountId}`"></span>
+                                        </div>
+                                        <p class="text-sm text-gray-600"
+                                            x-text="`${ticket.category} | ${ticket.service} | Severity: ${ticket.severity}`">
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <span class="text-xs font-medium px-3 py-1 rounded-full capitalize"
+                                            :class="{ 'bg-blue-100 text-blue-800': ticket.status === 'OPEN', 'bg-yellow-100 text-yellow-800': ticket.status === 'IN_PROGRESS', 'bg-gray-200 text-gray-800': ticket.status === 'CLOSED' }"
+                                            x-text="ticket.status">
+                                        </span>
+                                    </div>
+                                </div>
+                                <p class="mb-4 text-gray-700 whitespace-pre-wrap truncate" x-text="ticket.description">
+                                </p>
+                                <div class="text-xs text-gray-400"
+                                    x-text="'Created on: ' + new Date(ticket.createdAt).toLocaleString()"></div>
+                            </a>
+                        </template>
+                    </div>
 
-        </div>
-        
-        <div x-show="showModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm"
-             x-transition:enter="transition ease-out duration-300"
-             x-transition:enter-start="opacity-0"
-             x-transition:enter-end="opacity-100"
-             x-transition:leave="transition ease-in duration-200"
-             x-transition:leave-start="opacity-100"
-             x-transition:leave-end="opacity-0">
-             
-            <div @click.away="!isSubmitting && (showModal = false)"
-                 class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-xl mx-4 max-h-[90vh] overflow-y-auto transform transition-all"
-                 x-transition:enter="transition ease-out duration-300"
-                 x-transition:enter-start="opacity-0 scale-95"
-                 x-transition:enter-end="opacity-100 scale-100">
-                 
-                <div class="flex justify-between items-center mb-6">
-                    <h2 class="text-xl font-bold text-gray-900">Create Support Case</h2>
-                    <button @click="showModal = false" class="text-gray-400 hover:text-gray-600">
-                        <i class="fas fa-times fa-lg"></i>
-                    </button>
+                    <div x-show="!loading && tickets.length === 0"
+                        class="text-center text-gray-500 py-16 bg-white rounded-xl shadow-sm" x-cloak>
+                        <i class="fas fa-ticket-alt text-4xl mb-4 text-gray-300"></i>
+                        <h3 class="text-lg font-medium">No tickets found</h3>
+                        <p class="text-sm mt-1"
+                            x-text="selectedAccountId ? 'No technical tickets found for this account.' : 'There are no tickets in the Technical category.'">
+                        </p>
+                    </div>
+
+                    <div x-show="error && !hasData"
+                        class="text-center p-6 bg-red-50 rounded-lg border border-red-200 mt-6" x-cloak>
+                        <p class="text-red-700 font-medium" x-text="error"></p>
+                        <button @click="fetchFreshData(true)" class="mt-2 text-indigo-600 hover:underline">Try
+                            Refreshing</button>
+                    </div>
+
                 </div>
 
-                <form @submit.prevent="submitCase()">
-                    <div class="space-y-6">
-                        <div>
-                            <label class="block text-sm font-semibold text-gray-700 mb-2">Category</label>
-                            <select x-model="form.category" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
-                                <option>Technical</option>
-                                </select>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-semibold text-gray-700 mb-2">Service</label>
-                            <select x-model="form.service" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" required>
-                                <option disabled value="">Select Service</option>
-                                <template x-for="option in serviceOptions[form.category]" :key="option">
-                                    <option x-text="option"></option>
-                                </template>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-semibold text-gray-700 mb-2">Severity</label>
-                            <select x-model="form.severity" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" required>
-                                <option disabled value="">Select Severity</option>
-                                <option>Info</option>
-                                <option>Low</option>
-                                <option>Normal</option>
-                                <option>High</option>
-                                <option>Urgent</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-semibold text-gray-700 mb-2">Subject</label>
-                            <input type="text" x-model="form.subject" maxlength="250" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" placeholder="Briefly summarize your question or issue" required />
-                        </div>
-                        <div>
-                            <label class="block text-sm font-semibold text-gray-700 mb-2">Description</label>
-                            <textarea x-model="form.description" maxlength="8000" rows="4" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" placeholder="Describe your question or issue in detail" required></textarea>
-                        </div>
-                        
-                        <div class="grid grid-cols-2 gap-6">
-                            <div>
-                                <label class="block text-sm font-semibold text-gray-700 mb-2">AWS Account ID</label>
-                                <input type="text" x-model="form.accountId" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" placeholder="e.g. 1234-5678-9012" />
-                            </div>
-                            <div>
-                                <label class="block text-sm font-semibold text-gray-700 mb-2">Region</label>
-                                <input type="text" x-model="form.region" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" placeholder="e.g. us-east-1" />
-                            </div>
-                        </div>
-                    </div>
+                <div x-show="showModal" x-cloak
+                    class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm"
+                    x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0"
+                    x-transition:enter-end="opacity-100" x-transition:leave="transition ease-in duration-200"
+                    x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0">
 
-                    <div class="mt-8 flex justify-end">
-                        <button type="button" @click="showModal = false" class="bg-gray-200 text-gray-800 font-semibold px-6 py-2 rounded-lg hover:bg-gray-300 transition mr-4" :disabled="isSubmitting">Cancel</button>
-                        <button type="submit"
-                                class="bg-indigo-600 text-white font-bold px-8 py-2 rounded-lg hover:bg-indigo-700 transition flex items-center"
-                                :disabled="isSubmitting"
-                                :class="{ 'opacity-50 cursor-not-allowed': isSubmitting }">
-                            <span x-show="!isSubmitting">Submit Case</span>
-                            <span x-show="isSubmitting"><i class="fas fa-circle-notch fa-spin mr-2"></i>Submitting...</span>
-                        </button>
+                    <div @click.away="!isSubmitting && (showModal = false)"
+                        class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-xl mx-4 max-h-[90vh] overflow-y-auto transform transition-all"
+                        x-transition:enter="transition ease-out duration-300"
+                        x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100">
+
+                        <div class="flex justify-between items-center mb-6">
+                            <h2 class="text-xl font-bold text-gray-900">Create Support Case</h2>
+                            <button @click="showModal = false" class="text-gray-400 hover:text-gray-600">
+                                <i class="fas fa-times fa-lg"></i>
+                            </button>
+                        </div>
+
+                        <form @submit.prevent="submitCase()">
+                            <div class="space-y-6">
+                                <div>
+                                    <label class="block text-sm font-semibold text-gray-700 mb-2">Category</label>
+                                    <select x-model="form.category"
+                                        class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                                        <option>Technical</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-semibold text-gray-700 mb-2">Service</label>
+                                    <select x-model="form.service"
+                                        class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                        required>
+                                        <option disabled value="">Select Service</option>
+                                        <template x-for="option in serviceOptions[form.category]" :key="option">
+                                            <option x-text="option"></option>
+                                        </template>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-semibold text-gray-700 mb-2">Severity</label>
+                                    <select x-model="form.severity"
+                                        class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                        required>
+                                        <option disabled value="">Select Severity</option>
+                                        <option>Info</option>
+                                        <option>Low</option>
+                                        <option>Normal</option>
+                                        <option>High</option>
+                                        <option>Urgent</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-semibold text-gray-700 mb-2">Subject</label>
+                                    <input type="text" x-model="form.subject" maxlength="250"
+                                        class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                        placeholder="Briefly summarize your question or issue" required />
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-semibold text-gray-700 mb-2">Description</label>
+                                    <textarea x-model="form.description" maxlength="8000" rows="4"
+                                        class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                        placeholder="Describe your question or issue in detail" required></textarea>
+                                </div>
+
+                                <div class="grid grid-cols-2 gap-6">
+                                    <div>
+                                        <label class="block text-sm font-semibold text-gray-700 mb-2">AWS Account
+                                            ID</label>
+                                        <input type="text" x-model="form.accountId"
+                                            class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                            placeholder="e.g. 1234-5678-9012" />
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-semibold text-gray-700 mb-2">Region</label>
+                                        <input type="text" x-model="form.region"
+                                            class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                            placeholder="e.g. us-east-1" />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="mt-8 flex justify-end">
+                                <button type="button" @click="showModal = false"
+                                    class="bg-gray-200 text-gray-800 font-semibold px-6 py-2 rounded-lg hover:bg-gray-300 transition mr-4"
+                                    :disabled="isSubmitting">Cancel</button>
+                                <button type="submit"
+                                    class="bg-indigo-600 text-white font-bold px-8 py-2 rounded-lg hover:bg-indigo-700 transition flex items-center"
+                                    :disabled="isSubmitting" :class="{ 'opacity-50 cursor-not-allowed': isSubmitting }">
+                                    <span x-show="!isSubmitting">Submit Case</span>
+                                    <span x-show="isSubmitting"><i
+                                            class="fas fa-circle-notch fa-spin mr-2"></i>Submitting...</span>
+                                </button>
+                            </div>
+                        </form>
                     </div>
-                </form>
-            </div>
+                </div>
+
+                <script>
+                    function supportCaseApp() {
+                        return {
+                            showModal: false,
+                            tickets: [],
+                            isSubmitting: false,
+                            loading: true,
+                            isUpdating: false,
+                            userLoading: true,
+                            error: null,
+                            cacheKey: 'xamops_technical_tickets_v1',
+                            selectedAccountId: null,
+
+                            currentUser: { id: null, username: '', roles: [] },
+                            form: {
+                                category: 'Technical',
+                                service: '',
+                                severity: '',
+                                subject: '',
+                                description: '',
+                                accountId: '',
+                                region: '',
+                            },
+                            statusColors: {
+                                'open': 'bg-blue-100 text-blue-800',
+                                'in_progress': 'bg-yellow-100 text-yellow-800',
+                                'closed': 'bg-gray-200 text-gray-800'
+                            },
+                            serviceOptions: {
+                                'Account and Billing': ['Billing', 'Pricing', 'Reserved Instances', 'Detailed Billing Report (DBR)'],
+                                'Technical': ['EC2', 'S3', 'RDS', 'Lambda', 'Other Technical']
+                            },
+
+                            get hasData() {
+                                return this.tickets && this.tickets.length > 0;
+                            },
+
+                            init() {
+                                const urlParams = new URLSearchParams(window.location.search);
+                                const accountIds = urlParams.get('accountId') || urlParams.get('accountIds');
+
+                                if (accountIds) {
+                                    this.selectedAccountId = accountIds.split(',')[0];
+                                    console.log("🔍 Filtering technical tickets for account:", this.selectedAccountId);
+                                }
+
+                                if (this.loadFromLocalStorage()) {
+                                    console.log("✅ Loaded tickets from cache");
+                                }
+
+                                this.form.service = this.serviceOptions[this.form.category][0];
+                                this.$watch('form.category', (newCategory) => {
+                                    this.form.service = this.serviceOptions[newCategory][0];
+                                });
+
+                                this.fetchCurrentUser();
+                                this.fetchFreshData();
+                            },
+
+                            loadFromLocalStorage() {
+                                try {
+                                    const cached = localStorage.getItem(this.cacheKey);
+                                    if (cached) {
+                                        let allTickets = JSON.parse(cached);
+                                        if (this.selectedAccountId) {
+                                            this.tickets = allTickets.filter(t => t.accountId === this.selectedAccountId);
+                                        } else {
+                                            this.tickets = allTickets;
+                                        }
+                                        this.loading = false;
+                                        return true;
+                                    }
+                                } catch (e) { console.error(e); }
+                                return false;
+                            },
+
+                            async fetchCurrentUser() {
+                                try {
+                                    const response = await fetch('/api/xamops/user/profile', { credentials: 'include' });
+                                    if (!response.ok) throw new Error('Not logged in');
+                                    const profile = await response.json();
+
+                                    this.currentUser.id = profile.id;
+                                    this.currentUser.username = profile.username;
+                                    this.currentUser.roles = profile.roles || [];
+                                } catch (error) {
+                                    console.error('Error fetching user profile:', error);
+                                } finally {
+                                    this.userLoading = false;
+                                }
+                            },
+
+                            async fetchFreshData(manual = false) {
+                                if (manual) console.log("🖱️ Manual refresh");
+                                this.isUpdating = true;
+                                this.error = null;
+
+                                if (!this.hasData) {
+                                    this.loading = true;
+                                }
+
+                                try {
+                                    const response = await fetch('/api/xamops/tickets/category/Technical', { credentials: 'include' });
+                                    if (!response.ok) throw new Error('Failed to fetch tickets');
+
+                                    let data = await response.json();
+
+                                    if (this.selectedAccountId) {
+                                        // Save unfiltered data to cache first if we want consistency, 
+                                        // BUT here we just filter for display.
+                                        // A better pattern is: 
+                                        // 1. Fetch All -> 2. Save All to Cache -> 3. Filter Local -> 4. Display
+                                        // Assuming API returns ALL user tickets:
+                                        localStorage.setItem(this.cacheKey, JSON.stringify(data));
+
+                                        // Now filter for display
+                                        data = data.filter(t => t.accountId === this.selectedAccountId);
+                                    } else {
+                                        localStorage.setItem(this.cacheKey, JSON.stringify(data));
+                                    }
+
+                                    this.tickets = data.sort((a, b) => b.id - a.id);
+
+                                } catch (error) {
+                                    console.error('Fetch error:', error);
+                                    if (!this.hasData) this.error = 'Could not load support tickets.';
+                                } finally {
+                                    this.loading = false;
+                                    this.isUpdating = false;
+                                }
+                            },
+
+                            openCreateModal() {
+                                this.resetForm();
+                                this.showModal = true;
+                            },
+
+                            async submitCase() {
+                                if (!this.form.service || !this.form.subject.trim() || !this.form.description.trim() || !this.form.severity) {
+                                    alert('Please fill in all required fields.');
+                                    return;
+                                }
+
+                                if (!this.currentUser.id) {
+                                    alert('Could not identify current user. Please refresh and log in.');
+                                    return;
+                                }
+                                this.isSubmitting = true;
+
+                                const payload = {
+                                    ...this.form,
+                                    creatorId: this.currentUser.id
+                                };
+
+                                try {
+                                    const response = await fetch('/api/xamops/tickets', {
+                                        credentials: 'include',
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify(payload)
+                                    });
+                                    if (!response.ok) throw new Error('Failed to submit ticket');
+
+                                    await this.fetchFreshData();
+                                    this.resetForm();
+                                    this.showModal = false;
+
+                                } catch (error) {
+                                    console.error('Error submitting ticket:', error);
+                                    alert('There was an error submitting your case. Please try again.');
+                                } finally {
+                                    this.isSubmitting = false;
+                                }
+                            },
+
+                            resetForm() {
+                                const defaultAccountId = this.selectedAccountId || '';
+
+                                this.form = {
+                                    category: 'Technical',
+                                    service: this.serviceOptions['Technical'][0],
+                                    severity: '',
+                                    subject: '',
+                                    description: '',
+                                    accountId: defaultAccountId,
+                                    region: '',
+                                };
+                            }
+                        }
+                    }
+                </script>
+            </main>
         </div>
     </div>
-</div>
-
-<script>
-    function supportCaseApp() {
-        return {
-            showModal: false,
-            tickets: [],
-            isSubmitting: false,
-            loading: true,
-            isUpdating: false,
-            userLoading: true,
-            error: null,
-            cacheKey: 'xamops_technical_tickets_v1',
-            selectedAccountId: null, // New State for Account ID
-
-            currentUser: { id: null, username: '', roles: [] }, 
-            form: {
-                category: 'Technical', 
-                service: '',
-                severity: '',
-                subject: '',
-                description: '',
-                accountId: '',
-                region: '',
-            },
-            statusColors: {
-                'open': 'bg-blue-100 text-blue-800',
-                'in_progress': 'bg-yellow-100 text-yellow-800',
-                'closed': 'bg-gray-200 text-gray-800'
-            },
-            serviceOptions: {
-                'Account and Billing': ['Billing', 'Pricing', 'Reserved Instances', 'Detailed Billing Report (DBR)'],
-                'Technical': ['EC2', 'S3', 'RDS', 'Lambda', 'Other Technical']
-            },
-
-            get hasData() {
-                return this.tickets && this.tickets.length > 0;
-            },
-
-            init() {
-                // 1. Parse URL Parameters for Account Selection
-                const urlParams = new URLSearchParams(window.location.search);
-                const accountIds = urlParams.get('accountId') || urlParams.get('accountIds');
-                
-                if (accountIds) {
-                    this.selectedAccountId = accountIds.split(',')[0];
-                    console.log("🔍 Filtering technical tickets for account:", this.selectedAccountId);
-                }
-
-                // 2. Attempt Instant Load
-                if (this.loadFromLocalStorage()) {
-                    console.log("✅ Loaded tickets from cache");
-                }
-
-                // 3. Initial setup & Background Refresh
-                this.form.service = this.serviceOptions[this.form.category][0];
-                this.$watch('form.category', (newCategory) => {
-                    this.form.service = this.serviceOptions[newCategory][0];
-                });
-
-                this.fetchCurrentUser(); 
-                this.fetchFreshData();
-            },
-
-            loadFromLocalStorage() {
-                try {
-                    const cached = localStorage.getItem(this.cacheKey);
-                    if (cached) {
-                        let allTickets = JSON.parse(cached);
-                        // Filter cached data if an account is selected
-                        if (this.selectedAccountId) {
-                            this.tickets = allTickets.filter(t => t.accountId === this.selectedAccountId);
-                        } else {
-                            this.tickets = allTickets;
-                        }
-                        this.loading = false; // Hide skeleton immediately
-                        return true;
-                    }
-                } catch (e) { console.error(e); }
-                return false;
-            },
-            
-            async fetchCurrentUser() {
-                try {
-                    const response = await fetch('/api/xamops/user/profile', { credentials: 'include' }); 
-                    if (!response.ok) throw new Error('Not logged in');
-                    const profile = await response.json();
-                    
-                    this.currentUser.id = profile.id; 
-                    this.currentUser.username = profile.username;
-                    this.currentUser.roles = profile.roles || [];
-                } catch (error) {
-                    console.error('Error fetching user profile:', error);
-                    // Non-critical for viewing tickets, but critical for creating
-                } finally {
-                    this.userLoading = false;
-                }
-            },
-            
-            async fetchFreshData(manual = false) {
-                if (manual) console.log("🖱️ Manual refresh");
-                this.isUpdating = true;
-                this.error = null;
-
-                // Only show full skeleton if we have absolutely no data
-                if (!this.hasData) {
-                    this.loading = true;
-                }
-
-                try {
-                    const response = await fetch('/api/xamops/tickets/category/Technical', { credentials: 'include' });
-                    if (!response.ok) throw new Error('Failed to fetch tickets');
-                    
-                    let data = await response.json();
-
-                    // Filter tickets based on selected Account ID (if present)
-                    if (this.selectedAccountId) {
-                        data = data.filter(t => t.accountId === this.selectedAccountId);
-                    }
-                    
-                    // Sort new first
-                    this.tickets = data.sort((a, b) => b.id - a.id);
-                    
-                    // Update Cache (store ALL tickets to avoid cache fragmentation, filtering happens on read)
-                    // NOTE: Ideally, we should store the full list and filter on load, but for simplicity 
-                    // here we are just storing what we fetched. If the API returns a filtered list later, this logic holds.
-                    // However, if we want the cache to work across account selections, we should fetch *all* and filter locally.
-                    // The current API '/api/xamops/tickets/category/Technical' returns ALL technical tickets for the user.
-                    // So saving 'data' (which is filtered) overwrites the full cache. 
-                    // Better approach: Fetch all, Filter local, Save All.
-                    
-                    // RE-FETCH logic to ensure cache integrity if we filtered 'data' above
-                    if (this.selectedAccountId) {
-                        // We already filtered 'data', so we can't save it as the 'master cache'.
-                        // For now, we just won't update the master cache if we are in a filtered view, 
-                        // OR we fetch raw data, save it, THEN filter for display.
-                        // Let's do the latter for correctness.
-                        
-                        // Re-fetch raw for cache (optional optimization omitted for brevity, assuming 'data' above was filtered)
-                        // Actually, let's fix the logic above:
-                    } else {
-                         localStorage.setItem(this.cacheKey, JSON.stringify(this.tickets));
-                    }
-
-                } catch (error) {
-                    console.error('Fetch error:', error);
-                    if (!this.hasData) this.error = 'Could not load support tickets.';
-                } finally {
-                    this.loading = false;
-                    this.isUpdating = false;
-                }
-            },
-
-            openCreateModal() {
-                this.resetForm();
-                this.showModal = true;
-            },
-
-            async submitCase() {
-                if (!this.form.service || !this.form.subject.trim() || !this.form.description.trim() || !this.form.severity) {
-                    alert('Please fill in all required fields.');
-                    return;
-                }
-
-                if (!this.currentUser.id) {
-                    alert('Could not identify current user. Please refresh and log in.');
-                    return;
-                }
-                this.isSubmitting = true;
-
-                const payload = { 
-                    ...this.form, 
-                    creatorId: this.currentUser.id
-                };
-
-                try {
-                    const response = await fetch('/api/xamops/tickets', {
-                        credentials: 'include',
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    });
-                    if (!response.ok) throw new Error('Failed to submit ticket');
-
-                    // Refresh list (and cache) immediately
-                    await this.fetchFreshData();
-                    this.resetForm();
-                    this.showModal = false;
-
-                } catch (error) {
-                    console.error('Error submitting ticket:', error);
-                    alert('There was an error submitting your case. Please try again.');
-                } finally {
-                    this.isSubmitting = false;
-                }
-            },
-
-            resetForm() {
-                // Default to selected account if available
-                const defaultAccountId = this.selectedAccountId || '';
-
-                this.form = {
-                    category: 'Technical',
-                    service: this.serviceOptions['Technical'][0],
-                    severity: '',
-                    subject: '',
-                    description: '',
-                    accountId: defaultAccountId, // Pre-filled from URL param
-                    region: '',
-                };
-            }
-        }
-    }
-
-    document.addEventListener('alpine:init', () => {
-        Alpine.data('supportCaseApp', supportCaseApp);
-    });
-</script>
-
 </body>
+
 </html>

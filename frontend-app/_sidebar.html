@@ -20,7 +20,7 @@
                 options.headers = {};
             }
 
-            // 4. Helper to add headers safely (handling both Headers object and simple object)
+            // 4. Helper to add headers safely
             const addHeader = (key, value) => {
                 if (value) {
                     if (options.headers instanceof Headers) {
@@ -36,21 +36,13 @@
             const isInternal = urlStr.startsWith('/') || urlStr.includes(window.location.origin);
 
             if (isInternal) {
-                // Default Content-Type
                 if (!options.headers['Content-Type'] && !(options.body instanceof FormData)) {
                     addHeader('Content-Type', 'application/json');
                 }
-
-                // Security Headers
                 addHeader('X-XSRF-TOKEN', csrfToken);
-
-                // Multi-Tenancy Headers
                 addHeader('X-Tenant-ID', tenantId);
                 addHeader('X-Impersonate-User', impersonateId);
 
-                // SPECIAL CASE: When fetching the Tenant List itself (as SuperAdmin), 
-                // we MUST NOT send the X-Tenant-ID header, otherwise the backend looks 
-                // for the table in the customer DB instead of the Master DB.
                 if (urlStr.includes('/api/xamops/superadmin/tenants')) {
                     if (options.headers instanceof Headers) {
                         options.headers.delete('X-Tenant-ID');
@@ -63,30 +55,28 @@
             // 6. Execute the request
             try {
                 const response = await originalFetch(url, options);
-
-                // Optional: Handle Global 401 (Session Expired)
                 if (response.status === 401 && !urlStr.includes('/login')) {
                     console.warn('Global Interceptor: Session expired or unauthorized.');
                 }
-
                 return response;
             } catch (error) {
                 throw error;
             }
         };
-
         console.log("✅ Global Multi-Tenant Interceptor Activated");
     })();
 </script>
 
 <div class="w-64 fixed top-0 left-0 h-screen flex flex-col bg-white shadow-xl z-30" x-data="{
     open: false,
-    accounts: [],
+    // 1. OPTIMIZATION: Load from cache immediately to prevent flicker
+    accounts: JSON.parse(sessionStorage.getItem('cached_accounts') || '[]'),
     selectedAccountIds: [],
     tempSelectedAccounts: [],
     searchTerm: '',
-    isLoading: true,
-    userRoles: [],
+    isLoading: false, 
+    // 2. OPTIMIZATION: Load roles from cache so menus appear instantly
+    userRoles: JSON.parse(sessionStorage.getItem('cached_user_roles') || '[]'),
     multiAccountMode: false,
     isDashboardPage: false,
     isBillingPage: false,
@@ -97,8 +87,6 @@
     selectedTenant: sessionStorage.getItem('selectedTenantId') || '',
     impersonateUser: sessionStorage.getItem('impersonateUserId') || '',
 
-    // Note: apiFetch is now just a wrapper for our global fetch, 
-    // but we keep it for backward compatibility with your existing code.
     async apiFetch(url, options = {}) {
         const response = await fetch(url, {
             ...options,
@@ -113,13 +101,56 @@
     },
 
     init() {
-        const selectedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+        // --- 3. OPTIMIZATION: Restore Scroll Position ---
+        const savedScroll = sessionStorage.getItem('sidebar_scroll_pos');
+        if (savedScroll) {
+            this.$nextTick(() => {
+                const scrollContainer = document.querySelector('.sidebar-scroll');
+                if (scrollContainer) scrollContainer.scrollTop = parseInt(savedScroll);
+            });
+        }
+        
+        // Save scroll position before navigating away
+        window.addEventListener('beforeunload', () => {
+            const scrollContainer = document.querySelector('.sidebar-scroll');
+            if (scrollContainer) {
+                sessionStorage.setItem('sidebar_scroll_pos', scrollContainer.scrollTop);
+            }
+        });
+        // -----------------------------------------------
+
+        // 4. Standard Init
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlAccountId = urlParams.get('accountId') || urlParams.get('accountIds');
+        const urlProjectId = urlParams.get('projectId');
+
+        let selectedIds = [];
+
+        if (urlAccountId) {
+            selectedIds = urlAccountId.split(',');
+        } else if (urlProjectId) {
+             selectedIds = [urlProjectId];
+        }
+        
+        if (selectedIds.length === 0) {
+            selectedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+        }
+
         this.selectedAccountIds = selectedIds;
         this.tempSelectedAccounts = [...selectedIds];
+        
+        if (selectedIds.length > 0) {
+            sessionStorage.setItem('selectedAccountIds', JSON.stringify(selectedIds));
+        }
+
         this.multiAccountMode = sessionStorage.getItem('multiAccountMode') === 'true';
+        
         this.checkCurrentPage();
+        
+        // Fetch fresh data in background (UI is already rendered from cache)
         this.fetchAccounts();
         this.fetchUserRoles();
+        
         window.addEventListener('account-changed', () => this.fetchAccounts());
     },
 
@@ -130,11 +161,16 @@
     },
 
     fetchAccounts() {
-        this.isLoading = true;
+        if (this.accounts.length === 0) {
+            this.isLoading = true;
+        }
+        
         this.apiFetch('/api/xamops/account-manager/accounts')
             .then(res => res.json())
             .then(data => {
                 this.accounts = data.filter(acc => acc.status === 'CONNECTED');
+                sessionStorage.setItem('cached_accounts', JSON.stringify(this.accounts));
+
                 if (this.selectedAccountIds.length === 0 && this.accounts.length > 0) {
                     this.selectedAccountIds = [this.accounts[0].id];
                     this.tempSelectedAccounts = [this.accounts[0].id];
@@ -142,34 +178,30 @@
             })
             .catch(err => {
                 console.error('Failed to fetch accounts:', err);
-                this.accounts = [];
             })
             .finally(() => this.isLoading = false);
     },
 
-fetchUserRoles() {
+    fetchUserRoles() {
         this.apiFetch('/api/xamops/user/profile')
             .then(res => res.json())
             .then(data => {
-                // Robust Role Parsing
+                let roles = [];
                 if (data.roles) {
-                    this.userRoles = data.roles;
+                    roles = data.roles;
                 } else if (data.authorities) {
-                    this.userRoles = data.authorities;
-                } else {
-                    this.userRoles = [];
+                    roles = data.authorities;
                 }
-                console.log('User Roles Loaded:', this.userRoles);
+                
+                this.userRoles = roles;
+                sessionStorage.setItem('cached_user_roles', JSON.stringify(this.userRoles));
 
-                // Trigger SuperAdmin data load if role matches
                 if (this.hasAnyRole('ROLE_SUPER_ADMIN')) {
-                    console.log('SuperAdmin Detected. Fetching tenants...');
                     this.fetchTenants();
                     if (this.selectedTenant) {
                         this.fetchTenantUsers(this.selectedTenant);
                     }
                 } 
-                // ✅ FIX: Removed the else block that forced 'customer1'
             })
             .catch(err => {
                 console.error('Could not fetch user profile:', err);
@@ -179,15 +211,9 @@ fetchUserRoles() {
     // --- SuperAdmin Functions ---
     async fetchTenants() {
         try {
-            // Note: The Global Interceptor automatically handles the headers, 
-            // including the special case to REMOVE X-Tenant-ID for this specific endpoint.
             const response = await fetch('/api/xamops/superadmin/tenants');
-
             if (response.ok) {
                 this.tenantList = await response.json();
-                console.log('Tenants Fetched:', this.tenantList);
-            } else {
-                console.error('Failed to fetch tenants', response.status);
             }
         } catch (e) {
             console.error('Failed to load tenants', e);
@@ -196,13 +222,8 @@ fetchUserRoles() {
 
     async fetchTenantUsers(tenantId) {
         try {
-            // For this call, we need the header. The interceptor picks up 'selectedTenantId' 
-            // from session, but since we might be switching context actively, 
-            // we can pass it explicitly via options if session isn't set yet.
-            // However, the interceptor is robust enough.
             const res = await this.apiFetch('/api/xamops/superadmin/users');
             this.tenantUsers = await res.json();
-            console.log('Tenant Users Fetched:', this.tenantUsers);
         } catch (e) {
             console.error('Failed to load tenant users', e);
         }
@@ -211,8 +232,8 @@ fetchUserRoles() {
     switchTenant() {
         if (this.selectedTenant) {
             sessionStorage.setItem('selectedTenantId', this.selectedTenant);
-            sessionStorage.removeItem('impersonateUserId'); // Reset user on tenant switch
-            window.location.reload(); // Reload to apply new DB context globally
+            sessionStorage.removeItem('impersonateUserId');
+            window.location.reload();
         } else {
             this.resetContext();
         }
@@ -307,33 +328,58 @@ fetchUserRoles() {
         sessionStorage.setItem('multiAccountMode', this.multiAccountMode);
         this.open = false;
 
+        // 1. Handle Multi-Account Mode
         if (this.multiAccountMode && this.selectedAccountIds.length > 1 && this.isDashboardPage) {
             window.dispatchEvent(new CustomEvent('multi-account-selection-changed', {
                 detail: { accountIds: this.selectedAccountIds }
             }));
-        } else {
-            const firstSelectedId = this.selectedAccountIds[0];
-            const account = this.accounts.find(a => a.id === firstSelectedId);
-            const provider = account ? account.provider : 'AWS';
+            return;
+        }
 
-            let targetPage;
-            const isBillOpsUser = this.hasAnyRole(['ROLE_BILLOPS', 'ROLE_BILLOPS_ADMIN']);
-            
-            if (isBillOpsUser) {
-                switch (provider) {
-                    case 'GCP': targetPage = '/billops/gcp-billing.html'; break;
-                    case 'Azure': targetPage = '/billops/azure-billing.html'; break;
-                    case 'AWS': default: targetPage = '/billops/billing.html'; break;
-                }
-            } else {
-                switch (provider) {
-                    case 'GCP': targetPage = '/gcp_dashboard.html'; break;
-                    case 'Azure': targetPage = '/azure_dashboard.html'; break;
-                    case 'AWS': default: targetPage = '/dashboard.html'; break;
-                }
+        // 2. Handle Single Account Selection
+        const firstSelectedId = this.selectedAccountIds[0];
+        const account = this.accounts.find(a => a.id === firstSelectedId);
+        const provider = account ? account.provider : 'AWS';
+
+        let targetPage;
+        const isBillOpsUser = this.hasAnyRole(['ROLE_BILLOPS', 'ROLE_BILLOPS_ADMIN']);
+        
+        if (isBillOpsUser) {
+            switch (provider) {
+                case 'GCP': targetPage = '/billops/gcp-billing.html'; break;
+                case 'Azure': targetPage = '/billops/azure-billing.html'; break;
+                case 'AWS': default: targetPage = '/billops/billing.html'; break;
             }
-            
-            const targetUrl = `${targetPage}?accountIds=${this.selectedAccountIds.join(',')}`;
+        } else {
+            switch (provider) {
+                case 'GCP': targetPage = '/gcp_dashboard.html'; break;
+                case 'Azure': targetPage = '/azure_dashboard.html'; break;
+                case 'AWS': default: targetPage = '/dashboard.html'; break;
+            }
+        }
+        
+        const urlParams = new URLSearchParams();
+        urlParams.set('accountIds', this.selectedAccountIds.join(','));
+        
+        if (account) {
+             if (account.provider === 'Azure' && account.azureSubscriptionId) {
+                urlParams.set('subscriptionId', account.azureSubscriptionId);
+             } else if (account.provider === 'GCP') {
+                urlParams.set('projectId', account.id);
+             } else if (account.provider === 'AWS') {
+                 urlParams.set('accountId', account.id);
+             }
+        }
+
+        const targetUrl = `${targetPage}?${urlParams.toString()}`;
+
+        // 3. SMART NAVIGATION CHECK
+        if (window.location.pathname === targetPage) {
+            window.history.pushState(null, '', targetUrl);
+            window.dispatchEvent(new CustomEvent('account-changed', {
+                detail: { accountId: firstSelectedId }
+            }));
+        } else {
             window.location.href = targetUrl;
         }
     },
@@ -387,7 +433,7 @@ fetchUserRoles() {
             return currentPath === '/waste.html' || currentPath === '/gcp_waste.html';
         }
         if (path === '/rightsizing.html') {
-            return currentPath === '/rightsizing.html' || currentPath === '/gcp_rightsizing.html';
+            return currentPath === '/rightsizing.html' || currentPath === '/rightsizing.html' || currentPath === '/gcp_rightsizing.html';
         }
         if (path === '/reservation.html') {
             return currentPath === '/reservation.html' || currentPath === '/gcp_reservations.html';
@@ -415,7 +461,7 @@ fetchUserRoles() {
                     currentPath.includes('rightsizing') || 
                     currentPath.includes('reservation') || 
                     currentPath.includes('azure-finops') ||
-                    currentPath.includes('spot-automation'); // Added Spot Automation
+                    currentPath.includes('spot-automation');
         }
         if (path === '/cloudk8s') {
             return currentPath.includes('cloudk8s');
@@ -424,7 +470,7 @@ fetchUserRoles() {
              return currentPath.includes('security') || 
                     currentPath.includes('performance') || 
                     currentPath.includes('alerts') ||
-                    currentPath.includes('complianceops'); // Added ComplianceOps
+                    currentPath.includes('complianceops');
         }
         if (path === '/billops/') {
             return currentPath.startsWith('/billops/');
@@ -438,8 +484,8 @@ fetchUserRoles() {
                    currentPath.includes('cloudk8s') ||
                    currentPath.includes('cicd_pipelines') ||
                    currentPath.includes('sonarqube') ||
-                   currentPath.includes('aiops') ||    // Added AIOps
-                   currentPath.includes('dataops');    // Added DataOps
+                   currentPath.includes('aiops') ||
+                   currentPath.includes('dataops');
         }
 
         return currentPath.startsWith(path) && path !== '/';
@@ -469,17 +515,16 @@ fetchUserRoles() {
                 }
             }
         } else {
-            // Pages excluded from GCP renaming (shared pages)
             const gcpExcludedPages = [
                 '/cicd_pipelines.html',
                 '/xamops_tickets.html',
                 '/devops_in_the_box.html',
                 '/grafana-dashboard.html',
                 '/sonarqube.html',
-                '/aiops.html',          // Exclude AIOps
-                '/dataops.html',        // Exclude DataOps
-                '/complianceops.html',  // Exclude ComplianceOps
-                '/spot-automation.html' // Exclude Spot Automation
+                '/aiops.html',
+                '/dataops.html',
+                '/complianceops.html',
+                '/spot-automation.html'
             ];
             
             const shouldExclude = gcpExcludedPages.some(page => basePath.includes(page));
@@ -526,35 +571,6 @@ fetchUserRoles() {
         <a href="/dashboard.html"><img src="/icons/xlogo.png" alt="XamOps Logo" class="h-40 w-100"></a>
     </div>
 
-    <div x-show="hasAnyRole('ROLE_SUPER_ADMIN')" x-cloak class="px-3 pt-3 pb-2 border-b border-gray-200 bg-gray-100">
-        <div class="text-xs font-bold text-gray-500 uppercase mb-2 px-1">SuperAdmin Access</div>
-
-        <div class="mb-2">
-            <select x-model="selectedTenant" @change="switchTenant()"
-                class="w-full text-xs border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring focus:ring-indigo-200 focus:ring-opacity-50 py-1.5">
-                <option value="">-- Select Customer --</option>
-                <template x-for="tenant in tenantList" :key="tenant.tenantId">
-                    <option :value="tenant.tenantId" x-text="tenant.companyName"></option>
-                </template>
-            </select>
-        </div>
-
-        <div class="mb-2" x-show="selectedTenant">
-            <select x-model="impersonateUser" @change="switchUser()"
-                class="w-full text-xs border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring focus:ring-indigo-200 focus:ring-opacity-50 py-1.5">
-                <option value="">-- Impersonate User --</option>
-                <template x-for="user in tenantUsers" :key="user.id">
-                    <option :value="user.id" x-text="user.username"></option>
-                </template>
-            </select>
-        </div>
-
-        <div class="flex justify-end" x-show="selectedTenant">
-            <button @click="resetContext()" class="text-xs text-red-600 hover:text-red-800 hover:underline">
-                <i class="fas fa-times-circle mr-1"></i>Reset Context
-            </button>
-        </div>
-    </div>
     <div class="p-4 border-b bg-gradient-to-r from-gray-50 to-white flex-shrink-0">
         <div class="relative">
             <div @click="open = !open"
@@ -1042,7 +1058,7 @@ fetchUserRoles() {
                                     </a>
                                 </div>
                                 <!-- NEW: Add Cloud Shell here -->
-                                <div x-show="hasAnyRole(['ROLE_XAMOPS'])" x-cloak class="sidebar-section"
+                                <!-- <div x-show="hasAnyRole(['ROLE_XAMOPS'])" x-cloak class="sidebar-section"
                                     x-bind:class="{ active: isActive('/cloudshell.html') || isActive('/cloudshell.html') }">
                                     <a href="/cloudshell.html"
                                         class="nav-item flex items-center gap-3 rounded-xl px-4 py-3 font-semibold"
@@ -1050,7 +1066,7 @@ fetchUserRoles() {
                                         <i class="fas fa-users fa-fw w-5 text-center"></i>
                                         <span class="whitespace-nowrap">CloudShell</span>
                                     </a>
-                                </div>
+                                </div> -->
 
                                 <div x-show="hasAnyRole(['ROLE_BILLOPS_ADMIN'])" x-cloak class="sidebar-section"
                                     :class="{'active': isActive('/user-manager.html') || isActive('/user-manager.html')}">
@@ -1096,3 +1112,130 @@ fetchUserRoles() {
                             </div>
                         </div>
                 </div>
+            </div>
+            <script>
+                document.addEventListener('DOMContentLoaded', () => {
+                    // Intercept clicks on the sidebar navigation
+                    document.addEventListener('click', async (e) => {
+                        const link = e.target.closest('a');
+
+                        // --- Validation Guards ---
+                        if (!link ||
+                            (!link.closest('.sidebar-section') && !link.classList.contains('nav-item')) ||
+                            !link.href ||
+                            (link.href.startsWith('http') && !link.href.includes(window.location.origin)) ||
+                            link.getAttribute('href') === '#') {
+                            return;
+                        }
+
+                        e.preventDefault();
+                        const url = link.href;
+
+                        // Visual Feedback
+                        document.body.style.cursor = 'wait';
+                        const currentMain = document.getElementById('main-content');
+                        if (currentMain) currentMain.style.opacity = '0.5';
+
+                        try {
+                            // 1. Fetch Content
+                            const response = await fetch(url);
+                            if (!response.ok) throw new Error('Network response was not ok');
+                            const htmlText = await response.text();
+                            const parser = new DOMParser();
+                            const doc = parser.parseFromString(htmlText, 'text/html');
+                            const newMain = doc.getElementById('main-content');
+
+                            if (!newMain) {
+                                window.location.href = url; // Fallback if no main content found
+                                return;
+                            }
+
+                            // 2. CLEANUP: Destroy old Alpine instance to prevent memory leaks
+                            if (currentMain && window.Alpine) {
+                                // This cleans up listeners/watchers on the old page
+                                // Note: Alpine v3 uses a mutation observer, but explicit destroy is safer
+                                // If you have specific cleanup logic, add it here. 
+                                // Alpine automatically handles cleanup when elements are removed, 
+                                // but we need to handle the SCRIPTS manually below.
+                            }
+
+                            // 3. CLEANUP: Remove old dynamic scripts
+                            document.querySelectorAll('.dynamic-page-script').forEach(el => el.remove());
+
+                            // 4. Update Title
+                            document.title = doc.title;
+
+                            // 5. Swap HTML
+                            if (currentMain) {
+                                currentMain.replaceWith(newMain);
+                            }
+
+                            // 6. Execute New Scripts (Safely)
+                            const scripts = newMain.querySelectorAll('script');
+                            scripts.forEach(oldScript => {
+                                const newScript = document.createElement('script');
+
+                                // Add a class so we can identify and remove these scripts later
+                                newScript.classList.add('dynamic-page-script');
+
+                                Array.from(oldScript.attributes).forEach(attr => {
+                                    newScript.setAttribute(attr.name, attr.value);
+                                });
+
+                                if (oldScript.innerHTML) {
+                                    newScript.appendChild(document.createTextNode(oldScript.innerHTML));
+                                }
+
+                                // Append to body to execute
+                                document.body.appendChild(newScript);
+                            });
+
+                            // 7. Update URL
+                            window.history.pushState({}, '', url);
+
+                            // 8. Re-init Alpine.js
+                            if (window.Alpine) {
+                                // Wait for the scripts to execute/define the x-data functions
+                                setTimeout(() => {
+                                    window.Alpine.initTree(document.getElementById('main-content'));
+                                }, 50);
+                            }
+
+                            // 9. Update Sidebar Visual State
+                            updateSidebarActiveState(link.getAttribute('href'));
+
+                        } catch (error) {
+                            console.error('Soft navigation failed:', error);
+                            window.location.href = url; // Fallback
+                        } finally {
+                            document.body.style.cursor = 'default';
+                            const mainContainer = document.getElementById('main-content');
+                            if (mainContainer) mainContainer.style.opacity = '1';
+                        }
+                    });
+
+                    window.addEventListener('popstate', () => window.location.reload());
+
+                    function updateSidebarActiveState(targetHref) {
+                        // Remove active class from all items
+                        document.querySelectorAll('.sidebar-section, .nav-item').forEach(el => {
+                            el.classList.remove('active');
+                            // Reset standard styling if you use utility classes for active states directly
+                            el.classList.remove('bg-gradient-to-r', 'from-indigo-500', 'to-purple-600', 'text-white', 'shadow-lg');
+                            el.classList.add('text-gray-600', 'hover:bg-indigo-50');
+                        });
+
+                        // Add active class to clicked item (Logic simplified for example)
+                        // You might need to check your getLink logic to match exact HREFs
+                        const activeLinks = document.querySelectorAll(`a[href="${targetHref}"]`);
+                        activeLinks.forEach(link => {
+                            const section = link.closest('.sidebar-section');
+                            if (section) section.classList.add('active');
+
+                            // Re-apply the specific active classes based on your design
+                            link.classList.remove('text-gray-600', 'hover:bg-indigo-50');
+                            link.classList.add('bg-gradient-to-r', 'from-indigo-500', 'to-purple-600', 'text-white', 'shadow-lg');
+                        });
+                    }
+                });
+            </script>
