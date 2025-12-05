@@ -352,6 +352,47 @@ public class AutoSpottingController {
         }
     }
 
+    // ================= LAUNCH ANALYTICS =================
+
+    /**
+     * Get launch analytics
+     * GET /api/autospotting/analytics/launches/{accountId}
+     * 
+     * Query params:
+     * - start: Date in YYYY-MM-DD format (default: 30 days ago)
+     * - end: Date in YYYY-MM-DD format (default: today)
+     */
+    @GetMapping("/analytics/launches/{accountId}")
+    public ResponseEntity<?> getLaunchAnalytics(
+            @PathVariable Long accountId,
+            @RequestParam(required = false) String start,
+            @RequestParam(required = false) String end) {
+
+        log.info("AutoSpottingController.getLaunchAnalytics called with accountId={}, start={}, end={}",
+                accountId, start, end);
+
+        try {
+            // Default to last 30 days if not provided
+            if (start == null || start.isEmpty()) {
+                start = java.time.LocalDate.now()
+                        .minusDays(30)
+                        .toString();
+            }
+            if (end == null || end.isEmpty()) {
+                end = java.time.LocalDate.now().toString();
+            }
+
+            LaunchAnalyticsResponse analytics = autoSpottingService.getLaunchAnalytics(accountId, start, end);
+            return ResponseEntity.ok(analytics);
+
+        } catch (Exception e) {
+            log.error("Failed to get launch analytics from AutoSpotting API: {}", e.getMessage(), e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "success", false,
+                    "error", "Failed to fetch launch analytics: " + e.getMessage()));
+        }
+    }
+
     // ================= DEBUG ENDPOINTS =================
 
     /**

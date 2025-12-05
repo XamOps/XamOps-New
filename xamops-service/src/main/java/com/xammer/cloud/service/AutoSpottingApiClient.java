@@ -406,4 +406,51 @@ public class AutoSpottingApiClient {
 
         return response;
     }
+
+    /**
+     * Get launch analytics (GET /v1/analytics/launches)
+     */
+    public LaunchAnalyticsResponse getLaunchAnalytics(String accountId, String start, String end) {
+        logger.info("📊 Calling AutoSpotting API: GET /v1/analytics/launches");
+        logger.info("📊 Parameters: account={}, start={}, end={}", accountId, start, end);
+
+        try {
+            UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(baseUrl + "/v1/analytics/launches")
+                    .queryParam("account_id", accountId);
+
+            if (start != null && !start.isEmpty())
+                builder.queryParam("start", start);
+            if (end != null && !end.isEmpty())
+                builder.queryParam("end", end);
+
+            String url = builder.toUriString();
+            logger.info("🌐 Request URL: {}", url);
+
+            HttpHeaders headers = createHeaders();
+            HttpEntity<String> entity = new HttpEntity<>(headers);
+
+            ResponseEntity<LaunchAnalyticsResponse> response = restTemplate.exchange(
+                    url, HttpMethod.GET, entity, LaunchAnalyticsResponse.class);
+
+            logger.info("✅ Launch analytics retrieved successfully");
+            if (response.getBody() != null) {
+                logger.info("  - Total attempts: {}", response.getBody().getTotalAttempts());
+                logger.info("  - Total successes: {}", response.getBody().getTotalSuccesses());
+                logger.info("  - Success rate: {}%", response.getBody().getSuccessRate());
+            }
+
+            return response.getBody();
+
+        } catch (org.springframework.web.client.HttpClientErrorException e) {
+            logger.error("❌ HTTP {} Error from AutoSpotting Analytics API", e.getStatusCode());
+            logger.error("   📥 Response body: {}", e.getResponseBodyAsString());
+            throw new RuntimeException(
+                    "AutoSpotting Analytics API request failed: " + e.getStatusCode() + " "
+                            + e.getResponseBodyAsString(),
+                    e);
+        } catch (Exception e) {
+            logger.error("❌ Failed to call AutoSpotting Analytics API: {}", e.getMessage(), e);
+            throw new RuntimeException("AutoSpotting Analytics API request failed: " + e.getMessage(), e);
+        }
+    }
 }

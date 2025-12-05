@@ -862,4 +862,35 @@ public class AutoSpottingService {
         return response;
     }
 
+    /**
+     * Get launch analytics from AutoSpotting API
+     */
+    public LaunchAnalyticsResponse getLaunchAnalytics(Long cloudAccountId, String start, String end) {
+        logger.info("=== Fetching Launch Analytics ===");
+        logger.info("CloudAccountId={}, start={}, end={}", cloudAccountId, start, end);
+
+        CloudAccount account = getByAwsAccountId(cloudAccountId);
+        logger.info("AWS Account ID: {}", account.getAwsAccountId());
+
+        try {
+            // Call AutoSpotting API
+            LaunchAnalyticsResponse response = apiClient.getLaunchAnalytics(
+                    account.getAwsAccountId(),
+                    start,
+                    end);
+
+            if (response != null) {
+                logger.info("✅ Launch analytics retrieved successfully");
+                logger.info("  - Total attempts: {}", response.getTotalAttempts());
+                logger.info("  - Success rate: {}%", response.getSuccessRate());
+            }
+
+            return response;
+
+        } catch (Exception e) {
+            logger.error("❌ Failed to fetch launch analytics from AutoSpotting API: {}", e.getMessage(), e);
+            throw new RuntimeException("Failed to fetch launch analytics: " + e.getMessage(), e);
+        }
+    }
+
 }

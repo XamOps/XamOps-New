@@ -668,6 +668,12 @@
                 },
 
                 async toggleAsg(asg) {
+                    // Prevent multiple simultaneous calls
+                    if (asg.updating) {
+                        console.log('⏸️ Toggle already in progress, ignoring...');
+                        return;
+                    }
+
                     asg.updating = true;
                     const newState = !asg.isEnabled;
 
@@ -675,7 +681,8 @@
                         // Use YOUR EXISTING ENDPOINTS with correct path
                         const url = `${backendBaseUrl}/api/autospotting/asgs/${this.accountId}/${newState ? 'enable' : 'disable'}?region=${asg.region}&asgName=${encodeURIComponent(asg.name)}`;
 
-                        console.log(`🔄 Toggling ${asg.name}:`, newState ? 'ENABLE' : 'DISABLE', `→ ${url}`);
+                        console.log(`🔄 Toggling ${asg.name}:`, newState ? 'ENABLE' : 'DISABLE');
+                        console.log(`📡 URL: ${url}`);
 
                         const response = await fetch(url, {
                             method: 'POST',
@@ -685,21 +692,39 @@
                             }
                         });
 
+                        const responseText = await response.text();
+                        console.log(`📥 Response (${response.status}):`, responseText);
+
                         if (response.ok) {
+                            let result;
+                            try {
+                                result = JSON.parse(responseText);
+                            } catch (e) {
+                                result = { success: true, message: responseText };
+                            }
+
+                            console.log('✅ Toggle API call successful:', result);
+
+                            // Only update UI after successful API call
                             asg.isEnabled = newState;
+
                             this.dispatchNotification(
-                                `AutoSpotting ${newState ? 'enabled' : 'disabled'} for ${asg.name}`,
+                                `AutoSpotting ${newState ? 'enabled' : 'disabled'} for ${asg.name}. Manually refresh to verify.`,
                                 'success'
                             );
-                            // Refresh data after toggle
-                            setTimeout(() => this.fetchCostData(), 2000);
+
+                            // TEMPORARILY DISABLED: Don't auto-refresh to see if API persists the change
+                            // User can manually click "Refresh Data" button to verify
+                            // setTimeout(() => {
+                            //     console.log('🔄 Refreshing data after toggle...');
+                            //     this.fetchCostData();
+                            // }, 5000);
                         } else {
-                            const errorText = await response.text();
-                            console.error('Toggle failed:', response.status, errorText);
-                            throw new Error(`HTTP ${response.status}: ${errorText}`);
+                            console.error('❌ Toggle failed:', response.status, responseText);
+                            throw new Error(`HTTP ${response.status}: ${responseText}`);
                         }
                     } catch (error) {
-                        console.error('Toggle error:', error);
+                        console.error('❌ Toggle error:', error);
                         this.dispatchNotification(`Failed to toggle ${asg.name}: ${error.message}`, 'error');
                     } finally {
                         asg.updating = false;
