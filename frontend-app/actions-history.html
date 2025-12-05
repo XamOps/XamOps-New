@@ -253,7 +253,8 @@
 </div>
 
 <script>
-    function actionsHistoryTab() {
+    // Define in window scope so it's accessible when loaded dynamically
+    window.actionsHistoryTab = function () {
         const backendBaseUrl = 'http://localhost:8080';
         const tenantId = sessionStorage.getItem('tenantId') || 'customer1';
 
@@ -274,7 +275,7 @@
             accountId: null,
 
             init() {
-                console.log('Actions History tab initialized');
+                console.log('🎯 Actions History tab initialized');
 
                 // Get account ID from sessionStorage
                 try {
@@ -283,6 +284,7 @@
                         const ids = JSON.parse(stored);
                         if (ids && ids.length > 0) {
                             this.accountId = ids[0];
+                            console.log('✓ Account ID loaded:', this.accountId);
                         }
                     }
                 } catch (e) {
@@ -290,11 +292,13 @@
                 }
 
                 if (!this.accountId) {
+                    console.error('❌ No account selected');
                     this.dispatchNotification('No account selected', 'error');
                     return;
                 }
 
                 // Auto-load events on init
+                console.log('📊 Auto-loading events...');
                 this.loadEvents();
             },
 
@@ -305,6 +309,7 @@
                 }
 
                 this.loading = true;
+                console.log('🔄 Loading events for account:', this.accountId);
 
                 try {
                     // Build query params
@@ -320,8 +325,7 @@
                         params.append('asgName', this.filters.asgName);
                     }
 
-                    console.log(`Fetching events for account ${this.accountId}`);
-                    console.log('Filters:', this.filters);
+                    console.log('📡 Fetching:', `${backendBaseUrl}/api/autospotting/events/${this.accountId}?${params}`);
 
                     const response = await fetch(
                         `${backendBaseUrl}/api/autospotting/events/${this.accountId}?${params}`,
@@ -338,7 +342,7 @@
                     }
 
                     const data = await response.json();
-                    console.log('Events data received:', data);
+                    console.log('✅ Events data received:', data);
 
                     this.events = data.events || [];
                     this.summary = data.summary || {
@@ -347,13 +351,14 @@
                         total_estimated_savings: 0.0
                     };
 
+                    console.log(`📊 Loaded ${this.events.length} events`);
                     this.dispatchNotification(
                         `Loaded ${this.events.length} event${this.events.length !== 1 ? 's' : ''}`,
                         'success'
                     );
 
                 } catch (error) {
-                    console.error('Error loading events:', error);
+                    console.error('❌ Error loading events:', error);
                     this.dispatchNotification('Failed to load events: ' + error.message, 'error');
                 } finally {
                     this.loading = false;
@@ -367,6 +372,7 @@
                     eventType: '',
                     asgName: ''
                 };
+                console.log('🔄 Filters reset');
             },
 
             formatDateTime(timestamp) {
@@ -406,5 +412,5 @@
                 }));
             }
         };
-    }
+    };
 </script>

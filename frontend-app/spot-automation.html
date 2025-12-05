@@ -431,9 +431,9 @@
                         </div>
                     </div>
 
-                    <div x-show="activeTab !== 'current'" x-html="tabHtml" x-cloak></div>
+                    <div x-show="activeTab !== 'current'" x-ref="tabContainer" x-cloak></div>
                 </div>
-            </main>
+            </main>>
         </div>
     </div>
 
@@ -474,7 +474,6 @@
                 totalInstances: 0,
                 initialized: false,
                 activeTab: 'current',
-                tabHtml: '',
 
                 initDashboard() {
                     if (this.initialized) {
@@ -526,23 +525,70 @@
                 async loadTab(tab) {
                     this.activeTab = tab;
                     if (tab === 'current') {
-                        this.tabHtml = '';
+                        const container = this.$refs.tabContainer;
+                        if (container) container.innerHTML = '';
                         return;
                     }
 
                     const urls = {
-                        history: '/autospotting/actions-history.html',
-                        analytics: '/autospotting/launch-analytics.html',
-                        settings: '/autospotting/settings.html'
+                        history: '/actions-history.html',
+                        analytics: '/launch-analytics.html',
+                        settings: '/settings.html'
                     };
 
                     try {
+                        console.log(`🔄 Loading tab: ${tab}`);
                         const res = await fetch(urls[tab]);
-                        this.tabHtml = res.ok
-                            ? await res.text()
-                            : `<div class="text-center py-12"><p class="text-red-600">Failed to load ${tab}</p></div>`;
+
+                        if (!res.ok) {
+                            throw new Error(`HTTP ${res.status}`);
+                        }
+
+                        const html = await res.text();
+                        const container = this.$refs.tabContainer;
+
+                        if (container) {
+                            // Insert the HTML
+                            container.innerHTML = html;
+
+                            // Execute any scripts in the loaded HTML
+                            const scripts = container.querySelectorAll('script');
+                            console.log(`📜 Found ${scripts.length} script(s) to execute`);
+
+                            scripts.forEach((oldScript) => {
+                                const newScript = document.createElement('script');
+                                Array.from(oldScript.attributes).forEach(attr => {
+                                    newScript.setAttribute(attr.name, attr.value);
+                                });
+                                newScript.textContent = oldScript.textContent;
+                                oldScript.parentNode.replaceChild(newScript, oldScript);
+                            });
+
+                            // Wait a bit for scripts to execute
+                            await new Promise(resolve => setTimeout(resolve, 100));
+
+                            // Check if the component function exists
+                            if (tab === 'history' && typeof window.actionsHistoryTab === 'function') {
+                                console.log('✅ actionsHistoryTab function is available');
+                            } else if (tab === 'history') {
+                                console.error('❌ actionsHistoryTab function NOT found!');
+                            }
+
+                            // Initialize Alpine on the new content
+                            if (window.Alpine) {
+                                console.log('🎨 Initializing Alpine.js on new content...');
+                                window.Alpine.initTree(container);
+                                console.log(`✅ Tab '${tab}' loaded and initialized`);
+                            } else {
+                                console.error('❌ Alpine.js not found!');
+                            }
+                        }
                     } catch (error) {
-                        this.tabHtml = `<div class="text-center py-12"><p class="text-red-600">Error loading ${tab}</p></div>`;
+                        console.error(`❌ Error loading tab '${tab}':`, error);
+                        const container = this.$refs.tabContainer;
+                        if (container) {
+                            container.innerHTML = `<div class="text-center py-12"><p class="text-red-600">Error loading ${tab}: ${error.message}</p></div>`;
+                        }
                     }
                 },
 
@@ -626,19 +672,17 @@
                     const newState = !asg.isEnabled;
 
                     try {
-                        const response = await fetch(`${backendBaseUrl}/api/autospotting/asg/toggle`, {
+                        // Use YOUR EXISTING ENDPOINTS with correct path
+                        const url = `${backendBaseUrl}/api/autospotting/asgs/${this.accountId}/${newState ? 'enable' : 'disable'}?region=${asg.region}&asgName=${encodeURIComponent(asg.name)}`;
+
+                        console.log(`🔄 Toggling ${asg.name}:`, newState ? 'ENABLE' : 'DISABLE', `→ ${url}`);
+
+                        const response = await fetch(url, {
                             method: 'POST',
                             credentials: 'include',
                             headers: {
-                                'Content-Type': 'application/json',
                                 'X-Tenant-ID': tenantId
-                            },
-                            body: JSON.stringify({
-                                accountId: this.accountId,
-                                region: asg.region,
-                                asgName: asg.name,
-                                enabled: newState
-                            })
+                            }
                         });
 
                         if (response.ok) {
@@ -647,13 +691,16 @@
                                 `AutoSpotting ${newState ? 'enabled' : 'disabled'} for ${asg.name}`,
                                 'success'
                             );
+                            // Refresh data after toggle
                             setTimeout(() => this.fetchCostData(), 2000);
                         } else {
-                            throw new Error('Toggle failed');
+                            const errorText = await response.text();
+                            console.error('Toggle failed:', response.status, errorText);
+                            throw new Error(`HTTP ${response.status}: ${errorText}`);
                         }
                     } catch (error) {
-                        console.error('Error toggling ASG:', error);
-                        this.dispatchNotification('Failed to toggle AutoSpotting', 'error');
+                        console.error('Toggle error:', error);
+                        this.dispatchNotification(`Failed to toggle ${asg.name}: ${error.message}`, 'error');
                     } finally {
                         asg.updating = false;
                     }
