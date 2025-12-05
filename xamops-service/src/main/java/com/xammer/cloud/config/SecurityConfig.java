@@ -63,7 +63,8 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("/webjars/**"),
                                 new AntPathRequestMatcher("/gcp_*.html"),
                                 new AntPathRequestMatcher("/azure_dashboard.html"),
-                                new AntPathRequestMatcher("/ws/**"),
+                                new AntPathRequestMatcher("/ws/**"),       // Existing STOMP endpoint
+                                new AntPathRequestMatcher("/terminal"),    // ✅ NEW: CloudShell endpoint
                                 new AntPathRequestMatcher("/azure_*.html"),
                                 new AntPathRequestMatcher("/cloudlist.html"),
                                 new AntPathRequestMatcher("/api/ai/**"),
@@ -76,13 +77,9 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("/sonarqube.html"),
                                 new AntPathRequestMatcher("/user-manager.html"),
                                 new AntPathRequestMatcher("/api/devops-scripts/**"),
-                                // 👇 ADD THIS LINE HERE 👇
                                 new AntPathRequestMatcher("/api/ai/**")
-                        // ** ADD NEW RULE FOR FINOPS SCHEDULES (will be caught by
-                        // anyRequest().authenticated()) **
-                        // No explicit permitAll needed, it should be authenticated.
                         ).permitAll()
-                        .anyRequest().authenticated() // <-- This line correctly secures the new endpoints
+                        .anyRequest().authenticated()
                 )
                 .formLogin((form) -> form
                         .loginPage("/login")
@@ -134,8 +131,7 @@ public class SecurityConfig {
         return new BCryptPasswordEncoder();
     }
 
-    // ✅ REMOVED: userDetailsService bean (use CustomUserDetailsService @Service
-    // instead)
+    // ✅ REMOVED: userDetailsService bean (use CustomUserDetailsService @Service instead)
 
     @Bean
     public HttpFirewall allowSemicolonHttpFirewall() {

@@ -53,6 +53,81 @@ export default defineConfig({
         secure: false,
       },
 
+        // --- 2. USER PROFILE (Fixes Sidebar Visibility) ---
+        // Intercepts XamOps profile call and rewrites it to BillOps format if needed
+        '/api/xamops/user/profile': {
+          target: authTarget,
+          changeOrigin: true,
+          secure: false,
+          rewrite: (path) => {
+            if (authPort === '8082') {
+              return path.replace('/api/xamops/user/profile', '/api/billops/profile');
+            }
+            return path; // Keep as-is for XamOps
+          }
+        },
+
+        // --- 3. SHARED MODULES (Fixes Account List & Dashboard Errors) ---
+
+        // Routes Account Manager requests to the active backend
+        '/api/xamops/account-manager': {
+          target: authTarget,
+          changeOrigin: true,
+          secure: false
+        },
+
+        // Routes Dashboard Data requests to the active backend (Fixes ECONNREFUSED)
+        '/api/xamops/dashboard': {
+          target: authTarget,
+          changeOrigin: true,
+          secure: false
+        },
+
+        // --- 4. STATIC SERVICE ENDPOINTS ---
+
+        // Admin & Billops API requests always go to 8082 (billops-service)
+        // But if we are in dev mode targeting 8082, authTarget handles it.
+        // If we are in xamops mode (8080), we still want these to go to 8082 if running,
+        // but for "BillOps Only" mode, pointing everything to authTarget is safer.
+        '/api/admin': {
+          target: authTarget,
+          changeOrigin: true,
+          secure: false,
+        },
+        '/api/billops': {
+          target: authTarget,
+          changeOrigin: true,
+          secure: false,
+        },
+
+        // --- 5. XAMOPS FALLBACKS ---
+        // These point to 'authTarget' to handle cases where code resides in different services
+        '/api/xamops': { target: authTarget, changeOrigin: true, secure: false },
+        '/api/azure': { target: authTarget, changeOrigin: true, secure: false },
+        '/api/aws': { target: authTarget, changeOrigin: true, secure: false },
+        '/api/gcp': { target: authTarget, changeOrigin: true, secure: false },
+        '/api/ai-advisor': { target: authTarget, changeOrigin: true, secure: false },
+        '/api/cicd': { target: authTarget, changeOrigin: true, secure: false },
+
+        // --- 6. CLOUD SHELL (Native WebSocket) ---
+        // ✅ NEW: Explicit proxy for the renamed /terminal endpoint
+        '/terminal': {
+          target: authTarget.replace('http', 'ws'), // Proxies to ws://localhost:8080/terminal
+          ws: true,
+          changeOrigin: true,
+          secure: false
+        },
+
+        // --- 7. GENERAL WEBSOCKET PROXY ---
+        // Catches /ws endpoints (like STOMP)
+        '/ws': {
+          target: authTarget.replace('http', 'ws'),
+          ws: true,
+          changeOrigin: true,
+          followRedirects: false,
+          rewriteWsOrigin: true,
+          timeout: 10000,
+        },
       // AI Advisor
       '/api/ai-advisor': {
         target: 'http://localhost:8080',
@@ -109,57 +184,58 @@ export default defineConfig({
     }
   },
 
-  build: {
-    rollupOptions: {
-      input: {
-        index: resolve(__dirname, 'index.html'),
-        'account-manager': resolve(__dirname, 'account-manager.html'),
-        'user-manager': resolve(__dirname, 'user-manager.html'),
-        'Xamops_User_management.html': resolve(__dirname, 'Xamops_User_management.html'),
-        'add-account': resolve(__dirname, 'add-account.html'),
-        'add-gcp-account': resolve(__dirname, 'add-gcp-account.html'),
-        alerts: resolve(__dirname, 'alerts.html'),
-        cloudk8s: resolve(__dirname, 'cloudk8s.html'),
-        cloudlist: resolve(__dirname, 'cloudlist.html'),
-        cloudmap: resolve(__dirname, 'cloudmap.html'),
-        cost: resolve(__dirname, 'cost.html'),
-        dashboard: resolve(__dirname, 'dashboard.html'),
-        'eks-details': resolve(__dirname, 'eks-details.html'),
-        finops: resolve(__dirname, 'finops.html'),
-        rightsizing: resolve(__dirname, 'rightsizing.html'),
-        reservation: resolve(__dirname, 'reservation.html'),
-        waste: resolve(__dirname, 'waste.html'),
-        performance: resolve(__dirname, 'performance.html'),
-        xamops_tickets: resolve(__dirname, 'xamops_tickets.html'),
-        gcp_xamops_tickets: resolve(__dirname, 'gcp_xamops_tickets.html'),
-        xamops_ticket_detail: resolve(__dirname, 'xamops_ticket_detail.html'),
-        gcp_xamops_ticket_detail: resolve(__dirname, 'gcp_xamops_ticket_detail.html'),
-        'grafana-dashboard.html': resolve(__dirname, 'grafana-dashboard.html'),
-        'devops_in_the_box.html': resolve(__dirname, 'devops_in_the_box.html'),
-        'gcp_devops_in_the_box.html': resolve(__dirname, 'gcp_devops_in_the_box.html'),
-        'cicd_pipelines.html': resolve(__dirname, 'cicd_pipelines.html'),
-        security: resolve(__dirname, 'security.html'),
-        'add-github-config.html': resolve(__dirname, 'add-github-config.html'),
-        'sonarqube.html': resolve(__dirname, 'sonarqube.html'),
-        'aiops.html': resolve(__dirname, 'aiops.html'),
-        'complianceops.html': resolve(__dirname, 'complianceops.html'),
-        'dataops.html': resolve(__dirname, 'dataops.html'),
-        'spot-automation.html': resolve(__dirname, 'spot-automation.html'),
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve(__dirname, 'index.html'),
+          'account-manager': resolve(__dirname, 'account-manager.html'),
+          'user-manager': resolve(__dirname, 'user-manager.html'),
+          'Xamops_User_management.html': resolve(__dirname, 'Xamops_User_management.html'),
+          'add-account': resolve(__dirname, 'add-account.html'),
+          'add-gcp-account': resolve(__dirname, 'add-gcp-account.html'),
+          alerts: resolve(__dirname, 'alerts.html'),
+          cloudk8s: resolve(__dirname, 'cloudk8s.html'),
+          cloudlist: resolve(__dirname, 'cloudlist.html'),
+          cloudmap: resolve(__dirname, 'cloudmap.html'),
+          cost: resolve(__dirname, 'cost.html'),
+          dashboard: resolve(__dirname, 'dashboard.html'),
+          'eks-details': resolve(__dirname, 'eks-details.html'),
+          finops: resolve(__dirname, 'finops.html'),
+          rightsizing: resolve(__dirname, 'rightsizing.html'),
+          reservation: resolve(__dirname, 'reservation.html'),
+          waste: resolve(__dirname, 'waste.html'),
+          performance: resolve(__dirname, 'performance.html'),
+          xamops_tickets: resolve(__dirname, 'xamops_tickets.html'),
+          gcp_xamops_tickets: resolve(__dirname, 'gcp_xamops_tickets.html'),
+          xamops_ticket_detail: resolve(__dirname, 'xamops_ticket_detail.html'),
+          gcp_xamops_ticket_detail: resolve(__dirname, 'gcp_xamops_ticket_detail.html'),
+          'grafana-dashboard.html': resolve(__dirname, 'grafana-dashboard.html'),
+          'devops_in_the_box.html': resolve(__dirname, 'devops_in_the_box.html'),
+          'gcp_devops_in_the_box.html': resolve(__dirname, 'gcp_devops_in_the_box.html'),
+          'cicd_pipelines.html': resolve(__dirname, 'cicd_pipelines.html'),
+          security: resolve(__dirname, 'security.html'),
+          'add-github-config.html': resolve(__dirname, 'add-github-config.html'),
+          'sonarqube.html': resolve(__dirname, 'sonarqube.html'),
+          'aiops.html': resolve(__dirname, 'aiops.html'),
+          'complianceops.html': resolve(__dirname, 'complianceops.html'),
+          'dataops.html': resolve(__dirname, 'dataops.html'),
+          'cloudshell.html': resolve(__dirname, 'cloudshell.html'),
+          'spot-automation.html': resolve(__dirname, 'spot-automation.html'),
 
-        // Admin subdir files
-        'admin_credits': resolve(__dirname, 'billops/admin_credits.html'),
-        'admin_invoice_detail': resolve(__dirname, 'billops/admin_invoice_detail.html'),
-        'admin_invoices': resolve(__dirname, 'billops/admin_invoices.html'),
-        'admin_tickets': resolve(__dirname, 'billops/admin_tickets.html'),
-        'billing': resolve(__dirname, 'billops/billing.html'),
-        'tickets': resolve(__dirname, 'billops/tickets.html'),
-        'ticket_detail': resolve(__dirname, 'billops/ticket_detail.html'),
-        'credits': resolve(__dirname, 'billops/credits.html'),
-        'invoices': resolve(__dirname, 'billops/invoices.html'),
-        'admin_cloudfront_billing': resolve(__dirname, 'billops/admin_cloudfront_billing.html'),
-        'marketplace-purchases': resolve(__dirname, 'billops/marketplace-purchases.html'),
-        'thirdparty-tools': resolve(__dirname, 'billops/thirdparty-tools.html'),
-        'workspace-licenses': resolve(__dirname, 'billops/workspace-licenses.html'),
+          // Admin subdir files
+          'admin_credits': resolve(__dirname, 'billops/admin_credits.html'),
+          'admin_invoice_detail': resolve(__dirname, 'billops/admin_invoice_detail.html'),
+          'admin_invoices': resolve(__dirname, 'billops/admin_invoices.html'),
+          'admin_tickets': resolve(__dirname, 'billops/admin_tickets.html'),
+          'billing': resolve(__dirname, 'billops/billing.html'),
+          'tickets': resolve(__dirname, 'billops/tickets.html'),
+          'ticket_detail': resolve(__dirname, 'billops/ticket_detail.html'),
+          'credits': resolve(__dirname, 'billops/credits.html'),
+          'invoices': resolve(__dirname, 'billops/invoices.html'),
+          'admin_cloudfront_billing': resolve(__dirname, 'billops/admin_cloudfront_billing.html'),
+          'marketplace-purchases': resolve(__dirname, 'billops/marketplace-purchases.html'),
+          'thirdparty-tools': resolve(__dirname, 'billops/thirdparty-tools.html'),
+          'workspace-licenses': resolve(__dirname, 'billops/workspace-licenses.html'),
 
         // GCP subdir files
         'gcp_cloudlist': resolve(__dirname, 'gcp_cloudlist.html'),
