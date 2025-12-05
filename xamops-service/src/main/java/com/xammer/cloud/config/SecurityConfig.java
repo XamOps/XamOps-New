@@ -78,6 +78,7 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("/api/autospotting/**"),
                                 new AntPathRequestMatcher("/api/devops-scripts/**"),
                                 new AntPathRequestMatcher("/spot-automation.html"),
+                                new AntPathRequestMatcher("actions-history.html"),
 
                                 new AntPathRequestMatcher("/api/ai/**")
                         // ** ADD NEW RULE FOR FINOPS SCHEDULES (will be caught by

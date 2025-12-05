@@ -9,6 +9,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.List;
 import java.util.Map;
 
@@ -51,12 +55,18 @@ public class AutoSpottingController {
      */
     @GetMapping("/costs/{accountId}")
     public ResponseEntity<?> getCostData(@PathVariable Long accountId) {
-        log.info("AutoSpottingController.getCostData called with accountId={}", accountId);
+        log.info("getCostData called: accountId={}", accountId);
         try {
             CostResponse costData = autoSpottingService.getCostData(accountId);
+            log.info("Cost data retrieved: {} ASGs, ${}/hr",
+                    costData.getAsgs() != null ? costData.getAsgs().size() : 0,
+                    costData.getSummary() != null ? costData.getSummary().getTotalCurrentHourlyCost() : 0.0);
             return ResponseEntity.ok(costData);
-        } catch (Exception e) {
-            log.error("Failed to get cost data from AutoSpotting API: {}", e.getMessage(), e);
+        } catch (RuntimeException e) {
+            if (e.getMessage().contains("401")) {
+                log.error("❌ API authentication failed - check API key");
+            }
+            log.error("Failed to get cost data: {}", e.getMessage(), e);
             return ResponseEntity.status(500).body(Map.of(
                     "success", false,
                     "error", "Failed to fetch cost data: " + e.getMessage()));
@@ -294,4 +304,144 @@ public class AutoSpottingController {
                 "service", "AutoSpotting Integration",
                 "timestamp", System.currentTimeMillis()));
     }
+
+    // ================= EVENTS/ACTIONS HISTORY =================
+
+    /**
+     * Get events/actions history
+     * GET /api/autospotting/events/{accountId}
+     * 
+     * Query params:
+     * - start: ISO date-time (default: 7 days ago)
+     * - end: ISO date-time (default: now)
+     * - eventType: filter by type (instance_replacement, spot_interruption,
+     * rebalance_event)
+     * - asgName: filter by ASG name
+     */
+    @GetMapping("/events/{accountId}")
+    public ResponseEntity<?> getEvents(
+            @PathVariable Long accountId,
+            @RequestParam(required = false) String start,
+            @RequestParam(required = false) String end,
+            @RequestParam(required = false) String eventType,
+            @RequestParam(required = false) String asgName) {
+
+        log.info(
+                "AutoSpottingController.getEvents called with accountId={}, start={}, end={}, eventType={}, asgName={}",
+                accountId, start, end, eventType, asgName);
+
+        try {
+            // Default to last 7 days if not provided
+            if (start == null || start.isEmpty()) {
+                start = java.time.Instant.now()
+                        .minus(7, java.time.temporal.ChronoUnit.DAYS)
+                        .toString();
+            }
+            if (end == null || end.isEmpty()) {
+                end = java.time.Instant.now().toString();
+            }
+
+            EventsResponse events = autoSpottingService.getEvents(accountId, start, end, eventType, asgName);
+            return ResponseEntity.ok(events);
+
+        } catch (Exception e) {
+            log.error("Failed to get events from AutoSpotting API: {}", e.getMessage(), e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "success", false,
+                    "error", "Failed to fetch events: " + e.getMessage()));
+        }
+    }
+
+    // ================= DEBUG ENDPOINTS =================
+
+    /**
+     * Debug endpoint to test manual HTTP connection bypassing RestTemplate
+     * GET /api/autospotting/debug/manual-test/{accountId}
+     */
+    @GetMapping("/debug/manual-test/{accountId}")
+    public ResponseEntity<?> debugManualTest(@PathVariable Long accountId) {
+        log.info("=== MANUAL HTTP TEST ===");
+        log.info("Testing direct HTTP connection for account {}", accountId);
+
+        try {
+            String result = testManualConnection(accountId.toString());
+            log.info("✓ Manual HTTP test SUCCESSFUL");
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "accountId", accountId,
+                    "message", "Manual HTTP connection successful",
+                    "responsePreview", result.length() > 200 ? result.substring(0, 200) + "..." : result,
+                    "responseLength", result.length()));
+        } catch (Exception e) {
+            log.error("❌ Manual HTTP test FAILED: {}", e.getMessage(), e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "success", false,
+                    "accountId", accountId,
+                    "error", e.getMessage(),
+                    "errorType", e.getClass().getSimpleName()));
+        }
+    }
+
+    /**
+     * Manual HTTP test using HttpURLConnection (bypasses Spring RestTemplate)
+     * This helps identify if the issue is with RestTemplate configuration or API
+     * itself
+     */
+    private String testManualConnection(String accountId) throws Exception {
+        // Hardcoded for testing - in production, inject via @Value
+        String apiKey = "sHX4wpgTYZhdBI8LxrM8lhkY8eFgsIg2";
+        String baseUrl = "https://do0ezmdybge0h.cloudfront.net/api";
+        String urlString = baseUrl + "/v1/costs?account_id=" + accountId;
+
+        log.info("Manual HTTP GET: {}", urlString);
+
+        URL url = new URL(urlString);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+
+        // Set request method
+        conn.setRequestMethod("GET");
+
+        // Set headers
+        conn.setRequestProperty("Content-Type", "application/json");
+        conn.setRequestProperty("Accept", "application/json");
+        conn.setRequestProperty("X-Api-Key", apiKey);
+
+        log.info("Request headers set:");
+        log.info("  Content-Type: application/json");
+        log.info("  Accept: application/json");
+        log.info("  X-Api-Key: {}... (length={})",
+                apiKey.substring(0, Math.min(10, apiKey.length())),
+                apiKey.length());
+
+        // Get response
+        int responseCode = conn.getResponseCode();
+        log.info("HTTP Response Code: {}", responseCode);
+        log.info("HTTP Response Message: {}", conn.getResponseMessage());
+
+        // Read response body
+        BufferedReader in = new BufferedReader(
+                new InputStreamReader(
+                        responseCode >= 200 && responseCode < 300
+                                ? conn.getInputStream()
+                                : conn.getErrorStream()));
+
+        StringBuilder response = new StringBuilder();
+        String inputLine;
+        while ((inputLine = in.readLine()) != null) {
+            response.append(inputLine);
+        }
+        in.close();
+
+        String responseBody = response.toString();
+        log.info("Response Body Length: {} characters", responseBody.length());
+        log.info("Response Body Preview: {}",
+                responseBody.substring(0, Math.min(200, responseBody.length())) + "...");
+
+        if (responseCode != 200) {
+            throw new RuntimeException("HTTP " + responseCode + ": " + responseBody);
+        }
+
+        return responseBody;
+    }
+
 }

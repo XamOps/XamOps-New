@@ -3,6 +3,7 @@ package com.xammer.cloud.service;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.autospotting.*;
+import com.xammer.cloud.dto.autospotting.EventsResponse.EventsSummary;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -798,4 +799,67 @@ public class AutoSpottingService {
             this.ondemandInstanceCount = ondemandCount;
         }
     }
+
+    /**
+     * Get events (actions history) from AutoSpotting API
+     */
+    public EventsResponse getEvents(Long cloudAccountId, String start, String end, String eventType, String asgName) {
+        logger.info("=== Fetching Events History ===");
+        logger.info("CloudAccountId={}, start={}, end={}, eventType={}, asgName={}",
+                cloudAccountId, start, end, eventType, asgName);
+
+        CloudAccount account = getByAwsAccountId(cloudAccountId);
+        logger.info("AWS Account ID: {}", account.getAwsAccountId());
+
+        try {
+            // Call AutoSpotting API
+            logger.info("Calling AutoSpotting Events API for account {}", account.getAwsAccountId());
+            EventsResponse response = apiClient.getEvents(
+                    account.getAwsAccountId(),
+                    start,
+                    end,
+                    eventType,
+                    asgName);
+
+            if (response != null && response.getEvents() != null) {
+                logger.info("✓ Retrieved {} events from API", response.getCount());
+
+                if (response.getSummary() != null) {
+                    logger.info("  - Replacements: {}", response.getSummary().getTotalReplacements());
+                    logger.info("  - Interruptions: {}", response.getSummary().getTotalInterruptions());
+                    logger.info("  - Total estimated savings: ${}/hr",
+                            String.format("%.4f", response.getSummary().getTotalEstimatedSavings()));
+                }
+
+                return response;
+            } else {
+                logger.warn("Empty or null response from AutoSpotting Events API");
+                return createEmptyEventsResponse(start, end);
+            }
+
+        } catch (Exception e) {
+            logger.error("❌ Failed to fetch events from AutoSpotting API: {}", e.getMessage(), e);
+            throw new RuntimeException("Failed to fetch events: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Create empty events response
+     */
+    private EventsResponse createEmptyEventsResponse(String start, String end) {
+        EventsResponse response = new EventsResponse();
+        response.setStart(start);
+        response.setEnd(end);
+        response.setCount(0);
+        response.setEvents(new java.util.ArrayList<>());
+
+        EventsSummary summary = new EventsSummary();
+        summary.setTotalReplacements(0);
+        summary.setTotalInterruptions(0);
+        summary.setTotalEstimatedSavings(0.0);
+        response.setSummary(summary);
+
+        return response;
+    }
+
 }
