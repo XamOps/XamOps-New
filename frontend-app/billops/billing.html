@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <title>XamOps - Billing Dashboard</title>
@@ -10,390 +11,466 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-    <style>
-        body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            background-color: #f8fafc;
-        }
-        [x-cloak] { display: none !important; }
-        .error { text-align: center; padding: 2rem; color: #dc2626; }
-
-        /* Professional Card Styling */
-        .dashboard-card {
-            background: #ffffff;
-            border-radius: 12px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.1);
-            border: 1px solid rgba(226,232,240,0.6);
-            transition: all 0.2s ease;
-        }
-
-        .dashboard-card:hover {
-            box-shadow: 0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.06);
-        }
-
-        /* Table Styling */
-        .cost-breakdown-table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 0;
-            font-size: 14px;
-            background: white;
-            border-radius: 8px;
-            overflow: hidden;
-            table-layout: fixed;
-        }
-
-        .cost-breakdown-table colgroup col:nth-child(1) { width: 60px; }
-        .cost-breakdown-table colgroup col:nth-child(2) { width: 45%; }
-        .cost-breakdown-table colgroup col:nth-child(3) { width: 25%; }
-        .cost-breakdown-table colgroup col:nth-child(4) { width: 25%; }
-
-        .cost-breakdown-table thead th {
-            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-            color: #374151;
-            font-weight: 600;
-            font-size: 12px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            padding: 16px 20px;
-            text-align: left;
-            border-bottom: 2px solid #e2e8f0;
-            position: relative;
-        }
-
-        .cost-breakdown-table th:nth-child(1), .cost-breakdown-table td:nth-child(1) { width: 60px; text-align: center; }
-        .cost-breakdown-table th:nth-child(2), .cost-breakdown-table td:nth-child(2) { width: 45%; text-align: left; word-wrap: break-word; }
-        .cost-breakdown-table th:nth-child(3), .cost-breakdown-table td:nth-child(3) { width: 25%; text-align: right; }
-        .cost-breakdown-table th:nth-child(4), .cost-breakdown-table td:nth-child(4) { width: 25%; text-align: right; }
-
-        .cost-breakdown-table tbody { display: table-row-group; }
-        .cost-breakdown-table tbody tr {
-            transition: all 0.15s ease;
-            border-bottom: 1px solid #f1f5f9;
-            display: table-row;
-        }
-
-        .cost-breakdown-table tbody tr:hover:not(.skeleton-row) {
-            background-color: rgba(99, 102, 241, 0.02);
-            transform: translateY(-1px);
-        }
-
-        .cost-breakdown-table td {
-            padding: 16px 20px;
-            vertical-align: middle;
-            border-bottom: 1px solid #f1f5f9;
-            display: table-cell;
-        }
-
-        .expand-icon {
-            transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-            color: #6366f1;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            width: 24px;
-            height: 24px;
-            border-radius: 4px;
-            background: rgba(99, 102, 241, 0.1);
-        }
-
-        .expand-icon:hover { background: rgba(99, 102, 241, 0.2); }
-        .rotate-90 { transform: rotate(90deg); }
-
-        .drilldown-row {
-            background: linear-gradient(135deg, #fafbff 0%, #f8fafc 100%);
-            border-left: 4px solid #6366f1;
-        }
-        .drilldown-row td { border-bottom: 1px solid #e2e8f0; padding: 12px 20px; }
-        .nested-drilldown {
-            background: linear-gradient(135deg, #f0f4ff 0%, #fafbff 100%);
-            border-left: 4px solid #8b5cf6;
-        }
-
-        .amount-cell {
-            font-weight: 600;
-            font-family: 'JetBrains Mono', monospace;
-            text-align: right;
-            color: #059669;
-        }
-        .service-name { font-weight: 600; color: #1f2937; font-size: 15px; }
-        .region-name { color: #6b7280; font-weight: 500; padding-left: 20px; }
-        .resource-name { color: #9ca3af; font-size: 13px; padding-left: 40px; }
-
-        .chart-container { position: relative; height: 280px; padding: 10px; }
-
-        .dashboard-header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border-radius: 12px 12px 0 0;
-            padding: 20px 24px;
-            margin-bottom: 0;
-        }
-        .dashboard-title { font-size: 24px; font-weight: 700; margin: 0; }
-
-        .filter-select {
-            background: white;
-            border: 2px solid #e5e7eb;
-            border-radius: 8px;
-            padding: 8px 12px;
-            font-size: 14px;
-            font-weight: 500;
-            color: #374151;
-            transition: all 0.2s ease;
-        }
-        .filter-select:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1); }
-
-        .refresh-button {
-            background: #ffffff;
-            border: 2px solid #e5e7eb;
-            border-radius: 8px;
-            padding: 8px 12px;
-            font-size: 14px;
-            font-weight: 500;
-            color: #374151;
-            transition: all 0.2s ease;
-            display: flex;
-            align-items: center;
-            line-height: 1.5;
-        }
-        .refresh-button:hover:not(:disabled) {
-            border-color: #6366f1;
-            color: #6366f1;
-            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
-        }
-        .refresh-button:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-            background: #f9fafb;
-        }
-        .refresh-button .fa-spin { animation: spin 0.8s linear infinite; }
-
-        .updating-spinner {
-             display: inline-block;
-             width: 16px;
-             height: 16px;
-             border: 2px solid #ffffff; /* White for header contrast */
-             border-radius: 50%;
-             border-top-color: transparent;
-             animation: spin 0.8s linear infinite;
-             margin-left: 10px;
-       }
-
-        @keyframes spin { to { transform: rotate(360deg); } }
-
-        .skeleton-placeholder { background-color: #e2e8f0; border-radius: 4px; }
-        .skeleton-placeholder-dark { background-color: #cbd5e1; border-radius: 4px; }
-
-        @media (max-width: 768px) {
-            .cost-breakdown-table th, .cost-breakdown-table td { padding: 12px 16px; font-size: 13px; }
-            .chart-container { height: 220px; }
-        }
-    </style>
 </head>
-<body class="bg-slate-100"> 
-<div class="flex h-screen">
-  <include file="/_sidebar.html"></include>
 
-    <div class="flex-1 flex flex-col overflow-y-auto pl-64" x-data="billingDashboard()">
+<body class="bg-gray-50">
+    <div class="flex h-screen overflow-hidden">
+        <include file="/_sidebar.html"></include>
 
-        <div class="p-10">
-            <div class="max-w-7xl mx-auto">
-                <div x-show="loading" class="animate-pulse mb-6">
-                     <div class="dashboard-card">
-                         <div class="dashboard-header h-[85px]"> <div class="flex justify-between items-center h-full">
-                                 <div class="skeleton-placeholder-dark h-6 w-48"></div>
-                                 <div class="flex items-center space-x-3">
-                                     <div class="skeleton-placeholder-dark h-9 w-20 rounded-lg"></div>
-                                     <div class="skeleton-placeholder-dark h-9 w-20 rounded-lg"></div>
-                                     <div class="skeleton-placeholder-dark h-9 w-24 rounded-lg"></div>
-                                 </div>
-                             </div>
-                         </div>
-                     </div>
-                </div>
+        <div class="flex-1 flex flex-col overflow-hidden pl-64">
+            <main id="main-content" class="flex-1 overflow-y-auto" x-data="billingDashboard()">
 
-                <div x-show="!loading" class="dashboard-card mb-6">
-                    <div class="dashboard-header">
-                        <div class="flex justify-between items-center">
-                            <h1 class="dashboard-title flex items-center">
-                                Billing Dashboard
-                                <span x-show="isUpdating" class="updating-spinner" title="Refreshing data in background..."></span>
-                            </h1>
-                            <div class="flex items-center space-x-3">
-                                <select x-model="selectedYear" @change="handleFilterChange()" class="filter-select" :disabled="loading || isUpdating">
-                                    <template x-for="year in availableYears" :key="year">
-                                        <option :value="year" x-text="year"></option>
-                                    </template>
-                                </select>
-                                <select x-model="selectedMonth" @change="handleFilterChange()" class="filter-select" :disabled="loading || isUpdating">
-                                    <template x-for="month in availableMonths" :key="month.value">
-                                        <option :value="month.value" x-text="month.name"></option>
-                                    </template>
-                                </select>
-                                
-                                <button @click="fetchData(true)" class="refresh-button" :disabled="loading || isUpdating">
-                                    <i class="fas" :class="{ 'fa-sync-alt fa-spin': isUpdating, 'fa-sync-alt': !isUpdating }"></i>
-                                    <span class="ml-2" x-text="isUpdating ? 'Refreshing...' : 'Refresh'"></span>
-                                </button>
+                <style>
+                    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+                    body {
+                        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+                    }
+
+                    [x-cloak] {
+                        display: none !important;
+                    }
+
+                    .error {
+                        text-align: center;
+                        padding: 2rem;
+                        color: #dc2626;
+                    }
+
+                    /* Card Styling */
+                    .dashboard-card {
+                        background: #ffffff;
+                        border-radius: 12px;
+                        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.1);
+                        border: 1px solid rgba(226, 232, 240, 0.6);
+                        transition: all 0.2s ease;
+                    }
+
+                    .dashboard-card:hover {
+                        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.07), 0 2px 4px rgba(0, 0, 0, 0.06);
+                    }
+
+                    /* Table Styling */
+                    .cost-breakdown-table {
+                        width: 100%;
+                        border-collapse: separate;
+                        border-spacing: 0;
+                        font-size: 14px;
+                        background: white;
+                        border-radius: 8px;
+                        overflow: hidden;
+                        table-layout: fixed;
+                    }
+
+                    .cost-breakdown-table colgroup col:nth-child(1) {
+                        width: 60px;
+                    }
+
+                    .cost-breakdown-table colgroup col:nth-child(2) {
+                        width: 45%;
+                    }
+
+                    .cost-breakdown-table colgroup col:nth-child(3) {
+                        width: 25%;
+                    }
+
+                    .cost-breakdown-table colgroup col:nth-child(4) {
+                        width: 25%;
+                    }
+
+                    .cost-breakdown-table thead th {
+                        background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+                        color: #374151;
+                        font-weight: 600;
+                        font-size: 12px;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                        padding: 16px 20px;
+                        text-align: left;
+                        border-bottom: 2px solid #e2e8f0;
+                    }
+
+                    .cost-breakdown-table th:nth-child(1),
+                    .cost-breakdown-table td:nth-child(1) {
+                        width: 60px;
+                        text-align: center;
+                    }
+
+                    .cost-breakdown-table th:nth-child(3),
+                    .cost-breakdown-table td:nth-child(3) {
+                        text-align: right;
+                    }
+
+                    .cost-breakdown-table th:nth-child(4),
+                    .cost-breakdown-table td:nth-child(4) {
+                        text-align: right;
+                    }
+
+                    .cost-breakdown-table tbody tr {
+                        transition: all 0.15s ease;
+                        border-bottom: 1px solid #f1f5f9;
+                    }
+
+                    .cost-breakdown-table tbody tr:hover:not(.skeleton-row) {
+                        background-color: rgba(99, 102, 241, 0.02);
+                        transform: translateY(-1px);
+                    }
+
+                    .cost-breakdown-table td {
+                        padding: 16px 20px;
+                        vertical-align: middle;
+                        border-bottom: 1px solid #f1f5f9;
+                    }
+
+                    .expand-icon {
+                        transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+                        color: #6366f1;
+                        cursor: pointer;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        width: 24px;
+                        height: 24px;
+                        border-radius: 4px;
+                        background: rgba(99, 102, 241, 0.1);
+                    }
+
+                    .expand-icon:hover {
+                        background: rgba(99, 102, 241, 0.2);
+                    }
+
+                    .rotate-90 {
+                        transform: rotate(90deg);
+                    }
+
+                    .drilldown-row {
+                        background: linear-gradient(135deg, #fafbff 0%, #f8fafc 100%);
+                        border-left: 4px solid #6366f1;
+                    }
+
+                    .nested-drilldown {
+                        background: linear-gradient(135deg, #f0f4ff 0%, #fafbff 100%);
+                        border-left: 4px solid #8b5cf6;
+                    }
+
+                    .amount-cell {
+                        font-weight: 600;
+                        font-family: 'JetBrains Mono', monospace;
+                        text-align: right;
+                        color: #059669;
+                    }
+
+                    .chart-container {
+                        position: relative;
+                        height: 280px;
+                        padding: 10px;
+                    }
+
+                    .dashboard-header {
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        color: white;
+                        border-radius: 12px 12px 0 0;
+                        padding: 20px 24px;
+                    }
+
+                    .dashboard-title {
+                        font-size: 24px;
+                        font-weight: 700;
+                        margin: 0;
+                    }
+
+                    .filter-select {
+                        background: white;
+                        border: 2px solid #e5e7eb;
+                        border-radius: 8px;
+                        padding: 8px 12px;
+                        font-size: 14px;
+                        font-weight: 500;
+                        color: #374151;
+                    }
+
+                    .refresh-button {
+                        background: #ffffff;
+                        border: 2px solid #e5e7eb;
+                        border-radius: 8px;
+                        padding: 8px 12px;
+                        font-size: 14px;
+                        font-weight: 500;
+                        color: #374151;
+                        display: flex;
+                        align-items: center;
+                    }
+
+                    .refresh-button:hover:not(:disabled) {
+                        border-color: #6366f1;
+                        color: #6366f1;
+                    }
+
+                    .updating-spinner {
+                        display: inline-block;
+                        width: 16px;
+                        height: 16px;
+                        border: 2px solid #ffffff;
+                        border-radius: 50%;
+                        border-top-color: transparent;
+                        animation: spin 0.8s linear infinite;
+                        margin-left: 10px;
+                    }
+
+                    @keyframes spin {
+                        to {
+                            transform: rotate(360deg);
+                        }
+                    }
+
+                    .skeleton-placeholder {
+                        background-color: #e2e8f0;
+                        border-radius: 4px;
+                    }
+
+                    .skeleton-placeholder-dark {
+                        background-color: #cbd5e1;
+                        border-radius: 4px;
+                    }
+
+                    .gradient-text {
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        -webkit-background-clip: text;
+                        -webkit-text-fill-color: transparent;
+                    }
+                </style>
+
+                <div class="p-10">
+                    <div class="max-w-7xl mx-auto">
+                        <div x-show="loading" class="animate-pulse mb-6">
+                            <div class="dashboard-card">
+                                <div class="dashboard-header h-[85px]">
+                                    <div class="flex justify-between items-center h-full">
+                                        <div class="skeleton-placeholder-dark h-6 w-48"></div>
+                                        <div class="flex items-center space-x-3">
+                                            <div class="skeleton-placeholder-dark h-9 w-20 rounded-lg"></div>
+                                            <div class="skeleton-placeholder-dark h-9 w-20 rounded-lg"></div>
+                                            <div class="skeleton-placeholder-dark h-9 w-24 rounded-lg"></div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                </div>
 
-                <div x-show="loading" class="animate-pulse space-y-8">
-                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                         <div class="dashboard-card">
-                             <div class="p-6 border-b border-gray-100">
-                                 <div class="skeleton-placeholder h-5 w-3/5 mb-2"></div>
-                                 <div class="skeleton-placeholder h-3 w-2/5"></div>
-                             </div>
-                             <div class="p-4">
-                                 <div class="h-[280px] skeleton-placeholder rounded-lg"></div>
-                             </div>
-                         </div>
-                         <div class="dashboard-card">
-                             <div class="p-6 border-b border-gray-100">
-                                 <div class="skeleton-placeholder h-5 w-3/5 mb-2"></div>
-                                 <div class="skeleton-placeholder h-3 w-2/5"></div>
-                             </div>
-                             <div class="p-4">
-                                 <div class="h-[280px] skeleton-placeholder rounded-lg"></div>
-                             </div>
-                         </div>
-                     </div>
-                     <div class="dashboard-card">
-                         <div class="p-6 border-b border-gray-100">
-                             <div class="skeleton-placeholder h-5 w-2/5 mb-2"></div>
-                             <div class="skeleton-placeholder h-3 w-3/5"></div>
-                         </div>
-                         <div class="overflow-x-auto">
-                             <table class="cost-breakdown-table">
-                                 <colgroup>
-                                     <col style="width: 60px;">
-                                     <col style="width: 45%;">
-                                     <col style="width: 25%;">
-                                     <col style="width: 25%;">
-                                 </colgroup>
-                                 <thead>
-                                     <tr>
-                                         <th><div class="skeleton-placeholder h-4 w-4 mx-auto"></div></th>
-                                         <th><div class="skeleton-placeholder h-4 w-24"></div></th>
-                                         <th><div class="skeleton-placeholder h-4 w-20 ml-auto"></div></th>
-                                         <th><div class="skeleton-placeholder h-4 w-20 ml-auto"></div></th>
-                                     </tr>
-                                 </thead>
-                                 <tbody>
-                                     <template x-for="i in 5" :key="i">
-                                         <tr class="skeleton-row">
-                                             <td><div class="skeleton-placeholder h-6 w-6 mx-auto rounded-md"></div></td>
-                                             <td><div class="skeleton-placeholder h-4 w-3/4"></div></td>
-                                             <td><div class="skeleton-placeholder h-4 w-1/2 ml-auto"></div></td>
-                                             <td><div class="skeleton-placeholder h-4 w-1/2 ml-auto"></div></td>
-                                         </tr>
-                                     </template>
-                                 </tbody>
-                             </table>
-                         </div>
-                     </div>
-                </div>
+                        <div x-show="!loading" class="dashboard-card mb-6">
+                            <div class="dashboard-header">
+                                <div class="flex justify-between items-center">
+                                    <h1 class="dashboard-title flex items-center">
+                                        Billing Dashboard
+                                        <span x-show="isUpdating" class="updating-spinner"
+                                            title="Refreshing data in background..."></span>
+                                    </h1>
+                                    <div class="flex items-center space-x-3">
+                                        <select x-model="selectedYear" @change="handleFilterChange()"
+                                            class="filter-select" :disabled="loading || isUpdating">
+                                            <template x-for="year in availableYears" :key="year">
+                                                <option :value="year" x-text="year"></option>
+                                            </template>
+                                        </select>
+                                        <select x-model="selectedMonth" @change="handleFilterChange()"
+                                            class="filter-select" :disabled="loading || isUpdating">
+                                            <template x-for="month in availableMonths" :key="month.value">
+                                                <option :value="month.value" x-text="month.name"></option>
+                                            </template>
+                                        </select>
 
-                <div x-show="error && !hasData && !loading" class="dashboard-card p-8 text-center border-red-200 bg-red-50">
-                    <i class="fas fa-exclamation-triangle text-red-500 text-2xl mb-3"></i>
-                    <p class="text-red-700 font-medium" x-text="error"></p>
-                </div>
-                <div x-show="updateError && hasData && !loading" class="mb-4 p-3 text-sm text-yellow-800 rounded-lg bg-yellow-50 border border-yellow-200" role="alert">
-                    <i class="fas fa-exclamation-circle mr-2"></i> <span x-text="updateError"></span>
-                </div>
-
-                <div x-show="!loading && (hasData || isUpdating)" class="space-y-8" x-cloak>
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <div class="dashboard-card">
-                            <div class="p-6 border-b border-gray-100">
-                                <h2 class="text-xl font-semibold text-gray-800 flex items-center">
-                                    <i class="fas fa-chart-bar text-blue-500 mr-3"></i>
-                                    Cost Over Time
-                                </h2>
-                                <p class="text-sm text-gray-500 mt-1">Monthly spending trends</p>
-                            </div>
-                            <div class="p-4">
-                                <div class="chart-container" x-show="billingData.costHistory.length > 0">
-                                    <canvas id="costHistoryChart"></canvas>
-                                </div>
-                                <div x-show="!loading && billingData.costHistory.length === 0" class="text-center py-10 text-gray-500">
-                                    No cost history data available.
+                                        <button @click="fetchData(true)" class="refresh-button"
+                                            :disabled="loading || isUpdating">
+                                            <i class="fas"
+                                                :class="{ 'fa-sync-alt fa-spin': isUpdating, 'fa-sync-alt': !isUpdating }"></i>
+                                            <span class="ml-2" x-text="isUpdating ? 'Refreshing...' : 'Refresh'"></span>
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
 
-                        <div class="dashboard-card">
-                            <div class="p-6 border-b border-gray-100">
-                                <h2 class="text-xl font-semibold text-gray-800 flex items-center">
-                                    <i class="fas fa-chart-pie text-purple-500 mr-3"></i>
-                                    Service Breakdown
-                                </h2>
-                                <p class="text-sm text-gray-500 mt-1">Distribution by AWS services</p>
-                            </div>
-                            <div class="p-4">
-                                <div class="chart-container" x-show="billingData.serviceBreakdown.length > 0">
-                                    <canvas id="serviceBreakdownChart"></canvas>
+                        <div x-show="loading" class="animate-pulse space-y-8">
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                <div class="dashboard-card">
+                                    <div class="p-6 border-b border-gray-100">
+                                        <div class="skeleton-placeholder h-5 w-3/5 mb-2"></div>
+                                        <div class="skeleton-placeholder h-3 w-2/5"></div>
+                                    </div>
+                                    <div class="p-4">
+                                        <div class="h-[280px] skeleton-placeholder rounded-lg"></div>
+                                    </div>
                                 </div>
-                                <div x-show="!loading && billingData.serviceBreakdown.length === 0" class="text-center py-10 text-gray-500">
-                                    No service breakdown data available.
+                                <div class="dashboard-card">
+                                    <div class="p-6 border-b border-gray-100">
+                                        <div class="skeleton-placeholder h-5 w-3/5 mb-2"></div>
+                                        <div class="skeleton-placeholder h-3 w-2/5"></div>
+                                    </div>
+                                    <div class="p-4">
+                                        <div class="h-[280px] skeleton-placeholder rounded-lg"></div>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    </div>
-
-                    <div class="dashboard-card">
-                        <div class="p-6 border-b border-gray-100">
-                            <h2 class="text-xl font-semibold text-gray-800 flex items-center">
-                                <i class="fas fa-table text-green-500 mr-3"></i>
-                                Detailed Cost Breakdown
-                            </h2>
-                            <p class="text-sm text-gray-500 mt-1">Expandable view of all services, regions, and resources</p>
-                        </div>
-
-                        <div class="overflow-x-auto">
-                            <table class="cost-breakdown-table">
-                                <colgroup>
-                                    <col style="width: 60px;">
-                                    <col style="width: 45%;">
-                                    <col style="width: 25%;">
-                                    <col style="width: 25%;">
-                                </colgroup>
-
-                                <thead>
-                                <tr>
-                                    <th></th>
-                                    <th>Service / Resource</th>
-                                    <th>Usage Quantity</th>
-                                    <th>Amount (USD)</th>
-                                </tr>
-                                </thead>
-
-                                <template x-for="service in detailedBreakdown" :key="service.serviceName">
-                                    <tbody>
-                                        <tr @click="toggleService(service.serviceName)" class="cursor-pointer">
-                                            <td>
-                                                <div class="expand-icon" :class="{ 'rotate-90': expandedServices[service.serviceName] }">
-                                                    <i class="fas fa-chevron-right text-sm"></i>
-                                                </div>
-                                            </td>
-                                            <td>
-                                                <div class="service-name" x-text="service.serviceName"></div>
-                                            </td>
-                                            <td><span class="text-gray-500">—</span></td>
-                                            <td>
-                                                <div class="amount-cell" x-text="formatCurrency(service.totalCost)"></div>
-                                            </td>
-                                        </tr>
-
-                                        <template x-for="region in service.regionCosts" :key="region.regionName">
-                                            <tbody x-show="expandedServices[service.serviceName]">
-                                                <tr @click="toggleRegion(service.serviceName, region.regionName)" class="cursor-pointer drilldown-row">
+                            <div class="dashboard-card">
+                                <div class="p-6 border-b border-gray-100">
+                                    <div class="skeleton-placeholder h-5 w-2/5 mb-2"></div>
+                                    <div class="skeleton-placeholder h-3 w-3/5"></div>
+                                </div>
+                                <div class="overflow-x-auto">
+                                    <table class="cost-breakdown-table">
+                                        <colgroup>
+                                            <col style="width: 60px;">
+                                            <col style="width: 45%;">
+                                            <col style="width: 25%;">
+                                            <col style="width: 25%;">
+                                        </colgroup>
+                                        <thead>
+                                            <tr>
+                                                <th>
+                                                    <div class="skeleton-placeholder h-4 w-4 mx-auto"></div>
+                                                </th>
+                                                <th>
+                                                    <div class="skeleton-placeholder h-4 w-24"></div>
+                                                </th>
+                                                <th>
+                                                    <div class="skeleton-placeholder h-4 w-20 ml-auto"></div>
+                                                </th>
+                                                <th>
+                                                    <div class="skeleton-placeholder h-4 w-20 ml-auto"></div>
+                                                </th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <template x-for="i in 5" :key="i">
+                                                <tr class="skeleton-row">
                                                     <td>
-                                                        <div class="expand-icon" :class="{ 'rotate-90': expandedRegions[`${service.serviceName}-${region.regionName}`] }">
+                                                        <div class="skeleton-placeholder h-6 w-6 mx-auto rounded-md">
+                                                        </div>
+                                                    </td>
+                                                    <td>
+                                                        <div class="skeleton-placeholder h-4 w-3/4"></div>
+                                                    </td>
+                                                    <td>
+                                                        <div class="skeleton-placeholder h-4 w-1/2 ml-auto"></div>
+                                                    </td>
+                                                    <td>
+                                                        <div class="skeleton-placeholder h-4 w-1/2 ml-auto"></div>
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div x-show="error && !hasData && !loading"
+                            class="dashboard-card p-8 text-center border-red-200 bg-red-50">
+                            <i class="fas fa-exclamation-triangle text-red-500 text-2xl mb-3"></i>
+                            <p class="text-red-700 font-medium" x-text="error"></p>
+                        </div>
+                        <div x-show="updateError && hasData && !loading"
+                            class="mb-4 p-3 text-sm text-yellow-800 rounded-lg bg-yellow-50 border border-yellow-200"
+                            role="alert">
+                            <i class="fas fa-exclamation-circle mr-2"></i> <span x-text="updateError"></span>
+                        </div>
+
+                        <div x-show="!loading && (hasData || isUpdating)" class="space-y-8" x-cloak>
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                <div class="dashboard-card">
+                                    <div class="p-6 border-b border-gray-100">
+                                        <h2 class="text-xl font-semibold text-gray-800 flex items-center">
+                                            <i class="fas fa-chart-bar text-blue-500 mr-3"></i>
+                                            Cost Over Time
+                                        </h2>
+                                        <p class="text-sm text-gray-500 mt-1">Monthly spending trends</p>
+                                    </div>
+                                    <div class="p-4">
+                                        <div class="chart-container" x-show="billingData.costHistory.length > 0">
+                                            <canvas id="costHistoryChart"></canvas>
+                                        </div>
+                                        <div x-show="!loading && billingData.costHistory.length === 0"
+                                            class="text-center py-10 text-gray-500">
+                                            No cost history data available.
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="dashboard-card">
+                                    <div class="p-6 border-b border-gray-100">
+                                        <h2 class="text-xl font-semibold text-gray-800 flex items-center">
+                                            <i class="fas fa-chart-pie text-purple-500 mr-3"></i>
+                                            Service Breakdown
+                                        </h2>
+                                        <p class="text-sm text-gray-500 mt-1">Distribution by AWS services</p>
+                                    </div>
+                                    <div class="p-4">
+                                        <div class="chart-container" x-show="billingData.serviceBreakdown.length > 0">
+                                            <canvas id="serviceBreakdownChart"></canvas>
+                                        </div>
+                                        <div x-show="!loading && billingData.serviceBreakdown.length === 0"
+                                            class="text-center py-10 text-gray-500">
+                                            No service breakdown data available.
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="dashboard-card">
+                                <div class="p-6 border-b border-gray-100">
+                                    <h2 class="text-xl font-semibold text-gray-800 flex items-center">
+                                        <i class="fas fa-table text-green-500 mr-3"></i>
+                                        Detailed Cost Breakdown
+                                    </h2>
+                                    <p class="text-sm text-gray-500 mt-1">Expandable view of all services, regions, and
+                                        resources</p>
+                                </div>
+
+                                <div class="overflow-x-auto">
+                                    <table class="cost-breakdown-table">
+                                        <colgroup>
+                                            <col style="width: 60px;">
+                                            <col style="width: 45%;">
+                                            <col style="width: 25%;">
+                                            <col style="width: 25%;">
+                                        </colgroup>
+
+                                        <thead>
+                                            <tr>
+                                                <th></th>
+                                                <th>Service / Resource</th>
+                                                <th>Usage Quantity</th>
+                                                <th>Amount (USD)</th>
+                                            </tr>
+                                        </thead>
+
+                                        <template x-for="service in detailedBreakdown" :key="service.serviceName">
+                                            <tbody>
+                                                <tr @click="toggleService(service.serviceName)" class="cursor-pointer">
+                                                    <td>
+                                                        <div class="expand-icon"
+                                                            :class="{ 'rotate-90': expandedServices[service.serviceName] }">
+                                                            <i class="fas fa-chevron-right text-sm"></i>
+                                                        </div>
+                                                    </td>
+                                                    <td>
+                                                        <div class="service-name" x-text="service.serviceName"></div>
+                                                    </td>
+                                                    <td><span class="text-gray-500">—</span></td>
+                                                    <td>
+                                                        <div class="amount-cell text-blue-600"
+                                                            x-text="formatCurrency(service.totalCost)"></div>
+                                                    </td>
+                                                </tr>
+
+                                                <template x-for="region in service.regionCosts"
+                                                    :key="region.regionName">
+                                            <tbody x-show="expandedServices[service.serviceName]">
+                                                <tr @click="toggleRegion(service.serviceName, region.regionName)"
+                                                    class="cursor-pointer drilldown-row">
+                                                    <td>
+                                                        <div class="expand-icon"
+                                                            :class="{ 'rotate-90': expandedRegions[`${service.serviceName}-${region.regionName}`] }">
                                                             <i class="fas fa-chevron-right text-xs"></i>
                                                         </div>
                                                     </td>
@@ -402,261 +479,250 @@
                                                     </td>
                                                     <td><span class="text-gray-500">—</span></td>
                                                     <td>
-                                                        <div class="amount-cell text-blue-600" x-text="formatCurrency(region.cost)"></div>
+                                                        <div class="amount-cell text-blue-600"
+                                                            x-text="formatCurrency(region.cost)"></div>
                                                     </td>
                                                 </tr>
 
-                                                <template x-for="resource in region.resources" :key="resource.resourceId + '-' + resource.cost">
-                                                    <tr x-show="expandedRegions[`${service.serviceName}-${region.regionName}`]" class="nested-drilldown">
-                                                        <td></td> 
+                                                <template x-for="resource in region.resources"
+                                                    :key="resource.resourceId + '-' + resource.cost">
+                                                    <tr x-show="expandedRegions[`${service.serviceName}-${region.regionName}`]"
+                                                        class="nested-drilldown">
+                                                        <td></td>
                                                         <td>
-                                                            <div class="resource-name" x-text="resource.resourceName"></div>
+                                                            <div class="resource-name" x-text="resource.resourceName">
+                                                            </div>
                                                         </td>
-                                                        <td class="text-right text-gray-600 text-sm" x-text="resource.quantity != null ? `${formatNumber(resource.quantity)} ${resource.unit || ''}` : 'N/A'"></td>
+                                                        <td class="text-right text-gray-600 text-sm"
+                                                            x-text="resource.quantity != null ? `${formatNumber(resource.quantity)} ${resource.unit || ''}` : 'N/A'">
+                                                        </td>
                                                         <td>
-                                                            <div class="amount-cell text-purple-600" x-text="formatCurrency(resource.cost)"></div>
+                                                            <div class="amount-cell text-purple-600"
+                                                                x-text="formatCurrency(resource.cost)"></div>
                                                         </td>
                                                     </tr>
                                                 </template>
                                             </tbody>
                                         </template>
-                                    </tbody>
-                                </template>
+                                        </tbody>
+                                        </template>
 
-                                <tbody x-show="!loading && detailedBreakdown.length === 0">
-                                    <tr>
-                                        <td colspan="4" class="text-center py-12">
-                                            <i class="fas fa-inbox text-gray-300 text-3xl mb-3"></i>
-                                            <p class="text-gray-500 font-medium">No detailed cost data available for the selected period.</p>
-                                        </td>
-                                    </tr>
-                                </tbody>
-                            </table>
+                                        <tbody x-show="!loading && detailedBreakdown.length === 0">
+                                            <tr>
+                                                <td colspan="4" class="text-center py-12">
+                                                    <i class="fas fa-inbox text-gray-300 text-3xl mb-3"></i>
+                                                    <p class="text-gray-500 font-medium">No detailed cost data available
+                                                        for the selected period.</p>
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
-        </div>
-    </div>
-</div>
 
-<script>
-    function billingDashboard() {
-        return {
-            loading: true, // Controls full-screen skeleton
-            isUpdating: false, // Controls background update spinner
-            error: null, // Critical errors (when no data exists)
-            updateError: null, // Non-critical errors (background sync failed)
-            
-            accountId: null,
-            selectedYear: new Date().getFullYear(),
-            selectedMonth: new Date().getMonth() + 1,
-            
-            availableYears: [new Date().getFullYear(), new Date().getFullYear() - 1],
-            availableMonths: [
-                { value: 1, name: 'Jan' }, { value: 2, name: 'Feb' }, { value: 3, name: 'Mar' },
-                { value: 4, name: 'Apr' }, { value: 5, name: 'May' }, { value: 6, name: 'Jun' },
-                { value: 7, name: 'Jul' }, { value: 8, name: 'Aug' }, { value: 9, name: 'Sep' },
-                { value: 10, name: 'Oct' }, { value: 11, name: 'Nov' }, { value: 12, name: 'Dec' }
-            ],
+                <script>
+                    function billingDashboard() {
+                        return {
+                            loading: true,
+                            isUpdating: false,
+                            error: null,
+                            updateError: null,
+                            accountId: null,
+                            selectedYear: new Date().getFullYear(),
+                            selectedMonth: new Date().getMonth() + 1,
+                            availableYears: [new Date().getFullYear(), new Date().getFullYear() - 1],
+                            availableMonths: [
+                                { value: 1, name: 'Jan' }, { value: 2, name: 'Feb' }, { value: 3, name: 'Mar' },
+                                { value: 4, name: 'Apr' }, { value: 5, name: 'May' }, { value: 6, name: 'Jun' },
+                                { value: 7, name: 'Jul' }, { value: 8, name: 'Aug' }, { value: 9, name: 'Sep' },
+                                { value: 10, name: 'Oct' }, { value: 11, name: 'Nov' }, { value: 12, name: 'Dec' }
+                            ],
+                            billingData: { costHistory: [], serviceBreakdown: [] },
+                            detailedBreakdown: [],
+                            expandedServices: {},
+                            expandedRegions: {},
+                            costHistoryChart: null,
+                            serviceBreakdownChart: null,
 
-            // Data holders
-            billingData: { costHistory: [], serviceBreakdown: [] },
-            detailedBreakdown: [],
-            
-            // UI State
-            expandedServices: {},
-            expandedRegions: {},
-            costHistoryChart: null,
-            serviceBreakdownChart: null,
+                            get hasData() {
+                                return (
+                                    (this.billingData && this.billingData.costHistory && this.billingData.costHistory.length > 0) ||
+                                    (this.detailedBreakdown && this.detailedBreakdown.length > 0)
+                                );
+                            },
 
-            // Check if valid data exists to show (cached or fresh)
-            get hasData() {
-                return (
-                    (this.billingData && this.billingData.costHistory && this.billingData.costHistory.length > 0) ||
-                    (this.detailedBreakdown && this.detailedBreakdown.length > 0)
-                );
-            },
+                            init() {
+                                const urlParams = new URLSearchParams(window.location.search);
+                                this.accountId = urlParams.get('accountIds') || urlParams.get('accountId');
 
-            init() {
-                const urlParams = new URLSearchParams(window.location.search);
-                this.accountId = urlParams.get('accountIds') || urlParams.get('accountId');
+                                if (!this.accountId) {
+                                    this.error = "No AWS Account ID(s) specified in the URL.";
+                                    this.loading = false;
+                                    return;
+                                }
 
-                if (!this.accountId) {
-                    this.error = "No AWS Account ID(s) specified in the URL.";
-                    this.loading = false;
-                    return;
-                }
+                                this.fetchData(false);
+                            },
 
-                // Initial Load: Force Refresh = FALSE (Prefer Cache)
-                this.fetchData(false);
-            },
-            
-            // Unified data fetching method
-            fetchData(forceRefresh = false) {
-                // 1. Set Loading States
-                if (forceRefresh) {
-                    this.isUpdating = true; 
-                    this.updateError = null;
-                } else {
-                    this.loading = true;
-                    this.error = null;
-                }
+                            fetchData(forceRefresh = false) {
+                                if (forceRefresh) {
+                                    this.isUpdating = true;
+                                    this.updateError = null;
+                                } else {
+                                    this.loading = true;
+                                    this.error = null;
+                                }
 
-                console.log(`🔄 [Billing] Fetching data. Period: ${this.selectedYear}-${this.selectedMonth}, ForceRefresh: ${forceRefresh}`);
-                
-                // 2. Construct URLs with new Unified Endpoint structure
-                const params = new URLSearchParams({
-                    accountIds: this.accountId,
-                    year: this.selectedYear,
-                    month: this.selectedMonth,
-                    forceRefresh: forceRefresh
-                });
+                                console.log(`🔄 [Billing] Fetching data. Period: ${this.selectedYear}-${this.selectedMonth}, ForceRefresh: ${forceRefresh}`);
 
-                const summaryUrl = `/api/billops/billing?${params.toString()}`;
-                const detailedUrl = `/api/billops/detailed-breakdown?${params.toString()}`;
+                                const params = new URLSearchParams({
+                                    accountIds: this.accountId,
+                                    year: this.selectedYear,
+                                    month: this.selectedMonth,
+                                    forceRefresh: forceRefresh
+                                });
 
-                // 3. Fetch Data
-                Promise.all([
-                    fetch(summaryUrl).then(res => {
-                        if (!res.ok) throw new Error(`Summary fetch failed: ${res.status}`);
-                        return res.json();
-                    }),
-                    fetch(detailedUrl).then(res => {
-                         if (!res.ok) throw new Error(`Detailed fetch failed: ${res.status}`);
-                         return res.json();
-                    })
-                ])
-                .then(([summaryData, detailedData]) => {
-                    console.log('✅ [Billing] Data received successfully');
+                                const summaryUrl = `/api/billops/billing?${params.toString()}`;
+                                const detailedUrl = `/api/billops/detailed-breakdown?${params.toString()}`;
 
-                    this.billingData = summaryData || { costHistory: [], serviceBreakdown: [] };
-                    this.detailedBreakdown = detailedData || [];
-                    
-                    // Render charts after DOM update
-                    this.$nextTick(() => {
-                        this.renderOrUpdateCharts(this.billingData.costHistory, this.billingData.serviceBreakdown);
-                    });
+                                Promise.all([
+                                    fetch(summaryUrl).then(res => {
+                                        if (!res.ok) throw new Error(`Summary fetch failed: ${res.status}`);
+                                        return res.json();
+                                    }),
+                                    fetch(detailedUrl).then(res => {
+                                        if (!res.ok) throw new Error(`Detailed fetch failed: ${res.status}`);
+                                        return res.json();
+                                    })
+                                ])
+                                    .then(([summaryData, detailedData]) => {
+                                        console.log('✅ [Billing] Data received successfully');
 
-                    this.error = null;
-                })
-                .catch(err => {
-                    console.error("Network error:", err);
-                    const msg = "Failed to load billing data. Please check your connection.";
-                    
-                    if (forceRefresh) {
-                        this.updateError = "Failed to refresh data. Please try again.";
-                    } else {
-                         // Only show critical error if we have no data to display
-                        if (!this.hasData) {
-                             this.error = msg;
-                        } else {
-                             this.updateError = msg;
+                                        this.billingData = summaryData || { costHistory: [], serviceBreakdown: [] };
+                                        this.detailedBreakdown = detailedData || [];
+
+                                        this.$nextTick(() => {
+                                            this.renderOrUpdateCharts(this.billingData.costHistory, this.billingData.serviceBreakdown);
+                                        });
+
+                                        this.error = null;
+                                    })
+                                    .catch(err => {
+                                        console.error("Network error:", err);
+                                        const msg = "Failed to load billing data. Please check your connection.";
+
+                                        if (forceRefresh) {
+                                            this.updateError = "Failed to refresh data. Please try again.";
+                                        } else {
+                                            if (!this.hasData) {
+                                                this.error = msg;
+                                            } else {
+                                                this.updateError = msg;
+                                            }
+                                        }
+                                    })
+                                    .finally(() => {
+                                        this.loading = false;
+                                        this.isUpdating = false;
+                                    });
+                            },
+
+                            handleFilterChange() {
+                                this.expandedServices = {};
+                                this.expandedRegions = {};
+                                this.error = null;
+                                this.updateError = null;
+                                this.fetchData(false);
+                            },
+
+                            renderOrUpdateCharts(history, services) {
+                                const safeHistory = history || [];
+                                const safeServices = services || [];
+
+                                const historyCanvas = document.getElementById('costHistoryChart');
+                                const serviceCanvas = document.getElementById('serviceBreakdownChart');
+
+                                if (!historyCanvas || !serviceCanvas) return;
+
+                                const historyLabels = safeHistory.map(h => new Date(h.date).toLocaleString('default', { month: 'short' }));
+                                const historyData = safeHistory.map(h => h && h.cost != null ? h.cost : 0);
+
+                                if (safeHistory.length > 0) {
+                                    if (this.costHistoryChart) {
+                                        this.costHistoryChart.destroy();
+                                    }
+                                    this.costHistoryChart = new Chart(historyCanvas.getContext('2d'), {
+                                        type: 'bar',
+                                        data: {
+                                            labels: historyLabels,
+                                            datasets: [{
+                                                label: 'Monthly Cost',
+                                                data: historyData,
+                                                backgroundColor: (context) => {
+                                                    const { ctx, chartArea } = context.chart;
+                                                    if (!chartArea) return null;
+                                                    const gradient = ctx.createLinearGradient(0, chartArea.bottom, 0, chartArea.top);
+                                                    gradient.addColorStop(0, '#6366f1');
+                                                    gradient.addColorStop(1, '#8b5cf6');
+                                                    return gradient;
+                                                },
+                                                borderColor: '#6366f1', borderWidth: 2, borderRadius: 6, borderSkipped: false,
+                                            }]
+                                        },
+                                        options: { responsive: true, maintainAspectRatio: false }
+                                    });
+                                }
+
+                                const serviceLabels = safeServices.map(s => s && s.name ? s.name : 'Unknown');
+                                const serviceData = safeServices.map(s => s && s.cost != null ? s.cost : 0);
+
+                                if (safeServices.length > 0) {
+                                    if (this.serviceBreakdownChart) {
+                                        this.serviceBreakdownChart.destroy();
+                                    }
+                                    this.serviceBreakdownChart = new Chart(serviceCanvas.getContext('2d'), {
+                                        type: 'doughnut',
+                                        data: {
+                                            labels: serviceLabels,
+                                            datasets: [{
+                                                label: 'Cost', data: serviceData,
+                                                backgroundColor: ['#6366f1', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#3b82f6', '#ec4899', '#14b8a6'],
+                                                borderWidth: 3, borderColor: '#ffffff', hoverBorderWidth: 4, hoverOffset: 8
+                                            }]
+                                        },
+                                        options: { responsive: true, maintainAspectRatio: false }
+                                    });
+                                }
+                            },
+
+                            formatCurrency(value) {
+                                if (typeof value !== 'number') return '$0.00';
+                                return value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+                            },
+
+                            formatNumber(value) {
+                                const num = Number(value);
+                                if (isNaN(num)) return '0';
+                                return num.toLocaleString('en-US', { maximumFractionDigits: 3 });
+                            },
+
+                            toggleService(serviceName) {
+                                this.expandedServices[serviceName] = !this.expandedServices[serviceName];
+                            },
+
+                            toggleRegion(serviceName, regionName) {
+                                const key = `${serviceName}-${regionName}`;
+                                this.expandedRegions[key] = !this.expandedRegions[key];
+                            }
                         }
                     }
-                })
-                .finally(() => {
-                    this.loading = false;
-                    this.isUpdating = false;
-                });
-            },
-
-            handleFilterChange() {
-                this.expandedServices = {};
-                this.expandedRegions = {};
-                this.error = null;
-                this.updateError = null;
-
-                // On filter change, we trigger a standard load (prefer cache)
-                // The UI will show the skeleton briefly because loading=true is set in fetchData(false)
-                this.fetchData(false);
-            },
-
-            renderOrUpdateCharts(history, services) {
-                const safeHistory = history || [];
-                const safeServices = services || [];
-                
-                const historyCanvas = document.getElementById('costHistoryChart');
-                const serviceCanvas = document.getElementById('serviceBreakdownChart');
-
-                if (!historyCanvas || !serviceCanvas) return;
-
-                const historyLabels = safeHistory.map(h => new Date(h.date).toLocaleString('default', { month: 'short' }));
-                const historyData = safeHistory.map(h => h && h.cost != null ? h.cost : 0);
-
-                if (safeHistory.length > 0) {
-                    if (this.costHistoryChart) {
-                        this.costHistoryChart.destroy(); // Safer to destroy and recreate to avoid overlay issues
-                    }
-                    this.costHistoryChart = new Chart(historyCanvas.getContext('2d'), {
-                        type: 'bar',
-                        data: {
-                            labels: historyLabels,
-                            datasets: [{
-                                label: 'Monthly Cost',
-                                data: historyData,
-                                backgroundColor: (context) => {
-                                    const {ctx, chartArea} = context.chart;
-                                    if (!chartArea) return null;
-                                    const gradient = ctx.createLinearGradient(0, chartArea.bottom, 0, chartArea.top);
-                                    gradient.addColorStop(0, '#6366f1');
-                                    gradient.addColorStop(1, '#8b5cf6');
-                                    return gradient;
-                                    },
-                                borderColor: '#6366f1', borderWidth: 2, borderRadius: 6, borderSkipped: false,
-                            }]
-                        },
-                        options: { responsive: true, maintainAspectRatio: false }
-                    });
-                }
-
-                const serviceLabels = safeServices.map(s => s && s.name ? s.name : 'Unknown');
-                const serviceData = safeServices.map(s => s && s.cost != null ? s.cost : 0);
-
-                if (safeServices.length > 0) {
-                    if (this.serviceBreakdownChart) {
-                        this.serviceBreakdownChart.destroy();
-                    }
-                    this.serviceBreakdownChart = new Chart(serviceCanvas.getContext('2d'), {
-                        type: 'doughnut',
-                        data: {
-                            labels: serviceLabels,
-                            datasets: [{
-                                label: 'Cost', data: serviceData,
-                                backgroundColor: ['#6366f1', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#3b82f6', '#ec4899', '#14b8a6'],
-                                borderWidth: 3, borderColor: '#ffffff', hoverBorderWidth: 4, hoverOffset: 8
-                            }]
-                        },
-                        options: { responsive: true, maintainAspectRatio: false }
-                    });
-                }
-            },
-
-            formatCurrency(value) {
-                if (typeof value !== 'number') return '$0.00';
-                return value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
-            },
-
-            formatNumber(value) {
-                const num = Number(value);
-                if (isNaN(num)) return '0';
-                return num.toLocaleString('en-US', { maximumFractionDigits: 3 });
-            },
-
-            toggleService(serviceName) {
-                this.expandedServices[serviceName] = !this.expandedServices[serviceName];
-            },
-
-            toggleRegion(serviceName, regionName) {
-                const key = `${serviceName}-${regionName}`;
-                this.expandedRegions[key] = !this.expandedRegions[key];
-            }
-        }
-    }
-
-    document.addEventListener('alpine:init', () => {
-        Alpine.data('billingDashboard', billingDashboard);
-    });
-</script>
+                </script>
+            </main>
+        </div>
+    </div>
 </body>
+
 </html>

@@ -10,50 +10,6 @@
     <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.0/dist/cdn.min.js"></script>
     <script type="module" src="/src/main.js"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-
-        body {
-            font-family: 'Inter', sans-serif;
-            overflow: hidden;
-        }
-
-        .coming-soon-gradient {
-            background: linear-gradient(135deg, #0891b2 0%, #0e7490 100%);
-        }
-
-        /* Cyan */
-        .float-animation {
-            animation: float 6s ease-in-out infinite;
-        }
-
-        @keyframes float {
-
-            0%,
-            100% {
-                transform: translateY(0px);
-            }
-
-            50% {
-                transform: translateY(-20px);
-            }
-        }
-
-        .glow-effect {
-            box-shadow: 0 0 20px rgba(8, 145, 178, 0.3);
-        }
-
-        .feature-card {
-            background: white;
-            border-left: 4px solid;
-            transition: all 0.3s ease;
-        }
-
-        .feature-card:hover {
-            transform: translateX(4px);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-        }
-    </style>
 </head>
 
 <body class="bg-gray-50">
@@ -61,7 +17,47 @@
         <include file="/_sidebar.html"></include>
 
         <div class="flex-1 ml-64 flex flex-col h-screen overflow-hidden">
-            <main class="flex-1 flex items-center justify-center p-8">
+            <main id="main-content" class="flex-1 flex items-center justify-center p-8" x-data="thirdPartyTools()">
+
+                <style>
+                    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+                    .coming-soon-gradient {
+                        background: linear-gradient(135deg, #0891b2 0%, #0e7490 100%);
+                    }
+
+                    .float-animation {
+                        animation: float 6s ease-in-out infinite;
+                    }
+
+                    @keyframes float {
+
+                        0%,
+                        100% {
+                            transform: translateY(0px);
+                        }
+
+                        50% {
+                            transform: translateY(-20px);
+                        }
+                    }
+
+                    .glow-effect {
+                        box-shadow: 0 0 20px rgba(8, 145, 178, 0.3);
+                    }
+
+                    .feature-card {
+                        background: white;
+                        border-left: 4px solid;
+                        transition: all 0.3s ease;
+                    }
+
+                    .feature-card:hover {
+                        transform: translateX(4px);
+                        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+                    }
+                </style>
+
                 <div class="max-w-5xl w-full">
                     <div class="relative overflow-hidden bg-white rounded-2xl shadow-xl p-8">
                         <div class="absolute inset-0 opacity-5">
@@ -69,7 +65,6 @@
                                 style="background-image: repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(8, 145, 178, 0.1) 10px, rgba(8, 145, 178, 0.1) 20px);">
                             </div>
                         </div>
-
                         <div class="relative z-10 text-center">
                             <div class="mb-6 flex justify-center">
                                 <div class="relative">
@@ -79,7 +74,6 @@
                                     </div>
                                 </div>
                             </div>
-
                             <h2 class="text-3xl font-bold text-gray-800 mb-3">
                                 <span
                                     class="bg-gradient-to-r from-cyan-600 to-blue-700 bg-clip-text text-transparent">Coming
@@ -90,7 +84,6 @@
                                 Monitor and manage external tool integrations. Keep track of API usage, costs, and
                                 compliance for all your third-party DevOps and SecOps tools.
                             </p>
-
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6 text-left">
                                 <div class="feature-card p-4 rounded-lg border-cyan-500 shadow-sm">
                                     <div class="flex items-start space-x-3">
@@ -119,7 +112,6 @@
                                     </div>
                                 </div>
                             </div>
-
                             <div
                                 class="inline-flex items-center px-5 py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-full shadow-lg">
                                 <i class="fas fa-clock mr-2 text-sm"></i><span class="font-semibold text-sm">Target
@@ -129,6 +121,14 @@
                         </div>
                     </div>
                 </div>
+
+                <script>
+                    function thirdPartyTools() {
+                        return {
+                            // Placeholder for future logic
+                        }
+                    }
+                </script>
             </main>
         </div>
     </div>

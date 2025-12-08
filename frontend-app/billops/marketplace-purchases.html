@@ -10,50 +10,6 @@
     <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.0/dist/cdn.min.js"></script>
     <script type="module" src="/src/main.js"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-
-        body {
-            font-family: 'Inter', sans-serif;
-            overflow: hidden;
-        }
-
-        .coming-soon-gradient {
-            background: linear-gradient(135deg, #db2777 0%, #be185d 100%);
-        }
-
-        /* Pink */
-        .float-animation {
-            animation: float 6s ease-in-out infinite;
-        }
-
-        @keyframes float {
-
-            0%,
-            100% {
-                transform: translateY(0px);
-            }
-
-            50% {
-                transform: translateY(-20px);
-            }
-        }
-
-        .glow-effect {
-            box-shadow: 0 0 20px rgba(219, 39, 119, 0.3);
-        }
-
-        .feature-card {
-            background: white;
-            border-left: 4px solid;
-            transition: all 0.3s ease;
-        }
-
-        .feature-card:hover {
-            transform: translateX(4px);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-        }
-    </style>
 </head>
 
 <body class="bg-gray-50">
@@ -61,7 +17,47 @@
         <include file="/_sidebar.html"></include>
 
         <div class="flex-1 ml-64 flex flex-col h-screen overflow-hidden">
-            <main class="flex-1 flex items-center justify-center p-8">
+            <main id="main-content" class="flex-1 flex items-center justify-center p-8" x-data="marketplacePurchases()">
+
+                <style>
+                    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+                    .coming-soon-gradient {
+                        background: linear-gradient(135deg, #db2777 0%, #be185d 100%);
+                    }
+
+                    .float-animation {
+                        animation: float 6s ease-in-out infinite;
+                    }
+
+                    @keyframes float {
+
+                        0%,
+                        100% {
+                            transform: translateY(0px);
+                        }
+
+                        50% {
+                            transform: translateY(-20px);
+                        }
+                    }
+
+                    .glow-effect {
+                        box-shadow: 0 0 20px rgba(219, 39, 119, 0.3);
+                    }
+
+                    .feature-card {
+                        background: white;
+                        border-left: 4px solid;
+                        transition: all 0.3s ease;
+                    }
+
+                    .feature-card:hover {
+                        transform: translateX(4px);
+                        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+                    }
+                </style>
+
                 <div class="max-w-5xl w-full">
                     <div class="relative overflow-hidden bg-white rounded-2xl shadow-xl p-8">
                         <div class="absolute inset-0 opacity-5">
@@ -129,6 +125,14 @@
                         </div>
                     </div>
                 </div>
+
+                <script>
+                    function marketplacePurchases() {
+                        return {
+                            // Placeholder for future logic
+                        }
+                    }
+                </script>
             </main>
         </div>
     </div>

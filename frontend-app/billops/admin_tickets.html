@@ -10,343 +10,336 @@
     <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
     <link rel="apple-touch-icon" href="/icons/XamOps.png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        [x-cloak] {
-            display: none !important;
-        }
-
-        .updating-spinner {
-            display: inline-block;
-            width: 16px;
-            height: 16px;
-            border: 2px solid #d1d5db;
-            border-radius: 50%;
-            border-top-color: #4f46e5;
-            animation: spin 0.8s linear infinite;
-            margin-left: 8px;
-        }
-
-        @keyframes spin {
-            to {
-                transform: rotate(360deg);
-            }
-        }
-    </style>
+    <script type="module" src="/src/main.js"></script>
 </head>
 
-<body class="bg-gray-100 font-sans text-gray-900" x-data="adminTicketApp()">
+<body class="bg-gray-100 font-sans text-gray-900">
 
     <div class="flex h-screen overflow-hidden">
         <include file="/_sidebar.html"></include>
 
         <div class="flex-1 flex flex-col overflow-hidden pl-64">
-            <header class="bg-white shadow-sm z-10 p-4 flex justify-between items-center border-b border-gray-200">
-                <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-3">
-                    <i class="fas fa-user-shield text-indigo-600"></i> Ticket Administration
-                    <span x-show="isUpdating" class="updating-spinner" title="Refreshing..."></span>
-                </h1>
-                <div class="flex items-center gap-3">
-                    <div class="relative">
-                        <span class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                            <i class="fas fa-search text-gray-400"></i>
-                        </span>
-                        <input type="text" x-model="search" placeholder="Search tickets..."
-                            class="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-sm w-64 transition shadow-sm">
+
+            <main id="main-content" class="flex-1 flex flex-col h-screen overflow-hidden" x-data="adminTicketApp()"
+                x-init="init()">
+
+                <style>
+                    [x-cloak] {
+                        display: none !important;
+                    }
+
+                    .updating-spinner {
+                        display: inline-block;
+                        width: 16px;
+                        height: 16px;
+                        border: 2px solid #d1d5db;
+                        border-radius: 50%;
+                        border-top-color: #4f46e5;
+                        animation: spin 0.8s linear infinite;
+                        margin-left: 8px;
+                    }
+
+                    @keyframes spin {
+                        to {
+                            transform: rotate(360deg);
+                        }
+                    }
+                </style>
+
+                <header class="bg-white shadow-sm z-10 p-4 flex justify-between items-center border-b border-gray-200">
+                    <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-3">
+                        <i class="fas fa-user-shield text-indigo-600"></i> Ticket Administration
+                        <span x-show="isUpdating" class="updating-spinner" title="Refreshing..."></span>
+                    </h1>
+                    <div class="flex items-center gap-3">
+                        <div class="relative">
+                            <span class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <i class="fas fa-search text-gray-400"></i>
+                            </span>
+                            <input type="text" x-model="search" placeholder="Search tickets..."
+                                class="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-sm w-64 transition shadow-sm">
+                        </div>
+                        <button @click="fetchTickets(true)"
+                            class="bg-gray-100 hover:bg-gray-200 text-gray-700 p-2 rounded-lg transition border border-gray-300"
+                            title="Refresh Data">
+                            <i class="fas fa-sync-alt" :class="{'fa-spin': isUpdating}"></i>
+                        </button>
                     </div>
-                    <button @click="fetchTickets(true)"
-                        class="bg-gray-100 hover:bg-gray-200 text-gray-700 p-2 rounded-lg transition border border-gray-300"
-                        title="Refresh Data">
-                        <i class="fas fa-sync-alt" :class="{'fa-spin': isUpdating}"></i>
-                    </button>
-                </div>
-            </header>
+                </header>
 
-            <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 p-6">
+                <div class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 p-6">
 
-                <div class="mb-6">
-                    <div class="border-b border-gray-200">
-                        <nav class="-mb-px flex space-x-8" aria-label="Tabs">
+                    <div class="mb-6">
+                        <div class="border-b border-gray-200">
+                            <nav class="-mb-px flex space-x-8" aria-label="Tabs">
 
-                            <button @click="activeTab = 'Account and Billing'"
-                                :class="activeTab === 'Account and Billing' 
-                                            ? 'border-indigo-500 text-indigo-600' 
-                                            : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
-                                class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors">
-                                <i class="fas fa-file-invoice-dollar"></i>
-                                Account & Billing
-                                <span class="bg-gray-100 text-gray-600 py-0.5 px-2.5 rounded-full text-xs ml-1"
-                                    x-text="getCategoryCount('Account and Billing')"></span>
-                            </button>
+                                <button @click="activeTab = 'Account and Billing'"
+                                    :class="activeTab === 'Account and Billing' 
+                                                    ? 'border-indigo-500 text-indigo-600' 
+                                                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                                    class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors">
+                                    <i class="fas fa-file-invoice-dollar"></i>
+                                    Account & Billing
+                                    <span class="bg-gray-100 text-gray-600 py-0.5 px-2.5 rounded-full text-xs ml-1"
+                                        x-text="getCategoryCount('Account and Billing')"></span>
+                                </button>
 
-                            <button @click="activeTab = 'Technical'"
-                                :class="activeTab === 'Technical' 
-                                            ? 'border-indigo-500 text-indigo-600' 
-                                            : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
-                                class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors">
-                                <i class="fas fa-server"></i>
-                                Technical Support
-                                <span class="bg-gray-100 text-gray-600 py-0.5 px-2.5 rounded-full text-xs ml-1"
-                                    x-text="getCategoryCount('Technical')"></span>
-                            </button>
+                                <button @click="activeTab = 'Technical'"
+                                    :class="activeTab === 'Technical' 
+                                                    ? 'border-indigo-500 text-indigo-600' 
+                                                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                                    class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors">
+                                    <i class="fas fa-server"></i>
+                                    Technical Support
+                                    <span class="bg-gray-100 text-gray-600 py-0.5 px-2.5 rounded-full text-xs ml-1"
+                                        x-text="getCategoryCount('Technical')"></span>
+                                </button>
 
-                            <button @click="activeTab = 'All'"
-                                :class="activeTab === 'All' 
-                                            ? 'border-indigo-500 text-indigo-600' 
-                                            : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
-                                class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors">
-                                <i class="fas fa-list"></i>
-                                All Tickets
-                                <span class="bg-gray-100 text-gray-600 py-0.5 px-2.5 rounded-full text-xs ml-1"
-                                    x-text="tickets.length"></span>
-                            </button>
-                        </nav>
+                                <button @click="activeTab = 'All'"
+                                    :class="activeTab === 'All' 
+                                                    ? 'border-indigo-500 text-indigo-600' 
+                                                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                                    class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors">
+                                    <i class="fas fa-list"></i>
+                                    All Tickets
+                                    <span class="bg-gray-100 text-gray-600 py-0.5 px-2.5 rounded-full text-xs ml-1"
+                                        x-text="tickets.length"></span>
+                                </button>
+                            </nav>
+                        </div>
                     </div>
-                </div>
 
-                <div x-show="loading" class="flex justify-center items-center h-64">
-                    <div class="flex flex-col items-center">
-                        <i class="fas fa-circle-notch fa-spin text-4xl text-indigo-500 mb-4"></i>
-                        <p class="text-gray-500 font-medium">Loading tickets...</p>
+                    <div x-show="loading" class="flex justify-center items-center h-64">
+                        <div class="flex flex-col items-center">
+                            <i class="fas fa-circle-notch fa-spin text-4xl text-indigo-500 mb-4"></i>
+                            <p class="text-gray-500 font-medium">Loading tickets...</p>
+                        </div>
                     </div>
-                </div>
 
-                <div x-show="error" x-cloak class="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded shadow-sm">
-                    <div class="flex items-center">
-                        <div class="flex-shrink-0"><i class="fas fa-exclamation-circle text-red-500"></i></div>
-                        <div class="ml-3">
-                            <p class="text-sm text-red-700 font-medium">Error loading data</p>
-                            <p class="text-sm text-red-600" x-text="error"></p>
+                    <div x-show="error" x-cloak class="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded shadow-sm">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0"><i class="fas fa-exclamation-circle text-red-500"></i></div>
+                            <div class="ml-3">
+                                <p class="text-sm text-red-700 font-medium">Error loading data</p>
+                                <p class="text-sm text-red-600" x-text="error"></p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div x-show="!loading && !error"
+                        class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th scope="col"
+                                            class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                            ID</th>
+                                        <th scope="col"
+                                            class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                            Account ID</th>
+                                        <th scope="col"
+                                            class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                            Subject</th>
+                                        <th scope="col"
+                                            class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                            Service</th>
+                                        <th scope="col"
+                                            class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                            Status</th>
+                                        <th scope="col"
+                                            class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                            Severity</th>
+                                        <th scope="col"
+                                            class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                            Created</th>
+                                        <th scope="col"
+                                            class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                            Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    <template x-for="ticket in filteredTickets" :key="ticket.id">
+                                        <tr class="hover:bg-gray-50 transition-colors cursor-pointer group"
+                                            @click="viewTicket(ticket.id, ticket.category)">
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono"
+                                                x-text="'#' + ticket.id"></td>
+
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600 font-mono"
+                                                x-text="ticket.accountId || '-'"></td>
+
+                                            <td class="px-6 py-4">
+                                                <div class="text-sm font-medium text-gray-900 group-hover:text-indigo-600 transition-colors"
+                                                    x-text="ticket.subject"></div>
+                                                <div class="text-xs text-gray-500 truncate max-w-xs"
+                                                    x-text="ticket.description"></div>
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                <span
+                                                    class="inline-flex items-center px-2.5 py-0.5 rounded bg-gray-100 text-gray-800 text-xs font-medium"
+                                                    x-text="ticket.service"></span>
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap">
+                                                <span
+                                                    class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full"
+                                                    :class="{
+                                                        'bg-green-100 text-green-800': ticket.status === 'OPEN',
+                                                        'bg-yellow-100 text-yellow-800': ticket.status === 'IN_PROGRESS',
+                                                        'bg-gray-100 text-gray-800': ticket.status === 'CLOSED'
+                                                      }">
+                                                    <span class="w-1.5 h-1.5 rounded-full mr-1.5" :class="{
+                                                            'bg-green-400': ticket.status === 'OPEN',
+                                                            'bg-gray-400': ticket.status === 'CLOSED',
+                                                            'bg-yellow-400': ticket.status === 'IN_PROGRESS'
+                                                          }"></span>
+                                                    <span x-text="ticket.status"></span>
+                                                </span>
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm">
+                                                <div class="flex items-center">
+                                                    <span class="w-2 h-2 rounded-full mr-2" :class="{
+                                                            'bg-red-500': ['High', 'Critical', 'Urgent'].includes(ticket.severity),
+                                                            'bg-yellow-500': ticket.severity === 'Normal' || ticket.severity === 'Medium',
+                                                            'bg-blue-500': ['Low', 'Info'].includes(ticket.severity)
+                                                          }"></span>
+                                                    <span x-text="ticket.severity"></span>
+                                                </div>
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"
+                                                x-text="new Date(ticket.createdAt).toLocaleDateString()"></td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                                <button @click.stop="viewTicket(ticket.id, ticket.category)"
+                                                    class="text-indigo-600 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 p-2 rounded-full transition w-8 h-8 flex items-center justify-center">
+                                                    <i class="fas fa-arrow-right"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                    <tr x-show="filteredTickets.length === 0">
+                                        <td colspan="8" class="px-6 py-12 text-center text-gray-500 bg-gray-50">
+                                            <i class="fas fa-inbox text-4xl mb-3 text-gray-300"></i>
+                                            <p class="text-base font-medium">No tickets found</p>
+                                            <p class="text-sm">There are no tickets in this category matching your
+                                                search.
+                                            </p>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
 
-                <div x-show="!loading && !error"
-                    class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <script>
+                    function adminTicketApp() {
+                        return {
+                            tickets: [],
+                            loading: true,
+                            isUpdating: false,
+                            error: null,
+                            search: '',
+                            activeTab: 'Account and Billing',
 
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th scope="col"
-                                        class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                                        ID</th>
-                                    <th scope="col"
-                                        class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                                        Account ID</th>
-                                    <th scope="col"
-                                        class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                                        Subject</th>
-                                    <th scope="col"
-                                        class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                                        Service</th>
-                                    <th scope="col"
-                                        class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                                        Status</th>
-                                    <th scope="col"
-                                        class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                                        Severity</th>
-                                    <th scope="col"
-                                        class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                                        Created</th>
-                                    <th scope="col"
-                                        class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                                        Action</th>
-                                </tr>
-                            </thead>
-                            <tbody class="bg-white divide-y divide-gray-200">
-                                <template x-for="ticket in filteredTickets" :key="ticket.id">
-                                    <tr class="hover:bg-gray-50 transition-colors cursor-pointer group"
-                                        @click="viewTicket(ticket.id, ticket.category)">
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono"
-                                            x-text="'#' + ticket.id"></td>
+                            cacheKey: 'xamops_admin_tickets_v1',
 
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600 font-mono"
-                                            x-text="ticket.accountId || '-'"></td>
+                            init() {
+                                if (this.loadFromLocalStorage()) {
+                                    console.log("✅ Loaded tickets from local storage");
+                                }
 
-                                        <td class="px-6 py-4">
-                                            <div class="text-sm font-medium text-gray-900 group-hover:text-indigo-600 transition-colors"
-                                                x-text="ticket.subject"></div>
-                                            <div class="text-xs text-gray-500 truncate max-w-xs"
-                                                x-text="ticket.description"></div>
-                                        </td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                            <span
-                                                class="inline-flex items-center px-2.5 py-0.5 rounded bg-gray-100 text-gray-800 text-xs font-medium"
-                                                x-text="ticket.service"></span>
-                                        </td>
-                                        <td class="px-6 py-4 whitespace-nowrap">
-                                            <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full"
-                                                :class="{
-                                                    'bg-green-100 text-green-800': ticket.status === 'OPEN',
-                                                    'bg-yellow-100 text-yellow-800': ticket.status === 'IN_PROGRESS',
-                                                    'bg-gray-100 text-gray-800': ticket.status === 'CLOSED'
-                                                  }">
-                                                <span class="w-1.5 h-1.5 rounded-full mr-1.5" :class="{
-                                                        'bg-green-400': ticket.status === 'OPEN',
-                                                        'bg-gray-400': ticket.status === 'CLOSED',
-                                                        'bg-yellow-400': ticket.status === 'IN_PROGRESS'
-                                                    }"></span>
-                                                <span x-text="ticket.status"></span>
-                                            </span>
-                                        </td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm">
-                                            <div class="flex items-center">
-                                                <span class="w-2 h-2 rounded-full mr-2" :class="{
-                                                        'bg-red-500': ['High', 'Critical', 'Urgent'].includes(ticket.severity),
-                                                        'bg-yellow-500': ticket.severity === 'Normal' || ticket.severity === 'Medium',
-                                                        'bg-blue-500': ['Low', 'Info'].includes(ticket.severity)
-                                                      }"></span>
-                                                <span x-text="ticket.severity"></span>
-                                            </div>
-                                        </td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"
-                                            x-text="new Date(ticket.createdAt).toLocaleDateString()"></td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                            <button @click.stop="viewTicket(ticket.id, ticket.category)"
-                                                class="text-indigo-600 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 p-2 rounded-full transition w-8 h-8 flex items-center justify-center">
-                                                <i class="fas fa-arrow-right"></i>
-                                            </button>
-                                        </td>
-                                    </tr>
-                                </template>
-                                <tr x-show="filteredTickets.length === 0">
-                                    <td colspan="8" class="px-6 py-12 text-center text-gray-500 bg-gray-50">
-                                        <i class="fas fa-inbox text-4xl mb-3 text-gray-300"></i>
-                                        <p class="text-base font-medium">No tickets found</p>
-                                        <p class="text-sm">There are no tickets in this category matching your search.
-                                        </p>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+                                this.fetchTickets();
+                            },
+
+                            loadFromLocalStorage() {
+                                try {
+                                    const cached = localStorage.getItem(this.cacheKey);
+                                    if (cached) {
+                                        this.tickets = JSON.parse(cached);
+                                        this.loading = false;
+                                        return true;
+                                    }
+                                } catch (e) {
+                                    console.error("Error loading from cache:", e);
+                                }
+                                return false;
+                            },
+
+                            get filteredTickets() {
+                                let result = this.tickets;
+                                if (this.activeTab !== 'All') {
+                                    result = result.filter(t => t.category === this.activeTab);
+                                }
+                                if (this.search) {
+                                    const q = this.search.toLowerCase();
+                                    result = result.filter(t =>
+                                        (t.subject && t.subject.toLowerCase().includes(q)) ||
+                                        (t.id && t.id.toString().includes(q)) ||
+                                        (t.accountId && t.accountId.toString().includes(q)) || // Added Account ID search support
+                                        (t.creatorId && t.creatorId.toString().includes(q)) ||
+                                        (t.status && t.status.toLowerCase().includes(q))
+                                    );
+                                }
+                                return result;
+                            },
+
+                            getCategoryCount(category) {
+                                return this.tickets.filter(t => t.category === category).length;
+                            },
+
+                            fetchTickets(isRefresh = false) {
+                                if (isRefresh) {
+                                    this.isUpdating = true;
+                                } else {
+                                    if (this.tickets.length === 0) {
+                                        this.loading = true;
+                                    }
+                                }
+
+                                const url = isRefresh
+                                    ? '/api/billops/tickets?forceRefresh=true'
+                                    : '/api/billops/tickets';
+
+                                fetch(url, { credentials: 'include' })
+                                    .then(res => {
+                                        if (!res.ok) {
+                                            if (res.status === 401 || res.status === 403) window.location.href = '/login';
+                                            throw new Error(`Server responded with status: ${res.status}`);
+                                        }
+                                        return res.json();
+                                    })
+                                    .then(data => {
+                                        this.tickets = data.sort((a, b) => b.id - a.id);
+                                        localStorage.setItem(this.cacheKey, JSON.stringify(this.tickets));
+                                        this.error = null;
+                                    })
+                                    .catch(err => {
+                                        console.error("Fetch error:", err);
+                                        if (this.tickets.length === 0) {
+                                            this.error = "Could not load tickets. Please try again.";
+                                        }
+                                    })
+                                    .finally(() => {
+                                        this.loading = false;
+                                        this.isUpdating = false;
+                                    });
+                            },
+
+                            viewTicket(id, category) {
+                                if (category === 'Technical') {
+                                    window.location.href = `/xamops_ticket_detail.html?id=${id}`;
+                                } else if (category === 'Account and Billing') {
+                                    window.location.href = `/billops/ticket_detail.html?id=${id}`;
+                                } else {
+                                    window.location.href = `/xamops_ticket_detail.html?id=${id}`;
+                                }
+                            }
+                        }
+                    }
+                </script>
             </main>
         </div>
     </div>
-
-    <script>
-        function adminTicketApp() {
-            return {
-                tickets: [],
-                loading: true,
-                isUpdating: false,
-                error: null,
-                search: '',
-                activeTab: 'Account and Billing',
-
-                cacheKey: 'xamops_admin_tickets_v1',
-
-                init() {
-                    // this.loadSidebar();
-
-                    if (this.loadFromLocalStorage()) {
-                        console.log("✅ Loaded tickets from local storage");
-                    }
-
-                    this.fetchTickets();
-                },
-
-                loadFromLocalStorage() {
-                    try {
-                        const cached = localStorage.getItem(this.cacheKey);
-                        if (cached) {
-                            this.tickets = JSON.parse(cached);
-                            this.loading = false;
-                            return true;
-                        }
-                    } catch (e) {
-                        console.error("Error loading from cache:", e);
-                    }
-                    return false;
-                },
-
-                get filteredTickets() {
-                    let result = this.tickets;
-                    if (this.activeTab !== 'All') {
-                        result = result.filter(t => t.category === this.activeTab);
-                    }
-                    if (this.search) {
-                        const q = this.search.toLowerCase();
-                        result = result.filter(t =>
-                            (t.subject && t.subject.toLowerCase().includes(q)) ||
-                            (t.id && t.id.toString().includes(q)) ||
-                            (t.accountId && t.accountId.toString().includes(q)) || // Added Account ID search support
-                            (t.creatorId && t.creatorId.toString().includes(q)) ||
-                            (t.status && t.status.toLowerCase().includes(q))
-                        );
-                    }
-                    return result;
-                },
-
-                getCategoryCount(category) {
-                    return this.tickets.filter(t => t.category === category).length;
-                },
-
-                fetchTickets(isRefresh = false) {
-                    if (isRefresh) {
-                        this.isUpdating = true;
-                    } else {
-                        if (this.tickets.length === 0) {
-                            this.loading = true;
-                        }
-                    }
-
-                    // FIX: Append the query parameter based on the isRefresh flag
-                    const url = isRefresh
-                        ? '/api/billops/tickets?forceRefresh=true'
-                        : '/api/billops/tickets';
-
-                    fetch(url, { credentials: 'include' })
-                        .then(res => {
-                            if (!res.ok) {
-                                if (res.status === 401 || res.status === 403) window.location.href = '/login';
-                                throw new Error(`Server responded with status: ${res.status}`);
-                            }
-                            return res.json();
-                        })
-                        .then(data => {
-                            this.tickets = data.sort((a, b) => b.id - a.id);
-                            localStorage.setItem(this.cacheKey, JSON.stringify(this.tickets));
-                            this.error = null;
-                        })
-                        .catch(err => {
-                            console.error("Fetch error:", err);
-                            if (this.tickets.length === 0) {
-                                this.error = "Could not load tickets. Please try again.";
-                            }
-                        })
-                        .finally(() => {
-                            this.loading = false;
-                            this.isUpdating = false;
-                        });
-                },
-
-                viewTicket(id, category) {
-                    if (category === 'Technical') {
-                        window.location.href = `/xamops_ticket_detail.html?id=${id}`;
-                    } else if (category === 'Account and Billing') {
-                        window.location.href = `/billops/ticket_detail.html?id=${id}`;
-                    } else {
-                        window.location.href = `/xamops_ticket_detail.html?id=${id}`;
-                    }
-                },
-
-                // loadSidebar() {
-                //     fetch('/_sidebar.html')
-                //         .then(response => response.text())
-                //         .then(html => {
-                //             document.getElementById('sidebar-container').innerHTML = html;
-                //             if (window.Alpine) Alpine.start();
-                //         });
-                // }
-            }
-        }
-
-        document.addEventListener('alpine:init', () => {
-            Alpine.data('adminTicketApp', adminTicketApp);
-        });
-    </script>
 </body>
 
 </html>
