@@ -21,12 +21,7 @@ const cookieRewrite = (proxyRes, req) => {
   }
 };
 
-// --- DEFINE authTarget and authPort ---
-// Set this based on which backend service you want to use
-// Use '8080' for xamops-service or '8082' for billops-service
-const authPort = process.env.AUTH_PORT || '8080';
-const authTarget = `http://localhost:${authPort}`;
-// --- END OF authTarget DEFINITION ---
+
 
 export default defineConfig({
   plugins: [
