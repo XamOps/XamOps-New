@@ -1,14 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>XamOps - Cloud Shell</title>
-
-  <script src="https://cdn.tailwindcss.com"></script>
+  <title>XamOps - Multi-Cloud Shell</title> <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
-
+  
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
   <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
@@ -20,15 +17,12 @@
   <include file="/_sidebar.html"></include>
 
   <div class="flex-1 flex flex-col ml-64">
-    <main id="main-content" class="flex-1 flex flex-col h-full">
-      <div class="bg-gray-800 px-6 py-4 flex items-center justify-between shadow-lg shrink-0">
-        <h1 class="text-xl font-bold flex items-center gap-3">
-          <i class="fas fa-terminal"></i>
-          AWS CloudShell
-        </h1>
-        <div id="connection-status" class="px-3 py-1 rounded text-xs font-medium bg-yellow-600">
-          Connecting...
-        </div>
+    <div class="bg-gray-800 px-6 py-4 flex items-center justify-between shadow-lg">
+      <h1 class="text-xl font-bold flex items-center gap-3">
+        <i class="fas fa-terminal"></i>
+        Cloud Shell </h1>
+      <div id="connection-status" class="px-3 py-1 rounded text-xs font-medium bg-yellow-600">
+        Connecting...
       </div>
 
       <div id="terminal" class="flex-1 bg-black overflow-hidden"></div>
@@ -219,6 +213,128 @@
       </script>
     </main>
   </div>
-</body>
 
+  <script>
+    let term;
+    let socket;
+    let accountId = null;
+
+    // ... (Authentication functions remain the same) ...
+    async function checkAuthentication() {
+      try {
+        const response = await fetch('/api/xamops/user/profile', {
+          method: 'GET',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Tenant-ID': sessionStorage.getItem('selectedTenantId') || 'customer1'
+          }
+        });
+        if (!response.ok) {
+          window.location.href = '/index.html';
+          return false;
+        }
+        return true;
+      } catch (error) {
+        console.error('Authentication check failed:', error);
+        window.location.href = '/index.html';
+        return false;
+      }
+    }
+
+    function getAccountId() {
+      const urlParam = new URLSearchParams(window.location.search).get("accountId");
+      if (urlParam) return urlParam;
+      const saved = JSON.parse(sessionStorage.getItem("selectedAccountIds") || "[]");
+      if (saved.length > 0) return saved[0];
+      return null;
+    }
+
+    function initWebSocket() {
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const host = window.location.host;
+      const tenantId = sessionStorage.getItem("selectedTenantId") || 'customer1';
+      
+      const wsUrl = `${protocol}//${host}/terminal?accountId=${accountId}&tenantId=${tenantId}`;
+
+      const status = document.getElementById("connection-status");
+      status.textContent = "Connecting...";
+
+      socket = new WebSocket(wsUrl);
+
+      socket.onopen = () => {
+        status.textContent = `Connected: ${accountId}`;
+        status.className = "px-3 py-1 rounded text-xs font-medium bg-green-600";
+        term.focus();
+      };
+
+      socket.onmessage = (event) => {
+        term.write(event.data);
+      };
+
+      socket.onclose = (event) => {
+        status.textContent = "Disconnected";
+        status.className = "px-3 py-1 rounded text-xs font-medium bg-red-600";
+        term.writeln("\r\n\x1b[31mConnection closed. Refresh page to reconnect.\x1b[0m");
+      };
+
+      socket.onerror = (error) => {
+        console.error('WebSocket Error:', error);
+        status.textContent = "Error";
+        status.className = "px-3 py-1 rounded text-xs font-medium bg-red-600";
+      };
+
+      term.onData((data) => {
+        if (socket && socket.readyState === WebSocket.OPEN) {
+          socket.send(data);
+        }
+      });
+      // ... (Key event handlers remain the same) ...
+    }
+
+    async function initTerminal() {
+      const isAuthenticated = await checkAuthentication();
+      if (!isAuthenticated) return;
+
+      accountId = getAccountId();
+
+      if (!accountId) {
+        document.getElementById("terminal").innerHTML = '<div class="p-8 text-red-400">No Cloud Account selected.</div>';
+        return;
+      }
+
+      term = new Terminal({
+        cursorBlink: true,
+        cursorStyle: "block",
+        fontSize: 14,
+        fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+        theme: {
+          background: "#000000",
+          foreground: "#00ff00",
+          cursor: "#00ff00",
+          selection: "#ffffff33",
+        },
+      });
+
+      const fitAddon = new FitAddon.FitAddon();
+      term.loadAddon(fitAddon);
+      term.open(document.getElementById("terminal"));
+      fitAddon.fit();
+
+      // UI Text Changes
+      term.writeln("\x1b[1;36mXamOps Multi-Cloud Shell\x1b[0m"); 
+      term.writeln(`Target Account ID: \x1b[1;33m${accountId}\x1b[0m`);
+      term.writeln("Initializing environment...");
+      term.writeln("");
+
+      initWebSocket();
+    }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", initTerminal);
+    } else {
+      initTerminal();
+    }
+  </script>
+</body>
 </html>
