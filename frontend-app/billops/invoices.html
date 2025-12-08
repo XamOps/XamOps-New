@@ -1,614 +1,883 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>XamOps - Detailed Invoice</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/big.js@6.0.3/big.min.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
     <link rel="apple-touch-icon" href="/icons/XamOps.png">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        [x-cloak] { display: none !important; }
-
-        .cost-breakdown-table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 0;
-            font-size: 14px;
-            background: white;
-            border-radius: 8px;
-            overflow: hidden;
-            table-layout: fixed;
-        }
-
-        .cost-breakdown-table thead th {
-            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-            color: #374151;
-            font-weight: 600;
-            font-size: 12px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            padding: 16px 20px;
-            text-align: left;
-            border-bottom: 2px solid #e2e8f0;
-        }
-
-        .cost-breakdown-table tbody tr {
-            transition: all 0.15s ease;
-            border-bottom: 1px solid #f1f5f9;
-        }
-
-        .cost-breakdown-table tbody tr:hover {
-            background-color: rgba(99, 102, 241, 0.02);
-        }
-
-        .cost-breakdown-table td {
-            padding: 16px 20px;
-            vertical-align: middle;
-        }
-
-        .expand-icon {
-            transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-            color: #6366f1;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            width: 24px;
-            height: 24px;
-            border-radius: 4px;
-            background: rgba(99, 102, 241, 0.1);
-        }
-        
-        .expand-icon:hover { background: rgba(99, 102, 241, 0.2); }
-        .rotate-90 { transform: rotate(90deg); }
-
-        .drilldown-row {
-            background: linear-gradient(135deg, #fafbff 0%, #f8fafc 100%);
-            border-left: 4px solid #6366f1;
-        }
-
-        .nested-drilldown {
-            background: linear-gradient(135deg, #f0f4ff 0%, #fafbff 100%);
-            border-left: 4px solid #8b5cf6;
-        }
-
-        .amount-cell {
-            font-weight: 600;
-            font-family: 'JetBrains Mono', monospace;
-            text-align: right;
-            color: #059669;
-        }
-
-        .service-name { font-weight: 600; color: #1f2937; font-size: 15px; }
-        .region-name { color: #6b7280; font-weight: 500; padding-left: 20px; }
-        .resource-name { color: #9ca3af; font-size: 13px; padding-left: 40px; }
-        
-        .updating-spinner {
-             display: inline-block;
-             width: 16px;
-             height: 16px;
-             border: 2px solid #d1d5db;
-             border-radius: 50%;
-             border-top-color: #4f46e5;
-             animation: spin 0.8s linear infinite;
-             margin-left: 8px;
-       }
-       @keyframes spin { to { transform: rotate(360deg); } }
-       
-       .skeleton-pulse {
-            background-color: #e5e7eb;
-            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-       }
-       @keyframes pulse { 50% { opacity: .5; } }
-    </style>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/big.js@6.0.3/big.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script type="module" src="/src/main.js"></script>
 </head>
+
 <body class="bg-gray-100">
-<div class="flex h-screen">
-  <include file="/_sidebar.html"></include>
+    <div class="flex h-screen overflow-hidden">
+        <include file="/_sidebar.html"></include>
 
-    <div class="flex-1 flex flex-col overflow-hidden pl-64" x-data="invoicePage()">
-        <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-6">
-            <div class="container mx-auto">
-                <div class="flex justify-between items-center mb-6">
-                     <div>
-                        <h1 class="text-3xl font-bold text-gray-800 flex items-center"> View Invoices
-                            <span x-show="isUpdating" class="updating-spinner" title="Refreshing data in background..."></span>
-                        </h1>
-                        <p class="text-gray-600" x-text="selectedAccountName ? `Account: ${selectedAccountName} (${selectedAccountId})` : 'No account selected'"></p>
-                    </div>
-                </div>
+        <div class="flex-1 flex flex-col overflow-hidden pl-64">
 
-                <div class="bg-white p-4 rounded-lg shadow-md mb-6 flex items-center space-x-4">
-                    <div>
-                        <label for="year" class="block text-sm font-medium text-gray-700">Year</label>
-                        <select id="year" x-model="selectedYear" @change="handleFilterChange()" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md" :disabled="listLoading || isUpdating">
-                            <option value="all">All Years</option>
-                            <template x-for="year in years" :key="year">
-                                <option :value="year" x-text="year"></option>
-                            </template>
-                        </select>
-                    </div>
-                    <div>
-                        <label for="month" class="block text-sm font-medium text-gray-700">Month</label>
-                        <select id="month" x-model="selectedMonth" @change="handleFilterChange()" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md" :disabled="listLoading || isUpdating">
-                            <option value="all">All Months</option>
-                            <template x-for="month in months" :key="month.value">
-                                <option :value="month.value" x-text="month.name"></option>
-                            </template>
-                        </select>
-                    </div>
-                    
-                    <div class="pt-6" x-show="viewState === 'detail'">
-                        <button @click="downloadInvoice()" :disabled="!selectedInvoice || detailLoading" class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400 transition-colors">
-                            <i class="fas fa-download mr-2"></i>Download PDF
-                        </button>
-                    </div>
-                    <div class="pt-6" x-show="viewState === 'detail'">
-                        <button @click="goBackToList()" class="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors">
-                            <i class="fas fa-arrow-left mr-2"></i>Back to List
-                        </button>
-                    </div>
-                    
-                    <div class="pt-6" x-show="viewState === 'list'">
-                        <button @click="fetchData(true)" class="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50 disabled:bg-gray-200 transition-colors" :disabled="listLoading || isUpdating">
-                             <i class="fas" :class="{ 'fa-sync-alt fa-spin': isUpdating, 'fa-sync-alt': !isUpdating }"></i>
-                             <span class="ml-2" x-text="isUpdating ? 'Refreshing...' : 'Refresh'"></span>
-                        </button>
-                    </div>
-                </div>
+            <main id="main-content" class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-6"
+                x-data="invoicePage()">
 
-                <div x-show="updateError && hasData" class="mb-4 p-3 text-sm text-yellow-800 rounded-lg bg-yellow-50 border border-yellow-200" role="alert" x-cloak>
-                    <i class="fas fa-exclamation-circle mr-2"></i>
-                    <span x-text="updateError"></span>
-                </div>
-                
-                <div x-show="error && !hasData" class="text-center p-10 bg-red-50 rounded-lg shadow-md border border-red-100" x-cloak>
-                     <i class="fas fa-exclamation-triangle text-red-400 text-2xl mb-2"></i>
-                     <p class="text-red-700 font-medium" x-text="error"></p>
-                     <button @click="fetchData(true)" class="mt-3 text-red-600 hover:underline text-sm">Try Again</button>
-                </div>
+                <style>
+                    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
-                <div x-show="listLoading" class="bg-white rounded-lg shadow-md overflow-hidden p-6 space-y-4">
-                    <div class="h-8 bg-gray-200 rounded w-full skeleton-pulse"></div>
-                    <div class="h-8 bg-gray-200 rounded w-full skeleton-pulse"></div>
-                    <div class="h-8 bg-gray-200 rounded w-full skeleton-pulse"></div>
-                    <div class="h-8 bg-gray-200 rounded w-full skeleton-pulse"></div>
-                </div>
-                
-                <div x-show="!listLoading && viewState === 'list' && filteredInvoices.length > 0" class="bg-white rounded-lg shadow-md overflow-hidden" x-cloak>
-                    <table class="min-w-full divide-y divide-gray-200">
-                        <thead class="bg-gray-50">
-                            <tr>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Invoice #</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Account</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Period</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
-                                <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody class="bg-white divide-y divide-gray-200">
-                            <template x-for="invoice in filteredInvoices" :key="invoice.id">
-                                <tr class="hover:bg-gray-50 transition-colors">
-                                    <td class="px-6 py-4 whitespace-nowrap">
-                                        <button @click="viewInvoice(invoice)" class="text-indigo-600 hover:underline font-medium" x-text="invoice.invoiceNumber"></button>
-                                    </td>
-                                    <td class="px-6 py-4 whitespace-nowrap" x-text="invoice.awsAccountId"></td>
-                                    <td class="px-6 py-4 whitespace-nowrap" x-text="invoice.billingPeriod"></td>
-                                    <td class="px-6 py-4 whitespace-nowrap font-mono text-gray-700" x-text="formatCurrency(invoice.amount)"></td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-center">
-                                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full" 
-                                              :class="invoice.status === 'FINALIZED' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'"
-                                              x-text="invoice.status">
-                                        </span>
-                                    </td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                        <button @click="viewInvoice(invoice)" class="text-indigo-600 hover:text-indigo-900">View</button>
-                                    </td>
-                                </tr>
-                            </template>
-                        </tbody>
-                    </table>
-                </div>
-                
-                <div x-show="!detailLoading && viewState === 'detail' && selectedInvoice" class="space-y-6" x-cloak>
-                    <div class="bg-white rounded-lg shadow-md p-8">
-                        <div class="flex justify-between items-start mb-8">
-                            <div>
-                                <h2 class="text-2xl font-bold text-gray-800" x-text="`Invoice #${selectedInvoice.invoiceNumber}`"></h2>
-                                <p class="text-gray-500" x-text="`Account ID: ${selectedInvoice.awsAccountId}`"></p>
-                            </div>
-                            <div class="text-right">
-                                <p class="font-semibold text-gray-700" x-text="`Billing Period: ${selectedInvoice.billingPeriod}`"></p>
-                                <p class="text-gray-500" x-text="`Generated Date: ${selectedInvoice.invoiceDate}`"></p>
-                            </div>
+                    body {
+                        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+                    }
+
+                    [x-cloak] {
+                        display: none !important;
+                    }
+
+                    .error {
+                        text-align: center;
+                        padding: 2rem;
+                        color: #dc2626;
+                    }
+
+                    /* Professional Card Styling */
+                    .dashboard-card {
+                        background: #ffffff;
+                        border-radius: 12px;
+                        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.1);
+                        border: 1px solid rgba(226, 232, 240, 0.6);
+                        transition: all 0.2s ease;
+                    }
+
+                    .dashboard-card:hover {
+                        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.07), 0 2px 4px rgba(0, 0, 0, 0.06);
+                    }
+
+                    /* Table Styling */
+                    .cost-breakdown-table {
+                        width: 100%;
+                        border-collapse: separate;
+                        border-spacing: 0;
+                        font-size: 14px;
+                        background: white;
+                        border-radius: 8px;
+                        overflow: hidden;
+                        table-layout: fixed;
+                    }
+
+                    .cost-breakdown-table colgroup col:nth-child(1) {
+                        width: 60px;
+                    }
+
+                    .cost-breakdown-table colgroup col:nth-child(2) {
+                        width: 45%;
+                    }
+
+                    .cost-breakdown-table colgroup col:nth-child(3) {
+                        width: 25%;
+                    }
+
+                    .cost-breakdown-table colgroup col:nth-child(4) {
+                        width: 25%;
+                    }
+
+                    .cost-breakdown-table thead th {
+                        background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+                        color: #374151;
+                        font-weight: 600;
+                        font-size: 12px;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                        padding: 16px 20px;
+                        text-align: left;
+                        border-bottom: 2px solid #e2e8f0;
+                        position: relative;
+                    }
+
+                    .cost-breakdown-table th:nth-child(1),
+                    .cost-breakdown-table td:nth-child(1) {
+                        width: 60px;
+                        text-align: center;
+                    }
+
+                    .cost-breakdown-table th:nth-child(2),
+                    .cost-breakdown-table td:nth-child(2) {
+                        width: 45%;
+                        text-align: left;
+                        word-wrap: break-word;
+                    }
+
+                    .cost-breakdown-table th:nth-child(3),
+                    .cost-breakdown-table td:nth-child(3) {
+                        width: 25%;
+                        text-align: right;
+                    }
+
+                    .cost-breakdown-table th:nth-child(4),
+                    .cost-breakdown-table td:nth-child(4) {
+                        width: 25%;
+                        text-align: right;
+                    }
+
+                    .cost-breakdown-table tbody {
+                        display: table-row-group;
+                    }
+
+                    .cost-breakdown-table tbody tr {
+                        transition: all 0.15s ease;
+                        border-bottom: 1px solid #f1f5f9;
+                        display: table-row;
+                    }
+
+                    .cost-breakdown-table tbody tr:hover:not(.skeleton-row) {
+                        background-color: rgba(99, 102, 241, 0.02);
+                        transform: translateY(-1px);
+                    }
+
+                    .cost-breakdown-table td {
+                        padding: 16px 20px;
+                        vertical-align: middle;
+                        border-bottom: 1px solid #f1f5f9;
+                        display: table-cell;
+                    }
+
+                    .expand-icon {
+                        transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+                        color: #6366f1;
+                        cursor: pointer;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        width: 24px;
+                        height: 24px;
+                        border-radius: 4px;
+                        background: rgba(99, 102, 241, 0.1);
+                    }
+
+                    .expand-icon:hover {
+                        background: rgba(99, 102, 241, 0.2);
+                    }
+
+                    .rotate-90 {
+                        transform: rotate(90deg);
+                    }
+
+                    .drilldown-row {
+                        background: linear-gradient(135deg, #fafbff 0%, #f8fafc 100%);
+                        border-left: 4px solid #6366f1;
+                    }
+
+                    .drilldown-row td {
+                        border-bottom: 1px solid #e2e8f0;
+                        padding: 12px 20px;
+                    }
+
+                    .nested-drilldown {
+                        background: linear-gradient(135deg, #f0f4ff 0%, #fafbff 100%);
+                        border-left: 4px solid #8b5cf6;
+                    }
+
+                    .amount-cell {
+                        font-weight: 600;
+                        font-family: 'JetBrains Mono', monospace;
+                        text-align: right;
+                        color: #059669;
+                    }
+
+                    .service-name {
+                        font-weight: 600;
+                        color: #1f2937;
+                        font-size: 15px;
+                    }
+
+                    .region-name {
+                        color: #6b7280;
+                        font-weight: 500;
+                        padding-left: 20px;
+                    }
+
+                    .resource-name {
+                        color: #9ca3af;
+                        font-size: 13px;
+                        padding-left: 40px;
+                    }
+
+                    .chart-container {
+                        position: relative;
+                        height: 280px;
+                        padding: 10px;
+                    }
+
+                    .dashboard-header {
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        color: white;
+                        border-radius: 12px 12px 0 0;
+                        padding: 20px 24px;
+                        margin-bottom: 0;
+                    }
+
+                    .dashboard-title {
+                        font-size: 24px;
+                        font-weight: 700;
+                        margin: 0;
+                    }
+
+                    .filter-select {
+                        background: white;
+                        border: 2px solid #e5e7eb;
+                        border-radius: 8px;
+                        padding: 8px 12px;
+                        font-size: 14px;
+                        font-weight: 500;
+                        color: #374151;
+                        transition: all 0.2s ease;
+                    }
+
+                    .filter-select:focus {
+                        outline: none;
+                        border-color: #6366f1;
+                        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+                    }
+
+                    .refresh-button {
+                        background: #ffffff;
+                        border: 2px solid #e5e7eb;
+                        border-radius: 8px;
+                        padding: 8px 12px;
+                        font-size: 14px;
+                        font-weight: 500;
+                        color: #374151;
+                        transition: all 0.2s ease;
+                        display: flex;
+                        align-items: center;
+                        line-height: 1.5;
+                    }
+
+                    .refresh-button:hover:not(:disabled) {
+                        border-color: #6366f1;
+                        color: #6366f1;
+                        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+                    }
+
+                    .refresh-button:disabled {
+                        opacity: 0.6;
+                        cursor: not-allowed;
+                        background: #f9fafb;
+                    }
+
+                    .refresh-button .fa-spin {
+                        animation: spin 0.8s linear infinite;
+                    }
+
+                    .updating-spinner {
+                        display: inline-block;
+                        width: 16px;
+                        height: 16px;
+                        border: 2px solid #ffffff;
+                        /* White for header contrast */
+                        border-radius: 50%;
+                        border-top-color: transparent;
+                        animation: spin 0.8s linear infinite;
+                        margin-left: 10px;
+                    }
+
+                    @keyframes spin {
+                        to {
+                            transform: rotate(360deg);
+                        }
+                    }
+
+                    .skeleton-placeholder {
+                        background-color: #e2e8f0;
+                        border-radius: 4px;
+                    }
+
+                    .skeleton-placeholder-dark {
+                        background-color: #cbd5e1;
+                        border-radius: 4px;
+                    }
+
+                    @media (max-width: 768px) {
+
+                        .cost-breakdown-table th,
+                        .cost-breakdown-table td {
+                            padding: 12px 16px;
+                            font-size: 13px;
+                        }
+
+                        .chart-container {
+                            height: 220px;
+                        }
+                    }
+                </style>
+
+                <div class="container mx-auto">
+                    <div class="flex justify-between items-center mb-6">
+                        <div>
+                            <h1 class="text-3xl font-bold text-gray-800 flex items-center"> View Invoices
+                                <span x-show="isUpdating" class="updating-spinner"
+                                    title="Refreshing data in background..."></span>
+                            </h1>
+                            <p class="text-gray-600"
+                                x-text="selectedAccountName ? `Account: ${selectedAccountName} (${selectedAccountId})` : 'No account selected'">
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="bg-white p-4 rounded-lg shadow-md mb-6 flex items-center space-x-4">
+                        <div>
+                            <label for="year" class="block text-sm font-medium text-gray-700">Year</label>
+                            <select id="year" x-model="selectedYear" @change="handleFilterChange()"
+                                class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
+                                :disabled="listLoading || isUpdating">
+                                <option value="all">All Years</option>
+                                <template x-for="year in years" :key="year">
+                                    <option :value="year" x-text="year"></option>
+                                </template>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="month" class="block text-sm font-medium text-gray-700">Month</label>
+                            <select id="month" x-model="selectedMonth" @change="handleFilterChange()"
+                                class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
+                                :disabled="listLoading || isUpdating">
+                                <option value="all">All Months</option>
+                                <template x-for="month in months" :key="month.value">
+                                    <option :value="month.value" x-text="month.name"></option>
+                                </template>
+                            </select>
                         </div>
 
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                            <div class="bg-gray-50 p-4 rounded-lg text-center">
-                                <h3 class="text-sm font-medium text-gray-500">Original Total</h3>
-                                <p class="mt-1 text-2xl font-semibold text-gray-600" x-text="formatCurrency(selectedInvoice.preDiscountTotal)"></p>
-                            </div>
-                            <div class="bg-red-50 p-4 rounded-lg text-center">
-                                <h3 class="text-sm font-medium text-red-500">Discounts Applied</h3>
-                                <p class="mt-1 text-2xl font-semibold text-red-700" x-text="formatCurrency(selectedInvoice.discountAmount * -1)"></p>
-                            </div>
-                             <div class="bg-green-50 p-4 rounded-lg text-center">
-                                <h3 class="text-sm font-medium text-green-600">Final Invoice Total</h3>
-                                <p class="mt-1 text-3xl font-bold text-green-800" x-text="formatCurrency(selectedInvoice.amount)"></p>
-                            </div>
+                        <div class="pt-6" x-show="viewState === 'detail'">
+                            <button @click="downloadInvoice()" :disabled="!selectedInvoice || detailLoading"
+                                class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400 transition-colors">
+                                <i class="fas fa-download mr-2"></i>Download PDF
+                            </button>
+                        </div>
+                        <div class="pt-6" x-show="viewState === 'detail'">
+                            <button @click="goBackToList()"
+                                class="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors">
+                                <i class="fas fa-arrow-left mr-2"></i>Back to List
+                            </button>
                         </div>
 
-                        <h2 class="text-xl font-bold text-gray-800 mb-4">Final Charges</h2>
-                        <div class="border rounded-lg overflow-hidden">
-                             <table class="cost-breakdown-table">
-                                <colgroup>
-                                    <col style="width: 60px;">
-                                    <col style="width: 45%;">
-                                    <col style="width: 25%;">
-                                    <col style="width: 25%;">
-                                </colgroup>
-                                <thead>
+                        <div class="pt-6" x-show="viewState === 'list'">
+                            <button @click="fetchData(true)"
+                                class="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50 disabled:bg-gray-200 transition-colors"
+                                :disabled="listLoading || isUpdating">
+                                <i class="fas"
+                                    :class="{ 'fa-sync-alt fa-spin': isUpdating, 'fa-sync-alt': !isUpdating }"></i>
+                                <span class="ml-2" x-text="isUpdating ? 'Refreshing...' : 'Refresh'"></span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div x-show="updateError && hasData"
+                        class="mb-4 p-3 text-sm text-yellow-800 rounded-lg bg-yellow-50 border border-yellow-200"
+                        role="alert" x-cloak>
+                        <i class="fas fa-exclamation-circle mr-2"></i>
+                        <span x-text="updateError"></span>
+                    </div>
+
+                    <div x-show="error && !hasData"
+                        class="text-center p-10 bg-red-50 rounded-lg shadow-md border border-red-100" x-cloak>
+                        <i class="fas fa-exclamation-triangle text-red-400 text-2xl mb-2"></i>
+                        <p class="text-red-700 font-medium" x-text="error"></p>
+                        <button @click="fetchData(true)" class="mt-3 text-red-600 hover:underline text-sm">Try
+                            Again</button>
+                    </div>
+
+                    <div x-show="listLoading" class="bg-white rounded-lg shadow-md overflow-hidden p-6 space-y-4">
+                        <div class="h-8 bg-gray-200 rounded w-full skeleton-pulse"></div>
+                        <div class="h-8 bg-gray-200 rounded w-full skeleton-pulse"></div>
+                        <div class="h-8 bg-gray-200 rounded w-full skeleton-pulse"></div>
+                        <div class="h-8 bg-gray-200 rounded w-full skeleton-pulse"></div>
+                    </div>
+
+                    <div x-show="!listLoading && viewState === 'list' && filteredInvoices.length > 0"
+                        class="bg-white rounded-lg shadow-md overflow-hidden" x-cloak>
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
                                 <tr>
-                                    <th></th>
-                                    <th>Service / Resource</th>
-                                    <th>Usage Quantity</th>
-                                    <th>Amount (USD)</th>
+                                    <th
+                                        class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Invoice #</th>
+                                    <th
+                                        class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Account</th>
+                                    <th
+                                        class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Period</th>
+                                    <th
+                                        class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Total</th>
+                                    <th
+                                        class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Status</th>
+                                    <th
+                                        class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Actions</th>
                                 </tr>
-                                </thead>
-
-                                <template x-for="service in detailedBreakdown" :key="service.serviceName">
-                                    <tbody>
-                                    <tr @click="toggleService(service.serviceName)" class="cursor-pointer">
-                                        <td>
-                                            <div class="expand-icon" :class="{ 'rotate-90': expandedServices[service.serviceName] }">
-                                                <i class="fas fa-chevron-right text-sm"></i>
-                                            </div>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200">
+                                <template x-for="invoice in filteredInvoices" :key="invoice.id">
+                                    <tr class="hover:bg-gray-50 transition-colors">
+                                        <td class="px-6 py-4 whitespace-nowrap">
+                                            <button @click="viewInvoice(invoice)"
+                                                class="text-indigo-600 hover:underline font-medium"
+                                                x-text="invoice.invoiceNumber"></button>
                                         </td>
-                                        <td><div class="service-name" x-text="service.serviceName"></div></td>
-                                        <td><span class="text-gray-500">—</span></td>
-                                        <td><div class="amount-cell" x-text="formatCurrency(service.totalCost)"></div></td>
+                                        <td class="px-6 py-4 whitespace-nowrap" x-text="invoice.awsAccountId"></td>
+                                        <td class="px-6 py-4 whitespace-nowrap" x-text="invoice.billingPeriod"></td>
+                                        <td class="px-6 py-4 whitespace-nowrap font-mono text-gray-700"
+                                            x-text="formatCurrency(invoice.amount)"></td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-center">
+                                            <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full"
+                                                :class="invoice.status === 'FINALIZED' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'"
+                                                x-text="invoice.status">
+                                            </span>
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                            <button @click="viewInvoice(invoice)"
+                                                class="text-indigo-600 hover:text-indigo-900">View</button>
+                                        </td>
                                     </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
 
-                                    <template x-for="region in service.regionCosts" :key="region.regionName">
-                                        <tbody x-show="expandedServices[service.serviceName]">
-                                        <tr @click="toggleRegion(service.serviceName, region.regionName)" class="cursor-pointer drilldown-row">
-                                            <td>
-                                                <div class="expand-icon" :class="{ 'rotate-90': expandedRegions[`${service.serviceName}-${region.regionName}`] }">
-                                                    <i class="fas fa-chevron-right text-xs"></i>
-                                                </div>
-                                            </td>
-                                            <td><div class="region-name" x-text="region.regionName"></div></td>
-                                            <td><span class="text-gray-500">—</span></td>
-                                            <td><div class="amount-cell text-blue-600" x-text="formatCurrency(region.cost)"></div></td>
+                    <div x-show="!detailLoading && viewState === 'detail' && selectedInvoice" class="space-y-6" x-cloak>
+                        <div class="bg-white rounded-lg shadow-md p-8">
+                            <div class="flex justify-between items-start mb-8">
+                                <div>
+                                    <h2 class="text-2xl font-bold text-gray-800"
+                                        x-text="`Invoice #${selectedInvoice.invoiceNumber}`"></h2>
+                                    <p class="text-gray-500" x-text="`Account ID: ${selectedInvoice.awsAccountId}`"></p>
+                                </div>
+                                <div class="text-right">
+                                    <p class="font-semibold text-gray-700"
+                                        x-text="`Billing Period: ${selectedInvoice.billingPeriod}`"></p>
+                                    <p class="text-gray-500" x-text="`Generated Date: ${selectedInvoice.invoiceDate}`">
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                                <div class="bg-gray-50 p-4 rounded-lg text-center">
+                                    <h3 class="text-sm font-medium text-gray-500">Original Total</h3>
+                                    <p class="mt-1 text-2xl font-semibold text-gray-600"
+                                        x-text="formatCurrency(selectedInvoice.preDiscountTotal)"></p>
+                                </div>
+                                <div class="bg-red-50 p-4 rounded-lg text-center">
+                                    <h3 class="text-sm font-medium text-red-500">Discounts Applied</h3>
+                                    <p class="mt-1 text-2xl font-semibold text-red-700"
+                                        x-text="formatCurrency(selectedInvoice.discountAmount * -1)"></p>
+                                </div>
+                                <div class="bg-green-50 p-4 rounded-lg text-center">
+                                    <h3 class="text-sm font-medium text-green-600">Final Invoice Total</h3>
+                                    <p class="mt-1 text-3xl font-bold text-green-800"
+                                        x-text="formatCurrency(selectedInvoice.amount)"></p>
+                                </div>
+                            </div>
+
+                            <h2 class="text-xl font-bold text-gray-800 mb-4">Final Charges</h2>
+                            <div class="border rounded-lg overflow-hidden">
+                                <table class="cost-breakdown-table">
+                                    <colgroup>
+                                        <col style="width: 60px;">
+                                        <col style="width: 45%;">
+                                        <col style="width: 25%;">
+                                        <col style="width: 25%;">
+                                    </colgroup>
+                                    <thead>
+                                        <tr>
+                                            <th></th>
+                                            <th>Service / Resource</th>
+                                            <th>Usage Quantity</th>
+                                            <th>Amount (USD)</th>
                                         </tr>
+                                    </thead>
 
-                                        <template x-for="resource in region.resources" :key="resource.resourceId">
-                                            <tr x-show="expandedRegions[`${service.serviceName}-${region.regionName}`]" class="nested-drilldown">
-                                                <td></td>
-                                                <td><div class="resource-name" x-text="resource.resourceName"></div></td>
-                                                <td class="text-right text-gray-600 text-sm" x-text="`${formatNumber(resource.usageQuantity)} ${resource.unit}`"></td>
-                                                <td><div class="amount-cell text-purple-600" x-text="formatCurrency(resource.cost)"></div></td>
+                                    <template x-for="service in detailedBreakdown" :key="service.serviceName">
+                                        <tbody>
+                                            <tr @click="toggleService(service.serviceName)" class="cursor-pointer">
+                                                <td>
+                                                    <div class="expand-icon"
+                                                        :class="{ 'rotate-90': expandedServices[service.serviceName] }">
+                                                        <i class="fas fa-chevron-right text-sm"></i>
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    <div class="service-name" x-text="service.serviceName"></div>
+                                                </td>
+                                                <td><span class="text-gray-500">—</span></td>
+                                                <td>
+                                                    <div class="amount-cell" x-text="formatCurrency(service.totalCost)">
+                                                    </div>
+                                                </td>
                                             </tr>
-                                        </template>
+
+                                            <template x-for="region in service.regionCosts" :key="region.regionName">
+                                        <tbody x-show="expandedServices[service.serviceName]">
+                                            <tr @click="toggleRegion(service.serviceName, region.regionName)"
+                                                class="cursor-pointer drilldown-row">
+                                                <td>
+                                                    <div class="expand-icon"
+                                                        :class="{ 'rotate-90': expandedRegions[`${service.serviceName}-${region.regionName}`] }">
+                                                        <i class="fas fa-chevron-right text-xs"></i>
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    <div class="region-name" x-text="region.regionName"></div>
+                                                </td>
+                                                <td><span class="text-gray-500">—</span></td>
+                                                <td>
+                                                    <div class="amount-cell text-blue-600"
+                                                        x-text="formatCurrency(region.cost)"></div>
+                                                </td>
+                                            </tr>
+
+                                            <template x-for="resource in region.resources" :key="resource.resourceId">
+                                                <tr x-show="expandedRegions[`${service.serviceName}-${region.regionName}`]"
+                                                    class="nested-drilldown">
+                                                    <td></td>
+                                                    <td>
+                                                        <div class="resource-name" x-text="resource.resourceName"></div>
+                                                    </td>
+                                                    <td class="text-right text-gray-600 text-sm"
+                                                        x-text="resource.quantity != null ? `${formatNumber(resource.quantity)} ${resource.unit || ''}` : 'N/A'">
+                                                    </td>
+                                                    <td>
+                                                        <div class="amount-cell text-purple-600"
+                                                            x-text="formatCurrency(resource.cost)"></div>
+                                                    </td>
+                                                </tr>
+                                            </template>
                                         </tbody>
                                     </template>
                                     </tbody>
-                                </template>
-
-                                <tbody x-show="detailedBreakdown.length === 0">
-                                <tr>
-                                    <td colspan="4" class="text-center py-12">
-                                        <i class="fas fa-inbox text-gray-300 text-3xl mb-3"></i>
-                                        <p class="text-gray-500 font-medium">No line item data found in this invoice.</p>
-                                    </td>
-                                </tr>
-                                </tbody>
-                                
-                                <tfoot class="bg-gray-50 text-sm">
-                                    <tr class="border-t-2 border-gray-200">
-                                        <td colspan="3" class="px-6 py-2 text-right text-gray-600 font-medium">Subtotal</td>
-                                        <td class="px-6 py-2 text-right text-gray-800 font-bold" x-text="formatCurrency(selectedInvoice.preDiscountTotal)"></td>
-                                    </tr>
-                                    
-                                    <template x-for="discount in selectedInvoice.discounts" :key="discount.id">
-                                        <tr class="bg-red-50">
-                                            <td colspan="3" class="px-6 py-2 text-right text-red-600 text-xs">
-                                                <span x-text="discount.description"></span>
-                                            </td>
-                                            <td class="px-6 py-2 text-right text-red-700 font-medium" x-text="formatCurrency(calculateDiscountAmount(discount))"></td>
-                                        </tr>
                                     </template>
 
-                                    <tr class="border-t border-gray-200 bg-gray-50">
-                                        <td colspan="3" class="px-6 py-2 text-right text-gray-500">Taxable Value</td>
-                                        <td class="px-6 py-2 text-right text-gray-700" x-text="formatCurrency(selectedInvoice.preDiscountTotal - selectedInvoice.discountAmount)"></td>
-                                    </tr>
+                                    <tbody x-show="!loading && detailedBreakdown.length === 0">
+                                        <tr>
+                                            <td colspan="4" class="text-center py-12">
+                                                <i class="fas fa-inbox text-gray-300 text-3xl mb-3"></i>
+                                                <p class="text-gray-500 font-medium">No detailed cost data available for
+                                                    the selected period.</p>
+                                            </td>
+                                        </tr>
+                                    </tbody>
 
-                                    <tr class="bg-gray-50">
-                                        <td colspan="3" class="px-6 py-2 text-right text-gray-500">IGST (18%)</td>
-                                        <td class="px-6 py-2 text-right text-gray-700" x-text="formatCurrency(selectedInvoice.taxAmount)"></td>
-                                    </tr>
-                                    
-                                    <tr class="border-t-2 border-indigo-100 bg-indigo-50">
-                                        <td colspan="3" class="px-6 py-4 text-right text-indigo-900 font-bold text-lg">TOTAL DUE</td>
-                                        <td class="px-6 py-4 text-right text-indigo-700 font-bold text-xl" x-text="formatCurrency(selectedInvoice.amount)"></td>
-                                    </tr>
-                                </tfoot>
-                            </table>
+                                    <tfoot class="bg-gray-50 text-sm">
+                                        <tr class="border-t-2 border-gray-200">
+                                            <td colspan="3" class="px-6 py-2 text-right text-gray-600 font-medium">
+                                                Subtotal</td>
+                                            <td class="px-6 py-2 text-right text-gray-800 font-bold"
+                                                x-text="formatCurrency(selectedInvoice.preDiscountTotal)"></td>
+                                        </tr>
+
+                                        <template x-for="discount in selectedInvoice.discounts" :key="discount.id">
+                                            <tr class="bg-red-50">
+                                                <td colspan="3" class="px-6 py-2 text-right text-red-600 text-xs">
+                                                    <span x-text="discount.description"></span>
+                                                </td>
+                                                <td class="px-6 py-2 text-right text-red-700 font-medium"
+                                                    x-text="formatCurrency(calculateDiscountAmount(discount))"></td>
+                                            </tr>
+                                        </template>
+
+                                        <tr class="border-t border-gray-200 bg-gray-50">
+                                            <td colspan="3" class="px-6 py-2 text-right text-gray-500">Taxable Value
+                                            </td>
+                                            <td class="px-6 py-2 text-right text-gray-700"
+                                                x-text="formatCurrency(selectedInvoice.preDiscountTotal - selectedInvoice.discountAmount)">
+                                            </td>
+                                        </tr>
+
+                                        <tr class="bg-gray-50">
+                                            <td colspan="3" class="px-6 py-2 text-right text-gray-500">IGST (18%)</td>
+                                            <td class="px-6 py-2 text-right text-gray-700"
+                                                x-text="formatCurrency(selectedInvoice.taxAmount)"></td>
+                                        </tr>
+
+                                        <tr class="border-t-2 border-indigo-100 bg-indigo-50">
+                                            <td colspan="3"
+                                                class="px-6 py-4 text-right text-indigo-900 font-bold text-lg">TOTAL DUE
+                                            </td>
+                                            <td class="px-6 py-4 text-right text-indigo-700 font-bold text-xl"
+                                                x-text="formatCurrency(selectedInvoice.amount)"></td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
                         </div>
-                        </div>
+                    </div>
                 </div>
-                </div>
-        </main>
+            </main>
+        </div>
     </div>
-</div>
-<script>
-    function invoicePage() {
-        return {
-            selectedAccountId: null,
-            selectedAccountName: '',
-            years: [new Date().getFullYear(), new Date().getFullYear() - 1],
-            selectedYear: 'all', 
-            months: [
-                { name: 'January', value: 1 }, { name: 'February', value: 2 }, { name: 'March', value: 3 },
-                { name: 'April', value: 4 }, { name: 'May', value: 5 }, { name: 'June', value: 6 },
-                { name: 'July', value: 7 }, { name: 'August', value: 8 }, { name: 'September', value: 9 },
-                { name: 'October', value: 10 }, { name: 'November', value: 11 }, { name: 'December', value: 12 }
-            ],
-            selectedMonth: 'all',
-            
-            viewState: 'list',
-            allInvoices: [],
-            filteredInvoices: [],
-            selectedInvoice: null,
-            
-            listLoading: true,
-            detailLoading: false,
-            isUpdating: false,
-            
-            error: null,
-            updateError: null,
-            
-            detailedBreakdown: [],
-            expandedServices: {},
-            expandedRegions: {},
-            
-            // Computed property for data existence
-            get hasData() {
-                return this.allInvoices && this.allInvoices.length > 0;
-            },
 
-            init() {
-                const urlParams = new URLSearchParams(window.location.search);
-                const accountIds = urlParams.get('accountId') || urlParams.get('accountIds');
-                
-                if (accountIds) {
-                    this.selectedAccountId = accountIds.split(',')[0];
-                    // Unified Fetch: Initial load (forceRefresh = false)
-                    this.fetchData(false);
-                } else {
-                    this.error = "No account selected. Please choose an account from the sidebar.";
-                    this.listLoading = false;
-                }
-            },
+    <script>
+        function invoicePage() {
+            return {
+                selectedAccountId: null,
+                selectedAccountName: '',
+                years: [new Date().getFullYear(), new Date().getFullYear() - 1],
+                selectedYear: 'all',
+                months: [
+                    { name: 'January', value: 1 }, { name: 'February', value: 2 }, { name: 'March', value: 3 },
+                    { name: 'April', value: 4 }, { name: 'May', value: 5 }, { name: 'June', value: 6 },
+                    { name: 'July', value: 7 }, { name: 'August', value: 8 }, { name: 'September', value: 9 },
+                    { name: 'October', value: 10 }, { name: 'November', value: 11 }, { name: 'December', value: 12 }
+                ],
+                selectedMonth: 'all',
 
-            // Unified function handling both Initial Load and Force Refresh
-            fetchData(forceRefresh = false) {
-                if (forceRefresh) {
-                    this.isUpdating = true;
-                    this.updateError = null;
-                    console.log("🔄 Refreshing invoice list...");
-                } else {
-                    this.listLoading = true;
-                    this.error = null;
-                    console.log("📥 Initial load for invoice list...");
-                }
+                viewState: 'list',
+                allInvoices: [],
+                filteredInvoices: [],
+                selectedInvoice: null,
 
-                // Using Admin endpoint for now as per requirements. 
-                // Ideally this should be a user-scoped endpoint like /api/billops/invoices
-                fetch(`/api/admin/invoices?forceRefresh=${forceRefresh}`)
-                    .then(res => {
-                        if (!res.ok) throw new Error('Failed to load invoice list.');
-                        return res.json();
-                    })
-                    .then(data => {
-                        console.log('✅ Invoice list received.');
-                        this.allInvoices = data;
-                        this.filterAndDisplayInvoices();
-                    })
-                    .catch(error => {
-                        console.error('Error fetching invoice list:', error);
-                        const msg = 'Failed to load invoice data.';
-                        
-                        if (forceRefresh) {
-                            this.updateError = msg;
-                        } else {
-                            if (!this.hasData) {
-                                this.error = msg;
+                listLoading: true,
+                detailLoading: false,
+                isUpdating: false,
+
+                error: null,
+                updateError: null,
+
+                detailedBreakdown: [],
+                expandedServices: {},
+                expandedRegions: {},
+
+                // Computed property for data existence
+                get hasData() {
+                    return this.allInvoices && this.allInvoices.length > 0;
+                },
+
+                init() {
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const accountIds = urlParams.get('accountId') || urlParams.get('accountIds');
+
+                    if (accountIds) {
+                        this.selectedAccountId = accountIds.split(',')[0];
+                        // Unified Fetch: Initial load (forceRefresh = false)
+                        this.fetchData(false);
+                    } else {
+                        this.error = "No account selected. Please choose an account from the sidebar.";
+                        this.listLoading = false;
+                    }
+                },
+
+                // Unified function handling both Initial Load and Force Refresh
+                fetchData(forceRefresh = false) {
+                    if (forceRefresh) {
+                        this.isUpdating = true;
+                        this.updateError = null;
+                        console.log("🔄 Refreshing invoice list...");
+                    } else {
+                        this.listLoading = true;
+                        this.error = null;
+                        console.log("📥 Initial load for invoice list...");
+                    }
+
+                    // Using Admin endpoint for now as per requirements. 
+                    // Ideally this should be a user-scoped endpoint like /api/billops/invoices
+                    fetch(`/api/admin/invoices?forceRefresh=${forceRefresh}`)
+                        .then(res => {
+                            if (!res.ok) throw new Error('Failed to load invoice list.');
+                            return res.json();
+                        })
+                        .then(data => {
+                            console.log('✅ Invoice list received.');
+                            this.allInvoices = data;
+                            this.filterAndDisplayInvoices();
+                        })
+                        .catch(error => {
+                            console.error('Error fetching invoice list:', error);
+                            const msg = 'Failed to load invoice data.';
+
+                            if (forceRefresh) {
+                                this.updateError = msg;
                             } else {
-                                this.updateError = msg + " Showing cached data.";
+                                if (!this.hasData) {
+                                    this.error = msg;
+                                } else {
+                                    this.updateError = msg + " Showing cached data.";
+                                }
+                            }
+                        })
+                        .finally(() => {
+                            this.listLoading = false;
+                            this.isUpdating = false;
+                        });
+                },
+
+                handleFilterChange() {
+                    this.filterAndDisplayInvoices();
+                },
+
+                filterAndDisplayInvoices() {
+                    this.viewState = 'list';
+                    this.selectedInvoice = null;
+
+                    // Filter for current account and FINALIZED status (Users only see finalized)
+                    let invoices = this.allInvoices.filter(inv =>
+                        inv.awsAccountId === this.selectedAccountId && inv.status === 'FINALIZED'
+                    );
+
+                    if (this.selectedYear !== 'all') {
+                        invoices = invoices.filter(inv => inv.billingPeriod.startsWith(this.selectedYear));
+                    }
+
+                    if (this.selectedMonth !== 'all') {
+                        const monthStr = `-${String(this.selectedMonth).padStart(2, '0')}`;
+                        invoices = invoices.filter(inv => inv.billingPeriod.endsWith(monthStr));
+                    }
+
+                    if (invoices.length > 0 && !this.selectedAccountName) {
+                        this.selectedAccountName = invoices[0].accountName;
+                    }
+
+                    this.filteredInvoices = invoices.sort((a, b) => b.id - a.id);
+                },
+
+                viewInvoice(invoice) {
+                    this.viewState = 'detail';
+                    this.detailLoading = true;
+                    this.error = null;
+                    this.selectedInvoice = invoice;
+
+                    // Small timeout to allow UI transition before heavy transformation
+                    setTimeout(() => {
+                        this.detailedBreakdown = this.transformToDrilldown(invoice.lineItems);
+                        this.detailLoading = false;
+                    }, 50);
+                },
+
+                goBackToList() {
+                    this.viewState = 'list';
+                    this.selectedInvoice = null;
+                    this.error = null;
+                    this.filterAndDisplayInvoices();
+                },
+
+                transformToDrilldown(lineItems) {
+                    if (!lineItems || lineItems.length === 0) return [];
+
+                    const serviceMap = new Map();
+
+                    for (const item of lineItems) {
+                        // 1. Service Level
+                        if (!serviceMap.has(item.serviceName)) {
+                            serviceMap.set(item.serviceName, {
+                                serviceName: item.serviceName,
+                                totalCost: 0,
+                                regionCosts: new Map()
+                            });
+                        }
+                        const service = serviceMap.get(item.serviceName);
+                        service.totalCost += item.cost;
+
+                        // 2. Region Level
+                        if (!service.regionCosts.has(item.regionName)) {
+                            service.regionCosts.set(item.regionName, {
+                                regionName: item.regionName,
+                                cost: 0,
+                                resources: []
+                            });
+                        }
+                        const region = service.regionCosts.get(item.regionName);
+                        region.cost += item.cost;
+
+                        // 3. Resource Level
+                        region.resources.push({
+                            resourceId: `${item.serviceName}-${item.regionName}-${item.resourceName}-${item.cost}`, // Unique key for loop
+                            resourceName: item.resourceName,
+                            usageQuantity: item.usageQuantity,
+                            unit: item.unit,
+                            cost: item.cost
+                        });
+                    }
+
+                    // Convert Maps to Arrays for Alpine x-for
+                    const result = [];
+                    for (const service of serviceMap.values()) {
+                        service.regionCosts = Array.from(service.regionCosts.values());
+                        result.push(service);
+                    }
+                    return result.sort((a, b) => b.totalCost - a.totalCost); // Sort by cost desc
+                },
+
+                downloadInvoice() {
+                    if (!this.selectedInvoice) return;
+
+                    fetch('/api/billops/invoices/download-preview', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(this.selectedInvoice)
+                    })
+                        .then(res => {
+                            if (!res.ok) throw new Error('PDF generation failed.');
+                            return res.blob();
+                        })
+                        .then(blob => {
+                            const url = window.URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.style.display = 'none';
+                            a.href = url;
+                            a.download = `invoice-${this.selectedInvoice.awsAccountId}-${this.selectedInvoice.billingPeriod}.pdf`;
+                            document.body.appendChild(a);
+                            a.click();
+                            window.URL.revokeObjectURL(url);
+                            document.body.removeChild(a);
+                        })
+                        .catch(err => {
+                            console.error('Download error:', err);
+                            alert('Could not download the invoice PDF.');
+                        });
+                },
+
+                calculateDiscountAmount(discount) {
+                    try {
+                        let amount = 0;
+                        const percentage = new Big(discount.percentage).div(100);
+
+                        if (discount.serviceName === 'ALL') {
+                            amount = new Big(this.selectedInvoice.preDiscountTotal).times(percentage);
+                        } else {
+                            const service = this.detailedBreakdown.find(s => s.serviceName === discount.serviceName);
+                            if (service) {
+                                amount = new Big(service.totalCost).times(percentage);
                             }
                         }
-                    })
-                    .finally(() => {
-                        this.listLoading = false;
-                        this.isUpdating = false;
-                    });
-            },
-            
-            handleFilterChange() {
-                this.filterAndDisplayInvoices();
-            },
-            
-            filterAndDisplayInvoices() {
-                this.viewState = 'list';
-                this.selectedInvoice = null;
+                        return amount.times(-1).toNumber();
+                    } catch (e) { return 0; }
+                },
 
-                // Filter for current account and FINALIZED status (Users only see finalized)
-                let invoices = this.allInvoices.filter(inv => 
-                    inv.awsAccountId === this.selectedAccountId && inv.status === 'FINALIZED'
-                );
+                formatCurrency(value) {
+                    if (typeof value !== 'number') return '$0.00';
+                    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
+                },
 
-                if (this.selectedYear !== 'all') {
-                    invoices = invoices.filter(inv => inv.billingPeriod.startsWith(this.selectedYear));
+                formatNumber(value) {
+                    if (typeof value !== 'number' && typeof value !== 'string') return '0';
+                    const num = Number(value);
+                    if (isNaN(num)) return '0';
+                    return num.toLocaleString('en-US', { maximumFractionDigits: 3 });
+                },
+
+                toggleService(serviceName) {
+                    this.expandedServices[serviceName] = !this.expandedServices[serviceName];
+                },
+
+                toggleRegion(serviceName, regionName) {
+                    const key = `${serviceName}-${regionName}`;
+                    this.expandedRegions[key] = !this.expandedRegions[key];
                 }
-                
-                if (this.selectedMonth !== 'all') {
-                    const monthStr = `-${String(this.selectedMonth).padStart(2, '0')}`;
-                    invoices = invoices.filter(inv => inv.billingPeriod.endsWith(monthStr));
-                }
-
-                if (invoices.length > 0 && !this.selectedAccountName) {
-                    this.selectedAccountName = invoices[0].accountName;
-                }
-                
-                this.filteredInvoices = invoices.sort((a, b) => b.id - a.id); 
-            },
-
-            viewInvoice(invoice) {
-                this.viewState = 'detail';
-                this.detailLoading = true;
-                this.error = null;
-                this.selectedInvoice = invoice;
-                
-                // Small timeout to allow UI transition before heavy transformation
-                setTimeout(() => {
-                     this.detailedBreakdown = this.transformToDrilldown(invoice.lineItems);
-                     this.detailLoading = false;
-                }, 50);
-            },
-
-            goBackToList() {
-                this.viewState = 'list';
-                this.selectedInvoice = null;
-                this.error = null;
-                this.filterAndDisplayInvoices(); 
-            },
-
-            transformToDrilldown(lineItems) {
-                if (!lineItems || lineItems.length === 0) return [];
-                
-                const serviceMap = new Map();
-                
-                for (const item of lineItems) {
-                    // 1. Service Level
-                    if (!serviceMap.has(item.serviceName)) {
-                        serviceMap.set(item.serviceName, { 
-                            serviceName: item.serviceName, 
-                            totalCost: 0, 
-                            regionCosts: new Map() 
-                        });
-                    }
-                    const service = serviceMap.get(item.serviceName);
-                    service.totalCost += item.cost;
-
-                    // 2. Region Level
-                    if (!service.regionCosts.has(item.regionName)) {
-                        service.regionCosts.set(item.regionName, { 
-                            regionName: item.regionName, 
-                            cost: 0, 
-                            resources: [] 
-                        });
-                    }
-                    const region = service.regionCosts.get(item.regionName);
-                    region.cost += item.cost;
-
-                    // 3. Resource Level
-                    region.resources.push({
-                        resourceId: `${item.serviceName}-${item.regionName}-${item.resourceName}-${item.cost}`, // Unique key for loop
-                        resourceName: item.resourceName,
-                        usageQuantity: item.usageQuantity,
-                        unit: item.unit,
-                        cost: item.cost
-                    });
-                }
-                
-                // Convert Maps to Arrays for Alpine x-for
-                const result = [];
-                for (const service of serviceMap.values()) {
-                    service.regionCosts = Array.from(service.regionCosts.values());
-                    result.push(service);
-                }
-                return result.sort((a, b) => b.totalCost - a.totalCost); // Sort by cost desc
-            },
-
-            downloadInvoice() {
-                if (!this.selectedInvoice) return;
-                
-                fetch('/api/billops/invoices/download-preview', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(this.selectedInvoice) 
-                })
-                .then(res => {
-                    if (!res.ok) throw new Error('PDF generation failed.');
-                    return res.blob();
-                })
-                .then(blob => {
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.style.display = 'none';
-                    a.href = url;
-                    a.download = `invoice-${this.selectedInvoice.awsAccountId}-${this.selectedInvoice.billingPeriod}.pdf`;
-                    document.body.appendChild(a);
-                    a.click();
-                    window.URL.revokeObjectURL(url);
-                    document.body.removeChild(a);
-                })
-                .catch(err => {
-                    console.error('Download error:', err);
-                    alert('Could not download the invoice PDF.');
-                });
-            },
-            
-            calculateDiscountAmount(discount) {
-                try {
-                    let amount = 0;
-                    const percentage = new Big(discount.percentage).div(100);
-                    
-                    if (discount.serviceName === 'ALL') {
-                        amount = new Big(this.selectedInvoice.preDiscountTotal).times(percentage);
-                    } else {
-                        const service = this.detailedBreakdown.find(s => s.serviceName === discount.serviceName);
-                        if (service) {
-                            amount = new Big(service.totalCost).times(percentage);
-                        }
-                    }
-                    return amount.times(-1).toNumber();
-                } catch(e) { return 0; }
-            },
-
-            formatCurrency(value) {
-                if (typeof value !== 'number') return '$0.00';
-                return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
-            },
-            
-            formatNumber(value) {
-                if (typeof value !== 'number' && typeof value !== 'string') return '0';
-                const num = Number(value);
-                if (isNaN(num)) return '0';
-                return num.toLocaleString('en-US', { maximumFractionDigits: 3 });
-            },
-
-            toggleService(serviceName) {
-                this.expandedServices[serviceName] = !this.expandedServices[serviceName];
-            },
-
-            toggleRegion(serviceName, regionName) {
-                const key = `${serviceName}-${regionName}`;
-                this.expandedRegions[key] = !this.expandedRegions[key];
             }
         }
-    }
-
-    document.addEventListener('alpine:init', () => {
-        Alpine.data('invoicePage', invoicePage);
-    });
-</script>
+    </script>
 </body>
+
 </html>

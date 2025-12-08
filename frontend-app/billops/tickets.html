@@ -10,36 +10,56 @@
     <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
     <link rel="apple-touch-icon" href="/icons/XamOps.png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
-    <style>
-        [x-cloak] { display: none !important; }
-        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
-        
-        .updating-spinner {
-             display: inline-block;
-             width: 16px;
-             height: 16px;
-             border: 2px solid #4f46e5;
-             border-radius: 50%;
-             border-top-color: transparent;
-             animation: spin 0.8s linear infinite;
-             margin-left: 8px;
-             vertical-align: middle;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        
-        .skeleton-pulse {
-            background-color: #e5e7eb;
-            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-        }
-        @keyframes pulse { 50% { opacity: .5; } }
-    </style>
+    <script type="module" src="/src/main.js"></script>
 </head>
 
 <body class="bg-gray-100">
     <div class="flex h-screen overflow-hidden">
         <include file="/_sidebar.html"></include>
 
-        <div class="flex-1 flex flex-col overflow-y-auto pl-64" x-data="ticketSystem()">
+        <main id="main-content" class="flex-1 flex flex-col overflow-y-auto pl-64" x-data="ticketSystem()"
+            x-init="init()">
+
+            <style>
+                [x-cloak] {
+                    display: none !important;
+                }
+
+                body {
+                    font-family: 'Inter', sans-serif;
+                    background-color: #f3f4f6;
+                }
+
+                .updating-spinner {
+                    display: inline-block;
+                    width: 16px;
+                    height: 16px;
+                    border: 2px solid #4f46e5;
+                    border-radius: 50%;
+                    border-top-color: transparent;
+                    animation: spin 0.8s linear infinite;
+                    margin-left: 8px;
+                    vertical-align: middle;
+                }
+
+                @keyframes spin {
+                    to {
+                        transform: rotate(360deg);
+                    }
+                }
+
+                .skeleton-pulse {
+                    background-color: #e5e7eb;
+                    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+                }
+
+                @keyframes pulse {
+                    50% {
+                        opacity: .5;
+                    }
+                }
+            </style>
+
             <header class="bg-white shadow-sm sticky top-0 z-10">
                 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
                     <div>
@@ -47,24 +67,25 @@
                             My Support Tickets (Billing)
                             <span x-show="isUpdating" class="updating-spinner" title="Refreshing data..."></span>
                         </h1>
-                        <p class="text-sm text-gray-500 mt-1" x-show="selectedAccountId" x-text="`Account: ${selectedAccountId}`"></p>
+                        <p class="text-sm text-gray-500 mt-1" x-show="selectedAccountId"
+                            x-text="`Account: ${selectedAccountId}`"></p>
                     </div>
                     <div class="flex items-center space-x-4">
-                        <button @click="fetchFreshData(true)" 
-                                class="text-gray-600 hover:text-indigo-600 transition-colors p-2 rounded-full hover:bg-gray-100"
-                                :disabled="loading || isUpdating"
-                                title="Refresh Tickets">
+                        <button @click="fetchFreshData(true)"
+                            class="text-gray-600 hover:text-indigo-600 transition-colors p-2 rounded-full hover:bg-gray-100"
+                            :disabled="loading || isUpdating" title="Refresh Tickets">
                             <i class="fas fa-sync-alt" :class="{'fa-spin': isUpdating}"></i>
                         </button>
-                        <button @click="openCreateModal" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center shadow-sm">
+                        <button @click="openCreateModal"
+                            class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center shadow-sm">
                             <i class="fas fa-plus mr-2"></i> Create New Case
                         </button>
                     </div>
                 </div>
             </header>
 
-            <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
-                
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
+
                 <div x-show="loading" class="space-y-4">
                     <div class="bg-white shadow rounded-lg p-6 border border-gray-200">
                         <div class="h-6 bg-gray-200 rounded w-1/4 mb-4 skeleton-pulse"></div>
@@ -83,24 +104,29 @@
                     </div>
                 </div>
 
-                <div x-show="error && !hasData" x-cloak class="bg-red-50 border-l-4 border-red-400 p-4 mb-6 shadow-sm rounded-r-md">
+                <div x-show="error && !hasData" x-cloak
+                    class="bg-red-50 border-l-4 border-red-400 p-4 mb-6 shadow-sm rounded-r-md">
                     <div class="flex">
                         <div class="flex-shrink-0">
                             <i class="fas fa-exclamation-circle text-red-400"></i>
                         </div>
                         <div class="ml-3">
                             <p class="text-sm text-red-700" x-text="error"></p>
-                            <button @click="fetchFreshData(true)" class="mt-2 text-sm font-medium text-red-700 underline hover:text-red-600">
+                            <button @click="fetchFreshData(true)"
+                                class="mt-2 text-sm font-medium text-red-700 underline hover:text-red-600">
                                 Try Again
                             </button>
                         </div>
                     </div>
                 </div>
 
-                <div x-show="!loading && !error && tickets.length === 0" x-cloak class="text-center py-16 bg-white rounded-lg shadow-sm border border-gray-200">
+                <div x-show="!loading && !error && tickets.length === 0" x-cloak
+                    class="text-center py-16 bg-white rounded-lg shadow-sm border border-gray-200">
                     <div class="text-gray-300 text-5xl mb-4"><i class="fas fa-ticket-alt"></i></div>
                     <h3 class="text-lg font-medium text-gray-900">No tickets found</h3>
-                    <p class="mt-1 text-sm text-gray-500" x-text="selectedAccountId ? 'No tickets found for this account.' : 'There are no tickets in the Account and Billing category.'"></p>
+                    <p class="mt-1 text-sm text-gray-500"
+                        x-text="selectedAccountId ? 'No tickets found for this account.' : 'There are no tickets in the Account and Billing category.'">
+                    </p>
                     <button @click="openCreateModal" class="mt-6 text-indigo-600 hover:text-indigo-500 font-medium">
                         Create a case &rarr;
                     </button>
@@ -108,21 +134,23 @@
 
                 <div x-show="!loading && tickets.length > 0" x-cloak class="grid gap-6">
                     <template x-for="ticket in tickets" :key="ticket.id">
-                        <div class="bg-white shadow-sm rounded-lg hover:shadow-md transition-shadow border border-gray-200 overflow-hidden group">
+                        <div
+                            class="bg-white shadow-sm rounded-lg hover:shadow-md transition-shadow border border-gray-200 overflow-hidden group">
                             <div class="p-6 cursor-pointer" @click="viewTicket(ticket.id)">
                                 <div class="flex justify-between items-start">
                                     <div class="flex-1">
                                         <div class="flex items-center gap-3 mb-2">
-                                            <span class="text-xs font-mono text-gray-400" x-text="'#' + ticket.id"></span>
-                                            
-                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"
+                                            <span class="text-xs font-mono text-gray-400"
+                                                x-text="'#' + ticket.id"></span>
+
+                                            <span
+                                                class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"
                                                 :class="{
                                                     'bg-green-100 text-green-800': ticket.status === 'OPEN',
                                                     'bg-gray-100 text-gray-800': ticket.status === 'CLOSED',
                                                     'bg-yellow-100 text-yellow-800': ticket.status === 'IN_PROGRESS'
                                                 }">
-                                                <span class="w-1.5 h-1.5 rounded-full mr-1.5" 
-                                                    :class="{
+                                                <span class="w-1.5 h-1.5 rounded-full mr-1.5" :class="{
                                                         'bg-green-400': ticket.status === 'OPEN',
                                                         'bg-gray-400': ticket.status === 'CLOSED',
                                                         'bg-yellow-400': ticket.status === 'IN_PROGRESS'
@@ -130,19 +158,24 @@
                                                 <span x-text="ticket.status"></span>
                                             </span>
 
-                                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border"
+                                            <span
+                                                class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border"
                                                 :class="{
                                                     'bg-red-50 text-red-700 border-red-100': ticket.severity === 'High' || ticket.severity === 'Critical',
                                                     'bg-orange-50 text-orange-700 border-orange-100': ticket.severity === 'Medium',
                                                     'bg-blue-50 text-blue-700 border-blue-100': ticket.severity === 'Low'
                                                 }" x-text="ticket.severity">
                                             </span>
-                                            
-                                            <span x-show="ticket.accountId" class="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded" x-text="`Account: ${ticket.accountId}`"></span>
+
+                                            <span x-show="ticket.accountId"
+                                                class="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded"
+                                                x-text="`Account: ${ticket.accountId}`"></span>
                                         </div>
 
-                                        <h3 class="text-lg font-semibold text-gray-900 mb-1 group-hover:text-indigo-600 transition-colors" x-text="ticket.subject"></h3>
-                                        <p class="text-sm text-gray-500 line-clamp-2 mb-4" x-text="ticket.description"></p>
+                                        <h3 class="text-lg font-semibold text-gray-900 mb-1 group-hover:text-indigo-600 transition-colors"
+                                            x-text="ticket.subject"></h3>
+                                        <p class="text-sm text-gray-500 line-clamp-2 mb-4" x-text="ticket.description">
+                                        </p>
 
                                         <div class="flex items-center text-xs text-gray-400 space-x-4">
                                             <div class="flex items-center">
@@ -159,49 +192,60 @@
                                             </div>
                                         </div>
                                     </div>
-                                    
+
                                     <div class="ml-4 flex-shrink-0 self-center">
-                                        <i class="fas fa-chevron-right text-gray-300 group-hover:text-indigo-400 transition-colors"></i>
+                                        <i
+                                            class="fas fa-chevron-right text-gray-300 group-hover:text-indigo-400 transition-colors"></i>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     </template>
                 </div>
-            </main>
+            </div>
 
-            <div x-show="showModal" class="relative z-50" aria-labelledby="modal-title" role="dialog" aria-modal="true" style="display: none;">
-                <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" 
-                     x-show="showModal"
-                     x-transition:enter="ease-out duration-300" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
-                     x-transition:leave="ease-in duration-200" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"></div>
+            <div x-show="showModal" class="relative z-50" aria-labelledby="modal-title" role="dialog" aria-modal="true"
+                style="display: none;">
+                <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" x-show="showModal"
+                    x-transition:enter="ease-out duration-300" x-transition:enter-start="opacity-0"
+                    x-transition:enter-end="opacity-100" x-transition:leave="ease-in duration-200"
+                    x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"></div>
 
                 <div class="fixed inset-0 z-10 overflow-y-auto">
                     <div class="flex min-h-full items-end justify-center p-4 text-center sm:items-center sm:p-0">
                         <div class="relative transform overflow-hidden rounded-lg bg-white text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg"
-                             x-show="showModal"
-                             @click.away="showModal = false"
-                             x-transition:enter="ease-out duration-300" x-transition:enter-start="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95" x-transition:enter-end="opacity-100 translate-y-0 sm:scale-100"
-                             x-transition:leave="ease-in duration-200" x-transition:leave-start="opacity-100 translate-y-0 sm:scale-100" x-transition:leave-end="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95">
-                            
+                            x-show="showModal" @click.away="showModal = false"
+                            x-transition:enter="ease-out duration-300"
+                            x-transition:enter-start="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
+                            x-transition:enter-end="opacity-100 translate-y-0 sm:scale-100"
+                            x-transition:leave="ease-in duration-200"
+                            x-transition:leave-start="opacity-100 translate-y-0 sm:scale-100"
+                            x-transition:leave-end="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95">
+
                             <form @submit.prevent="submitTicket">
                                 <div class="bg-white px-4 pb-4 pt-5 sm:p-6 sm:pb-4">
                                     <div class="sm:flex sm:items-start">
                                         <div class="mt-3 text-center sm:ml-4 sm:mt-0 sm:text-left w-full">
-                                            <h3 class="text-lg font-semibold leading-6 text-gray-900 mb-4" id="modal-title">Create Support Case (Billing)</h3>
-                                            
+                                            <h3 class="text-lg font-semibold leading-6 text-gray-900 mb-4"
+                                                id="modal-title">Create Support Case (Billing)</h3>
+
                                             <div class="space-y-4">
                                                 <div>
-                                                    <label class="block text-sm font-medium text-gray-700">Category</label>
-                                                    <select x-model="form.category" disabled class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border bg-gray-100 cursor-not-allowed text-gray-500">
+                                                    <label
+                                                        class="block text-sm font-medium text-gray-700">Category</label>
+                                                    <select x-model="form.category" disabled
+                                                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border bg-gray-100 cursor-not-allowed text-gray-500">
                                                         <option>Account and Billing</option>
                                                     </select>
                                                 </div>
 
                                                 <div>
-                                                    <label class="block text-sm font-medium text-gray-700">Service</label>
-                                                    <select x-model="form.service" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border">
-                                                        <template x-for="service in serviceOptions[form.category]" :key="service">
+                                                    <label
+                                                        class="block text-sm font-medium text-gray-700">Service</label>
+                                                    <select x-model="form.service"
+                                                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border">
+                                                        <template x-for="service in serviceOptions[form.category]"
+                                                            :key="service">
                                                             <option :value="service" x-text="service"></option>
                                                         </template>
                                                     </select>
@@ -209,8 +253,10 @@
 
                                                 <div class="grid grid-cols-2 gap-4">
                                                     <div>
-                                                        <label class="block text-sm font-medium text-gray-700">Severity</label>
-                                                        <select x-model="form.severity" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border">
+                                                        <label
+                                                            class="block text-sm font-medium text-gray-700">Severity</label>
+                                                        <select x-model="form.severity" required
+                                                            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border">
                                                             <option value="">Select...</option>
                                                             <option value="Low">Low</option>
                                                             <option value="Medium">Medium</option>
@@ -219,235 +265,241 @@
                                                         </select>
                                                     </div>
                                                     <div>
-                                                        <label class="block text-sm font-medium text-gray-700">Region (Optional)</label>
-                                                        <input type="text" x-model="form.region" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border" placeholder="e.g., us-east-1">
+                                                        <label class="block text-sm font-medium text-gray-700">Region
+                                                            (Optional)</label>
+                                                        <input type="text" x-model="form.region"
+                                                            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
+                                                            placeholder="e.g., us-east-1">
                                                     </div>
                                                 </div>
 
                                                 <div>
-                                                    <label class="block text-sm font-medium text-gray-700">Subject</label>
-                                                    <input type="text" x-model="form.subject" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border">
+                                                    <label
+                                                        class="block text-sm font-medium text-gray-700">Subject</label>
+                                                    <input type="text" x-model="form.subject" required
+                                                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border">
                                                 </div>
 
                                                 <div>
-                                                    <label class="block text-sm font-medium text-gray-700">Description</label>
-                                                    <textarea x-model="form.description" rows="4" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"></textarea>
+                                                    <label
+                                                        class="block text-sm font-medium text-gray-700">Description</label>
+                                                    <textarea x-model="form.description" rows="4" required
+                                                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"></textarea>
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
                                 <div class="bg-gray-50 px-4 py-3 sm:flex sm:flex-row-reverse sm:px-6">
-                                    <button type="submit" class="inline-flex w-full justify-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 sm:ml-3 sm:w-auto disabled:opacity-50" :disabled="isSubmitting">
-                                        <span x-show="isSubmitting" class="mr-2"><i class="fas fa-circle-notch fa-spin"></i></span>
+                                    <button type="submit"
+                                        class="inline-flex w-full justify-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 sm:ml-3 sm:w-auto disabled:opacity-50"
+                                        :disabled="isSubmitting">
+                                        <span x-show="isSubmitting" class="mr-2"><i
+                                                class="fas fa-circle-notch fa-spin"></i></span>
                                         <span x-text="isSubmitting ? 'Submitting...' : 'Submit Case'"></span>
                                     </button>
-                                    <button type="button" @click="showModal = false" class="mt-3 inline-flex w-full justify-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 sm:mt-0 sm:w-auto">Cancel</button>
+                                    <button type="button" @click="showModal = false"
+                                        class="mt-3 inline-flex w-full justify-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 sm:mt-0 sm:w-auto">Cancel</button>
                                 </div>
                             </form>
                         </div>
                     </div>
                 </div>
             </div>
-        </div>
-    </div>
 
-    <script>
-        function ticketSystem() {
-            return {
-                loading: true,
-                isUpdating: false,
-                isSubmitting: false,
-                error: null,
-                tickets: [],
-                showModal: false,
-                cacheKey: 'billops_account_tickets_v1', 
-                selectedAccountId: null, // New State for Account ID
-                
-                form: {
-                    category: 'Account and Billing',
-                    service: 'Billing Inquiry',
-                    severity: '',
-                    subject: '',
-                    description: '',
-                    accountId: '', 
-                    region: '',
-                },
+            <script>
+                function ticketSystem() {
+                    return {
+                        loading: true,
+                        isUpdating: false,
+                        isSubmitting: false,
+                        error: null,
+                        tickets: [],
+                        showModal: false,
+                        cacheKey: 'billops_account_tickets_v1',
+                        selectedAccountId: null,
 
-                serviceOptions: {
-                    'Account and Billing': ['Billing Inquiry', 'Account Access', 'Payment Issue', 'Cost Explorer', 'Invoice Dispute']
-                },
+                        form: {
+                            category: 'Account and Billing',
+                            service: 'Billing Inquiry',
+                            severity: '',
+                            subject: '',
+                            description: '',
+                            accountId: '',
+                            region: '',
+                        },
 
-                get hasData() {
-                    return this.tickets && this.tickets.length > 0;
-                },
+                        serviceOptions: {
+                            'Account and Billing': ['Billing Inquiry', 'Account Access', 'Payment Issue', 'Cost Explorer', 'Invoice Dispute']
+                        },
 
-                init() {
-                    // 1. Parse URL Parameters for Account Selection
-                    const urlParams = new URLSearchParams(window.location.search);
-                    const accountIds = urlParams.get('accountId') || urlParams.get('accountIds');
-                    
-                    if (accountIds) {
-                        // Store only the first ID if multiple are passed (sidebar usually passes one for detail view)
-                        this.selectedAccountId = accountIds.split(',')[0];
-                        console.log("🔍 Filtering tickets for account:", this.selectedAccountId);
-                    } else {
-                        console.log("⚠️ No account selected from sidebar.");
-                        // Optional: Redirect or show a prompt? For now, we just fetch all accessible tickets.
-                    }
+                        get hasData() {
+                            return this.tickets && this.tickets.length > 0;
+                        },
 
-                    // 2. Attempt Instant Load from Cache (Note: Cache might contain mixed account data, so we filter it too)
-                    this.loadFromLocalStorage();
-                    
-                    // 3. Trigger Background Sync (Stale-While-Revalidate)
-                    this.fetchFreshData(false);
-                },
+                        init() {
+                            // 1. Parse URL Parameters for Account Selection
+                            const urlParams = new URLSearchParams(window.location.search);
+                            const accountIds = urlParams.get('accountId') || urlParams.get('accountIds');
 
-                loadFromLocalStorage() {
-                    try {
-                        const cached = localStorage.getItem(this.cacheKey);
-                        if (cached) {
-                            let allCachedTickets = JSON.parse(cached);
-                            
-                            // Apply client-side filtering to cached data
-                            if (this.selectedAccountId) {
-                                this.tickets = allCachedTickets.filter(t => t.accountId === this.selectedAccountId);
+                            if (accountIds) {
+                                // Store only the first ID if multiple are passed (sidebar usually passes one for detail view)
+                                this.selectedAccountId = accountIds.split(',')[0];
+                                console.log("🔍 Filtering tickets for account:", this.selectedAccountId);
                             } else {
-                                this.tickets = allCachedTickets;
+                                console.log("⚠️ No account selected from sidebar.");
                             }
-                            
-                            this.loading = false;
-                            return true;
+
+                            // 2. Attempt Instant Load from Cache
+                            this.loadFromLocalStorage();
+
+                            // 3. Trigger Background Sync (Stale-While-Revalidate)
+                            this.fetchFreshData(false);
+                        },
+
+                        loadFromLocalStorage() {
+                            try {
+                                const cached = localStorage.getItem(this.cacheKey);
+                                if (cached) {
+                                    let allCachedTickets = JSON.parse(cached);
+
+                                    // Apply client-side filtering to cached data
+                                    if (this.selectedAccountId) {
+                                        this.tickets = allCachedTickets.filter(t => t.accountId === this.selectedAccountId);
+                                    } else {
+                                        this.tickets = allCachedTickets;
+                                    }
+
+                                    this.loading = false;
+                                    return true;
+                                }
+                            } catch (e) {
+                                console.error("Error reading cache:", e);
+                            }
+                            return false;
+                        },
+
+                        async fetchFreshData(manual = false) {
+                            if (manual) console.log("🖱️ Manual refresh triggered");
+
+                            if (manual) {
+                                this.isUpdating = true;
+                            }
+
+                            this.error = null;
+
+                            if (!this.hasData) {
+                                this.loading = true;
+                            }
+
+                            try {
+                                const url = `/api/billops/tickets/category/Account%20and%20Billing?forceRefresh=${manual}`;
+
+                                const response = await fetch(url, { credentials: 'include' });
+
+                                if (response.status === 401 || response.status === 403) {
+                                    window.location.href = '/login';
+                                    return;
+                                }
+
+                                if (!response.ok) throw new Error(`Failed to fetch tickets (Status: ${response.status})`);
+
+                                const allTickets = await response.json();
+
+                                // Filter tickets based on the selected account ID from URL
+                                let filteredTickets = allTickets;
+                                if (this.selectedAccountId) {
+                                    filteredTickets = allTickets.filter(ticket => ticket.accountId === this.selectedAccountId);
+                                }
+
+                                // Sort: Newest first
+                                this.tickets = filteredTickets.sort((a, b) => b.id - a.id);
+
+                                // Update Frontend Cache with the full list (so switching accounts works without re-fetch)
+                                localStorage.setItem(this.cacheKey, JSON.stringify(allTickets));
+
+                            } catch (err) {
+                                console.error("Fetch error:", err);
+                                if (!this.hasData) {
+                                    this.error = "Could not load tickets. Please check your connection.";
+                                }
+                            } finally {
+                                this.loading = false;
+                                this.isUpdating = false;
+                            }
+                        },
+
+                        openCreateModal() {
+                            this.resetForm();
+                            // Auto-populate account ID from the current selection
+                            if (this.selectedAccountId) {
+                                this.form.accountId = this.selectedAccountId;
+                            }
+                            this.showModal = true;
+                        },
+
+                        async submitTicket() {
+                            this.isSubmitting = true;
+
+                            // Fallback: If form ID is empty, try to use the one from session/URL
+                            if (!this.form.accountId && this.selectedAccountId) {
+                                this.form.accountId = this.selectedAccountId;
+                            }
+
+                            try {
+                                const response = await fetch('/api/billops/tickets', {
+                                    credentials: 'include',
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify(this.form)
+                                });
+
+                                if (!response.ok) throw new Error('Failed to submit ticket');
+
+                                this.showModal = false;
+                                this.resetForm();
+
+                                await this.fetchFreshData(true);
+
+                            } catch (error) {
+                                console.error('Error submitting ticket:', error);
+                                alert('There was an error submitting your case. Please try again.');
+                            } finally {
+                                this.isSubmitting = false;
+                            }
+                        },
+
+                        resetForm() {
+                            this.form = {
+                                category: 'Account and Billing',
+                                service: this.serviceOptions['Account and Billing'][0],
+                                severity: '',
+                                subject: '',
+                                description: '',
+                                accountId: '',
+                                region: '',
+                            };
+                        },
+
+                        viewTicket(id) {
+                            window.location.href = `/billops/ticket_detail.html?id=${id}`;
+                        },
+
+                        formatDate(dateString) {
+                            if (!dateString) return '';
+                            return new Date(dateString).toLocaleDateString('en-US', {
+                                year: 'numeric',
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                            });
                         }
-                    } catch (e) {
-                        console.error("Error reading cache:", e);
                     }
-                    return false;
-                },
-
-                async fetchFreshData(manual = false) {
-                    if(manual) console.log("🖱️ Manual refresh triggered");
-                    
-                    if (manual) {
-                         this.isUpdating = true;
-                    }
-                    
-                    this.error = null;
-
-                    if (!this.hasData) {
-                        this.loading = true;
-                    }
-
-                    try {
-                        const url = `/api/billops/tickets/category/Account%20and%20Billing?forceRefresh=${manual}`;
-
-                        const response = await fetch(url, { credentials: 'include' });
-                        
-                        if (response.status === 401 || response.status === 403) {
-                            window.location.href = '/login';
-                            return;
-                        }
-
-                        if (!response.ok) throw new Error(`Failed to fetch tickets (Status: ${response.status})`);
-
-                        const allTickets = await response.json();
-                        
-                        // Filter tickets based on the selected account ID from URL
-                        let filteredTickets = allTickets;
-                        if (this.selectedAccountId) {
-                            filteredTickets = allTickets.filter(ticket => ticket.accountId === this.selectedAccountId);
-                        }
-
-                        // Sort: Newest first
-                        this.tickets = filteredTickets.sort((a, b) => b.id - a.id);
-                        
-                        // Update Frontend Cache with the full list (so switching accounts works without re-fetch)
-                        localStorage.setItem(this.cacheKey, JSON.stringify(allTickets));
-                        
-                    } catch (err) {
-                        console.error("Fetch error:", err);
-                        if (!this.hasData) {
-                            this.error = "Could not load tickets. Please check your connection.";
-                        }
-                    } finally {
-                        this.loading = false;
-                        this.isUpdating = false;
-                    }
-                },
-
-                openCreateModal() {
-                    this.resetForm();
-                    // Auto-populate account ID from the current selection
-                    if (this.selectedAccountId) {
-                        this.form.accountId = this.selectedAccountId;
-                    }
-                    this.showModal = true;
-                },
-
-                async submitTicket() {
-                    this.isSubmitting = true;
-                    
-                    // Fallback: If form ID is empty, try to use the one from session/URL
-                    if (!this.form.accountId && this.selectedAccountId) {
-                        this.form.accountId = this.selectedAccountId;
-                    }
-
-                    try {
-                        const response = await fetch('/api/billops/tickets', {
-                            credentials: 'include', 
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(this.form)
-                        });
-
-                        if (!response.ok) throw new Error('Failed to submit ticket');
-
-                        this.showModal = false;
-                        this.resetForm();
-                        
-                        await this.fetchFreshData(true); 
-                        
-                    } catch (error) {
-                        console.error('Error submitting ticket:', error);
-                        alert('There was an error submitting your case. Please try again.');
-                    } finally {
-                        this.isSubmitting = false;
-                    }
-                },
-
-                resetForm() {
-                    this.form = {
-                        category: 'Account and Billing',
-                        service: this.serviceOptions['Account and Billing'][0],
-                        severity: '',
-                        subject: '',
-                        description: '',
-                        accountId: '', // Will be populated on open
-                        region: '',
-                    };
-                },
-
-                viewTicket(id) {
-                    window.location.href = `/billops/ticket_detail.html?id=${id}`;
-                },
-
-                formatDate(dateString) {
-                    if (!dateString) return '';
-                    return new Date(dateString).toLocaleDateString('en-US', {
-                        year: 'numeric',
-                        month: 'short',
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                    });
                 }
-            }
-        }
-
-        // Register the component
-        document.addEventListener('alpine:init', () => {
-            Alpine.data('ticketSystem', ticketSystem);
-        });
-    </script>
+            </script>
+        </main>
+    </div>
 </body>
+
 </html>

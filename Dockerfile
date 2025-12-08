@@ -9,11 +9,15 @@ COPY . .
 ARG MODULE_NAME=xamops-service
 RUN mvn clean package -pl ${MODULE_NAME} -am -DskipTests
 
+# --- KEY FIX: Move the built JAR to a standard location ---
+# This ensures the next stage can find it regardless of the MODULE_NAME
+RUN cp ${MODULE_NAME}/target/*.jar /app/app.jar
+
 # Stage 2: Create the final, lightweight runtime image
 FROM eclipse-temurin:17-jre-jammy
 WORKDIR /app
 
-# --- CRITICAL FIX: Install Docker CLI HERE (Before Copy/Entrypoint) ---
+# Install Docker CLI
 RUN apt-get update && \
     apt-get install -y docker.io && \
     rm -rf /var/lib/apt/lists/*
@@ -22,8 +26,8 @@ RUN apt-get update && \
 ARG EXPOSE_PORT=8080
 EXPOSE ${EXPOSE_PORT}
 
-# Copy only the built JAR file (Hardcoded path to avoid build-arg errors)
-COPY --from=build /app/xamops-service/target/*.jar app.jar
+# --- KEY FIX: Copy from the standardized location ---
+COPY --from=build /app/app.jar app.jar
 
 # The command to run the application
 ENTRYPOINT ["java", "-jar", "app.jar"]

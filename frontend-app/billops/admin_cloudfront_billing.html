@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,618 +10,665 @@
     <link rel="apple-touch-icon" href="/icons/XamOps.png">
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        [x-cloak] { display: none !important; }
-        
-        .invoice-table {
-            font-size: 0.875rem;
-        }
-        
-        .rate-input {
-            width: 100px;
-            padding: 4px 8px;
-            border: 1px solid #3498db;
-            border-radius: 4px;
-            text-align: right;
-            font-family: monospace;
-            font-size: 0.875rem;
-        }
-        
-        .rate-input:focus {
-            outline: none;
-            border-color: #2563eb;
-            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-        }
-        
-        .hidden-row {
-            opacity: 0.4;
-            text-decoration: line-through;
-        }
-        
-        .status-badge {
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 12px;
-            font-size: 12px;
-            font-weight: 600;
-        }
-        
-        .status-draft {
-            background: #fff3cd;
-            color: #856404;
-        }
-        
-        .status-finalized {
-            background: #d4edda;
-            color: #155724;
-        }
-        
-        .alert {
-            padding: 15px;
-            border-radius: 4px;
-            margin-bottom: 20px;
-        }
-        
-        .alert-success {
-            background: #d4edda;
-            border: 1px solid #c3e6cb;
-            color: #155724;
-        }
-        
-        .alert-error {
-            background: #f8d7da;
-            border: 1px solid #f5c6cb;
-            color: #721c24;
-        }
-        
-        .loading-spinner {
-            display: inline-block;
-            width: 16px;
-            height: 16px;
-            border: 3px solid rgba(255,255,255,.3);
-            border-radius: 50%;
-            border-top-color: #fff;
-            animation: spin 1s ease-in-out infinite;
-        }
-        
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-    </style>
+    <script type="module" src="/src/main.js"></script>
 </head>
-<body class="bg-gray-100" x-data="cloudfrontAdmin()" x-init="init()">
-<div class="flex h-screen">
-  
-    <!-- Sidebar Include -->
-    <include file="/_sidebar.html"></include>
 
-    <!-- Main Content -->
-    <div class="flex-1 flex flex-col overflow-hidden pl-64">
-        <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-6">
-            <div class="container mx-auto">
-                <h1 class="text-3xl font-bold text-gray-800 mb-6">
-                    <i class="fas fa-cloud-upload-alt text-indigo-600"></i> CloudFront Private Billing
-                </h1>
+<body class="bg-gray-100">
+    <div class="flex h-screen">
 
-                <!-- Alert Messages -->
-                <div x-show="successMessage" class="alert alert-success" x-text="successMessage" x-cloak></div>
-                <div x-show="errorMessage" class="alert alert-error" x-text="errorMessage" x-cloak></div>
+        <include file="/_sidebar.html"></include>
 
-                <!-- Private Rates Management -->
-                <div class="bg-white p-6 rounded-lg shadow-md mb-8">
-                    <h2 class="text-xl font-semibold mb-4">
-                        <i class="fas fa-dollar-sign text-green-600"></i> Manage Private Rates
-                    </h2>
-                    
-                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 items-end">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Region Matcher</label>
-                            <input type="text" x-model="newRate.regionMatcher" placeholder="e.g., Mumbai, Global" 
-                                   class="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Usage Type Matcher</label>
-                            <input type="text" x-model="newRate.usageTypeMatcher" placeholder="e.g., Bandwidth, Requests" 
-                                   class="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Private Rate</label>
-                            <input type="number" step="0.00000001" x-model.number="newRate.privateRate" placeholder="0.001" 
-                                   class="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500">
-                        </div>
-                        <button @click="saveRate()" :disabled="savingRate" 
+        <div class="flex-1 flex flex-col overflow-hidden pl-64">
+            <main id="main-content" class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-6"
+                x-data="cloudfrontAdmin()" x-init="init()">
+
+                <style>
+                    [x-cloak] {
+                        display: none !important;
+                    }
+
+                    .invoice-table {
+                        font-size: 0.875rem;
+                    }
+
+                    .rate-input {
+                        width: 100px;
+                        padding: 4px 8px;
+                        border: 1px solid #3498db;
+                        border-radius: 4px;
+                        text-align: right;
+                        font-family: monospace;
+                        font-size: 0.875rem;
+                    }
+
+                    .rate-input:focus {
+                        outline: none;
+                        border-color: #2563eb;
+                        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+                    }
+
+                    .hidden-row {
+                        opacity: 0.4;
+                        text-decoration: line-through;
+                    }
+
+                    .status-badge {
+                        display: inline-block;
+                        padding: 4px 12px;
+                        border-radius: 12px;
+                        font-size: 12px;
+                        font-weight: 600;
+                    }
+
+                    .status-draft {
+                        background: #fff3cd;
+                        color: #856404;
+                    }
+
+                    .status-finalized {
+                        background: #d4edda;
+                        color: #155724;
+                    }
+
+                    .alert {
+                        padding: 15px;
+                        border-radius: 4px;
+                        margin-bottom: 20px;
+                    }
+
+                    .alert-success {
+                        background: #d4edda;
+                        border: 1px solid #c3e6cb;
+                        color: #155724;
+                    }
+
+                    .alert-error {
+                        background: #f8d7da;
+                        border: 1px solid #f5c6cb;
+                        color: #721c24;
+                    }
+
+                    .loading-spinner {
+                        display: inline-block;
+                        width: 16px;
+                        height: 16px;
+                        border: 3px solid rgba(255, 255, 255, .3);
+                        border-radius: 50%;
+                        border-top-color: #fff;
+                        animation: spin 1s ease-in-out infinite;
+                    }
+
+                    @keyframes spin {
+                        to {
+                            transform: rotate(360deg);
+                        }
+                    }
+                </style>
+
+                <div class="container mx-auto">
+                    <h1 class="text-3xl font-bold text-gray-800 mb-6">
+                        <i class="fas fa-cloud-upload-alt text-indigo-600"></i> CloudFront Private Billing
+                    </h1>
+
+                    <div x-show="successMessage" class="alert alert-success" x-text="successMessage" x-cloak></div>
+                    <div x-show="errorMessage" class="alert alert-error" x-text="errorMessage" x-cloak></div>
+
+                    <div class="bg-white p-6 rounded-lg shadow-md mb-8">
+                        <h2 class="text-xl font-semibold mb-4">
+                            <i class="fas fa-dollar-sign text-green-600"></i> Manage Private Rates
+                        </h2>
+
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 items-end">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Region Matcher</label>
+                                <input type="text" x-model="newRate.regionMatcher" placeholder="e.g., Mumbai, Global"
+                                    class="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Usage Type Matcher</label>
+                                <input type="text" x-model="newRate.usageTypeMatcher"
+                                    placeholder="e.g., Bandwidth, Requests"
+                                    class="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Private Rate</label>
+                                <input type="number" step="0.00000001" x-model.number="newRate.privateRate"
+                                    placeholder="0.001"
+                                    class="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500">
+                            </div>
+                            <button @click="saveRate()" :disabled="savingRate"
                                 class="bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400 p-2 transition">
-                            <span x-show="!savingRate"><i class="fas fa-save"></i> Save Rate</span>
-                            <span x-show="savingRate"><i class="fas fa-spinner fa-spin"></i> Saving...</span>
-                        </button>
-                    </div>
-
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Region</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Usage Type</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Private Rate</th>
-                                    <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody class="bg-white divide-y divide-gray-200">
-                                <template x-for="rate in rates" :key="rate.id">
-                                    <tr class="hover:bg-gray-50">
-                                        <td class="px-6 py-4 text-sm" x-text="rate.regionMatcher"></td>
-                                        <td class="px-6 py-4 text-sm" x-text="rate.usageTypeMatcher"></td>
-                                        <td class="px-6 py-4 text-sm font-mono" x-text="'$' + parseFloat(rate.privateRate).toFixed(8)"></td>
-                                        <td class="px-6 py-4 text-right text-sm font-medium">
-                                            <button @click="deleteRate(rate.id)" class="text-red-500 hover:text-red-700">
-                                                <i class="fas fa-trash"></i> Delete
-                                            </button>
-                                        </td>
-                                    </tr>
-                                </template>
-                                <tr x-show="rates.length === 0">
-                                    <td colspan="4" class="px-6 py-4 text-center text-gray-500">No private rates defined yet.</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <!-- Generate from AWS API -->
-                <div class="bg-white p-6 rounded-lg shadow-md mb-8">
-                    <h2 class="text-xl font-semibold mb-4">
-                        <i class="fas fa-sync-alt text-blue-600"></i> Generate Invoice from AWS Cost Explorer
-                    </h2>
-                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">AWS Account ID</label>
-                            <input type="text" x-model="generation.accountId" placeholder="Select account from sidebar" 
-                                   class="w-full p-2 border rounded bg-gray-50" readonly>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Year</label>
-                            <input type="number" x-model.number="generation.year" placeholder="2025" 
-                                   class="w-full p-2 border rounded focus:ring-2 focus:ring-green-500">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Month</label>
-                            <input type="number" x-model.number="generation.month" placeholder="1-12" min="1" max="12" 
-                                   class="w-full p-2 border rounded focus:ring-2 focus:ring-green-500">
-                        </div>
-                        <div class="flex items-end">
-                            <button @click="generateFromAws()" :disabled="generating || !generation.accountId" 
-                                    class="w-full bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 p-2 transition">
-                                <span x-show="!generating"><i class="fas fa-cloud-download-alt"></i> Generate from AWS</span>
-                                <span x-show="generating"><i class="fas fa-spinner fa-spin"></i> Generating...</span>
+                                <span x-show="!savingRate"><i class="fas fa-save"></i> Save Rate</span>
+                                <span x-show="savingRate"><i class="fas fa-spinner fa-spin"></i> Saving...</span>
                             </button>
                         </div>
-                    </div>
-                </div>
 
-                <!-- Generate from File Upload (PDF/CSV) -->
-                <div class="bg-white p-6 rounded-lg shadow-md mb-8">
-                    <h2 class="text-xl font-semibold mb-4">
-                        <i class="fas fa-file-upload text-purple-600"></i> Generate Invoice from Bill Upload (PDF/CSV)
-                    </h2>
-                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">AWS Account ID</label>
-                            <input type="text" x-model="generation.accountId" placeholder="Select account from sidebar" 
-                                   class="w-full p-2 border rounded bg-gray-50" readonly>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Year</label>
-                            <input type="number" x-model.number="generation.year" placeholder="2025" 
-                                   class="w-full p-2 border rounded focus:ring-2 focus:ring-purple-500">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Month</label>
-                            <input type="number" x-model.number="generation.month" placeholder="1-12" min="1" max="12" 
-                                   class="w-full p-2 border rounded focus:ring-2 focus:ring-purple-500">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Bill File (PDF or CSV)</label>
-                            <input type="file" x-ref="billFile" accept=".pdf,.csv" 
-                                   class="w-full p-1.5 border rounded text-sm">
-                        </div>
-                    </div>
-                    <div class="mt-4">
-                        <button @click="generateFromFile()" :disabled="uploading || !generation.accountId" 
-                                class="w-full md:w-auto bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:bg-gray-400 px-6 py-2 transition">
-                            <span x-show="!uploading"><i class="fas fa-upload"></i> Upload & Generate Invoice</span>
-                            <span x-show="uploading"><i class="fas fa-spinner fa-spin"></i> Processing File...</span>
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Invoice List -->
-                <div class="bg-white rounded-lg shadow-md overflow-hidden mb-8">
-                    <div class="px-6 py-4 border-b border-gray-200">
-                        <h2 class="text-2xl font-semibold text-gray-700">
-                            <i class="fas fa-file-invoice-dollar text-indigo-600"></i> CloudFront Invoices
-                        </h2>
-                    </div>
-                    
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-gray-200 invoice-table">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Invoice #</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Client</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Account</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Period</th>
-                                    <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
-                                    <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                                    <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody class="bg-white divide-y divide-gray-200">
-                                <template x-for="invoice in invoices" :key="invoice.id">
-                                    <tr class="hover:bg-gray-50">
-                                        <td class="px-6 py-4 whitespace-nowrap">
-                                            <span class="text-indigo-600 font-medium" x-text="invoice.invoiceNumber"></span>
-                                        </td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm" x-text="invoice.clientName"></td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm font-mono" x-text="invoice.awsAccountId"></td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm" x-text="invoice.billingPeriod"></td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-right font-semibold" x-text="formatCurrency(invoice.amount)"></td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-center">
-                                            <span class="status-badge" 
-                                                  :class="invoice.status === 'DRAFT' ? 'status-draft' : 'status-finalized'" 
-                                                  x-text="invoice.status"></span>
-                                        </td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                            <button @click="editInvoice(invoice)" :disabled="invoice.status === 'FINALIZED'" 
-                                                    class="text-blue-600 hover:text-blue-900 disabled:text-gray-400">
-                                                <i class="fas fa-edit"></i> Edit Rates
-                                            </button>
-                                        </td>
-                                    </tr>
-                                </template>
-                                <tr x-show="invoices.length === 0">
-                                    <td colspan="7" class="px-6 py-8 text-center text-gray-500">
-                                        <i class="fas fa-inbox text-4xl mb-2"></i>
-                                        <p>No CloudFront invoices generated yet.</p>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <!-- Editable Invoice Detail -->
-                <div x-show="editingInvoice" x-cloak class="bg-white rounded-lg shadow-md overflow-hidden">
-                    <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-                        <div>
-                            <h2 class="text-2xl font-semibold text-gray-700">
-                                <i class="fas fa-edit text-blue-600"></i> Edit Invoice: <span x-text="editingInvoice?.invoiceNumber"></span>
-                            </h2>
-                            <p class="text-sm text-gray-500 mt-1">
-                                <span x-text="editingInvoice?.clientName"></span> | 
-                                <span x-text="editingInvoice?.billingPeriod"></span>
-                            </p>
-                        </div>
-                        <button @click="cancelEdit()" class="text-gray-500 hover:text-gray-700">
-                            <i class="fas fa-times text-xl"></i>
-                        </button>
-                    </div>
-                    
-                    <div class="p-6">
-                        <!-- Editable Line Items Table -->
-                        <div class="overflow-x-auto mb-4">
-                            <table class="min-w-full divide-y divide-gray-200 text-sm">
-                                <thead class="bg-gray-100">
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
                                     <tr>
-                                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-600">Region</th>
-                                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-600">Usage Type</th>
-                                        <th class="px-4 py-2 text-right text-xs font-medium text-gray-600">Quantity</th>
-                                        <th class="px-4 py-2 text-right text-xs font-medium text-gray-600">Unit</th>
-                                        <th class="px-4 py-2 text-right text-xs font-medium text-gray-600">Unit Rate ($)</th>
-                                        <th class="px-4 py-2 text-right text-xs font-medium text-gray-600">Cost ($)</th>
+                                        <th
+                                            class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Region</th>
+                                        <th
+                                            class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Usage Type</th>
+                                        <th
+                                            class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Private Rate</th>
+                                        <th
+                                            class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Action</th>
                                     </tr>
                                 </thead>
                                 <tbody class="bg-white divide-y divide-gray-200">
-                                    <template x-for="(item, index) in editingInvoice?.lineItems" :key="item.id">
-                                        <tr :class="{'hidden-row': item.hidden}">
-                                            <td class="px-4 py-2" x-text="item.regionName"></td>
-                                            <td class="px-4 py-2" x-text="item.resourceName"></td>
-                                            <td class="px-4 py-2 text-right font-mono" x-text="parseQuantity(item.usageQuantity)"></td>
-                                            <td class="px-4 py-2 text-right" x-text="item.unit"></td>
-                                            <td class="px-4 py-2 text-right">
-                                                <input type="number" 
-                                                       step="0.000001" 
-                                                       class="rate-input"
-                                                       x-model.number="item.editableRate"
-                                                       @input="recalculateLineItem(item)">
+                                    <template x-for="rate in rates" :key="rate.id">
+                                        <tr class="hover:bg-gray-50">
+                                            <td class="px-6 py-4 text-sm" x-text="rate.regionMatcher"></td>
+                                            <td class="px-6 py-4 text-sm" x-text="rate.usageTypeMatcher"></td>
+                                            <td class="px-6 py-4 text-sm font-mono"
+                                                x-text="'$' + parseFloat(rate.privateRate).toFixed(8)"></td>
+                                            <td class="px-6 py-4 text-right text-sm font-medium">
+                                                <button @click="deleteRate(rate.id)"
+                                                    class="text-red-500 hover:text-red-700">
+                                                    <i class="fas fa-trash"></i> Delete
+                                                </button>
                                             </td>
-                                            <td class="px-4 py-2 text-right font-semibold" x-text="formatCurrency(item.cost)"></td>
                                         </tr>
                                     </template>
-                                </tbody>
-                                <tfoot class="bg-gray-50">
-                                    <tr>
-                                        <td colspan="5" class="px-4 py-3 text-right font-bold text-gray-700">Total:</td>
-                                        <td class="px-4 py-3 text-right font-bold text-lg text-gray-900" x-text="formatCurrency(calculateTotal())"></td>
+                                    <tr x-show="rates.length === 0">
+                                        <td colspan="4" class="px-6 py-4 text-center text-gray-500">No private rates
+                                            defined yet.</td>
                                     </tr>
-                                </tfoot>
+                                </tbody>
                             </table>
                         </div>
+                    </div>
 
-                        <!-- Actions -->
-                        <div class="flex justify-end space-x-3 mt-6">
-                            <button @click="cancelEdit()" 
-                                    class="px-6 py-2 border border-gray-300 rounded hover:bg-gray-50 transition">
-                                Cancel
-                            </button>
-                            <button @click="saveInvoiceChanges()" 
-                                    :disabled="saving"
-                                    class="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400 transition">
-                                <span x-show="!saving"><i class="fas fa-save"></i> Save & Finalize</span>
-                                <span x-show="saving"><i class="fas fa-spinner fa-spin"></i> Saving...</span>
+                    <div class="bg-white p-6 rounded-lg shadow-md mb-8">
+                        <h2 class="text-xl font-semibold mb-4">
+                            <i class="fas fa-sync-alt text-blue-600"></i> Generate Invoice from AWS Cost Explorer
+                        </h2>
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">AWS Account ID</label>
+                                <input type="text" x-model="generation.accountId"
+                                    placeholder="Select account from sidebar"
+                                    class="w-full p-2 border rounded bg-gray-50" readonly>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Year</label>
+                                <input type="number" x-model.number="generation.year" placeholder="2025"
+                                    class="w-full p-2 border rounded focus:ring-2 focus:ring-green-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Month</label>
+                                <input type="number" x-model.number="generation.month" placeholder="1-12" min="1"
+                                    max="12" class="w-full p-2 border rounded focus:ring-2 focus:ring-green-500">
+                            </div>
+                            <div class="flex items-end">
+                                <button @click="generateFromAws()" :disabled="generating || !generation.accountId"
+                                    class="w-full bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 p-2 transition">
+                                    <span x-show="!generating"><i class="fas fa-cloud-download-alt"></i> Generate from
+                                        AWS</span>
+                                    <span x-show="generating"><i class="fas fa-spinner fa-spin"></i>
+                                        Generating...</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white p-6 rounded-lg shadow-md mb-8">
+                        <h2 class="text-xl font-semibold mb-4">
+                            <i class="fas fa-file-upload text-purple-600"></i> Generate Invoice from Bill Upload
+                            (PDF/CSV)
+                        </h2>
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">AWS Account ID</label>
+                                <input type="text" x-model="generation.accountId"
+                                    placeholder="Select account from sidebar"
+                                    class="w-full p-2 border rounded bg-gray-50" readonly>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Year</label>
+                                <input type="number" x-model.number="generation.year" placeholder="2025"
+                                    class="w-full p-2 border rounded focus:ring-2 focus:ring-purple-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Month</label>
+                                <input type="number" x-model.number="generation.month" placeholder="1-12" min="1"
+                                    max="12" class="w-full p-2 border rounded focus:ring-2 focus:ring-purple-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Bill File (PDF or
+                                    CSV)</label>
+                                <input type="file" x-ref="billFile" accept=".pdf,.csv"
+                                    class="w-full p-1.5 border rounded text-sm">
+                            </div>
+                        </div>
+                        <div class="mt-4">
+                            <button @click="generateFromFile()" :disabled="uploading || !generation.accountId"
+                                class="w-full md:w-auto bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:bg-gray-400 px-6 py-2 transition">
+                                <span x-show="!uploading"><i class="fas fa-upload"></i> Upload & Generate Invoice</span>
+                                <span x-show="uploading"><i class="fas fa-spinner fa-spin"></i> Processing
+                                    File...</span>
                             </button>
                         </div>
                     </div>
+
+                    <div class="bg-white rounded-lg shadow-md overflow-hidden mb-8">
+                        <div class="px-6 py-4 border-b border-gray-200">
+                            <h2 class="text-2xl font-semibold text-gray-700">
+                                <i class="fas fa-file-invoice-dollar text-indigo-600"></i> CloudFront Invoices
+                            </h2>
+                        </div>
+
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200 invoice-table">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th
+                                            class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Invoice #</th>
+                                        <th
+                                            class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Client</th>
+                                        <th
+                                            class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Account</th>
+                                        <th
+                                            class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Period</th>
+                                        <th
+                                            class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Amount</th>
+                                        <th
+                                            class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Status</th>
+                                        <th
+                                            class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    <template x-for="invoice in invoices" :key="invoice.id">
+                                        <tr class="hover:bg-gray-50">
+                                            <td class="px-6 py-4 whitespace-nowrap">
+                                                <span class="text-indigo-600 font-medium"
+                                                    x-text="invoice.invoiceNumber"></span>
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm" x-text="invoice.clientName">
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm font-mono"
+                                                x-text="invoice.awsAccountId"></td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm"
+                                                x-text="invoice.billingPeriod"></td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-right font-semibold"
+                                                x-text="formatCurrency(invoice.amount)"></td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-center">
+                                                <span class="status-badge"
+                                                    :class="invoice.status === 'DRAFT' ? 'status-draft' : 'status-finalized'"
+                                                    x-text="invoice.status"></span>
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                                <button @click="editInvoice(invoice)"
+                                                    :disabled="invoice.status === 'FINALIZED'"
+                                                    class="text-blue-600 hover:text-blue-900 disabled:text-gray-400">
+                                                    <i class="fas fa-edit"></i> Edit Rates
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                    <tr x-show="invoices.length === 0">
+                                        <td colspan="7" class="px-6 py-8 text-center text-gray-500">
+                                            <i class="fas fa-inbox text-4xl mb-2"></i>
+                                            <p>No CloudFront invoices generated yet.</p>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div x-show="editingInvoice" x-cloak class="bg-white rounded-lg shadow-md overflow-hidden">
+                        <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                            <div>
+                                <h2 class="text-2xl font-semibold text-gray-700">
+                                    <i class="fas fa-edit text-blue-600"></i> Edit Invoice: <span
+                                        x-text="editingInvoice?.invoiceNumber"></span>
+                                </h2>
+                                <p class="text-sm text-gray-500 mt-1">
+                                    <span x-text="editingInvoice?.clientName"></span> |
+                                    <span x-text="editingInvoice?.billingPeriod"></span>
+                                </p>
+                            </div>
+                            <button @click="cancelEdit()" class="text-gray-500 hover:text-gray-700">
+                                <i class="fas fa-times text-xl"></i>
+                            </button>
+                        </div>
+
+                        <div class="p-6">
+                            <div class="overflow-x-auto mb-4">
+                                <table class="min-w-full divide-y divide-gray-200 text-sm">
+                                    <thead class="bg-gray-100">
+                                        <tr>
+                                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-600">Region
+                                            </th>
+                                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-600">Usage Type
+                                            </th>
+                                            <th class="px-4 py-2 text-right text-xs font-medium text-gray-600">Quantity
+                                            </th>
+                                            <th class="px-4 py-2 text-right text-xs font-medium text-gray-600">Unit</th>
+                                            <th class="px-4 py-2 text-right text-xs font-medium text-gray-600">Unit Rate
+                                                ($)</th>
+                                            <th class="px-4 py-2 text-right text-xs font-medium text-gray-600">Cost ($)
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="bg-white divide-y divide-gray-200">
+                                        <template x-for="(item, index) in editingInvoice?.lineItems" :key="item.id">
+                                            <tr :class="{'hidden-row': item.hidden}">
+                                                <td class="px-4 py-2" x-text="item.regionName"></td>
+                                                <td class="px-4 py-2" x-text="item.resourceName"></td>
+                                                <td class="px-4 py-2 text-right font-mono"
+                                                    x-text="parseQuantity(item.usageQuantity)"></td>
+                                                <td class="px-4 py-2 text-right" x-text="item.unit"></td>
+                                                <td class="px-4 py-2 text-right">
+                                                    <input type="number" step="0.000001" class="rate-input"
+                                                        x-model.number="item.editableRate"
+                                                        @input="recalculateLineItem(item)">
+                                                </td>
+                                                <td class="px-4 py-2 text-right font-semibold"
+                                                    x-text="formatCurrency(item.cost)"></td>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                    <tfoot class="bg-gray-50">
+                                        <tr>
+                                            <td colspan="5" class="px-4 py-3 text-right font-bold text-gray-700">Total:
+                                            </td>
+                                            <td class="px-4 py-3 text-right font-bold text-lg text-gray-900"
+                                                x-text="formatCurrency(calculateTotal())"></td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
+
+                            <div class="flex justify-end space-x-3 mt-6">
+                                <button @click="cancelEdit()"
+                                    class="px-6 py-2 border border-gray-300 rounded hover:bg-gray-50 transition">
+                                    Cancel
+                                </button>
+                                <button @click="saveInvoiceChanges()" :disabled="saving"
+                                    class="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400 transition">
+                                    <span x-show="!saving"><i class="fas fa-save"></i> Save & Finalize</span>
+                                    <span x-show="saving"><i class="fas fa-spinner fa-spin"></i> Saving...</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
                 </div>
 
-            </div>
-        </main>
+                <script>
+                    function cloudfrontAdmin() {
+                        return {
+                            rates: [],
+                            newRate: { regionMatcher: '', usageTypeMatcher: '', privateRate: null },
+                            invoices: [],
+                            editingInvoice: null,
+                            generation: { accountId: '', year: new Date().getFullYear(), month: new Date().getMonth() + 1 },
+                            generating: false,
+                            uploading: false,
+                            savingRate: false,
+                            saving: false,
+                            successMessage: '',
+                            errorMessage: '',
+
+                            init() {
+                                this.fetchRates();
+                                this.fetchInvoices();
+
+                                // Get selected account from sidebar
+                                const selectedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                                if (selectedIds.length > 0) {
+                                    this.generation.accountId = selectedIds[0];
+                                }
+                            },
+
+                            getAuthToken() {
+                                return localStorage.getItem('authToken') || sessionStorage.getItem('authToken') || '';
+                            },
+
+                            apiFetch(url, options = {}) {
+                                const token = this.getAuthToken();
+                                return fetch(url, {
+                                    ...options,
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                        'Authorization': token ? `Bearer ${token}` : '',
+                                        ...options.headers,
+                                    },
+                                }).then(res => {
+                                    if (!res.ok) {
+                                        return res.text().then(text => {
+                                            throw new Error(text || `Server error: ${res.status}`);
+                                        });
+                                    }
+                                    return res.json();
+                                });
+                            },
+
+                            showSuccess(message) {
+                                this.successMessage = message;
+                                setTimeout(() => this.successMessage = '', 5000);
+                            },
+
+                            showError(message) {
+                                this.errorMessage = message;
+                                setTimeout(() => this.errorMessage = '', 5000);
+                            },
+
+                            // --- Rate Management ---
+                            fetchRates() {
+                                this.apiFetch('/api/admin/cloudfront/rates')
+                                    .then(data => { this.rates = data; })
+                                    .catch(err => this.showError('Failed to fetch rates: ' + err.message));
+                            },
+
+                            saveRate() {
+                                if (!this.newRate.regionMatcher || !this.newRate.usageTypeMatcher || !this.newRate.privateRate) {
+                                    this.showError('Please fill all rate fields');
+                                    return;
+                                }
+
+                                this.savingRate = true;
+                                this.apiFetch('/api/admin/cloudfront/rates', {
+                                    method: 'POST',
+                                    body: JSON.stringify(this.newRate)
+                                })
+                                    .then(() => {
+                                        this.showSuccess('Rate saved successfully');
+                                        this.newRate = { regionMatcher: '', usageTypeMatcher: '', privateRate: null };
+                                        this.fetchRates();
+                                    })
+                                    .catch(err => this.showError('Error saving rate: ' + err.message))
+                                    .finally(() => this.savingRate = false);
+                            },
+
+                            deleteRate(rateId) {
+                                if (!confirm('Delete this rate?')) return;
+
+                                const token = this.getAuthToken();
+                                fetch(`/api/admin/cloudfront/rates/${rateId}`, {
+                                    method: 'DELETE',
+                                    headers: {
+                                        'Authorization': token ? `Bearer ${token}` : ''
+                                    }
+                                })
+                                    .then(res => {
+                                        if (!res.ok) throw new Error('Failed to delete');
+                                        this.showSuccess('Rate deleted');
+                                        this.fetchRates();
+                                    })
+                                    .catch(err => this.showError('Error: ' + err.message));
+                            },
+
+                            // --- Invoice Management ---
+                            fetchInvoices() {
+                                this.apiFetch('/api/admin/invoices')
+                                    .then(data => {
+                                        this.invoices = data
+                                            .filter(inv => inv.invoiceNumber && inv.invoiceNumber.startsWith('CF-'))
+                                            .sort((a, b) => b.id - a.id);
+                                    })
+                                    .catch(err => this.showError('Failed to fetch invoices: ' + err.message));
+                            },
+
+                            generateFromAws() {
+                                if (!this.generation.accountId || !this.generation.year || !this.generation.month) {
+                                    this.showError('Please select account and enter year/month');
+                                    return;
+                                }
+
+                                this.generating = true;
+                                this.apiFetch('/api/admin/cloudfront/generate-from-aws', {
+                                    method: 'POST',
+                                    body: JSON.stringify(this.generation)
+                                })
+                                    .then(newInvoice => {
+                                        this.showSuccess(`Invoice ${newInvoice.invoiceNumber} generated successfully!`);
+                                        this.fetchInvoices();
+                                    })
+                                    .catch(err => this.showError('Error: ' + err.message))
+                                    .finally(() => this.generating = false);
+                            },
+
+                            generateFromFile() {
+                                const file = this.$refs.billFile.files[0];
+                                if (!file) {
+                                    this.showError('Please select a PDF or CSV file');
+                                    return;
+                                }
+
+                                if (!this.generation.accountId || !this.generation.year || !this.generation.month) {
+                                    this.showError('Please select account and enter year/month');
+                                    return;
+                                }
+
+                                this.uploading = true;
+                                const formData = new FormData();
+                                formData.append('file', file);
+                                formData.append('accountId', this.generation.accountId);
+                                formData.append('year', this.generation.year);
+                                formData.append('month', this.generation.month);
+
+                                const token = this.getAuthToken();
+
+                                fetch('/api/admin/cloudfront/generate-from-file', {
+                                    method: 'POST',
+                                    body: formData,
+                                    headers: {
+                                        'Authorization': token ? `Bearer ${token}` : '',
+                                    },
+                                })
+                                    .then(res => {
+                                        if (!res.ok) {
+                                            return res.text().then(text => {
+                                                throw new Error(text || `Upload failed: ${res.status}`);
+                                            });
+                                        }
+                                        return res.json();
+                                    })
+                                    .then(newInvoice => {
+                                        this.showSuccess(`Invoice ${newInvoice.invoiceNumber} generated from ${file.name}!`);
+                                        this.$refs.billFile.value = '';
+                                        this.fetchInvoices();
+                                    })
+                                    .catch(err => this.showError('Error: ' + err.message))
+                                    .finally(() => this.uploading = false);
+                            },
+
+                            // --- Inline Editing ---
+                            editInvoice(invoice) {
+                                this.apiFetch(`/api/admin/invoices/${invoice.id}`)
+                                    .then(fullInvoice => {
+                                        // Calculate initial rate for each line item
+                                        fullInvoice.lineItems.forEach(item => {
+                                            const qty = this.parseQuantity(item.usageQuantity);
+                                            item.editableRate = qty > 0 ? (item.cost / qty) : 0;
+                                        });
+                                        this.editingInvoice = fullInvoice;
+                                        // Scroll to editing section
+                                        setTimeout(() => {
+                                            document.querySelector('[x-show="editingInvoice"]')?.scrollIntoView({ behavior: 'smooth' });
+                                        }, 100);
+                                    })
+                                    .catch(err => this.showError('Failed to load invoice: ' + err.message));
+                            },
+
+                            cancelEdit() {
+                                this.editingInvoice = null;
+                            },
+
+                            parseQuantity(usageQuantity) {
+                                if (!usageQuantity) return 0;
+                                const match = usageQuantity.match(/([0-9,.]+)/);
+                                return match ? parseFloat(match[1].replace(/,/g, '')) : 0;
+                            },
+
+                            recalculateLineItem(item) {
+                                const qty = this.parseQuantity(item.usageQuantity);
+                                item.cost = (item.editableRate * qty).toFixed(4);
+                            },
+
+                            calculateTotal() {
+                                if (!this.editingInvoice) return 0;
+                                return this.editingInvoice.lineItems
+                                    .filter(item => !item.hidden)
+                                    .reduce((sum, item) => sum + parseFloat(item.cost || 0), 0);
+                            },
+
+                            saveInvoiceChanges() {
+                                if (!this.editingInvoice) return;
+
+                                const updates = this.editingInvoice.lineItems.map(item => ({
+                                    id: item.id,
+                                    unitRate: item.editableRate
+                                }));
+
+                                this.saving = true;
+                                this.apiFetch('/api/admin/cloudfront/invoice/update', {
+                                    method: 'PUT',
+                                    body: JSON.stringify({
+                                        invoiceId: this.editingInvoice.id,
+                                        lineItems: updates
+                                    })
+                                })
+                                    .then(updatedInvoice => {
+                                        this.showSuccess(`Invoice ${updatedInvoice.invoiceNumber} finalized!`);
+                                        this.editingInvoice = null;
+                                        this.fetchInvoices();
+                                    })
+                                    .catch(err => this.showError('Error saving: ' + err.message))
+                                    .finally(() => this.saving = false);
+                            },
+
+                            formatCurrency(value) {
+                                return new Intl.NumberFormat('en-US', {
+                                    style: 'currency',
+                                    currency: 'USD',
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 4
+                                }).format(value || 0);
+                            }
+                        }
+                    }
+                </script>
+            </main>
+        </div>
     </div>
-</div>
-
-<script>
-    function cloudfrontAdmin() {
-        return {
-            rates: [],
-            newRate: { regionMatcher: '', usageTypeMatcher: '', privateRate: null },
-            invoices: [],
-            editingInvoice: null,
-            generation: { accountId: '', year: new Date().getFullYear(), month: new Date().getMonth() + 1 },
-            generating: false,
-            uploading: false,
-            savingRate: false,
-            saving: false,
-            successMessage: '',
-            errorMessage: '',
-            
-            init() {
-                this.fetchRates();
-                this.fetchInvoices();
-
-                // Get selected account from sidebar
-                const selectedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-                if (selectedIds.length > 0) {
-                    this.generation.accountId = selectedIds[0];
-                }
-            },
-
-            getAuthToken() {
-                return localStorage.getItem('authToken') || sessionStorage.getItem('authToken') || '';
-            },
-
-            apiFetch(url, options = {}) {
-                const token = this.getAuthToken();
-                return fetch(url, {
-                    ...options,
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': token ? `Bearer ${token}` : '',
-                        ...options.headers,
-                    },
-                }).then(res => {
-                    if (!res.ok) {
-                        return res.text().then(text => {
-                            throw new Error(text || `Server error: ${res.status}`);
-                        });
-                    }
-                    return res.json();
-                });
-            },
-
-            showSuccess(message) {
-                this.successMessage = message;
-                setTimeout(() => this.successMessage = '', 5000);
-            },
-
-            showError(message) {
-                this.errorMessage = message;
-                setTimeout(() => this.errorMessage = '', 5000);
-            },
-
-            // --- Rate Management ---
-            fetchRates() {
-                this.apiFetch('/api/admin/cloudfront/rates')
-                    .then(data => { this.rates = data; })
-                    .catch(err => this.showError('Failed to fetch rates: ' + err.message));
-            },
-
-            saveRate() {
-                if (!this.newRate.regionMatcher || !this.newRate.usageTypeMatcher || !this.newRate.privateRate) {
-                    this.showError('Please fill all rate fields');
-                    return;
-                }
-
-                this.savingRate = true;
-                this.apiFetch('/api/admin/cloudfront/rates', {
-                    method: 'POST',
-                    body: JSON.stringify(this.newRate)
-                })
-                .then(() => {
-                    this.showSuccess('Rate saved successfully');
-                    this.newRate = { regionMatcher: '', usageTypeMatcher: '', privateRate: null };
-                    this.fetchRates();
-                })
-                .catch(err => this.showError('Error saving rate: ' + err.message))
-                .finally(() => this.savingRate = false);
-            },
-
-            deleteRate(rateId) {
-                if (!confirm('Delete this rate?')) return;
-                
-                const token = this.getAuthToken();
-                fetch(`/api/admin/cloudfront/rates/${rateId}`, { 
-                    method: 'DELETE',
-                    headers: {
-                        'Authorization': token ? `Bearer ${token}` : ''
-                    }
-                })
-                .then(res => {
-                    if (!res.ok) throw new Error('Failed to delete');
-                    this.showSuccess('Rate deleted');
-                    this.fetchRates();
-                })
-                .catch(err => this.showError('Error: ' + err.message));
-            },
-
-            // --- Invoice Management ---
-            fetchInvoices() {
-                this.apiFetch('/api/admin/invoices')
-                    .then(data => {
-                        this.invoices = data
-                            .filter(inv => inv.invoiceNumber && inv.invoiceNumber.startsWith('CF-'))
-                            .sort((a, b) => b.id - a.id);
-                    })
-                    .catch(err => this.showError('Failed to fetch invoices: ' + err.message));
-            },
-
-            generateFromAws() {
-                if (!this.generation.accountId || !this.generation.year || !this.generation.month) {
-                    this.showError('Please select account and enter year/month');
-                    return;
-                }
-
-                this.generating = true;
-                this.apiFetch('/api/admin/cloudfront/generate-from-aws', {
-                    method: 'POST',
-                    body: JSON.stringify(this.generation)
-                })
-                .then(newInvoice => {
-                    this.showSuccess(`Invoice ${newInvoice.invoiceNumber} generated successfully!`);
-                    this.fetchInvoices();
-                })
-                .catch(err => this.showError('Error: ' + err.message))
-                .finally(() => this.generating = false);
-            },
-
-            generateFromFile() {
-                const file = this.$refs.billFile.files[0];
-                if (!file) {
-                    this.showError('Please select a PDF or CSV file');
-                    return;
-                }
-
-                if (!this.generation.accountId || !this.generation.year || !this.generation.month) {
-                    this.showError('Please select account and enter year/month');
-                    return;
-                }
-
-                this.uploading = true;
-                const formData = new FormData();
-                formData.append('file', file);
-                formData.append('accountId', this.generation.accountId);
-                formData.append('year', this.generation.year);
-                formData.append('month', this.generation.month);
-
-                const token = this.getAuthToken();
-
-                fetch('/api/admin/cloudfront/generate-from-file', {
-                    method: 'POST',
-                    body: formData,
-                    headers: {
-                        'Authorization': token ? `Bearer ${token}` : '',
-                    },
-                })
-                .then(res => {
-                    if (!res.ok) {
-                        return res.text().then(text => {
-                            throw new Error(text || `Upload failed: ${res.status}`);
-                        });
-                    }
-                    return res.json();
-                })
-                .then(newInvoice => {
-                    this.showSuccess(`Invoice ${newInvoice.invoiceNumber} generated from ${file.name}!`);
-                    this.$refs.billFile.value = '';
-                    this.fetchInvoices();
-                })
-                .catch(err => this.showError('Error: ' + err.message))
-                .finally(() => this.uploading = false);
-            },
-
-            // --- Inline Editing ---
-            editInvoice(invoice) {
-                this.apiFetch(`/api/admin/invoices/${invoice.id}`)
-                    .then(fullInvoice => {
-                        // Calculate initial rate for each line item
-                        fullInvoice.lineItems.forEach(item => {
-                            const qty = this.parseQuantity(item.usageQuantity);
-                            item.editableRate = qty > 0 ? (item.cost / qty) : 0;
-                        });
-                        this.editingInvoice = fullInvoice;
-                        // Scroll to editing section
-                        setTimeout(() => {
-                            document.querySelector('[x-show="editingInvoice"]')?.scrollIntoView({ behavior: 'smooth' });
-                        }, 100);
-                    })
-                    .catch(err => this.showError('Failed to load invoice: ' + err.message));
-            },
-
-            cancelEdit() {
-                this.editingInvoice = null;
-            },
-
-            parseQuantity(usageQuantity) {
-                if (!usageQuantity) return 0;
-                const match = usageQuantity.match(/([0-9,.]+)/);
-                return match ? parseFloat(match[1].replace(/,/g, '')) : 0;
-            },
-
-            recalculateLineItem(item) {
-                const qty = this.parseQuantity(item.usageQuantity);
-                item.cost = (item.editableRate * qty).toFixed(4);
-            },
-
-            calculateTotal() {
-                if (!this.editingInvoice) return 0;
-                return this.editingInvoice.lineItems
-                    .filter(item => !item.hidden)
-                    .reduce((sum, item) => sum + parseFloat(item.cost || 0), 0);
-            },
-
-            saveInvoiceChanges() {
-                if (!this.editingInvoice) return;
-
-                const updates = this.editingInvoice.lineItems.map(item => ({
-                    id: item.id,
-                    unitRate: item.editableRate
-                }));
-
-                this.saving = true;
-                this.apiFetch('/api/admin/cloudfront/invoice/update', {
-                    method: 'PUT',
-                    body: JSON.stringify({
-                        invoiceId: this.editingInvoice.id,
-                        lineItems: updates
-                    })
-                })
-                .then(updatedInvoice => {
-                    this.showSuccess(`Invoice ${updatedInvoice.invoiceNumber} finalized!`);
-                    this.editingInvoice = null;
-                    this.fetchInvoices();
-                })
-                .catch(err => this.showError('Error saving: ' + err.message))
-                .finally(() => this.saving = false);
-            },
-            
-            formatCurrency(value) {
-                return new Intl.NumberFormat('en-US', { 
-                    style: 'currency', 
-                    currency: 'USD',
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 4
-                }).format(value || 0);
-            }
-        }
-    }
-</script>
 </body>
+
 </html>
