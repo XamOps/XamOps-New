@@ -92,17 +92,18 @@ public class CacheConfig {
      * crashes.
      * This automatically wipes Redis when the app starts to ensure a clean slate.
      */
-    @Bean
-    public CommandLineRunner clearRedisCache(RedisConnectionFactory connectionFactory) {
-        return args -> {
-            try {
-                connectionFactory.getConnection().serverCommands().flushAll();
-                System.out.println("===========================================");
-                System.out.println("✅ REDIS CACHE FLUSHED SUCCESSFULLY");
-                System.out.println("===========================================");
-            } catch (Exception e) {
-                System.err.println("❌ FAILED TO FLUSH REDIS: " + e.getMessage());
-            }
-        };
-    }
+    // @Bean
+    // public CommandLineRunner clearRedisCache(RedisConnectionFactory
+    // connectionFactory) {
+    // return args -> {
+    // try {
+    // connectionFactory.getConnection().serverCommands().flushAll();
+    // System.out.println("===========================================");
+    // System.out.println("✅ REDIS CACHE FLUSHED SUCCESSFULLY");
+    // System.out.println("===========================================");
+    // } catch (Exception e) {
+    // System.err.println("❌ FAILED TO FLUSH REDIS: " + e.getMessage());
+    // }
+    // };
+    // }
 }

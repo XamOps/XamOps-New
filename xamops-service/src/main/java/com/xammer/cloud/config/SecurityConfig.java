@@ -63,8 +63,8 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("/webjars/**"),
                                 new AntPathRequestMatcher("/gcp_*.html"),
                                 new AntPathRequestMatcher("/azure_dashboard.html"),
-                                new AntPathRequestMatcher("/ws/**"),       // Existing STOMP endpoint
-                                new AntPathRequestMatcher("/terminal"),    // ✅ NEW: CloudShell endpoint
+                                new AntPathRequestMatcher("/ws/**"), // Existing STOMP endpoint
+                                new AntPathRequestMatcher("/terminal"), // ✅ NEW: CloudShell endpoint
                                 new AntPathRequestMatcher("/azure_*.html"),
                                 new AntPathRequestMatcher("/cloudlist.html"),
                                 new AntPathRequestMatcher("/api/ai/**"),
@@ -76,11 +76,14 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("/api/xamops/k8s/**"),
                                 new AntPathRequestMatcher("/sonarqube.html"),
                                 new AntPathRequestMatcher("/user-manager.html"),
+                                new AntPathRequestMatcher("/api/autospotting/**"),
                                 new AntPathRequestMatcher("/api/devops-scripts/**"),
-                                new AntPathRequestMatcher("/api/ai/**")
-                        ).permitAll()
-                        .anyRequest().authenticated()
-                )
+                                new AntPathRequestMatcher("/spot-automation.html"),
+                                new AntPathRequestMatcher("actions-history.html"),
+
+                                new AntPathRequestMatcher("/api/ai/**"))
+                        .permitAll()
+                        .anyRequest().authenticated())
                 .formLogin((form) -> form
                         .loginPage("/login")
                         .successHandler(authenticationSuccessHandler)
@@ -131,7 +134,8 @@ public class SecurityConfig {
         return new BCryptPasswordEncoder();
     }
 
-    // ✅ REMOVED: userDetailsService bean (use CustomUserDetailsService @Service instead)
+    // ✅ REMOVED: userDetailsService bean (use CustomUserDetailsService @Service
+    // instead)
 
     @Bean
     public HttpFirewall allowSemicolonHttpFirewall() {
