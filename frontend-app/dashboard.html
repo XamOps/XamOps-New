@@ -702,7 +702,15 @@
                                     <div class="map fold-4"></div>
                                 </div>
                             </div>
+
                         </a>
+                        <a href="/cloudshell.html" x-show="hasAnyRole(['ROLE_XAMOPS'])"
+                                class="flex items-center text-sm font-semibold text-gray-600 hover:text-indigo-600 px-4 py-2 rounded-lg hover:bg-indigo-50 transition-all border border-transparent hover:border-indigo-100 group"
+                                title="Launch CloudShell">
+                                <i class="fas fa-laptop-code mr-2 text-gray-500 group-hover:text-indigo-600 transition-colors text-lg drop-shadow-sm group-hover:drop-shadow-md"
+                                    style="text-shadow: 0 1px 2px var(--gradient-primary);"></i>
+                                <span></span>
+                            </a>
                         <button @click="saveLayout()" x-show="layoutChanged" x-cloak
                             class="flex items-center text-sm font-semibold text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 px-6 py-2.5 rounded-lg shadow-md transition-all transform hover:scale-105 hover:shadow-lg">
                             <i class="fas fa-save mr-2"></i> Save Layout

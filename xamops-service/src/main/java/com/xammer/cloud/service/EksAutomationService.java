@@ -26,7 +26,7 @@ public class EksAutomationService {
     private static final Logger logger = LoggerFactory.getLogger(EksAutomationService.class);
 
     private final PrometheusService prometheusService;
-    private final KubernetesClusterRepository kubernetesClusterRepository; // ✅ Inject Repository
+    private final KubernetesClusterRepository kubernetesClusterRepository;
 
     @Autowired
     public EksAutomationService(PrometheusService prometheusService, 
@@ -40,7 +40,6 @@ public class EksAutomationService {
         return t -> seen.add(keyExtractor.apply(t));
     }
 
-    // ✅ HELPER: Get URL from DB
     private String getPrometheusUrl(CloudAccount account, String clusterName) {
         return kubernetesClusterRepository.findByCloudAccountAndClusterName(account, clusterName)
                 .map(KubernetesCluster::getPrometheusUrl)
@@ -54,13 +53,13 @@ public class EksAutomationService {
     public List<K8sNodeInfo> getClusterNodes(CloudAccount account, String clusterName, String region) {
         logger.info("Fetching nodes via Prometheus for cluster {}", clusterName);
         try {
-            // 1. GET URL FROM DB
             String promUrl = getPrometheusUrl(account, clusterName);
 
-            // 2. Fetch Node Info (Labels) using dynamic URL
+            // 1. Fetch Node Info from kube_node_info
             List<Map<String, String>> nodeList = prometheusService.getClusterNodes(promUrl, clusterName);
+            logger.info("📊 Found {} nodes from kube_node_info", nodeList.size());
 
-            // 3. Async Fetch Metrics
+            // 2. Async Fetch Metrics (now using 'hostname' label)
             CompletableFuture<Map<String, Double>> cpuFuture = CompletableFuture.supplyAsync(() -> 
                 prometheusService.getNodeCpuUsage(promUrl, clusterName));
             
@@ -74,25 +73,45 @@ public class EksAutomationService {
             Map<String, Double> memMap = memFuture.join();
             Map<String, Double> createdMap = createdFuture.join();
 
+            logger.info("✅ Node Metrics Retrieved: CPU={}, MEM={}, CREATED={}", 
+                cpuMap.size(), memMap.size(), createdMap.size());
+
+            // 3. Match node names with metrics
+            // cpuMap and memMap use 'hostname' which should match 'node' from kube_node_info
             return nodeList.stream()
                 .map(nodeData -> {
-                    String name = nodeData.getOrDefault("node", "Unknown");
-                    Double cpuVal = getMetricValueFuzzy(cpuMap, name);
-                    Double memVal = getMetricValueFuzzy(memMap, name);
+                    String nodeName = nodeData.getOrDefault("node", "Unknown");
                     
+                    // Direct lookup - hostname from metrics should match node name
+                    Double cpuVal = cpuMap.get(nodeName);
+                    Double memVal = memMap.get(nodeName);
+                    
+                    if (cpuVal == null || memVal == null) {
+                        logger.warn("⚠️ Missing metrics for node: {}. Available keys in cpuMap: {}", 
+                            nodeName, cpuMap.keySet());
+                    } else {
+                        logger.debug("✅ Matched node: {} -> CPU={:.2f}%, MEM={:.2f}%", 
+                            nodeName, cpuVal, memVal);
+                    }
+                    
+                    // Calculate age
                     String age = "N/A";
-                    Double createdTs = getMetricValueFuzzy(createdMap, name);
+                    Double createdTs = createdMap.get(nodeName);
                     if (createdTs != null) {
                         age = calculateAge(createdTs);
                     }
 
+                    String zone = nodeData.getOrDefault("topology_kubernetes_io_zone", "N/A");
+                    String instanceType = nodeData.getOrDefault("instance_type", "t3.small");
+                    String k8sVersion = nodeData.getOrDefault("kubelet_version", "Unknown");
+
                     return new K8sNodeInfo(
-                        name,
+                        nodeName,
                         "Ready",
-                        nodeData.getOrDefault("instance_type", "N/A"),
-                        nodeData.getOrDefault("topology_kubernetes_io_zone", "N/A"),
+                        instanceType,
+                        zone,
                         age,
-                        nodeData.getOrDefault("kubelet_version", "Unknown"),
+                        k8sVersion,
                         formatPercentage(cpuVal),
                         formatPercentage(memVal)
                     );
@@ -113,7 +132,6 @@ public class EksAutomationService {
     public List<K8sPodInfo> getClusterPods(CloudAccount account, String clusterName, String region) {
         logger.info("Fetching pods via Prometheus for cluster {}", clusterName);
         try {
-            // 1. GET URL FROM DB
             String promUrl = getPrometheusUrl(account, clusterName);
 
             List<Map<String, String>> podList = prometheusService.getClusterPods(promUrl, clusterName);
@@ -123,9 +141,14 @@ public class EksAutomationService {
             
             CompletableFuture<Map<String, Double>> restartFuture = CompletableFuture.supplyAsync(() -> 
                 prometheusService.getPodRestarts(promUrl, clusterName));
+            
+            // ✅ NEW: Fetch pod creation times
+            CompletableFuture<Map<String, Double>> createdFuture = CompletableFuture.supplyAsync(() -> 
+                prometheusService.getPodCreationTime(promUrl, clusterName));
 
             Map<String, String> statusMap = statusFuture.join();
             Map<String, Double> restartMap = restartFuture.join();
+            Map<String, Double> createdMap = createdFuture.join();
 
             return podList.stream()
                 .map(podData -> {
@@ -133,12 +156,19 @@ public class EksAutomationService {
                     String phase = statusMap.getOrDefault(name, "Unknown");
                     int restarts = restartMap.getOrDefault(name, 0.0).intValue();
 
+                    // ✅ NEW: Calculate age
+                    String age = "N/A";
+                    Double createdTs = createdMap.get(name);
+                    if (createdTs != null) {
+                        age = calculateAge(createdTs);
+                    }
+
                     return new K8sPodInfo(
                         name,
                         phase,
                         phase, 
                         restarts,
-                        "N/A", 
+                        age,
                         podData.getOrDefault("node", "N/A"),
                         null, 
                         null
@@ -160,7 +190,6 @@ public class EksAutomationService {
     public List<K8sDeploymentInfo> getClusterDeployments(CloudAccount account, String clusterName, String region) {
         logger.info("Fetching deployments via Prometheus for cluster {}", clusterName);
         try {
-            // 1. GET URL FROM DB
             String promUrl = getPrometheusUrl(account, clusterName);
 
             List<Map<String, String>> depList = prometheusService.getClusterDeployments(promUrl, clusterName);
@@ -173,10 +202,15 @@ public class EksAutomationService {
             
             CompletableFuture<Map<String, Double>> updatedFuture = CompletableFuture.supplyAsync(() -> 
                 prometheusService.getDeploymentUpdatedReplicas(promUrl, clusterName));
+            
+            // ✅ NEW: Fetch deployment creation times
+            CompletableFuture<Map<String, Double>> createdFuture = CompletableFuture.supplyAsync(() -> 
+                prometheusService.getDeploymentCreationTime(promUrl, clusterName));
 
             Map<String, Double> availableMap = availableFuture.join();
             Map<String, Double> specMap = specFuture.join();
             Map<String, Double> updatedMap = updatedFuture.join();
+            Map<String, Double> createdMap = createdFuture.join();
 
             return depList.stream()
                 .map(depData -> {
@@ -188,12 +222,19 @@ public class EksAutomationService {
                     
                     String readyStr = String.format("%d/%d", available, desired);
 
+                    // ✅ NEW: Calculate age
+                    String age = "N/A";
+                    Double createdTs = createdMap.get(name);
+                    if (createdTs != null) {
+                        age = calculateAge(createdTs);
+                    }
+
                     return new K8sDeploymentInfo(
                         name,
                         readyStr,
                         updated,
                         available,
-                        "N/A"
+                        age
                     );
                 })
                 .filter(distinctByKey(K8sDeploymentInfo::getName))
@@ -219,16 +260,9 @@ public class EksAutomationService {
         }
     }
 
-    // --- Helper for Fuzzy Matching Node Names ---
-    private Double getMetricValueFuzzy(Map<String, Double> map, String nodeName) {
-        if (map == null || nodeName == null) return null;
-        if (map.containsKey(nodeName)) return map.get(nodeName);
-        if (nodeName.contains(".")) {
-            String shortName = nodeName.substring(0, nodeName.indexOf("."));
-            if (map.containsKey(shortName)) return map.get(shortName);
-        }
-        return null;
-    }
+    // ============================================================================================
+    // HELPER METHODS
+    // ============================================================================================
 
     private String calculateAge(Double createdTimestamp) {
         if (createdTimestamp == null || createdTimestamp == 0) return "N/A";
@@ -242,6 +276,7 @@ public class EksAutomationService {
             if (hours > 0) return hours + "h";
             return d.toMinutes() + "m";
         } catch (Exception e) {
+            logger.error("Error calculating age from timestamp {}", createdTimestamp, e);
             return "N/A";
         }
     }
