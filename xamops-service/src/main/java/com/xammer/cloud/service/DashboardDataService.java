@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.DashboardData;
-import com.xammer.cloud.dto.gcp.GcpDashboardData;
+import com.xammer.cloud.dto.gcp.*;
 import com.xammer.cloud.dto.ReservationInventoryDto;
 import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
@@ -29,16 +29,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
@@ -107,9 +98,282 @@ public class DashboardDataService {
         return accounts.get(0);
     }
 
+    /**
+     * Modified to support AWS and GCP multi-account aggregation.
+     * Enforces that all selected accounts belong to the same provider.
+     */
     public DashboardData getMultiAccountDashboardData(List<String> accountIds, boolean forceRefresh,
             ClientUserDetails userDetails) throws ExecutionException, InterruptedException, IOException {
         logger.info("Starting multi-account dashboard data fetch for {} accounts", accountIds.size());
+
+        if (accountIds.isEmpty()) {
+            throw new IllegalArgumentException("Account list cannot be empty");
+        }
+
+        // ✅ STRICT VALIDATION: Ensure all accounts are from the same provider
+        Set<String> providers = new HashSet<>();
+        for (String accountId : accountIds) {
+            try {
+                CloudAccount account = getAccount(accountId);
+                providers.add(account.getProvider());
+            } catch (Exception e) {
+                logger.error("Failed to validate account {}", accountId, e);
+                throw new IllegalArgumentException("Invalid account ID: " + accountId);
+            }
+        }
+
+        if (providers.size() > 1) {
+            throw new IllegalArgumentException(
+                    "Cannot mix cloud providers in multi-account view. Found: " +
+                            String.join(", ", providers)
+                            + ". Please select accounts from only one provider (AWS or GCP).");
+        }
+
+        // Determine provider from the first valid account
+        CloudAccount firstAccount = getAccount(accountIds.get(0));
+        String provider = firstAccount.getProvider();
+
+        if ("GCP".equals(provider)) {
+            return getMultiAccountGcpDashboardData(accountIds, forceRefresh, userDetails);
+        } else if ("AWS".equals(provider)) {
+            return getMultiAccountAwsDashboardData(accountIds, forceRefresh, userDetails);
+        } else {
+            throw new IllegalArgumentException("Multi-account view is not supported for provider: " + provider);
+        }
+    }
+
+    /**
+     * Logic for aggregating GCP accounts.
+     */
+    private DashboardData getMultiAccountGcpDashboardData(List<String> accountIds, boolean forceRefresh,
+            ClientUserDetails userDetails) {
+        logger.info("Executing GCP multi-account fetch for accounts: {}", accountIds);
+
+        List<CloudAccount> validAccounts = new ArrayList<>();
+        List<String> accountNames = new ArrayList<>();
+        List<String> failedAccounts = new ArrayList<>();
+
+        // Validate accounts
+        for (String accountId : accountIds) {
+            try {
+                CloudAccount account = getAccount(accountId);
+                if ("GCP".equals(account.getProvider())) {
+                    validAccounts.add(account);
+                    accountNames.add(account.getAccountName());
+                } else {
+                    logger.warn("Skipping non-GCP account {} in GCP multi-account mode", accountId);
+                }
+            } catch (Exception e) {
+                logger.error("Failed to load account {}", accountId, e);
+                failedAccounts.add(accountId);
+            }
+        }
+
+        if (validAccounts.isEmpty()) {
+            throw new RuntimeException("No valid GCP accounts found for multi-account dashboard");
+        }
+
+        // Parallel fetch
+        List<CompletableFuture<GcpDashboardData>> futures = validAccounts.stream()
+                .map(account -> gcpDataService.getDashboardData(account.getGcpProjectId(), forceRefresh)
+                        .exceptionally(ex -> {
+                            logger.error("Failed to fetch data for GCP project {}", account.getGcpProjectId(), ex);
+                            failedAccounts.add(account.getGcpProjectId());
+                            return new GcpDashboardData(); // Return empty object on failure to avoid blocking
+                                                           // aggregation
+                        }))
+                .collect(Collectors.toList());
+
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
+        List<GcpDashboardData> accountDataList = futures.stream()
+                .map(CompletableFuture::join)
+                .collect(Collectors.toList());
+
+        DashboardData aggregatedData = aggregateGcpDashboardData(accountDataList, validAccounts, accountNames,
+                failedAccounts);
+        populateAvailableAccounts(aggregatedData, userDetails);
+
+        return aggregatedData;
+    }
+
+    private DashboardData aggregateGcpDashboardData(List<GcpDashboardData> dataList,
+            List<CloudAccount> accounts,
+            List<String> accountNames,
+            List<String> failedAccounts) {
+        DashboardData aggregated = new DashboardData();
+        aggregated.setMultiAccountView(true);
+        aggregated.setSelectedAccountIds(
+                accounts.stream().map(CloudAccount::getGcpProjectId).collect(Collectors.toList()));
+        aggregated.setSelectedAccountNames(accountNames);
+        aggregated.setFailedAccounts(failedAccounts);
+        aggregated.setSelectedProvider("GCP");
+
+        DashboardData.Account aggregatedAccount = new DashboardData.Account();
+        aggregatedAccount.setId("multi-account-gcp");
+        aggregatedAccount.setName(String.format("%d GCP Projects", accounts.size()));
+
+        // Aggregate Metrics
+        double totalMTD = 0.0;
+        double totalForecast = 0.0;
+        double totalLastMonth = 0.0;
+        double totalOptimizationSavings = 0.0;
+        long totalCriticalAlerts = 0;
+        double totalPotentialSavings = 0.0;
+
+        DashboardData.ResourceInventory aggregatedInventory = new DashboardData.ResourceInventory();
+        DashboardData.IamResources aggregatedIam = new DashboardData.IamResources(0, 0, 0, 0);
+        Set<String> uniqueRegions = new HashSet<>();
+        Map<String, Double> costHistoryMap = new LinkedHashMap<>();
+        Map<String, Double> billingSummaryMap = new HashMap<>();
+        Map<String, DashboardData.SecurityInsight> securityInsightMap = new HashMap<>();
+        List<Integer> securityScores = new ArrayList<>();
+
+        for (GcpDashboardData data : dataList) {
+            // Costs
+            totalMTD += data.getMonthToDateSpend();
+            totalForecast += data.getForecastedSpend();
+            totalLastMonth += data.getLastMonthSpend();
+
+            // Resources
+            if (data.getResourceInventory() != null) {
+                DashboardData.ResourceInventory inv = data.getResourceInventory();
+                aggregatedInventory.setEc2(aggregatedInventory.getEc2() + inv.getEc2()); // Compute Engine
+                aggregatedInventory.setS3Buckets(aggregatedInventory.getS3Buckets() + inv.getS3Buckets()); // Cloud
+                                                                                                           // Storage
+                aggregatedInventory.setRdsInstances(aggregatedInventory.getRdsInstances() + inv.getRdsInstances()); // Cloud
+                                                                                                                    // SQL
+                aggregatedInventory.setKubernetes(aggregatedInventory.getKubernetes() + inv.getKubernetes()); // GKE
+                aggregatedInventory.setVpc(aggregatedInventory.getVpc() + inv.getVpc());
+                aggregatedInventory.setRoute53Zones(aggregatedInventory.getRoute53Zones() + inv.getRoute53Zones()); // Cloud
+                                                                                                                    // DNS
+                aggregatedInventory.setLoadBalancers(aggregatedInventory.getLoadBalancers() + inv.getLoadBalancers());
+                aggregatedInventory.setFirewalls(aggregatedInventory.getFirewalls() + inv.getFirewalls());
+                aggregatedInventory
+                        .setCloudNatRouters(aggregatedInventory.getCloudNatRouters() + inv.getCloudNatRouters());
+                aggregatedInventory.setArtifactRepositories(
+                        aggregatedInventory.getArtifactRepositories() + inv.getArtifactRepositories());
+                aggregatedInventory.setKmsKeys(aggregatedInventory.getKmsKeys() + inv.getKmsKeys());
+                aggregatedInventory
+                        .setCloudFunctions(aggregatedInventory.getCloudFunctions() + inv.getCloudFunctions());
+                aggregatedInventory.setCloudBuildTriggers(
+                        aggregatedInventory.getCloudBuildTriggers() + inv.getCloudBuildTriggers());
+                aggregatedInventory.setSecretManagerSecrets(
+                        aggregatedInventory.getSecretManagerSecrets() + inv.getSecretManagerSecrets());
+                aggregatedInventory.setCloudArmorPolicies(
+                        aggregatedInventory.getCloudArmorPolicies() + inv.getCloudArmorPolicies());
+            }
+
+            // IAM
+            if (data.getIamResources() != null) {
+                aggregatedIam.setUsers(aggregatedIam.getUsers() + data.getIamResources().getUsers());
+                aggregatedIam.setRoles(aggregatedIam.getRoles() + data.getIamResources().getRoles());
+                // Groups/Policies might not be populated in basic GCP call, but sum if present
+                aggregatedIam.setGroups(aggregatedIam.getGroups() + data.getIamResources().getGroups());
+                aggregatedIam
+                        .setCustomerManagedPolicies(aggregatedIam.getPolicies() + data.getIamResources().getPolicies());
+            }
+
+            // Security
+            if (data.getSecurityScore() > 0) {
+                securityScores.add(data.getSecurityScore());
+            }
+            if (data.getSecurityInsights() != null) {
+                for (DashboardData.SecurityInsight insight : data.getSecurityInsights()) {
+                    String key = insight.getCategory();
+                    securityInsightMap.merge(key, insight, (existing, valid) -> new DashboardData.SecurityInsight(
+                            existing.getTitle(),
+                            existing.getCategory(),
+                            existing.getSeverity(),
+                            existing.getCount() + valid.getCount()));
+                }
+            }
+
+            // Optimization
+            if (data.getOptimizationSummary() != null) {
+                totalOptimizationSavings += data.getOptimizationSummary().getTotalPotentialSavings();
+                totalCriticalAlerts += data.getOptimizationSummary().getCriticalAlerts();
+            }
+            if (data.getSavingsSummary() != null) {
+                totalPotentialSavings += data.getSavingsSummary().getTotalPotentialSavings();
+            }
+
+            // Regions
+            if (data.getRegionStatus() != null) {
+                data.getRegionStatus().forEach(r -> uniqueRegions.add(r.getRegionId()));
+            }
+
+            // Cost History
+            if (data.getCostHistory() != null) {
+                for (GcpCostDto cost : data.getCostHistory()) {
+                    costHistoryMap.merge(cost.getName(), cost.getAmount(), Double::sum);
+                }
+            }
+
+            // Billing Summary
+            if (data.getBillingSummary() != null) {
+                for (GcpCostDto bill : data.getBillingSummary()) {
+                    billingSummaryMap.merge(bill.getName(), bill.getAmount(), Double::sum);
+                }
+            }
+        }
+
+        // Set Aggregated Values
+        aggregatedAccount.setMonthToDateSpend(totalMTD);
+        aggregatedAccount.setForecastedSpend(totalForecast);
+        aggregatedAccount.setLastMonthSpend(totalLastMonth);
+        aggregatedAccount.setResourceInventory(aggregatedInventory);
+        aggregatedAccount.setIamResources(aggregatedIam);
+        aggregatedAccount.setSecurityScore(securityScores.isEmpty() ? 100
+                : (int) securityScores.stream().mapToInt(Integer::intValue).average().orElse(100));
+        aggregatedAccount.setSecurityInsights(new ArrayList<>(securityInsightMap.values()));
+
+        aggregatedAccount.setOptimizationSummary(
+                new DashboardData.OptimizationSummary(totalOptimizationSavings, totalCriticalAlerts));
+
+        List<DashboardData.SavingsSuggestion> savingsSuggestions = new ArrayList<>();
+        if (totalPotentialSavings > 0) {
+            savingsSuggestions
+                    .add(new DashboardData.SavingsSuggestion("Total Potential Savings", totalPotentialSavings));
+        }
+        aggregatedAccount
+                .setSavingsSummary(new DashboardData.SavingsSummary(totalPotentialSavings, savingsSuggestions));
+
+        // Regions
+        List<DashboardData.RegionStatus> regionStatusList = uniqueRegions.stream()
+                .map(regionId -> new DashboardData.RegionStatus(regionId, true))
+                .collect(Collectors.toList());
+        aggregatedAccount.setRegionStatus(regionStatusList);
+
+        // Cost History Processing (Sorting by month)
+        List<String> costLabels = new ArrayList<>(costHistoryMap.keySet());
+        costLabels.sort(this::compareMonthStrings); // Reuse or duplicate helper
+        List<Double> costValues = costLabels.stream().map(costHistoryMap::get).collect(Collectors.toList());
+        List<Boolean> costAnomalies = costLabels.stream().map(l -> false).collect(Collectors.toList());
+        aggregatedAccount.setCostHistory(new DashboardData.CostHistory(costLabels, costValues, costAnomalies));
+
+        // Billing Summary Processing
+        List<DashboardData.BillingSummary> billingSummaryList = billingSummaryMap.entrySet().stream()
+                .map(entry -> new DashboardData.BillingSummary(entry.getKey(), entry.getValue()))
+                .sorted((a, b) -> Double.compare(b.getAmount(), a.getAmount()))
+                .collect(Collectors.toList());
+        aggregatedAccount.setBillingSummary(billingSummaryList);
+
+        // Empty Lists for specific items (too large to aggregate all)
+        aggregatedAccount.setEc2Recommendations(Collections.emptyList());
+        aggregatedAccount.setWastedResources(Collections.emptyList());
+        aggregatedAccount.setCloudWatchStatus(new DashboardData.CloudWatchStatus(0, 0, 0));
+
+        aggregated.setSelectedAccount(aggregatedAccount);
+        return aggregated;
+    }
+
+    /**
+     * Existing logic for AWS multi-account, extracted to a method.
+     */
+    private DashboardData getMultiAccountAwsDashboardData(List<String> accountIds, boolean forceRefresh,
+            ClientUserDetails userDetails) throws ExecutionException, InterruptedException, IOException {
+        logger.info("Executing AWS multi-account fetch for accounts: {}", accountIds);
 
         List<CloudAccount> validAccounts = new ArrayList<>();
         List<String> accountNames = new ArrayList<>();
@@ -122,7 +386,7 @@ public class DashboardDataService {
                     validAccounts.add(account);
                     accountNames.add(account.getAccountName());
                 } else {
-                    logger.warn("Skipping non-AWS account {} in multi-account mode", accountId);
+                    logger.warn("Skipping non-AWS account {} in AWS multi-account mode", accountId);
                 }
             } catch (Exception e) {
                 logger.error("Failed to load account {}", accountId, e);
@@ -150,16 +414,45 @@ public class DashboardDataService {
 
         List<DashboardData> accountDataList = futures.stream()
                 .map(CompletableFuture::join)
-                .filter(data -> data != null)
+                .filter(Objects::nonNull)
                 .collect(Collectors.toList());
 
         if (accountDataList.isEmpty()) {
-            throw new RuntimeException("Failed to fetch data from all selected accounts");
+            throw new RuntimeException("Failed to fetch data from all selected AWS accounts");
         }
 
         DashboardData aggregatedData = aggregateDashboardData(accountDataList, validAccounts, accountNames,
                 failedAccounts);
+        populateAvailableAccounts(aggregatedData, userDetails);
 
+        return aggregatedData;
+    }
+
+    // Helper to compare month strings (e.g. "Jan 2023", "2023-01")
+    private int compareMonthStrings(String a, String b) {
+        try {
+            String normalizedA = normalizeMonthString(a);
+            String normalizedB = normalizeMonthString(b);
+
+            DateTimeFormatter formatter;
+            if (normalizedA.contains(" ")) {
+                formatter = DateTimeFormatter.ofPattern("MMM yyyy", Locale.ENGLISH);
+            } else if (normalizedA.contains("-")) {
+                formatter = DateTimeFormatter.ofPattern("yyyy-MM");
+            } else {
+                return a.compareTo(b);
+            }
+
+            YearMonth dateA = YearMonth.parse(normalizedA, formatter);
+            YearMonth dateB = YearMonth.parse(normalizedB, formatter);
+            return dateA.compareTo(dateB);
+        } catch (Exception e) {
+            logger.debug("Could not parse month labels '{}' and '{}' as dates, using string comparison", a, b);
+            return normalizeMonthString(a).compareTo(normalizeMonthString(b));
+        }
+    }
+
+    private void populateAvailableAccounts(DashboardData data, ClientUserDetails userDetails) {
         if (userDetails != null) {
             boolean isAdmin = userDetails.getAuthorities().stream()
                     .anyMatch(role -> "ROLE_BILLOPS_ADMIN".equals(role.getAuthority()));
@@ -175,20 +468,14 @@ public class DashboardDataService {
                             "AWS".equals(acc.getProvider()) ? acc.getAwsAccountId() : acc.getGcpProjectId(),
                             acc.getAccountName(),
                             Collections.emptyList(),
-                            null, null, Collections.emptyList(), null, Collections.emptyList(), null, null, null, // Added
-                                                                                                                  // null
-                                                                                                                  // for
-                                                                                                                  // iamDetails
+                            null, null, Collections.emptyList(), null, Collections.emptyList(), null, null, null,
                             Collections.emptyList(), Collections.emptyList(), Collections.emptyList(),
                             Collections.emptyList(),
                             null, Collections.emptyList(), null, Collections.emptyList(), Collections.emptyList(),
                             100, 0.0, 0.0, 0.0))
                     .collect(Collectors.toList());
-            aggregatedData.setAvailableAccounts(availableAccounts);
+            data.setAvailableAccounts(availableAccounts);
         }
-
-        logger.info("Multi-account dashboard data aggregation complete");
-        return aggregatedData;
     }
 
     private DashboardData aggregateDashboardData(List<DashboardData> accountDataList,
@@ -201,6 +488,7 @@ public class DashboardDataService {
                 accounts.stream().map(CloudAccount::getAwsAccountId).collect(Collectors.toList()));
         aggregated.setSelectedAccountNames(accountNames);
         aggregated.setFailedAccounts(failedAccounts);
+        aggregated.setSelectedProvider("AWS");
 
         double totalMTD = 0.0;
         double totalForecast = 0.0;
@@ -314,28 +602,7 @@ public class DashboardDataService {
 
         List<String> costLabels = new ArrayList<>(costHistoryMap.keySet());
 
-        costLabels.sort((a, b) -> {
-            try {
-                String normalizedA = normalizeMonthString(a);
-                String normalizedB = normalizeMonthString(b);
-
-                DateTimeFormatter formatter;
-                if (normalizedA.contains(" ")) {
-                    formatter = DateTimeFormatter.ofPattern("MMM yyyy", Locale.ENGLISH);
-                } else if (normalizedA.contains("-")) {
-                    formatter = DateTimeFormatter.ofPattern("yyyy-MM");
-                } else {
-                    return a.compareTo(b);
-                }
-
-                YearMonth dateA = YearMonth.parse(normalizedA, formatter);
-                YearMonth dateB = YearMonth.parse(normalizedB, formatter);
-                return dateA.compareTo(dateB);
-            } catch (Exception e) {
-                logger.debug("Could not parse month labels '{}' and '{}' as dates, using string comparison", a, b);
-                return normalizeMonthString(a).compareTo(normalizeMonthString(b));
-            }
-        });
+        costLabels.sort(this::compareMonthStrings);
 
         List<Double> costValues = costLabels.stream()
                 .map(costHistoryMap::get)
@@ -501,16 +768,7 @@ public class DashboardDataService {
         mainAccount.setLambdaRecommendations(Collections.emptyList());
 
         data.setSelectedAccount(mainAccount);
-
-        List<DashboardData.Account> availableAccounts = cloudAccountRepository.findAll().stream()
-                .map(acc -> new DashboardData.Account(
-                        "AWS".equals(acc.getProvider()) ? acc.getAwsAccountId() : acc.getGcpProjectId(),
-                        acc.getAccountName(),
-                        null, null, null, null, null, null, null, null, null, // Added null for iamDetails
-                        null, null, null, null, null, null, null, null,
-                        null, 0, 0.0, 0.0, 0.0))
-                .collect(Collectors.toList());
-        data.setAvailableAccounts(availableAccounts);
+        populateAvailableAccounts(data, null); // userDetails already passed in main flow or fetched inside
 
         return data;
     }
@@ -635,32 +893,7 @@ public class DashboardDataService {
                 );
 
                 data.setSelectedAccount(mainAccount);
-                if (userDetails != null) {
-                    boolean isAdmin = userDetails.getAuthorities().stream()
-                            .anyMatch(role -> "ROLE_BILLOPS_ADMIN".equals(role.getAuthority()));
-
-                    List<CloudAccount> userAccounts;
-                    if (isAdmin) {
-                        userAccounts = cloudAccountRepository.findAll();
-                    } else {
-                        userAccounts = cloudAccountRepository.findByClientId(userDetails.getClientId());
-                    }
-
-                    List<DashboardData.Account> availableAccounts = userAccounts.stream()
-                            .map(acc -> new DashboardData.Account(
-                                    "AWS".equals(acc.getProvider()) ? acc.getAwsAccountId() : acc.getGcpProjectId(),
-                                    acc.getAccountName(),
-                                    Collections.emptyList(),
-                                    null, null, Collections.emptyList(), null, Collections.emptyList(), null, null,
-                                    null, // Added null for iamDetails
-                                    Collections.emptyList(), Collections.emptyList(), Collections.emptyList(),
-                                    Collections.emptyList(),
-                                    null, Collections.emptyList(), null, Collections.emptyList(),
-                                    Collections.emptyList(),
-                                    100, 0.0, 0.0, 0.0))
-                            .collect(Collectors.toList());
-                    data.setAvailableAccounts(availableAccounts);
-                }
+                populateAvailableAccounts(data, userDetails);
 
                 return data;
             });

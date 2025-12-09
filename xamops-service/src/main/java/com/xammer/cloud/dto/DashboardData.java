@@ -19,6 +19,7 @@ public class DashboardData {
   private List<String> selectedAccountIds;
   private List<String> selectedAccountNames;
   private List<String> failedAccounts;
+  private String selectedProvider; // "AWS", "GCP", or null for single account
 
   public boolean isMultiAccountView() {
     return isMultiAccountView;
@@ -249,8 +250,8 @@ public class DashboardData {
   @AllArgsConstructor
   public static class SecurityInsight {
     private String title;
-    private String description;
     private String category;
+    private String severity;
     private int count;
   }
 
