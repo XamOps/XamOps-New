@@ -33,7 +33,7 @@ public class CloudFormationController {
      */
     @GetMapping("/deploy-url")
     public ResponseEntity<Map<String, String>> getDeployUrl(
-            @RequestParam String regions,
+            @RequestParam(required = false) String regions,
             @RequestParam(defaultValue = "us-east-1") String deployRegion) {
 
         log.info("🚀 Generating CloudFormation deploy URL for regions: {}", regions);
@@ -102,7 +102,13 @@ public class CloudFormationController {
         url.append("&param_MainAccountId=").append(mainAccountId);
         url.append("&param_MainRegion=").append(mainRegion);
         url.append("&param_AutoSpottingLambdaRoleArn=").append(URLEncoder.encode(lambdaRoleArn, "UTF-8"));
-        url.append("&param_Regions=").append(URLEncoder.encode(regions, "UTF-8"));
+
+        // Only include Regions parameter if provided, otherwise CloudFormation will use
+        // template default
+        if (regions != null && !regions.trim().isEmpty()) {
+            url.append("&param_Regions=").append(URLEncoder.encode(regions, "UTF-8"));
+        }
+
         url.append("&param_DeployRegionalStackSet=").append("true");
 
         return url.toString();
