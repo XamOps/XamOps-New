@@ -31,8 +31,7 @@ public class GlobalUserSyncService {
     // ✅ FIX: Inject DataSource directly instead of Controller to avoid
     // SecurityContext issues
     @Autowired
-    @Qualifier("masterDataSource")
-    private DataSource masterDataSource;
+    private TenantService tenantService; // Service layer without security restrictions
 
     /**
      * Runs automatically every 60 seconds to ensure Global Directory is up to date.
@@ -41,13 +40,8 @@ public class GlobalUserSyncService {
     public void syncAllUsersToGlobalDirectory() {
         log.info("↻ Starting Global User Synchronization...");
 
-        // 1. Get all Active Tenants directly from DB (Bypassing Controller Security)
-        JdbcTemplate jdbcTemplate = new JdbcTemplate(masterDataSource);
-        List<TenantDto> tenants = jdbcTemplate.query(
-                "SELECT tenant_id, company_name FROM tenant_config WHERE active = true",
-                (rs, rowNum) -> new TenantDto(
-                        rs.getString("tenant_id"),
-                        rs.getString("company_name")));
+        // 1. Get all Active Tenants + Default (Master)
+        List<TenantDto> tenants = tenantService.getAllActiveTenants();
 
         // Add "default" manually to sync SuperAdmins from Master DB
         tenants.add(new TenantDto("default", "System Master"));
@@ -72,6 +66,8 @@ public class GlobalUserSyncService {
             // 2. Fetch all users from that Tenant's Database
             List<User> localUsers = userRepository.findAll();
 
+            log.debug("Found {} users in tenant '{}'", localUsers.size(), tenantId);
+
             // 3. Push to Master DB
             for (User localUser : localUsers) {
                 try {
@@ -89,11 +85,18 @@ public class GlobalUserSyncService {
                                 tenantId);
                     }
                 } catch (Exception e) {
-                    log.error("Failed to sync user: " + localUser.getUsername(), e);
+                    log.error("Failed to sync user '{}' from tenant '{}': {}",
+                            localUser.getUsername(), tenantId, e.getMessage());
                 }
             }
+        } catch (org.springframework.transaction.CannotCreateTransactionException e) {
+            // Database connection issue - log concisely without full stack trace
+            log.warn(
+                    "⚠️ Cannot connect to database for tenant '{}' - skipping (connection timeout or database unavailable)",
+                    tenantId);
         } catch (Exception e) {
-            log.error("Error accessing database for tenant: " + tenantId, e);
+            // Other unexpected errors - log with details
+            log.error("❌ Unexpected error accessing database for tenant '{}': {}", tenantId, e.getMessage());
         } finally {
             // 4. Always clear context
             TenantContext.clear();

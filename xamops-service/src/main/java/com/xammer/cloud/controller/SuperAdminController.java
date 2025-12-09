@@ -37,30 +37,28 @@ public class SuperAdminController {
     public List<TenantDto> getAllTenants() {
         JdbcTemplate jdbcTemplate = new JdbcTemplate(masterDataSource);
         return jdbcTemplate.query(
-            "SELECT tenant_id, company_name FROM tenant_config WHERE active = true",
-            (rs, rowNum) -> new TenantDto(
-                rs.getString("tenant_id"),
-                rs.getString("company_name")
-            )
-        );
+                "SELECT tenant_id, company_name FROM tenant_config WHERE active = true",
+                (rs, rowNum) -> new TenantDto(
+                        rs.getString("tenant_id"),
+                        rs.getString("company_name")));
     }
 
     @PostMapping("/tenants")
     public String createTenant(@RequestBody CreateTenantRequest request) {
         JdbcTemplate jdbcTemplate = new JdbcTemplate(masterDataSource);
-        
-        String sql = "INSERT INTO tenant_config (tenant_id, company_name, db_url, db_username, db_password, driver_class_name, active) " +
-                     "VALUES (?, ?, ?, ?, ?, ?, ?)";
-        
+
+        String sql = "INSERT INTO tenant_config (tenant_id, company_name, db_url, db_username, db_password, driver_class_name, active) "
+                +
+                "VALUES (?, ?, ?, ?, ?, ?, ?)";
+
         jdbcTemplate.update(sql,
-            request.getTenantId(),
-            request.getCompanyName(),
-            request.getDbUrl(),
-            request.getDbUsername(),
-            request.getDbPassword(),
-            request.getDriverClassName(),
-            request.isActive()
-        );
+                request.getTenantId(),
+                request.getCompanyName(),
+                request.getDbUrl(),
+                request.getDbUsername(),
+                request.getDbPassword(),
+                request.getDriverClassName(),
+                request.isActive());
 
         return "Tenant '" + request.getCompanyName() + "' registered successfully.";
     }
@@ -73,7 +71,7 @@ public class SuperAdminController {
         if (tenantId != null && !tenantId.isBlank()) {
             TenantContext.setCurrentTenant(tenantId);
         }
-        
+
         try {
             return userRepository.findAll();
         } finally {
@@ -88,7 +86,7 @@ public class SuperAdminController {
         if (request.getTenantId() == null || request.getTenantId().isBlank()) {
             throw new IllegalArgumentException("Tenant ID is required to create a user.");
         }
-        
+
         TenantContext.setCurrentTenant(request.getTenantId());
 
         try {
@@ -97,7 +95,7 @@ public class SuperAdminController {
             newUser.setEmail(request.getEmail());
             newUser.setRole(request.getRole());
             newUser.setPassword(passwordEncoder.encode(request.getPassword()));
-            
+
             return userRepository.save(newUser);
         } finally {
             TenantContext.clear();
