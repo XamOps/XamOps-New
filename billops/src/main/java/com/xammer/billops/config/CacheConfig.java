@@ -59,7 +59,7 @@ public class CacheConfig {
 
     @Bean
     public RedisCacheManager cacheManager(RedisConnectionFactory connectionFactory) {
-        
+
         // --- Create a new ObjectMapper just for Redis ---
         // This is separate from the primary ObjectMapper to avoid conflicts
         // Reuse the dedicated Redis ObjectMapper and create a RedisSerializer from it
