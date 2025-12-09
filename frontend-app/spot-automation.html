@@ -118,6 +118,13 @@
                     <p class="text-sm text-gray-500">Automated Spot instance management & cost optimization across all
                         regions</p>
                 </div>
+                <button
+                    @click="showDeploymentModal = true; console.log('Button clicked, showDeploymentModal:', showDeploymentModal)"
+                    onclick="console.log('Raw onclick fired')"
+                    class="bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white px-5 py-2.5 rounded-lg flex items-center space-x-2 shadow-md transition-all duration-200 hover:shadow-lg">
+                    <i class="fab fa-aws text-lg"></i>
+                    <span class="font-semibold">Deploy to AWS</span>
+                </button>
             </header>
 
             <div class="bg-white border-b border-gray-200 px-8">
@@ -433,7 +440,161 @@
 
                     <div x-show="activeTab !== 'current'" x-ref="tabContainer" x-cloak></div>
                 </div>
-            </main>>
+            </main>
+
+            <!-- Deployment Modal -->
+            <div x-show="showDeploymentModal" x-cloak class="fixed inset-0 z-50 overflow-y-auto"
+                @keydown.escape.window="showDeploymentModal = false">
+                <div class="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+                    <!-- Background overlay -->
+                    <div x-show="showDeploymentModal" x-transition:enter="ease-out duration-300"
+                        x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+                        x-transition:leave="ease-in duration-200" x-transition:leave-start="opacity-100"
+                        x-transition:leave-end="opacity-0"
+                        class="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75"
+                        @click="showDeploymentModal = false"></div>
+
+                    <span class="hidden sm:inline-block sm:align-middle sm:h-screen">&#8203;</span>
+
+                    <!-- Modal panel -->
+                    <div x-show="showDeploymentModal" x-transition:enter="ease-out duration-300"
+                        x-transition:enter-start="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
+                        x-transition:enter-end="opacity-100 translate-y-0 sm:scale-100"
+                        x-transition:leave="ease-in duration-200"
+                        x-transition:leave-start="opacity-100 translate-y-0 sm:scale-100"
+                        x-transition:leave-end="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
+                        class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-2xl sm:w-full">
+
+                        <!-- Header -->
+                        <div class="bg-gradient-to-r from-orange-500 to-orange-600 px-6 py-4">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center space-x-3">
+                                    <i class="fab fa-aws text-white text-2xl"></i>
+                                    <h3 class="text-xl font-bold text-white">Deploy AutoSpotting to AWS</h3>
+                                </div>
+                                <button @click="showDeploymentModal = false"
+                                    class="text-white hover:text-gray-200 transition-colors">
+                                    <i class="fas fa-times text-xl"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Content -->
+                        <div class="px-6 py-5">
+                            <!-- Instructions -->
+                            <div class="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                                <div class="flex items-start space-x-3">
+                                    <i class="fas fa-info-circle text-blue-600 mt-1"></i>
+                                    <div class="text-sm text-gray-700">
+                                        <p class="font-semibold text-blue-900 mb-2">What this deployment does:</p>
+                                        <ul class="list-disc list-inside space-y-1 text-gray-600">
+                                            <li>Creates an IAM role for AutoSpotting to manage your resources</li>
+                                            <li>Sets up EventBridge rules to forward AutoScaling events to XamOps
+                                            </li>
+                                            <li>Automatically deploys to <strong>all AWS regions</strong> using
+                                                StackSets</li>
+                                            <li>Enables automated Spot instance management across your account</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Deployment Details -->
+                            <div class="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                                <h4 class="text-sm font-semibold text-gray-800 mb-3 flex items-center">
+                                    <i class="fas fa-cog text-gray-600 mr-2"></i>
+                                    Deployment Configuration
+                                </h4>
+                                <div class="space-y-2 text-sm text-gray-600">
+                                    <div class="flex items-center justify-between">
+                                        <span class="flex items-center">
+                                            <i class="fas fa-globe text-blue-500 mr-2 w-4"></i>
+                                            Multi-Region Deployment:
+                                        </span>
+                                        <span class="font-semibold text-green-600">Enabled (All Regions)</span>
+                                    </div>
+                                    <div class="flex items-center justify-between">
+                                        <span class="flex items-center">
+                                            <i class="fas fa-layer-group text-purple-500 mr-2 w-4"></i>
+                                            Stack Name:
+                                        </span>
+                                        <span class="font-mono text-xs">XamOps-AutoSpotting-Integration</span>
+                                    </div>
+                                    <div class="flex items-center justify-between">
+                                        <span class="flex items-center">
+                                            <i class="fas fa-building text-orange-500 mr-2 w-4"></i>
+                                            Main Account ID:
+                                        </span>
+                                        <span class="font-mono text-xs">982534352845</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Important Notes -->
+                            <div class="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                                <div class="flex items-start space-x-3">
+                                    <i class="fas fa-exclamation-triangle text-yellow-600 mt-1"></i>
+                                    <div class="text-sm text-gray-700">
+                                        <p class="font-semibold text-yellow-900 mb-1">Before you proceed:</p>
+                                        <ul class="list-disc list-inside space-y-1 text-gray-600">
+                                            <li>Ensure you have <strong>AdministratorAccess</strong> in your AWS
+                                                account</li>
+                                            <li>The stack will create IAM roles and EventBridge rules</li>
+                                            <li>You can customize regions later in the CloudFormation console if
+                                                needed</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Generated URL Display -->
+                            <div x-show="generatedUrl" class="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                    <i class="fas fa-link text-purple-600 mr-2"></i>
+                                    CloudFormation URL Generated
+                                </label>
+                                <div class="flex items-center space-x-2">
+                                    <input type="text" :value="generatedUrl" readonly
+                                        class="flex-1 px-3 py-2 text-xs bg-white border border-gray-300 rounded font-mono text-gray-600">
+                                    <button @click="copyToClipboard(generatedUrl)"
+                                        class="px-3 py-2 bg-gray-200 hover:bg-gray-300 rounded text-sm transition-colors">
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Error Message -->
+                            <div x-show="deploymentError" class="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+                                <div class="flex items-start space-x-3">
+                                    <i class="fas fa-exclamation-triangle text-red-600 mt-1"></i>
+                                    <p class="text-sm text-red-700" x-text="deploymentError"></p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Footer -->
+                        <div class="bg-gray-50 px-6 py-4 flex justify-between items-center border-t border-gray-200">
+                            <button @click="showDeploymentModal = false"
+                                class="px-4 py-2 text-gray-700 hover:text-gray-900 font-medium transition-colors">
+                                Cancel
+                            </button>
+                            <div class="flex space-x-3">
+                                <button @click="generateDeploymentUrl()" :disabled="generatingUrl"
+                                    class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2">
+                                    <i class="fas" :class="generatingUrl ? 'fa-spinner fa-spin' : 'fa-cog'"></i>
+                                    <span x-text="generatingUrl ? 'Generating...' : 'Generate URL'"></span>
+                                </button>
+                                <button @click="launchCloudFormation()" :disabled="!generatedUrl"
+                                    class="px-5 py-2 bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white rounded-lg font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2 shadow-md">
+                                    <i class="fab fa-aws"></i>
+                                    <span>Launch Stack</span>
+                                    <i class="fas fa-external-link-alt text-xs"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -475,6 +636,12 @@
                 initialized: false,
                 activeTab: 'current',
 
+                // Deployment modal state
+                showDeploymentModal: false,
+                generatedUrl: '',
+                generatingUrl: false,
+                deploymentError: '',
+
                 initDashboard() {
                     if (this.initialized) {
                         console.log('⚠️ Dashboard already initialized, skipping...');
@@ -482,6 +649,7 @@
                     }
                     this.initialized = true;
                     console.log('🚀 Initializing Spot Automation Dashboard...');
+                    console.log('📋 Deployment modal state initialized:', this.showDeploymentModal);
 
                     try {
                         const stored = sessionStorage.getItem('selectedAccountIds');
@@ -709,16 +877,15 @@
                             asg.isEnabled = newState;
 
                             this.dispatchNotification(
-                                `AutoSpotting ${newState ? 'enabled' : 'disabled'} for ${asg.name}. Manually refresh to verify.`,
+                                `AutoSpotting ${newState ? 'enabled' : 'disabled'} for ${asg.name}`,
                                 'success'
                             );
 
-                            // TEMPORARILY DISABLED: Don't auto-refresh to see if API persists the change
-                            // User can manually click "Refresh Data" button to verify
-                            // setTimeout(() => {
-                            //     console.log('🔄 Refreshing data after toggle...');
-                            //     this.fetchCostData();
-                            // }, 5000);
+                            // Wait for AutoSpotting API to propagate the change (10 seconds)
+                            setTimeout(() => {
+                                console.log('🔄 Refreshing data after toggle...');
+                                this.fetchCostData();
+                            }, 10000); // 10 seconds - enough time for API to propagate
                         } else {
                             console.error('❌ Toggle failed:', response.status, responseText);
                             throw new Error(`HTTP ${response.status}: ${responseText}`);
@@ -749,6 +916,64 @@
                         minimumFractionDigits: 4,
                         maximumFractionDigits: 4
                     }).format(value);
+                },
+
+                async generateDeploymentUrl() {
+                    this.generatingUrl = true;
+                    this.deploymentError = '';
+                    this.generatedUrl = '';
+
+                    try {
+                        // Use default regions from CloudFormation template (all commercial regions)
+                        // Don't pass regions parameter to let CloudFormation use its defaults
+                        const url = `${backendBaseUrl}/api/cloudformation/deploy-url?regions=&deployRegion=us-east-1`;
+
+                        console.log('🔗 Generating CloudFormation URL with default regions');
+
+                        const response = await fetch(url, {
+                            credentials: 'include',
+                            headers: {
+                                'X-Tenant-ID': tenantId
+                            }
+                        });
+
+                        if (response.ok) {
+                            const data = await response.json();
+                            console.log('✅ CloudFormation URL generated:', data);
+
+                            this.generatedUrl = data.url;
+                            this.dispatchNotification('CloudFormation URL generated successfully!', 'success');
+                        } else {
+                            const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+                            throw new Error(errorData.message || `HTTP ${response.status}`);
+                        }
+                    } catch (error) {
+                        console.error('❌ Error generating deployment URL:', error);
+                        this.deploymentError = `Failed to generate URL: ${error.message}`;
+                        this.dispatchNotification('Failed to generate deployment URL', 'error');
+                    } finally {
+                        this.generatingUrl = false;
+                    }
+                },
+
+                launchCloudFormation() {
+                    if (!this.generatedUrl) {
+                        this.deploymentError = 'Please generate a deployment URL first';
+                        return;
+                    }
+
+                    console.log('🚀 Launching CloudFormation stack:', this.generatedUrl);
+                    window.open(this.generatedUrl, '_blank');
+                    this.dispatchNotification('Opening AWS CloudFormation console...', 'success');
+                },
+
+                copyToClipboard(text) {
+                    navigator.clipboard.writeText(text).then(() => {
+                        this.dispatchNotification('URL copied to clipboard!', 'success');
+                    }).catch(err => {
+                        console.error('Failed to copy:', err);
+                        this.dispatchNotification('Failed to copy URL', 'error');
+                    });
                 },
 
                 dispatchNotification(message, type = 'success') {

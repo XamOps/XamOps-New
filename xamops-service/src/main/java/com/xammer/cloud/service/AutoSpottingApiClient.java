@@ -58,22 +58,24 @@ public class AutoSpottingApiClient {
      * Create headers with proper API key authentication
      * Using exact header format from working dashboard: X-Api-Key
      */
+    /**
+     * Create headers with proper API key authentication
+     * 🔥 FIXED: AutoSpotting v1 API uses X-Authorization: ApiKey <key>
+     */
     private HttpHeaders createHeaders() {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.setAccept(java.util.Collections.singletonList(MediaType.APPLICATION_JSON));
 
         if (apiKey != null && !apiKey.trim().isEmpty()) {
-            // Trim the API key to remove any whitespace
             String trimmedKey = apiKey.trim();
 
-            // Use exact header name as mentioned in comment: X-Api-Key (not X-API-Key)
-            headers.set("X-Api-Key", trimmedKey);
+            // ✅ CRITICAL FIX: Use X-Authorization with "ApiKey " prefix
+            headers.set("X-Authorization", "ApiKey " + trimmedKey);
 
-            logger.info("✅ X-Api-Key header added successfully (length={})", trimmedKey.length());
-            logger.debug("🔑 Header name: 'X-Api-Key', value (first 10): {}...",
+            logger.info("✅ X-Authorization header added successfully (length={})", trimmedKey.length());
+            logger.debug("🔑 Header: 'X-Authorization: ApiKey {}...'",
                     trimmedKey.substring(0, Math.min(10, trimmedKey.length())));
-            logger.debug("🔑 Full API key for debugging: {}", trimmedKey);
         } else {
             logger.error("❌ API key is NULL or EMPTY - authentication will FAIL 401");
         }
