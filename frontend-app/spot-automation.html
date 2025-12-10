@@ -127,6 +127,7 @@
                 </button>
             </header>
 
+            <!-- Tabs Navigation (Settings tab removed) -->
             <div class="bg-white border-b border-gray-200 px-8">
                 <nav class="flex space-x-8" aria-label="Tabs">
                     <button @click="loadTab('current')" :class="activeTab === 'current' ? 'tab-active' : 'tab-inactive'"
@@ -141,11 +142,6 @@
                         :class="activeTab === 'analytics' ? 'tab-active' : 'tab-inactive'"
                         class="whitespace-nowrap py-4 px-1 font-medium text-sm transition-colors">
                         Launch Analytics
-                    </button>
-                    <button @click="loadTab('settings')"
-                        :class="activeTab === 'settings' ? 'tab-active' : 'tab-inactive'"
-                        class="whitespace-nowrap py-4 px-1 font-medium text-sm transition-colors">
-                        Settings
                     </button>
                 </nav>
             </div>
@@ -614,8 +610,15 @@
 
     <script>
         function autoSpottingDashboard() {
-            const backendBaseUrl = 'http://localhost:8080';
+            // ✅ ENVIRONMENT-AWARE BACKEND URL
+            const backendBaseUrl = window.location.hostname === 'localhost'
+                ? 'http://localhost:8080'
+                : window.location.origin;
+
             const tenantId = sessionStorage.getItem('tenantId') || 'customer1';
+
+            console.log('🌐 Environment:', window.location.hostname);
+            console.log('🔗 Backend URL:', backendBaseUrl);
 
             return {
                 loading: false,
@@ -700,8 +703,7 @@
 
                     const urls = {
                         history: '/actions-history.html',
-                        analytics: '/launch-analytics.html',
-                        settings: '/settings.html'
+                        analytics: '/launch-analytics.html'
                     };
 
                     try {
@@ -716,10 +718,8 @@
                         const container = this.$refs.tabContainer;
 
                         if (container) {
-                            // Insert the HTML
                             container.innerHTML = html;
 
-                            // Execute any scripts in the loaded HTML
                             const scripts = container.querySelectorAll('script');
                             console.log(`📜 Found ${scripts.length} script(s) to execute`);
 
@@ -732,17 +732,14 @@
                                 oldScript.parentNode.replaceChild(newScript, oldScript);
                             });
 
-                            // Wait a bit for scripts to execute
                             await new Promise(resolve => setTimeout(resolve, 100));
 
-                            // Check if the component function exists
                             if (tab === 'history' && typeof window.actionsHistoryTab === 'function') {
                                 console.log('✅ actionsHistoryTab function is available');
                             } else if (tab === 'history') {
                                 console.error('❌ actionsHistoryTab function NOT found!');
                             }
 
-                            // Initialize Alpine on the new content
                             if (window.Alpine) {
                                 console.log('🎨 Initializing Alpine.js on new content...');
                                 window.Alpine.initTree(container);
@@ -836,7 +833,6 @@
                 },
 
                 async toggleAsg(asg) {
-                    // Prevent multiple simultaneous calls
                     if (asg.updating) {
                         console.log('⏸️ Toggle already in progress, ignoring...');
                         return;
@@ -846,7 +842,6 @@
                     const newState = !asg.isEnabled;
 
                     try {
-                        // Use YOUR EXISTING ENDPOINTS with correct path
                         const url = `${backendBaseUrl}/api/autospotting/asgs/${this.accountId}/${newState ? 'enable' : 'disable'}?region=${asg.region}&asgName=${encodeURIComponent(asg.name)}`;
 
                         console.log(`🔄 Toggling ${asg.name}:`, newState ? 'ENABLE' : 'DISABLE');
@@ -873,7 +868,6 @@
 
                             console.log('✅ Toggle API call successful:', result);
 
-                            // Only update UI after successful API call
                             asg.isEnabled = newState;
 
                             this.dispatchNotification(
@@ -881,11 +875,10 @@
                                 'success'
                             );
 
-                            // Wait for AutoSpotting API to propagate the change (10 seconds)
                             setTimeout(() => {
                                 console.log('🔄 Refreshing data after toggle...');
                                 this.fetchCostData();
-                            }, 10000); // 10 seconds - enough time for API to propagate
+                            }, 10000);
                         } else {
                             console.error('❌ Toggle failed:', response.status, responseText);
                             throw new Error(`HTTP ${response.status}: ${responseText}`);
@@ -924,8 +917,6 @@
                     this.generatedUrl = '';
 
                     try {
-                        // Use default regions from CloudFormation template (all commercial regions)
-                        // Don't pass regions parameter to let CloudFormation use its defaults
                         const url = `${backendBaseUrl}/api/cloudformation/deploy-url?regions=&deployRegion=us-east-1`;
 
                         console.log('🔗 Generating CloudFormation URL with default regions');
