@@ -163,7 +163,8 @@ export default defineConfig({
         'dataops.html': resolve(__dirname, 'dataops.html'),
         'cloudshell.html': resolve(__dirname, 'cloudshell.html'),
         'spot-automation.html': resolve(__dirname, 'spot-automation.html'),
-
+        'actions-history.html': resolve(__dirname, 'actions-history.html'),
+        'launch-analytics.html': resolve(__dirname, 'launch-analytics.html'),
         // Admin subdir files
         'admin_credits': resolve(__dirname, 'billops/admin_credits.html'),
         'admin_invoice_detail': resolve(__dirname, 'billops/admin_invoice_detail.html'),
