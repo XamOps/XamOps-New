@@ -62,18 +62,35 @@ public class AutoSpottingService {
 
     /**
      * Resolve CloudAccount by AWS account ID
+     * ✅ UPDATED: Handles leading zero mismatch (e.g. input 157... finds DB 0157...)
      */
     private CloudAccount getByAwsAccountId(Long awsAccountId) {
         String idStr = String.valueOf(awsAccountId);
         logger.debug("Resolving CloudAccount for awsAccountId={}", idStr);
 
-        return cloudAccountRepository.findByAwsAccountId(idStr)
-                .stream()
-                .findFirst()
-                .orElseThrow(() -> {
-                    logger.error("No CloudAccount found for awsAccountId={}", idStr);
-                    return new RuntimeException("Account not found for AWS account " + idStr);
-                });
+        // 1. Try finding by the direct numeric string (e.g., "15764906357")
+        Optional<CloudAccount> account = cloudAccountRepository.findByAwsAccountId(idStr).stream().findFirst();
+
+        if (account.isPresent()) {
+            return account.get();
+        }
+
+        // 2. If not found, try padding with leading zero to 12 digits (e.g.,
+        // "015764906357")
+        // AWS Account IDs are always 12 digits.
+        String paddedId = String.format("%012d", awsAccountId);
+        if (!paddedId.equals(idStr)) {
+            logger.debug("Account not found as '{}'. Trying padded ID: '{}'", idStr, paddedId);
+            account = cloudAccountRepository.findByAwsAccountId(paddedId).stream().findFirst();
+            if (account.isPresent()) {
+                logger.debug("✓ Found account using padded ID: {}", paddedId);
+                return account.get();
+            }
+        }
+
+        // 3. Fail if neither is found
+        logger.error("No CloudAccount found for awsAccountId={} or padded ID={}", idStr, paddedId);
+        throw new RuntimeException("Account not found for AWS account " + idStr);
     }
 
     // ================= REGISTRATION =================
@@ -892,5 +909,4 @@ public class AutoSpottingService {
             throw new RuntimeException("Failed to fetch launch analytics: " + e.getMessage(), e);
         }
     }
-
 }

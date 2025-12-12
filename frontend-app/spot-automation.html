@@ -118,16 +118,21 @@
                     <p class="text-sm text-gray-500">Automated Spot instance management & cost optimization across all
                         regions</p>
                 </div>
-                <button
-                    @click="showDeploymentModal = true; console.log('Button clicked, showDeploymentModal:', showDeploymentModal)"
-                    onclick="console.log('Raw onclick fired')"
-                    class="bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white px-5 py-2.5 rounded-lg flex items-center space-x-2 shadow-md transition-all duration-200 hover:shadow-lg">
-                    <i class="fab fa-aws text-lg"></i>
-                    <span class="font-semibold">Deploy to AWS</span>
-                </button>
+                <div class="flex space-x-3">
+                    <button @click="showSyncAccountModal = true"
+                        class="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white px-5 py-2.5 rounded-lg flex items-center space-x-2 shadow-md transition-all duration-200 hover:shadow-lg">
+                        <i class="fas fa-sync text-lg"></i>
+                        <span class="font-semibold">Sync Account</span>
+                    </button>
+
+                    <button @click="showDeploymentModal = true"
+                        class="bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white px-5 py-2.5 rounded-lg flex items-center space-x-2 shadow-md transition-all duration-200 hover:shadow-lg">
+                        <i class="fab fa-aws text-lg"></i>
+                        <span class="font-semibold">Deploy to AWS</span>
+                    </button>
+                </div>
             </header>
 
-            <!-- Tabs Navigation (Settings tab removed) -->
             <div class="bg-white border-b border-gray-200 px-8">
                 <nav class="flex space-x-8" aria-label="Tabs">
                     <button @click="loadTab('current')" :class="activeTab === 'current' ? 'tab-active' : 'tab-inactive'"
@@ -150,7 +155,6 @@
                 <div class="max-w-7xl mx-auto space-y-6">
                     <div x-show="activeTab === 'current'" x-cloak>
 
-                        <!-- Stats Cards -->
                         <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
                             <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
                                 <div class="flex justify-between items-start">
@@ -228,7 +232,6 @@
                             </div>
                         </div>
 
-                        <!-- ASGs Table -->
                         <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                             <div
                                 class="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
@@ -438,11 +441,9 @@
                 </div>
             </main>
 
-            <!-- Deployment Modal -->
             <div x-show="showDeploymentModal" x-cloak class="fixed inset-0 z-50 overflow-y-auto"
                 @keydown.escape.window="showDeploymentModal = false">
                 <div class="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
-                    <!-- Background overlay -->
                     <div x-show="showDeploymentModal" x-transition:enter="ease-out duration-300"
                         x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
                         x-transition:leave="ease-in duration-200" x-transition:leave-start="opacity-100"
@@ -452,7 +453,6 @@
 
                     <span class="hidden sm:inline-block sm:align-middle sm:h-screen">&#8203;</span>
 
-                    <!-- Modal panel -->
                     <div x-show="showDeploymentModal" x-transition:enter="ease-out duration-300"
                         x-transition:enter-start="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
                         x-transition:enter-end="opacity-100 translate-y-0 sm:scale-100"
@@ -461,7 +461,6 @@
                         x-transition:leave-end="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
                         class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-2xl sm:w-full">
 
-                        <!-- Header -->
                         <div class="bg-gradient-to-r from-orange-500 to-orange-600 px-6 py-4">
                             <div class="flex items-center justify-between">
                                 <div class="flex items-center space-x-3">
@@ -475,9 +474,7 @@
                             </div>
                         </div>
 
-                        <!-- Content -->
                         <div class="px-6 py-5">
-                            <!-- Instructions -->
                             <div class="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
                                 <div class="flex items-start space-x-3">
                                     <i class="fas fa-info-circle text-blue-600 mt-1"></i>
@@ -485,8 +482,7 @@
                                         <p class="font-semibold text-blue-900 mb-2">What this deployment does:</p>
                                         <ul class="list-disc list-inside space-y-1 text-gray-600">
                                             <li>Creates an IAM role for AutoSpotting to manage your resources</li>
-                                            <li>Sets up EventBridge rules to forward AutoScaling events to XamOps
-                                            </li>
+                                            <li>Sets up EventBridge rules to forward AutoScaling events to XamOps</li>
                                             <li>Automatically deploys to <strong>all AWS regions</strong> using
                                                 StackSets</li>
                                             <li>Enables automated Spot instance management across your account</li>
@@ -495,7 +491,6 @@
                                 </div>
                             </div>
 
-                            <!-- Deployment Details -->
                             <div class="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-lg">
                                 <h4 class="text-sm font-semibold text-gray-800 mb-3 flex items-center">
                                     <i class="fas fa-cog text-gray-600 mr-2"></i>
@@ -526,24 +521,22 @@
                                 </div>
                             </div>
 
-                            <!-- Important Notes -->
                             <div class="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
                                 <div class="flex items-start space-x-3">
                                     <i class="fas fa-exclamation-triangle text-yellow-600 mt-1"></i>
                                     <div class="text-sm text-gray-700">
                                         <p class="font-semibold text-yellow-900 mb-1">Before you proceed:</p>
                                         <ul class="list-disc list-inside space-y-1 text-gray-600">
-                                            <li>Ensure you have <strong>AdministratorAccess</strong> in your AWS
-                                                account</li>
+                                            <li>Ensure you have <strong>AdministratorAccess</strong> in your AWS account
+                                            </li>
                                             <li>The stack will create IAM roles and EventBridge rules</li>
-                                            <li>You can customize regions later in the CloudFormation console if
-                                                needed</li>
+                                            <li>You can customize regions later in the CloudFormation console if needed
+                                            </li>
                                         </ul>
                                     </div>
                                 </div>
                             </div>
 
-                            <!-- Generated URL Display -->
                             <div x-show="generatedUrl" class="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-lg">
                                 <label class="block text-sm font-semibold text-gray-700 mb-2">
                                     <i class="fas fa-link text-purple-600 mr-2"></i>
@@ -559,7 +552,6 @@
                                 </div>
                             </div>
 
-                            <!-- Error Message -->
                             <div x-show="deploymentError" class="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
                                 <div class="flex items-start space-x-3">
                                     <i class="fas fa-exclamation-triangle text-red-600 mt-1"></i>
@@ -568,7 +560,6 @@
                             </div>
                         </div>
 
-                        <!-- Footer -->
                         <div class="bg-gray-50 px-6 py-4 flex justify-between items-center border-t border-gray-200">
                             <button @click="showDeploymentModal = false"
                                 class="px-4 py-2 text-gray-700 hover:text-gray-900 font-medium transition-colors">
@@ -587,6 +578,105 @@
                                     <i class="fas fa-external-link-alt text-xs"></i>
                                 </button>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div x-show="showSyncAccountModal" x-cloak class="fixed inset-0 z-50 overflow-y-auto"
+                @keydown.escape.window="showSyncAccountModal = false">
+                <div class="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+                    <div x-show="showSyncAccountModal" x-transition:enter="ease-out duration-300"
+                        x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+                        x-transition:leave="ease-in duration-200" x-transition:leave-start="opacity-100"
+                        x-transition:leave-end="opacity-0"
+                        class="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75"
+                        @click="showSyncAccountModal = false"></div>
+
+                    <span class="hidden sm:inline-block sm:align-middle sm:h-screen">&#8203;</span>
+
+                    <div x-show="showSyncAccountModal" x-transition:enter="ease-out duration-300"
+                        x-transition:enter-start="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
+                        x-transition:enter-end="opacity-100 translate-y-0 sm:scale-100"
+                        x-transition:leave="ease-in duration-200"
+                        x-transition:leave-start="opacity-100 translate-y-0 sm:scale-100"
+                        x-transition:leave-end="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
+                        class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+
+                        <div class="bg-gradient-to-r from-blue-500 to-blue-600 px-6 py-4">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center space-x-3">
+                                    <i class="fas fa-sync text-white text-2xl"></i>
+                                    <h3 class="text-xl font-bold text-white">Sync Customer Account</h3>
+                                </div>
+                                <button @click="showSyncAccountModal = false"
+                                    class="text-white hover:text-gray-200 transition-colors">
+                                    <i class="fas fa-times text-xl"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="px-6 py-5">
+                            <div class="mb-4">
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                    <i class="fas fa-building text-blue-600 mr-2"></i>
+                                    AWS Account ID *
+                                </label>
+                                <input type="text" x-model="syncAccountId" maxlength="12" pattern="[0-9]{12}"
+                                    placeholder="123456789012"
+                                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                <p class="text-xs text-gray-500 mt-1">Enter the 12-digit AWS account ID</p>
+                            </div>
+
+                            <div class="mb-4">
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                    <i class="fas fa-tag text-blue-600 mr-2"></i>
+                                    Account Name (Optional)
+                                </label>
+                                <input type="text" x-model="syncAccountName" placeholder="Production Account"
+                                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            </div>
+
+                            <div class="mb-4">
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                    <i class="fas fa-globe text-blue-600 mr-2"></i>
+                                    Regions (Optional)
+                                </label>
+                                <input type="text" x-model="syncAccountRegions"
+                                    placeholder="us-east-1,eu-west-1 or 'all'"
+                                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                <p class="text-xs text-gray-500 mt-1">Leave empty for all regions</p>
+                            </div>
+
+                            <div class="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                                <div class="flex items-start space-x-3">
+                                    <i class="fas fa-info-circle text-blue-600 mt-1"></i>
+                                    <div class="text-sm text-gray-700">
+                                        <p class="font-semibold text-blue-900 mb-1">When to sync:</p>
+                                        <p>After the customer has successfully deployed the CloudFormation stack in
+                                            their AWS account.</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div x-show="syncAccountError" class="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+                                <div class="flex items-start space-x-3">
+                                    <i class="fas fa-exclamation-triangle text-red-600 mt-1"></i>
+                                    <p class="text-sm text-red-700" x-text="syncAccountError"></p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-gray-50 px-6 py-4 flex justify-end space-x-3 border-t border-gray-200">
+                            <button @click="showSyncAccountModal = false"
+                                class="px-4 py-2 text-gray-700 hover:text-gray-900 font-medium transition-colors">
+                                Cancel
+                            </button>
+                            <button @click="syncCustomerAccount()" :disabled="syncingAccount || !syncAccountId"
+                                class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2">
+                                <i class="fas" :class="syncingAccount ? 'fa-spinner fa-spin' : 'fa-sync'"></i>
+                                <span x-text="syncingAccount ? 'Syncing...' : 'Sync Account'"></span>
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -610,7 +700,6 @@
 
     <script>
         function autoSpottingDashboard() {
-            // ✅ ENVIRONMENT-AWARE BACKEND URL
             const backendBaseUrl = window.location.hostname === 'localhost'
                 ? 'http://localhost:8080'
                 : window.location.origin;
@@ -645,6 +734,14 @@
                 generatingUrl: false,
                 deploymentError: '',
 
+                // ✅ Sync Account modal state
+                showSyncAccountModal: false,
+                syncAccountId: '',
+                syncAccountName: '',
+                syncAccountRegions: '',
+                syncingAccount: false,
+                syncAccountError: '',
+
                 initDashboard() {
                     if (this.initialized) {
                         console.log('⚠️ Dashboard already initialized, skipping...');
@@ -652,7 +749,6 @@
                     }
                     this.initialized = true;
                     console.log('🚀 Initializing Spot Automation Dashboard...');
-                    console.log('📋 Deployment modal state initialized:', this.showDeploymentModal);
 
                     try {
                         const stored = sessionStorage.getItem('selectedAccountIds');
@@ -733,12 +829,6 @@
                             });
 
                             await new Promise(resolve => setTimeout(resolve, 100));
-
-                            if (tab === 'history' && typeof window.actionsHistoryTab === 'function') {
-                                console.log('✅ actionsHistoryTab function is available');
-                            } else if (tab === 'history') {
-                                console.error('❌ actionsHistoryTab function NOT found!');
-                            }
 
                             if (window.Alpine) {
                                 console.log('🎨 Initializing Alpine.js on new content...');
@@ -956,6 +1046,61 @@
                     console.log('🚀 Launching CloudFormation stack:', this.generatedUrl);
                     window.open(this.generatedUrl, '_blank');
                     this.dispatchNotification('Opening AWS CloudFormation console...', 'success');
+                },
+
+                /**
+                 * ✅ Sync customer account to DynamoDB
+                 */
+                async syncCustomerAccount() {
+                    if (!this.syncAccountId || this.syncAccountId.length !== 12) {
+                        this.syncAccountError = 'Please enter a valid 12-digit AWS account ID';
+                        return;
+                    }
+
+                    this.syncingAccount = true;
+                    this.syncAccountError = '';
+
+                    try {
+                        // ✅ FIX: Use the correct backend controller URL (cloudformation instead of autospotting)
+                        const response = await fetch(`${backendBaseUrl}/api/cloudformation/sync-account`, {
+                            method: 'POST',
+                            credentials: 'include',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-Tenant-ID': tenantId
+                            },
+                            body: JSON.stringify({
+                                accountId: this.syncAccountId,
+                                accountName: this.syncAccountName || `Customer-${this.syncAccountId}`,
+                                regions: this.syncAccountRegions || 'all'
+                            })
+                        });
+
+                        if (response.ok) {
+                            const data = await response.json();
+                            console.log('✅ Account synced successfully:', data);
+
+                            this.dispatchNotification(`Account ${this.syncAccountId} synced successfully!`, 'success');
+
+                            // Reset form
+                            this.syncAccountId = '';
+                            this.syncAccountName = '';
+                            this.syncAccountRegions = '';
+                            this.showSyncAccountModal = false;
+
+                            // Refresh data
+                            this.fetchCostData();
+                        } else {
+                            const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+                            throw new Error(errorData.message || `HTTP ${response.status}`);
+                        }
+                    } catch (error) {
+                        console.error('❌ Error syncing account:', error);
+                        this.syncAccountError = error.message;
+                        this.dispatchNotification('Failed to sync account', 'error');
+                    } finally {
+                        this.syncingAccount = false;
+                    }
                 },
 
                 copyToClipboard(text) {

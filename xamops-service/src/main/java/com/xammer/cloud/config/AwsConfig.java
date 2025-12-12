@@ -8,6 +8,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.cloudformation.CloudFormationClient;
+import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.pricing.PricingClient;
 import software.amazon.awssdk.services.rds.RdsClient;
@@ -20,9 +21,10 @@ public class AwsConfig {
 
     @Value("${aws.region}")
     private String region;
-    
-    // Optional: Use specific S3 region if different, otherwise default to main region
-    @Value("${app.s3.region:ap-south-1}") 
+
+    // Optional: Use specific S3 region if different, otherwise default to main
+    // region
+    @Value("${app.s3.region:ap-south-1}")
     private String s3Region;
 
     private DefaultCredentialsProvider getCredentialsProvider() {
@@ -36,7 +38,7 @@ public class AwsConfig {
                 .credentialsProvider(getCredentialsProvider())
                 .build();
     }
-    
+
     @Bean
     public CloudFormationClient cloudFormationClient() {
         return CloudFormationClient.builder()
@@ -97,4 +99,13 @@ public class AwsConfig {
         executor.initialize();
         return executor;
     }
+
+    @Bean
+    public DynamoDbClient dynamoDbClient() {
+        return DynamoDbClient.builder()
+                .region(Region.AP_SOUTH_1)
+                .credentialsProvider(DefaultCredentialsProvider.create())
+                .build();
+    }
+
 }
