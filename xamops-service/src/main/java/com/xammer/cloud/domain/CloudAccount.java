@@ -4,6 +4,8 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.Instant;
+
 import javax.persistence.*;
 
 @Entity
@@ -11,10 +13,10 @@ import javax.persistence.*;
 @NoArgsConstructor
 public class CloudAccount {
 
-   @Id
-@GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "cloud_account_seq_gen")
-@SequenceGenerator(name = "cloud_account_seq_gen", sequenceName = "cloud_account_id_seq", allocationSize = 1)
-private Long id;
+    @Id
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "cloud_account_seq_gen")
+    @SequenceGenerator(name = "cloud_account_seq_gen", sequenceName = "cloud_account_id_seq", allocationSize = 1)
+    private Long id;
     @Column(nullable = false)
     private String accountName;
 
@@ -57,7 +59,6 @@ private Long id;
     @Column(name = "gcp_billing_account_id")
     private String gcpBillingAccountId;
 
-
     @Column(name = "azure_tenant_id")
     private String azureTenantId;
 
@@ -89,6 +90,9 @@ private Long id;
 
     @Column(name = "grafana_ip")
     private String grafanaIp;
+
+    @Column(name = "last_sync")
+    private Instant lastSync;
 
     // Also, add the getter and setter for this new field
     public String getGrafanaIp() {
@@ -122,7 +126,3 @@ private Long id;
     }
 
 }
-
-
-
-
