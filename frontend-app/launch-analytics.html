@@ -60,7 +60,7 @@
                 </div>
                 <div class="text-right">
                     <p class="text-xs font-medium text-emerald-100 uppercase tracking-wide">Success Rate</p>
-                    <h3 class="text-4xl font-bold mt-1" x-text="analytics.successRate + '%'"></h3>
+                    <h3 class="text-4xl font-bold mt-1" x-text="analytics.successRate.toFixed(1) + '%'"></h3>
                 </div>
             </div>
             <div class="w-full bg-white/20 rounded-full h-2">
@@ -402,11 +402,11 @@
                             percentage: reason.percentage
                         })),
                         recommendations: (data.recommended_types || []).map(rec => ({
-                            instanceType: rec,
-                            region: 'Various',
-                            successRate: 100,
+                            instanceType: rec.instance_type,
+                            region: 'Global',
+                            successRate: rec.success_rate,
                             avgLaunchTime: '< 2 min',
-                            attempts: '-'
+                            attempts: rec.total_launches + ' attempts'
                         }))
                     };
 

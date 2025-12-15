@@ -65,12 +65,14 @@ public class AutoSpottingApiClient {
     private HttpHeaders createHeaders() {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
+        //
+        //
         headers.setAccept(java.util.Collections.singletonList(MediaType.APPLICATION_JSON));
 
         if (apiKey != null && !apiKey.trim().isEmpty()) {
             String trimmedKey = apiKey.trim();
 
-            // ✅ CRITICAL FIX: Use X-Authorization with "ApiKey " prefix
+            // ✅ Reverted to X-Authorization as confirmed by user
             headers.set("X-Authorization", "ApiKey " + trimmedKey);
 
             logger.info("✅ X-Authorization header added successfully (length={})", trimmedKey.length());
@@ -429,7 +431,7 @@ public class AutoSpottingApiClient {
             logger.info("🌐 Request URL: {}", url);
 
             HttpHeaders headers = createHeaders();
-            HttpEntity<String> entity = new HttpEntity<>(headers);
+            HttpEntity<Void> entity = new HttpEntity<>(headers);
 
             ResponseEntity<LaunchAnalyticsResponse> response = restTemplate.exchange(
                     url, HttpMethod.GET, entity, LaunchAnalyticsResponse.class);
@@ -453,6 +455,42 @@ public class AutoSpottingApiClient {
         } catch (Exception e) {
             logger.error("❌ Failed to call AutoSpotting Analytics API: {}", e.getMessage(), e);
             throw new RuntimeException("AutoSpotting Analytics API request failed: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Get RI/SP Coverage (GET /v1/risp-coverage)
+     */
+    public RiSpCoverageResponse getRiSpCoverage(String accountId) {
+        logger.info("📊 Calling AutoSpotting API: GET /v1/risp-coverage");
+        logger.info("📊 Parameters: account={}", accountId);
+
+        try {
+            UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(baseUrl + "/v1/risp-coverage")
+                    .queryParam("account_id", accountId);
+
+            String url = builder.toUriString();
+            logger.info("🌐 Request URL: {}", url);
+
+            HttpHeaders headers = createHeaders();
+            HttpEntity<Void> entity = new HttpEntity<>(headers);
+
+            ResponseEntity<RiSpCoverageResponse> response = restTemplate.exchange(
+                    url, HttpMethod.GET, entity, RiSpCoverageResponse.class);
+
+            logger.info("✅ RI/SP Coverage retrieved successfully");
+            return response.getBody();
+
+        } catch (org.springframework.web.client.HttpClientErrorException e) {
+            logger.error("❌ HTTP {} Error from AutoSpotting RI/SP API", e.getStatusCode());
+            logger.error("   📥 Response body: {}", e.getResponseBodyAsString());
+            throw new RuntimeException(
+                    "AutoSpotting RI/SP API request failed: " + e.getStatusCode() + " "
+                            + e.getResponseBodyAsString(),
+                    e);
+        } catch (Exception e) {
+            logger.error("❌ Failed to call AutoSpotting RI/SP API: {}", e.getMessage(), e);
+            throw new RuntimeException("AutoSpotting RI/SP API request failed: " + e.getMessage(), e);
         }
     }
 }
