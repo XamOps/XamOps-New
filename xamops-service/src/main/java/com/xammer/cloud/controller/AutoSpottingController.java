@@ -393,6 +393,22 @@ public class AutoSpottingController {
         }
     }
 
+    @GetMapping("/analytics/risp-coverage/{accountId}")
+    public ResponseEntity<?> getRiSpCoverage(@PathVariable Long accountId) {
+        log.info("AutoSpottingController.getRiSpCoverage called with accountId={}", accountId);
+
+        try {
+            RiSpCoverageResponse coverage = autoSpottingService.getRiSpCoverage(accountId);
+            return ResponseEntity.ok(coverage);
+
+        } catch (Exception e) {
+            log.error("Failed to get RI/SP coverage from AutoSpotting API: {}", e.getMessage(), e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "success", false,
+                    "error", "Failed to fetch RI/SP coverage: " + e.getMessage()));
+        }
+    }
+
     // ================= DEBUG ENDPOINTS =================
 
     /**
