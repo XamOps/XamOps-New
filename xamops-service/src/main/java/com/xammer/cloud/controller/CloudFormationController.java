@@ -30,16 +30,19 @@ public class CloudFormationController {
     private static final String MAIN_REGION = "ap-south-1";
     private static final String MAIN_STACK_NAME = "autospotting";
 
+    // ✅ Updated Lambda Role ARN with correct suffix
+    private static final String LAMBDA_EXECUTION_ROLE_ARN = "arn:aws:iam::982534352845:role/lambda/autospotting-LambdaExecutionRole-QLEgqMN3g4f1";
+
     // ✅ Table Name matching your Main Stack
     private static final String DYNAMODB_TABLE_NAME = "autospotting-CustomerAccounts";
 
-    // Template S3 URL
+    // Template S3 URL - Updated template location
     private static final String TEMPLATE_S3_URL = "https://xamops-cloudformation-templates.s3.amazonaws.com/autospotting-customer-account.yaml";
 
     // The stack name used in the customer's account
     private static final String CUSTOMER_STACK_NAME = "XamOps-AutoSpotting-Integration";
 
-    // Default regions list
+    // Default regions list (17 standard regions, no opt-in required)
     private static final String DEFAULT_REGIONS = "ap-northeast-1,ap-northeast-2,ap-northeast-3,ap-south-1," +
             "ap-southeast-1,ap-southeast-2," +
             "ca-central-1,eu-central-1,eu-north-1," +
@@ -55,7 +58,8 @@ public class CloudFormationController {
     }
 
     /**
-     * ✅ UPDATED: Sync customer account ONLY to DynamoDB (SQL is handled elsewhere)
+     * ✅ UPDATED: Sync customer account to DynamoDB with corrected role ARN
+     * This enables AutoSpotting to discover and manage ASGs in the customer account
      */
     @PostMapping("/sync-account")
     public ResponseEntity<Map<String, Object>> syncCustomerAccount(@RequestBody Map<String, String> request) {
@@ -66,29 +70,37 @@ public class CloudFormationController {
             String accountName = request.get("accountName");
             String regions = request.get("regions");
 
+            // Validation
             if (customerAccountId == null || customerAccountId.isEmpty()) {
                 return ResponseEntity.badRequest().body(Map.of(
                         "error", "Account ID is required",
                         "message", "Please provide a valid AWS account ID"));
             }
 
-            // Validate account ID format
-            if (!customerAccountId.matches("^[0-9]{12}$")) {
+            // Validate account ID format (exactly 12 digits, preserve leading zeros)
+            if (!customerAccountId.matches("^\\d{12}$")) {
                 return ResponseEntity.badRequest().body(Map.of(
                         "error", "Invalid account ID format",
                         "message", "AWS account ID must be exactly 12 digits"));
             }
 
-            // ✅ Update DynamoDB (This enables AutoSpotting)
-            updateDynamoDb(customerAccountId, accountName, regions);
+            // ✅ Construct the correct role ARN for this customer account
+            String customerRoleArn = String.format(
+                    "arn:aws:iam::%s:role/AutoSpotting-Execution-Role",
+                    customerAccountId);
 
-            // Removed updateSqlRepository() as requested.
+            log.info("💾 Syncing account {} with role ARN: {}", customerAccountId, customerRoleArn);
+
+            // ✅ Update DynamoDB (This enables AutoSpotting discovery)
+            updateDynamoDb(customerAccountId, accountName, regions, customerRoleArn);
 
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);
             response.put("message", "Account synced successfully to AutoSpotting Engine");
             response.put("accountId", customerAccountId);
             response.put("accountName", accountName != null ? accountName : "Customer-" + customerAccountId);
+            response.put("roleArn", customerRoleArn);
+            response.put("externalId", customerAccountId); // AWS Account ID is used as External ID
 
             return ResponseEntity.ok(response);
 
@@ -105,14 +117,33 @@ public class CloudFormationController {
         }
     }
 
-    private void updateDynamoDb(String accountId, String name, String regions) {
+    /**
+     * ✅ UPDATED: Store customer account in DynamoDB with role ARN and external ID
+     */
+    private void updateDynamoDb(String accountId, String name, String regions, String roleArn) {
         log.info("Updating DynamoDB table '{}' for account {}", DYNAMODB_TABLE_NAME, accountId);
 
         Map<String, AttributeValue> item = new HashMap<>();
+
+        // Store as String to preserve leading zeros
         item.put("AccountId", AttributeValue.builder().s(accountId).build());
-        item.put("AccountName", AttributeValue.builder().s(name != null ? name : "Customer-" + accountId).build());
-        item.put("Regions", AttributeValue.builder().s(regions != null ? regions : "all").build());
+        item.put("AccountName", AttributeValue.builder()
+                .s(name != null ? name : "Customer-" + accountId).build());
+
+        // Store the role ARN that AutoSpotting will assume
+        item.put("RoleArn", AttributeValue.builder().s(roleArn).build());
+
+        // External ID for secure role assumption (using account ID as external ID)
+        item.put("ExternalId", AttributeValue.builder().s(accountId).build());
+
+        // Regions configuration
+        item.put("Regions", AttributeValue.builder()
+                .s(regions != null && !regions.trim().isEmpty() ? regions : DEFAULT_REGIONS).build());
+
+        // Account state
         item.put("State", AttributeValue.builder().s("enabled").build());
+
+        // Timestamp
         item.put("LastUpdated", AttributeValue.builder().s(Instant.now().toString()).build());
 
         PutItemRequest putItemRequest = PutItemRequest.builder()
@@ -121,9 +152,12 @@ public class CloudFormationController {
                 .build();
 
         dynamoDbClient.putItem(putItemRequest);
-        log.info("✅ DynamoDB updated successfully");
+        log.info("✅ DynamoDB updated successfully for account {}", accountId);
     }
 
+    /**
+     * ✅ Get all customer accounts from DynamoDB
+     */
     @GetMapping("/accounts")
     public ResponseEntity<Map<String, Object>> listCustomerAccounts() {
         log.info("📋 Fetching all customer accounts from DynamoDB");
@@ -142,9 +176,14 @@ public class CloudFormationController {
                                 item.getOrDefault("AccountId", AttributeValue.builder().s("").build()).s());
                         account.put("accountName",
                                 item.getOrDefault("AccountName", AttributeValue.builder().s("").build()).s());
+                        account.put("roleArn",
+                                item.getOrDefault("RoleArn", AttributeValue.builder().s("").build()).s());
                         account.put("regions",
                                 item.getOrDefault("Regions", AttributeValue.builder().s("").build()).s());
-                        account.put("state", item.getOrDefault("State", AttributeValue.builder().s("").build()).s());
+                        account.put("state",
+                                item.getOrDefault("State", AttributeValue.builder().s("").build()).s());
+                        account.put("lastUpdated",
+                                item.getOrDefault("LastUpdated", AttributeValue.builder().s("").build()).s());
                         return account;
                     })
                     .collect(Collectors.toList()));
@@ -158,109 +197,191 @@ public class CloudFormationController {
         }
     }
 
+    /**
+     * ✅ UPDATED: Generate CloudFormation Quick Create URL for "Deploy to AWS"
+     * button
+     * This is the recommended approach - opens AWS Console with pre-filled
+     * parameters
+     */
     @GetMapping("/deploy-url")
     public ResponseEntity<Map<String, Object>> getDeployUrl(
             @RequestParam(required = false) String regions,
-            @RequestParam(defaultValue = "us-east-1") String deployRegion) {
+            @RequestParam(defaultValue = "us-east-1") String deployRegion,
+            @RequestParam(required = false) String accountId) {
 
-        log.info("🚀 Generating CloudFormation deploy URL");
+        log.info("🚀 Generating CloudFormation deploy URL for region: {}", deployRegion);
 
         try {
+            // Check if main stack is healthy
             if (!isMainStackHealthy()) {
-                return ResponseEntity.status(503).body(Map.of("error", "Main AutoSpotting stack is not healthy"));
+                return ResponseEntity.status(503).body(Map.of(
+                        "error", "Main AutoSpotting stack is not healthy",
+                        "message",
+                        "Please ensure the main AutoSpotting stack is deployed and in CREATE_COMPLETE state"));
             }
 
-            String lambdaRoleArn = getLambdaExecutionRoleArn();
-
+            // Use default regions if not provided
             if (regions == null || regions.trim().isEmpty()) {
                 regions = DEFAULT_REGIONS;
             }
 
+            // Build the AWS Console Quick Create URL
             String cfUrl = buildCloudFormationQuickCreateUrl(
                     CUSTOMER_STACK_NAME,
                     TEMPLATE_S3_URL,
                     MAIN_ACCOUNT_ID,
                     MAIN_REGION,
-                    lambdaRoleArn,
+                    LAMBDA_EXECUTION_ROLE_ARN,
                     regions,
                     deployRegion);
 
             Map<String, Object> response = new HashMap<>();
             response.put("url", cfUrl);
             response.put("stackName", CUSTOMER_STACK_NAME);
+            response.put("deployRegion", deployRegion);
+            response.put("templateUrl", TEMPLATE_S3_URL);
+            response.put("method", "quick-create-url");
+            response.put("description", "Click this URL to deploy the stack in AWS Console");
+
             return ResponseEntity.ok(response);
 
         } catch (Exception e) {
             log.error("❌ Error generating deploy URL", e);
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return ResponseEntity.internalServerError().body(Map.of(
+                    "error", "Failed to generate deploy URL",
+                    "message", e.getMessage()));
         }
     }
 
+    /**
+     * ✅ Build AWS Console Quick Create URL with pre-filled parameters
+     * This is the BEST approach for user-friendly deployment
+     */
     private String buildCloudFormationQuickCreateUrl(
             String stackName, String templateUrl, String mainAccountId, String mainRegion,
             String lambdaRoleArn, String regions, String deployRegion) throws UnsupportedEncodingException {
 
         StringBuilder url = new StringBuilder();
-        url.append("https://console.aws.amazon.com/cloudformation/home?region=").append(deployRegion);
+
+        // Base AWS Console CloudFormation URL
+        url.append("https://console.aws.amazon.com/cloudformation/home");
+        url.append("?region=").append(deployRegion);
         url.append("#/stacks/quickcreate");
+
+        // Stack name
         url.append("?stackName=").append(URLEncoder.encode(stackName, StandardCharsets.UTF_8.toString()));
+
+        // Template URL
         url.append("&templateURL=").append(URLEncoder.encode(templateUrl, StandardCharsets.UTF_8.toString()));
+
+        // Parameters (pre-filled)
         url.append("&param_MainAccountId=").append(mainAccountId);
         url.append("&param_MainRegion=").append(mainRegion);
         url.append("&param_AutoSpottingLambdaRoleArn=")
                 .append(URLEncoder.encode(lambdaRoleArn, StandardCharsets.UTF_8.toString()));
-
-        if (regions != null && !regions.trim().isEmpty()) {
-            url.append("&param_Regions=").append(URLEncoder.encode(regions, StandardCharsets.UTF_8.toString()));
-        }
+        url.append("&param_Regions=").append(URLEncoder.encode(regions, StandardCharsets.UTF_8.toString()));
         url.append("&param_DeployRegionalStackSet=true");
 
         return url.toString();
     }
 
-    private String getLambdaExecutionRoleArn() {
-        try {
-            DescribeStacksResponse response = cloudFormationClient
-                    .describeStacks(DescribeStacksRequest.builder().stackName(MAIN_STACK_NAME).build());
-            if (response.stacks().isEmpty())
-                return "arn:aws:iam::" + MAIN_ACCOUNT_ID + ":role/lambda/autospotting-LambdaExecutionRole";
-
-            return response.stacks().get(0).outputs().stream()
-                    .filter(output -> "LambdaExecutionRoleARN".equals(output.outputKey()))
-                    .findFirst()
-                    .map(Output::outputValue)
-                    .orElse("arn:aws:iam::" + MAIN_ACCOUNT_ID + ":role/lambda/autospotting-LambdaExecutionRole");
-        } catch (Exception e) {
-            log.warn("Could not fetch Lambda Role ARN, using constructed default");
-            return "arn:aws:iam::" + MAIN_ACCOUNT_ID + ":role/lambda/autospotting-LambdaExecutionRole";
-        }
-    }
-
+    /**
+     * ✅ Check if the main AutoSpotting stack is healthy
+     */
     private boolean isMainStackHealthy() {
         try {
             DescribeStacksResponse response = cloudFormationClient
-                    .describeStacks(DescribeStacksRequest.builder().stackName(MAIN_STACK_NAME).build());
-            return !response.stacks().isEmpty() &&
-                    response.stacks().get(0).stackStatusAsString().contains("COMPLETE");
+                    .describeStacks(DescribeStacksRequest.builder()
+                            .stackName(MAIN_STACK_NAME)
+                            .build());
+
+            if (response.stacks().isEmpty()) {
+                return false;
+            }
+
+            String status = response.stacks().get(0).stackStatusAsString();
+            return status.contains("COMPLETE") && !status.contains("ROLLBACK");
+
+        } catch (CloudFormationException e) {
+            log.error("Main stack '{}' not found or inaccessible", MAIN_STACK_NAME);
+            return false;
         } catch (Exception e) {
+            log.error("Error checking main stack health", e);
             return false;
         }
     }
 
+    /**
+     * ✅ Health check endpoint
+     */
     @GetMapping("/health")
     public ResponseEntity<Map<String, Object>> healthCheck() {
-        return ResponseEntity.ok(Map.of(
-                "status", "healthy",
-                "mainStack", MAIN_STACK_NAME,
-                "dynamoDbTable", DYNAMODB_TABLE_NAME));
+        boolean mainStackHealthy = isMainStackHealthy();
+
+        Map<String, Object> health = new HashMap<>();
+        health.put("status", mainStackHealthy ? "healthy" : "unhealthy");
+        health.put("mainStack", MAIN_STACK_NAME);
+        health.put("mainStackHealthy", mainStackHealthy);
+        health.put("dynamoDbTable", DYNAMODB_TABLE_NAME);
+        health.put("lambdaRoleArn", LAMBDA_EXECUTION_ROLE_ARN);
+        health.put("mainAccountId", MAIN_ACCOUNT_ID);
+        health.put("mainRegion", MAIN_REGION);
+
+        return ResponseEntity.ok(health);
     }
 
+    /**
+     * ✅ Get main stack information
+     */
     @GetMapping("/main-stack-info")
     public ResponseEntity<Map<String, Object>> getMainStackInfo() {
         Map<String, Object> info = new HashMap<>();
         info.put("stackName", MAIN_STACK_NAME);
         info.put("dynamoDbTable", DYNAMODB_TABLE_NAME);
+        info.put("lambdaRoleArn", LAMBDA_EXECUTION_ROLE_ARN);
+        info.put("mainAccountId", MAIN_ACCOUNT_ID);
+        info.put("mainRegion", MAIN_REGION);
         info.put("healthy", isMainStackHealthy());
+        info.put("templateUrl", TEMPLATE_S3_URL);
+
         return ResponseEntity.ok(info);
+    }
+
+    /**
+     * ✅ Delete/Disable a customer account from AutoSpotting
+     */
+    @DeleteMapping("/accounts/{accountId}")
+    public ResponseEntity<Map<String, Object>> deleteCustomerAccount(@PathVariable String accountId) {
+        log.info("🗑️ Deleting customer account: {}", accountId);
+
+        try {
+            // Validate account ID format
+            if (!accountId.matches("^\\d{12}$")) {
+                return ResponseEntity.badRequest().body(Map.of(
+                        "error", "Invalid account ID format",
+                        "message", "AWS account ID must be exactly 12 digits"));
+            }
+
+            // Delete from DynamoDB
+            DeleteItemRequest deleteRequest = DeleteItemRequest.builder()
+                    .tableName(DYNAMODB_TABLE_NAME)
+                    .key(Map.of("AccountId", AttributeValue.builder().s(accountId).build()))
+                    .build();
+
+            dynamoDbClient.deleteItem(deleteRequest);
+
+            log.info("✅ Account {} deleted successfully", accountId);
+
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "Account deleted successfully",
+                    "accountId", accountId));
+
+        } catch (Exception e) {
+            log.error("❌ Error deleting account", e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "error", "Failed to delete account",
+                    "message", e.getMessage()));
+        }
     }
 }
