@@ -8,6 +8,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="icon" href="icons/XamOps.png" sizes="32x32" type="image/png">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.0/dist/cdn.min.js"></script>
     <script type="module" src="src/main.js"></script>
 
@@ -233,6 +234,60 @@
                                     <span x-show="enabledRegionsCount === 0">
                                         No regions configured
                                     </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Graph Section -->
+                        <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-100 mb-6">
+                            <div class="flex justify-between items-center mb-6">
+                                <h3 class="text-lg font-bold text-gray-800">Savings Over Time</h3>
+                                <div class="flex items-center space-x-2">
+                                    <select x-model="historyTimeRange" @change="fetchHistoryData()"
+                                        class="bg-white border border-gray-300 rounded-lg text-sm px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                        <option value="last24h">Last 24 Hours</option>
+                                        <option value="last7d">Last 7 Days</option>
+                                        <option value="last30d">Last 30 Days</option>
+                                    </select>
+                                    <button @click="fetchHistoryData()"
+                                        class="p-2 text-gray-500 hover:text-gray-700 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors">
+                                        <i class="fas fa-sync-alt" :class="{'fa-spin': loadingHistory}"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-3 gap-6 mb-6">
+                                <div>
+                                    <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Period
+                                        Savings</p>
+                                    <h4 class="text-xl font-bold text-emerald-600"
+                                        x-text="formatCurrency(historySummary.total_savings || 0)"></h4>
+                                </div>
+                                <div>
+                                    <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Avg
+                                        Hourly</p>
+                                    <h4 class="text-xl font-bold text-gray-800"
+                                        x-text="formatHourlyCost(historySummary.average_hourly_savings || 0) + '/hr'">
+                                    </h4>
+                                </div>
+                                <div>
+                                    <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Peak
+                                        Savings</p>
+                                    <h4 class="text-xl font-bold text-gray-800"
+                                        x-text="formatHourlyCost(historySummary.peak_savings || 0) + '/hr'"></h4>
+                                </div>
+                            </div>
+
+                            <div class="relative h-64 w-full">
+                                <canvas id="savingsChart"></canvas>
+                                <div x-show="loadingHistory"
+                                    class="absolute inset-0 flex items-center justify-center bg-white bg-opacity-75 z-10">
+                                    <i class="fas fa-spinner fa-spin text-3xl text-blue-500"></i>
+                                </div>
+                                <div x-show="!loadingHistory && (!historyData || historyData.length === 0)"
+                                    class="absolute inset-0 flex flex-col items-center justify-center bg-white z-0">
+                                    <i class="fas fa-chart-line text-4xl text-gray-200 mb-3"></i>
+                                    <p class="text-gray-400 font-medium">No history data available for this period</p>
                                 </div>
                             </div>
                         </div>
@@ -747,6 +802,13 @@
                 syncingAccount: false,
                 syncAccountError: '',
 
+                // History Chart State
+                historyTimeRange: 'last7d',
+                loadingHistory: false,
+                historyData: [],
+                historySummary: {},
+                chartInstance: null,
+
                 initDashboard() {
                     if (this.initialized) {
                         console.log('⚠️ Dashboard already initialized, skipping...');
@@ -792,6 +854,190 @@
 
                     console.log('📊 Loading initial data for account:', this.accountId);
                     this.fetchCostData();
+                    this.fetchHistoryData();
+                },
+
+                async fetchHistoryData() {
+                    if (!this.accountId) return;
+
+                    this.loadingHistory = true;
+                    console.log(`Fetching history data for ${this.historyTimeRange}...`);
+
+                    let start, end, interval;
+                    const now = new Date();
+
+                    if (this.historyTimeRange === 'last24h') {
+                        start = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+                        interval = 'hourly';
+                    } else if (this.historyTimeRange === 'last7d') {
+                        start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+                        interval = 'hourly'; // High resolution for 7 days
+                    } else { // last30d
+                        start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+                        interval = 'daily';
+                    }
+                    end = now.toISOString();
+
+                    try {
+                        const response = await fetch(
+                            `${backendBaseUrl}/api/autospotting/costs/history/${this.accountId}?start=${start}&end=${end}&interval=${interval}`,
+                            {
+                                headers: { 'X-Tenant-ID': tenantId }
+                            }
+                        );
+
+                        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+                        const data = await response.json();
+                        console.log('History Data:', data);
+
+                        this.historyData = data.data_points || [];
+                        this.historySummary = data.summary || {};
+
+                        // Calculate Peak Savings (max of total_actual_savings)
+                        const maxSavings = this.historyData.reduce((max, d) => Math.max(max, d.total_actual_savings || 0), 0);
+                        this.historySummary.peak_savings = maxSavings;
+
+                        this.updateChart();
+
+                    } catch (error) {
+                        console.error('Error fetching history:', error);
+                        this.dispatchNotification('Failed to load history data', 'error');
+                    } finally {
+                        this.loadingHistory = false;
+                    }
+                },
+
+                updateChart() {
+                    const ctx = document.getElementById('savingsChart');
+                    if (!ctx) return;
+
+                    // Destroy existing chart if it exists
+                    if (this.chartInstance) {
+                        this.chartInstance.destroy();
+                    }
+
+                    if (!this.historyData || this.historyData.length === 0) return;
+
+                    // Process labels and data
+                    // Sort by timestamp just in case
+                    const sortedData = [...this.historyData].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+                    const labels = sortedData.map(d => {
+                        const date = new Date(d.timestamp);
+                        if (this.historyTimeRange === 'last24h') {
+                            return date.toLocaleTimeString([], { hour: 'numeric', hour12: true });
+                        } else if (this.historyTimeRange === 'last7d') {
+                            // Format like "Dec 14, 8 AM"
+                            const day = date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+                            const time = date.toLocaleTimeString([], { hour: 'numeric', hour12: true });
+                            return `${day}, ${time}`;
+                        } else {
+                            return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+                        }
+                    });
+
+                    const actualSavings = sortedData.map(d => d.total_actual_savings || 0);
+                    const potentialSavings = sortedData.map(d => d.total_potential_savings || 0);
+
+                    this.chartInstance = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: labels,
+                            datasets: [
+                                {
+                                    label: 'Actual Savings',
+                                    data: actualSavings,
+                                    borderColor: '#10b981', // emerald-500
+                                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                                    borderWidth: 2,
+                                    tension: 0.4,
+                                    fill: true,
+                                    pointBackgroundColor: '#10b981',
+                                    pointRadius: 2, // Smaller points for high density
+                                    pointHoverRadius: 4
+                                },
+                                {
+                                    label: 'Potential Savings',
+                                    data: potentialSavings,
+                                    borderColor: '#f59e0b', // amber-500
+                                    backgroundColor: 'transparent',
+                                    borderWidth: 2,
+                                    borderDash: [5, 5],
+                                    tension: 0.4,
+                                    pointBackgroundColor: '#f59e0b',
+                                    pointRadius: 2,
+                                    pointHoverRadius: 4
+                                }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: {
+                                    position: 'top',
+                                    align: 'center',
+                                    labels: {
+                                        usePointStyle: true,
+                                        boxWidth: 8,
+                                        font: {
+                                            family: "'Inter', sans-serif",
+                                            size: 11
+                                        }
+                                    }
+                                },
+                                tooltip: {
+                                    mode: 'index',
+                                    intersect: false,
+                                    callbacks: {
+                                        label: function (context) {
+                                            let label = context.dataset.label || '';
+                                            if (label) {
+                                                label += ': ';
+                                            }
+                                            if (context.parsed.y !== null) {
+                                                label += new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(context.parsed.y);
+                                            }
+                                            return label;
+                                        }
+                                    }
+                                }
+                            },
+                            scales: {
+                                y: {
+                                    beginAtZero: true,
+                                    grid: {
+                                        color: '#f3f4f6'
+                                    },
+                                    ticks: {
+                                        callback: function (value) {
+                                            return '$' + value;
+                                        },
+                                        font: {
+                                            size: 10
+                                        }
+                                    }
+                                },
+                                x: {
+                                    grid: {
+                                        display: false
+                                    },
+                                    ticks: {
+                                        font: {
+                                            size: 10
+                                        },
+                                        maxTicksLimit: 7
+                                    }
+                                }
+                            },
+                            interaction: {
+                                splitLine: {
+                                    axis: 'x'
+                                }
+                            }
+                        }
+                    });
                 },
 
                 async loadTab(tab) {
