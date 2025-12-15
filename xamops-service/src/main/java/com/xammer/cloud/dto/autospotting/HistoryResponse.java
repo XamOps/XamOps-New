@@ -22,16 +22,16 @@ public class HistoryResponse {
         @JsonProperty("timestamp")
         private String timestamp;
 
-        @JsonProperty("current_hourly_cost")
+        @JsonProperty("total_current_cost")
         private Double currentHourlyCost;
 
-        @JsonProperty("ondemand_hourly_cost")
+        @JsonProperty("total_ondemand_cost") // inferred, but usually pairs with current
         private Double ondemandHourlyCost;
 
-        @JsonProperty("actual_hourly_savings")
+        @JsonProperty("total_actual_savings")
         private Double actualHourlySavings;
 
-        @JsonProperty("potential_hourly_savings")
+        @JsonProperty("total_potential_savings")
         private Double potentialHourlySavings;
 
         @JsonProperty("spot_instance_count")
@@ -43,7 +43,7 @@ public class HistoryResponse {
 
     @Data
     public static class HistorySummary {
-        @JsonProperty("total_actual_savings")
+        @JsonProperty("total_savings")
         private Double totalActualSavings;
 
         @JsonProperty("total_potential_savings")
