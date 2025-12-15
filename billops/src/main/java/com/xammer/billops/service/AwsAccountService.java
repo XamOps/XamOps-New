@@ -27,7 +27,7 @@ public class AwsAccountService {
     private final CloudAccountRepository cloudAccountRepository;
     private final ClientRepository clientRepository;
     public final AwsClientProvider awsClientProvider;
-    private final CacheService cacheService; 
+    private final CacheService cacheService;
 
     @Value("${cloudformation.template.s3.url}")
     private String cloudFormationTemplateUrl;
@@ -38,12 +38,12 @@ public class AwsAccountService {
             ClientRepository clientRepository,
             AwsClientProvider awsClientProvider,
             StsClient stsClient,
-            CacheService cacheService) { 
+            CacheService cacheService) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.clientRepository = clientRepository;
         this.awsClientProvider = awsClientProvider;
         this.configuredRegion = System.getenv().getOrDefault("AWS_REGION", "us-east-1");
-        this.cacheService = cacheService; 
+        this.cacheService = cacheService;
 
         String tmpAccountId;
         try {
@@ -55,26 +55,35 @@ public class AwsAccountService {
         this.hostAccountId = tmpAccountId;
     }
 
-    public Map<String, Object> generateCloudFormationUrl(String accountName, String awsAccountId, String accessType, Long clientId) throws Exception {
+    public Map<String, Object> generateCloudFormationUrl(String accountName, String awsAccountId, String accessType,
+            Long clientId) throws Exception {
         Client client = clientRepository.findById(clientId)
                 .orElseThrow(() -> new RuntimeException("Client not found with id: " + clientId));
 
         String externalId = UUID.randomUUID().toString();
-        
+
         CloudAccount newAccount = new CloudAccount(accountName, externalId, accessType, client);
-        
-        newAccount.setAwsAccountId(awsAccountId); 
+
+        // Fix: If awsAccountId is empty (common for pending accounts), set it to null
+        // to avoid unique constraint violations (multiple nulls allowed, multiple ""
+        // not allowed)
+        if (awsAccountId != null && awsAccountId.trim().isEmpty()) {
+            awsAccountId = null;
+        }
+
+        newAccount.setAwsAccountId(awsAccountId);
         newAccount.setProvider("AWS");
         cloudAccountRepository.save(newAccount);
 
         String stackName = "XamOps-Connection-" + accountName.replaceAll("[^a-zA-Z0-9-]", "");
         String xamopsAccountId = this.hostAccountId;
-        String urlString = String.format("https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?templateURL=%s&stackName=%s&param_XamOpsAccountId=%s&param_ExternalId=%s", cloudFormationTemplateUrl, stackName, xamopsAccountId, externalId);
+        String urlString = String.format(
+                "https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?templateURL=%s&stackName=%s&param_XamOpsAccountId=%s&param_ExternalId=%s",
+                cloudFormationTemplateUrl, stackName, xamopsAccountId, externalId);
 
         return Map.of(
                 "url", new URL(urlString),
-                "externalId", externalId
-        );
+                "externalId", externalId);
     }
 
     public CloudAccount verifyAccount(VerifyAccountRequest request) {
@@ -92,17 +101,18 @@ public class AwsAccountService {
         try {
             Ec2Client testClient = awsClientProvider.getEc2Client(account, configuredRegion);
             testClient.describeRegions();
-            
+
             account.setStatus("CONNECTED");
             logger.info("Successfully verified and connected to account: {}", account.getAccountName());
         } catch (Exception e) {
             account.setStatus("FAILED");
             logger.error("Failed to verify account {}: {}", account.getAccountName(), e.getMessage());
-            throw new RuntimeException("Role assumption failed. Please check the role ARN, trust policy, and external ID.", e);
+            throw new RuntimeException(
+                    "Role assumption failed. Please check the role ARN, trust policy, and external ID.", e);
         }
         return cloudAccountRepository.save(account);
     }
-    
+
     public void clearAllCaches() {
         cacheService.evictAllCaches();
     }

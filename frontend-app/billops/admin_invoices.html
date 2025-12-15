@@ -274,7 +274,9 @@
                                     <td class="px-6 py-4 whitespace-nowrap">
                                         <div class="text-sm font-medium text-gray-900" x-text="invoice.accountName">
                                         </div>
-                                        <div class="text-xs text-gray-500" x-text="invoice.awsAccountId"></div>
+                                        <div class="text-xs text-gray-500"
+                                            x-text="invoice.awsAccountId && invoice.awsAccountId !== 'N/A' ? invoice.awsAccountId : (invoice.gcpProjectId && invoice.gcpProjectId !== 'N/A' ? invoice.gcpProjectId : invoice.azureSubscriptionId)">
+                                        </div>
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                         <span
@@ -376,6 +378,7 @@
 
                             getSelectedAccountName() {
                                 if (!this.generation.accountId) return 'No Account Selected';
+                                // Unified identifier lookup
                                 const acc = this.accounts.find(a => a.identifier === this.generation.accountId);
                                 return acc ? `${acc.name} (${acc.identifier})` : this.generation.accountId;
                             },
@@ -387,7 +390,8 @@
                                         this.filterIds.some(id =>
                                             String(id) === String(inv.cloudAccountId) ||
                                             (inv.awsAccountId && String(id) === String(inv.awsAccountId)) ||
-                                            (inv.gcpProjectId && String(id) === String(inv.gcpProjectId))
+                                            (inv.gcpProjectId && String(id) === String(inv.gcpProjectId)) ||
+                                            (inv.azureSubscriptionId && String(id) === String(inv.azureSubscriptionId))
                                         )
                                     );
                                 }
@@ -402,7 +406,9 @@
                                             id: a.id,
                                             name: a.accountName,
                                             provider: a.provider,
-                                            identifier: a.provider === 'AWS' ? a.awsAccountId : a.gcpProjectId
+                                            // Determine identifier based on provider
+                                            identifier: a.provider === 'AWS' ? a.awsAccountId :
+                                                (a.provider === 'GCP' ? a.gcpProjectId : a.azureSubscriptionId)
                                         }));
                                         this.syncSelectionFromSidebar();
                                     })
@@ -505,9 +511,11 @@
                                 if (!inv1 || !inv2) return false;
 
                                 // Validation Rules
-                                // FIX 2: Compare AWS Account String instead of DB ID to handle duplicate DB entries
-                                const sameAccount = inv1.awsAccountId === inv2.awsAccountId;
+                                // FIX 2: Compare correct Account ID depending on provider (AWS/GCP/Azure)
+                                const id1 = inv1.awsAccountId !== 'N/A' ? inv1.awsAccountId : (inv1.gcpProjectId !== 'N/A' ? inv1.gcpProjectId : inv1.azureSubscriptionId);
+                                const id2 = inv2.awsAccountId !== 'N/A' ? inv2.awsAccountId : (inv2.gcpProjectId !== 'N/A' ? inv2.gcpProjectId : inv2.azureSubscriptionId);
 
+                                const sameAccount = id1 === id2;
                                 const samePeriod = inv1.billingPeriod === inv2.billingPeriod;
                                 const bothDraft = inv1.status === 'DRAFT' && inv2.status === 'DRAFT';
 
