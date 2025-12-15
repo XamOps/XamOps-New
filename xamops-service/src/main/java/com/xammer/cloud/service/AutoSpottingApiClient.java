@@ -65,12 +65,14 @@ public class AutoSpottingApiClient {
     private HttpHeaders createHeaders() {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
+        // 
+        // 
         headers.setAccept(java.util.Collections.singletonList(MediaType.APPLICATION_JSON));
 
         if (apiKey != null && !apiKey.trim().isEmpty()) {
             String trimmedKey = apiKey.trim();
 
-            // ✅ CRITICAL FIX: Use X-Authorization with "ApiKey " prefix
+            // ✅ Reverted to X-Authorization as confirmed by user
             headers.set("X-Authorization", "ApiKey " + trimmedKey);
 
             logger.info("✅ X-Authorization header added successfully (length={})", trimmedKey.length());
@@ -429,7 +431,7 @@ public class AutoSpottingApiClient {
             logger.info("🌐 Request URL: {}", url);
 
             HttpHeaders headers = createHeaders();
-            HttpEntity<String> entity = new HttpEntity<>(headers);
+            HttpEntity<Void> entity = new HttpEntity<>(headers);
 
             ResponseEntity<LaunchAnalyticsResponse> response = restTemplate.exchange(
                     url, HttpMethod.GET, entity, LaunchAnalyticsResponse.class);
