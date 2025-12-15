@@ -34,7 +34,22 @@ public class LaunchAnalyticsResponse {
     private List<FailureReason> topFailureReasons;
 
     @JsonProperty("recommended_types")
-    private List<String> recommendedTypes;
+    private List<RecommendedType> recommendedTypes;
+
+    @Data
+    public static class RecommendedType {
+        @JsonProperty("instance_type")
+        private String instanceType;
+
+        @JsonProperty("success_rate")
+        private Double successRate;
+
+        @JsonProperty("total_launches")
+        private Integer totalLaunches;
+
+        @JsonProperty("score")
+        private Double score;
+    }
 
     @Data
     public static class LaunchStats {
