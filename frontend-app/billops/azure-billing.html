@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XamOps - Azure Billing Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script type="module" src="/src/main.js"></script>
+</head>
+
+<body class="bg-gray-50">
+    <div class="flex h-screen">
+        <include file="/_sidebar.html"></include>
+
+        <div class="flex-1 flex flex-col overflow-hidden pl-64">
+
+            <main id="main-content" class="flex-1 p-6 md:p-8 overflow-y-auto" x-data="azureBillingDashboard()"
+                x-init="init()">
+
+                <style>
+                    body {
+                        font-family: Inter, -apple-system, BlinkMacSystemFont, sans-serif;
+                        background-color: #f8fafc;
+                    }
+
+                    [x-cloak] {
+                        display: none !important;
+                    }
+
+                    .dashboard-card {
+                        background: #ffffff;
+                        border-radius: 12px;
+                        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
+                        padding: 24px;
+                        margin-bottom: 24px;
+                    }
+
+                    .metric-card {
+                        background: linear-gradient(135deg, #0078D4 0%, #005A9E 100%);
+                        border-radius: 12px;
+                        padding: 24px;
+                        color: white;
+                        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+                    }
+
+                    .spinner {
+                        border: 3px solid #f3f4f6;
+                        border-top: 3px solid #0078D4;
+                        border-radius: 50%;
+                        width: 40px;
+                        height: 40px;
+                        animation: spin 1s linear infinite;
+                        margin: 0 auto;
+                    }
+
+                    @keyframes spin {
+                        0% {
+                            transform: rotate(0deg);
+                        }
+
+                        100% {
+                            transform: rotate(360deg);
+                        }
+                    }
+                </style>
+
+                <div class="dashboard-card">
+                    <div class="flex justify-between items-center mb-6">
+                        <h1 class="text-3xl font-bold text-gray-800">
+                            <i class="fab fa-microsoft text-blue-600 mr-2"></i>
+                            Azure Billing Dashboard
+                            <span x-show="isUpdating" class="text-sm text-gray-500 ml-3">
+                                <i class="fas fa-sync-alt fa-spin"></i> Refreshing...
+                            </span>
+                        </h1>
+                        <div class="flex items-center space-x-3">
+                            <select x-model="selectedYear" @change="fetchFreshData()"
+                                class="px-4 py-2 border rounded-lg">
+                                <template x-for="year in availableYears" :key="year">
+                                    <option :value="year" x-text="year"></option>
+                                </template>
+                            </select>
+                            <select x-model="selectedMonth" @change="fetchFreshData()"
+                                class="px-4 py-2 border rounded-lg">
+                                <option value="">Current Month</option>
+                                <template x-for="month in months" :key="month.value">
+                                    <option :value="month.value" x-text="month.label"></option>
+                                </template>
+                            </select>
+                            <button @click="fetchFreshData()"
+                                class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                                :disabled="loading || isUpdating">
+                                <i class="fas fa-sync-alt" :class="{'fa-spin': isUpdating}"></i>
+                                <span class="ml-2">Refresh</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div x-show="loading" class="text-center py-12">
+                    <div class="spinner"></div>
+                    <p class="mt-4 text-gray-600">Loading Azure billing data...</p>
+                </div>
+
+                <div x-show="error && !hasData && !loading"
+                    class="bg-red-50 border border-red-200 p-4 rounded-lg text-center">
+                    <i class="fas fa-exclamation-triangle text-red-500 mr-2"></i>
+                    <span x-text="error"></span>
+                </div>
+
+                <div x-show="!loading && hasData" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+                    <div class="metric-card">
+                        <div class="text-sm opacity-80 mb-2">TOTAL COST</div>
+                        <div class="text-3xl font-bold" x-text="formatCurrency(dashboardData.totalCost)"></div>
+                        <div class="text-sm opacity-80 mt-2">MTD (Month to Date)</div>
+                    </div>
+
+                    <div class="metric-card" style="background: linear-gradient(135deg, #2B88D8 0%, #0078D4 100%)">
+                        <div class="text-sm opacity-80 mb-2">LAST MONTH COST</div>
+                        <div class="text-3xl font-bold" x-text="formatCurrency(dashboardData.costLastMonth || 0)"></div>
+                        <div class="text-sm opacity-80 mt-2">Previous Cycle</div>
+                    </div>
+
+                    <div class="metric-card" style="background: linear-gradient(135deg, #00B7C3 0%, #0078D4 100%)">
+                        <div class="text-sm opacity-80 mb-2">ACTIVE SERVICES</div>
+                        <div class="text-3xl font-bold" x-text="dashboardData.serviceBreakdown?.length || 0"></div>
+                        <div class="text-sm opacity-80 mt-2">Services with costs</div>
+                    </div>
+
+                    <div class="metric-card" style="background: linear-gradient(135deg, #004578 0%, #0078D4 100%)">
+                        <div class="text-sm opacity-80 mb-2">TOP SERVICE</div>
+                        <div class="text-lg font-bold" x-text="getTopService()"></div>
+                        <div class="text-sm opacity-80 mt-2" x-text="formatCurrency(getTopServiceCost())"></div>
+                    </div>
+                </div>
+
+                <div x-show="!loading && hasData" class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                    <div class="dashboard-card">
+                        <h3 class="text-lg font-semibold mb-4">
+                            <i class="fas fa-chart-line text-blue-600 mr-2"></i>Cost History
+                        </h3>
+                        <div style="height: 300px;">
+                            <canvas id="costHistoryChart"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-card">
+                        <h3 class="text-lg font-semibold mb-4">
+                            <i class="fas fa-chart-pie text-blue-500 mr-2"></i>Service Breakdown
+                        </h3>
+                        <div style="height: 300px;">
+                            <canvas id="serviceBreakdownChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <div x-show="!loading && hasData" class="dashboard-card">
+                    <div class="flex justify-between items-center mb-6">
+                        <h3 class="text-lg font-semibold">
+                            <i class="fas fa-table text-green-600 mr-2"></i>
+                            Detailed Service Costs
+                        </h3>
+                        <button @click="exportToExcel()"
+                            class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+                            <i class="fas fa-file-excel mr-2"></i>Export to Excel
+                        </button>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full bg-white">
+                            <thead class="bg-gray-100">
+                                <tr>
+                                    <th class="text-left py-3 px-4 font-semibold text-sm text-gray-600">SERVICE</th>
+                                    <th class="text-right py-3 px-4 font-semibold text-sm text-gray-600">COST (USD)</th>
+                                    <th class="text-right py-3 px-4 font-semibold text-sm text-gray-600">PERCENTAGE</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <template
+                                    x-if="dashboardData.serviceBreakdown && dashboardData.serviceBreakdown.length > 0">
+                                    <template x-for="(service, index) in dashboardData.serviceBreakdown"
+                                        :key="service.serviceName + index">
+                                        <tr class="border-b border-gray-200 hover:bg-gray-50">
+                                            <td class="py-3 px-4">
+                                                <span class="font-medium text-gray-800"
+                                                    x-text="service.serviceName"></span>
+                                            </td>
+                                            <td class="py-3 px-4 text-right font-semibold text-blue-600"
+                                                x-text="formatCurrency(service.amount)">
+                                            </td>
+                                            <td class="py-3 px-4 text-right text-gray-600">
+                                                <span x-text="getPercentage(service.amount)"></span>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </template>
+
+                                <template
+                                    x-if="!dashboardData.serviceBreakdown || dashboardData.serviceBreakdown.length === 0">
+                                    <tr>
+                                        <td colspan="3" class="text-center py-12 text-gray-500">
+                                            <i class="fas fa-inbox text-3xl mb-3"></i>
+                                            <p>No service cost data available</p>
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div x-show="!loading && !hasData && !error" class="dashboard-card text-center py-12">
+                    <i class="fas fa-inbox text-gray-300 text-5xl mb-4"></i>
+                    <p class="text-gray-500 text-lg font-medium">No billing data found</p>
+                    <p class="text-gray-400 mt-2">Try selecting a different period or refreshing</p>
+                </div>
+
+                <script>
+                    function azureBillingDashboard() {
+                        return {
+                            loading: true,
+                            isUpdating: false,
+                            error: null,
+                            updateError: null,
+                            selectedYear: new Date().getFullYear(),
+                            selectedMonth: '', // Default to current month/period on backend if empty
+                            subscriptionId: null,
+                            availableYears: [new Date().getFullYear(), new Date().getFullYear() - 1],
+                            months: [
+                                { value: '1', label: 'Jan' }, { value: '2', label: 'Feb' },
+                                { value: '3', label: 'Mar' }, { value: '4', label: 'Apr' },
+                                { value: '5', label: 'May' }, { value: '6', label: 'Jun' },
+                                { value: '7', label: 'Jul' }, { value: '8', label: 'Aug' },
+                                { value: '9', label: 'Sep' }, { value: '10', label: 'Oct' },
+                                { value: '11', label: 'Nov' }, { value: '12', label: 'Dec' }
+                            ],
+                            dashboardData: {
+                                totalCost: 0,
+                                costLastMonth: 0,
+                                costHistory: [],
+                                serviceBreakdown: []
+                            },
+                            charts: {
+                                costHistory: null,
+                                serviceBreakdown: null
+                            },
+
+                            get hasData() {
+                                return this.dashboardData &&
+                                    (this.dashboardData.totalCost > 0 ||
+                                        (this.dashboardData.serviceBreakdown && this.dashboardData.serviceBreakdown.length > 0));
+                            },
+
+                            init() {
+                                const urlParams = new URLSearchParams(window.location.search);
+                                // The sidebar passes 'subscriptionId' for Azure accounts
+                                this.subscriptionId = urlParams.get('subscriptionId') || urlParams.get('accountIds');
+
+                                if (!this.subscriptionId) {
+                                    this.error = 'No Azure Subscription ID specified in the URL.';
+                                    this.loading = false;
+                                    return;
+                                }
+
+                                this.fetchFreshData();
+                            },
+
+                            fetchFreshData() {
+                                if (!this.subscriptionId) return;
+
+                                this.loading = true;
+                                this.isUpdating = true;
+                                this.error = null;
+                                this.updateError = null;
+
+                                // Build Query Params
+                                let queryParams = `?t=${new Date().getTime()}`; // cache buster
+                                if (this.selectedYear) queryParams += `&year=${this.selectedYear}`;
+                                if (this.selectedMonth) queryParams += `&month=${this.selectedMonth}`;
+
+                                const apiUrl = `/api/billops/billing/azure/dashboard/${this.subscriptionId}${queryParams}`;
+
+                                fetch(apiUrl, { credentials: 'include' })
+                                    .then(res => {
+                                        if (!res.ok) {
+                                            if (res.status === 404) throw new Error("Azure Subscription not found or access denied.");
+                                            throw new Error(`Failed to load data: ${res.status}`);
+                                        }
+                                        return res.json();
+                                    })
+                                    .then(data => {
+                                        this.dashboardData = data || {
+                                            totalCost: 0,
+                                            costLastMonth: 0,
+                                            costHistory: [],
+                                            serviceBreakdown: []
+                                        };
+
+                                        this.$nextTick(() => {
+                                            this.renderOrUpdateCharts();
+                                        });
+                                    })
+                                    .catch(err => {
+                                        console.error('Data Load Error:', err);
+                                        this.error = err.message || 'Failed to retrieve Azure billing data.';
+                                    })
+                                    .finally(() => {
+                                        this.loading = false;
+                                        this.isUpdating = false;
+                                    });
+                            },
+
+                            destroyCharts() {
+                                if (this.charts.costHistory) {
+                                    this.charts.costHistory.destroy();
+                                    this.charts.costHistory = null;
+                                }
+                                if (this.charts.serviceBreakdown) {
+                                    this.charts.serviceBreakdown.destroy();
+                                    this.charts.serviceBreakdown = null;
+                                }
+                            },
+
+                            renderOrUpdateCharts() {
+                                this.renderCostHistoryChart();
+                                this.renderServiceBreakdownChart();
+                            },
+
+                            renderCostHistoryChart() {
+                                const ctx = document.getElementById('costHistoryChart')?.getContext('2d');
+                                if (!ctx) return;
+
+                                const history = this.dashboardData.costHistory || [];
+                                const labels = history.map(h => h.date);
+                                const data = history.map(h => h.cost || 0);
+
+                                if (this.charts.costHistory) {
+                                    this.charts.costHistory.destroy();
+                                }
+
+                                this.charts.costHistory = new Chart(ctx, {
+                                    type: 'line',
+                                    data: {
+                                        labels: labels,
+                                        datasets: [{
+                                            label: 'Daily Cost (USD)',
+                                            data: data,
+                                            borderColor: '#0078D4',
+                                            backgroundColor: 'rgba(0, 120, 212, 0.1)',
+                                            borderWidth: 2,
+                                            fill: true,
+                                            tension: 0.3
+                                        }]
+                                    },
+                                    options: {
+                                        responsive: true,
+                                        maintainAspectRatio: false,
+                                        scales: {
+                                            y: {
+                                                beginAtZero: true,
+                                                ticks: {
+                                                    callback: (value) => '$' + value
+                                                }
+                                            }
+                                        }
+                                    }
+                                });
+                            },
+
+                            renderServiceBreakdownChart() {
+                                const ctx = document.getElementById('serviceBreakdownChart')?.getContext('2d');
+                                if (!ctx) return;
+
+                                const services = this.dashboardData.serviceBreakdown || [];
+                                const topServices = services.slice(0, 8); // Top 8
+                                const labels = topServices.map(item => item.serviceName);
+                                const data = topServices.map(item => item.amount || 0);
+
+                                // Azure Colors
+                                const colors = [
+                                    '#0078D4', '#005A9E', '#004578', '#2B88D8',
+                                    '#50E6FF', '#00B7C3', '#00CC6A', '#107C10'
+                                ];
+
+                                if (this.charts.serviceBreakdown) {
+                                    this.charts.serviceBreakdown.destroy();
+                                }
+
+                                this.charts.serviceBreakdown = new Chart(ctx, {
+                                    type: 'doughnut',
+                                    data: {
+                                        labels: labels,
+                                        datasets: [{
+                                            data: data,
+                                            backgroundColor: colors,
+                                            borderWidth: 1
+                                        }]
+                                    },
+                                    options: {
+                                        responsive: true,
+                                        maintainAspectRatio: false,
+                                        plugins: {
+                                            legend: { position: 'right' },
+                                            tooltip: {
+                                                callbacks: {
+                                                    label: (context) => {
+                                                        return ` ${context.label}: ${this.formatCurrency(context.parsed)}`;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                });
+                            },
+
+                            formatCurrency(amount) {
+                                const numericAmount = Number(amount);
+                                if (isNaN(numericAmount)) return '$0.00';
+                                return new Intl.NumberFormat('en-US', {
+                                    style: 'currency',
+                                    currency: 'USD',
+                                    minimumFractionDigits: 2
+                                }).format(numericAmount);
+                            },
+
+                            getPercentage(amount) {
+                                const total = Number(this.dashboardData.totalCost);
+                                const numericAmount = Number(amount);
+                                if (isNaN(total) || total === 0 || isNaN(numericAmount)) return '0.0%';
+                                return ((numericAmount / total) * 100).toFixed(1) + '%';
+                            },
+
+                            getTopService() {
+                                const services = this.dashboardData.serviceBreakdown || [];
+                                if (services.length === 0) return 'N/A';
+                                const top = services[0]; // Already sorted by backend/logic
+                                return top?.serviceName || 'N/A';
+                            },
+
+                            getTopServiceCost() {
+                                const services = this.dashboardData.serviceBreakdown || [];
+                                if (services.length === 0) return 0;
+                                const top = services[0];
+                                return Number(top?.amount || 0);
+                            },
+
+                            exportToExcel() {
+                                alert('Export feature coming soon!');
+                            }
+                        };
+                    }
+                </script>
+            </main>
+        </div>
+    </div>
+</body>
+
+</html>

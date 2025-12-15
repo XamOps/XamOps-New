@@ -428,7 +428,9 @@
                                                 class="text-indigo-600 hover:underline font-medium"
                                                 x-text="invoice.invoiceNumber"></button>
                                         </td>
-                                        <td class="px-6 py-4 whitespace-nowrap" x-text="invoice.awsAccountId"></td>
+                                        <td class="px-6 py-4 whitespace-nowrap font-mono text-xs"
+                                            x-text="invoice.awsAccountId && invoice.awsAccountId !== 'N/A' ? invoice.awsAccountId : (invoice.gcpProjectId && invoice.gcpProjectId !== 'N/A' ? invoice.gcpProjectId : invoice.azureSubscriptionId)">
+                                        </td>
                                         <td class="px-6 py-4 whitespace-nowrap" x-text="invoice.billingPeriod"></td>
                                         <td class="px-6 py-4 whitespace-nowrap font-mono text-gray-700"
                                             x-text="formatCurrency(invoice.amount)"></td>
@@ -454,7 +456,9 @@
                                 <div>
                                     <h2 class="text-2xl font-bold text-gray-800"
                                         x-text="`Invoice #${selectedInvoice.invoiceNumber}`"></h2>
-                                    <p class="text-gray-500" x-text="`Account ID: ${selectedInvoice.awsAccountId}`"></p>
+                                    <p class="text-gray-500"
+                                        x-text="`Account ID: ${selectedInvoice.awsAccountId && selectedInvoice.awsAccountId !== 'N/A' ? selectedInvoice.awsAccountId : (selectedInvoice.gcpProjectId && selectedInvoice.gcpProjectId !== 'N/A' ? selectedInvoice.gcpProjectId : selectedInvoice.azureSubscriptionId)}`">
+                                    </p>
                                 </div>
                                 <div class="text-right">
                                     <p class="font-semibold text-gray-700"
@@ -615,269 +619,276 @@
                         </div>
                     </div>
                 </div>
+
+                <script>
+                    function invoicePage() {
+                        return {
+                            selectedAccountId: null,
+                            selectedAccountName: '',
+                            years: [new Date().getFullYear(), new Date().getFullYear() - 1],
+                            selectedYear: 'all',
+                            months: [
+                                { name: 'January', value: 1 }, { name: 'February', value: 2 }, { name: 'March', value: 3 },
+                                { name: 'April', value: 4 }, { name: 'May', value: 5 }, { name: 'June', value: 6 },
+                                { name: 'July', value: 7 }, { name: 'August', value: 8 }, { name: 'September', value: 9 },
+                                { name: 'October', value: 10 }, { name: 'November', value: 11 }, { name: 'December', value: 12 }
+                            ],
+                            selectedMonth: 'all',
+
+                            viewState: 'list',
+                            allInvoices: [],
+                            filteredInvoices: [],
+                            selectedInvoice: null,
+
+                            listLoading: true,
+                            detailLoading: false,
+                            isUpdating: false,
+
+                            error: null,
+                            updateError: null,
+
+                            detailedBreakdown: [],
+                            expandedServices: {},
+                            expandedRegions: {},
+
+                            get hasData() {
+                                return this.allInvoices && this.allInvoices.length > 0;
+                            },
+
+                            init() {
+                                const urlParams = new URLSearchParams(window.location.search);
+                                const accountIds = urlParams.get('accountId') || urlParams.get('accountIds');
+
+                                if (accountIds) {
+                                    this.selectedAccountId = accountIds.split(',')[0];
+                                    // Unified Fetch: Initial load (forceRefresh = false)
+                                    this.fetchData(false);
+                                } else {
+                                    this.error = "No account selected. Please choose an account from the sidebar.";
+                                    this.listLoading = false;
+                                }
+                            },
+
+                            // Unified function handling both Initial Load and Force Refresh
+                            fetchData(forceRefresh = false) {
+                                if (forceRefresh) {
+                                    this.isUpdating = true;
+                                    this.updateError = null;
+                                    console.log("🔄 Refreshing invoice list...");
+                                } else {
+                                    this.listLoading = true;
+                                    this.error = null;
+                                    console.log("📥 Initial load for invoice list...");
+                                }
+
+                                // Using Admin endpoint for now as per requirements. 
+                                // Ideally this should be a user-scoped endpoint like /api/billops/invoices
+                                fetch(`/api/admin/invoices?forceRefresh=${forceRefresh}`)
+                                    .then(res => {
+                                        if (!res.ok) throw new Error('Failed to load invoice list.');
+                                        return res.json();
+                                    })
+                                    .then(data => {
+                                        console.log('✅ Invoice list received.');
+                                        this.allInvoices = data;
+                                        this.filterAndDisplayInvoices();
+                                    })
+                                    .catch(error => {
+                                        console.error('Error fetching invoice list:', error);
+                                        const msg = 'Failed to load invoice data.';
+
+                                        if (forceRefresh) {
+                                            this.updateError = msg;
+                                        } else {
+                                            if (!this.hasData) {
+                                                this.error = msg;
+                                            } else {
+                                                this.updateError = msg + " Showing cached data.";
+                                            }
+                                        }
+                                    })
+                                    .finally(() => {
+                                        this.listLoading = false;
+                                        this.isUpdating = false;
+                                    });
+                            },
+
+                            handleFilterChange() {
+                                this.filterAndDisplayInvoices();
+                            },
+
+                            filterAndDisplayInvoices() {
+                                this.viewState = 'list';
+                                this.selectedInvoice = null;
+
+                                // ✅ FIX: Updated Filtering Logic for AWS, GCP, and Azure
+                                let invoices = this.allInvoices.filter(inv =>
+                                    (inv.awsAccountId === this.selectedAccountId ||
+                                        inv.gcpProjectId === this.selectedAccountId ||
+                                        inv.azureSubscriptionId === this.selectedAccountId) &&
+                                    inv.status === 'FINALIZED'
+                                );
+
+                                if (this.selectedYear !== 'all') {
+                                    invoices = invoices.filter(inv => inv.billingPeriod.startsWith(this.selectedYear));
+                                }
+
+                                if (this.selectedMonth !== 'all') {
+                                    const monthStr = `-${String(this.selectedMonth).padStart(2, '0')}`;
+                                    invoices = invoices.filter(inv => inv.billingPeriod.endsWith(monthStr));
+                                }
+
+                                if (invoices.length > 0 && !this.selectedAccountName) {
+                                    this.selectedAccountName = invoices[0].accountName;
+                                }
+
+                                this.filteredInvoices = invoices.sort((a, b) => b.id - a.id);
+                            },
+
+                            viewInvoice(invoice) {
+                                this.viewState = 'detail';
+                                this.detailLoading = true;
+                                this.error = null;
+                                this.selectedInvoice = invoice;
+
+                                // Small timeout to allow UI transition before heavy transformation
+                                setTimeout(() => {
+                                    this.detailedBreakdown = this.transformToDrilldown(invoice.lineItems);
+                                    this.detailLoading = false;
+                                }, 50);
+                            },
+
+                            goBackToList() {
+                                this.viewState = 'list';
+                                this.selectedInvoice = null;
+                                this.error = null;
+                                this.filterAndDisplayInvoices();
+                            },
+
+                            transformToDrilldown(lineItems) {
+                                if (!lineItems || lineItems.length === 0) return [];
+
+                                const serviceMap = new Map();
+
+                                for (const item of lineItems) {
+                                    // 1. Service Level
+                                    if (!serviceMap.has(item.serviceName)) {
+                                        serviceMap.set(item.serviceName, {
+                                            serviceName: item.serviceName,
+                                            totalCost: 0,
+                                            regionCosts: new Map()
+                                        });
+                                    }
+                                    const service = serviceMap.get(item.serviceName);
+                                    // Handle String cost if necessary, though API usually returns number in BigDecimal
+                                    const cost = typeof item.cost === 'string' ? parseFloat(item.cost) : item.cost;
+                                    service.totalCost += cost;
+
+                                    // 2. Region Level
+                                    if (!service.regionCosts.has(item.regionName)) {
+                                        service.regionCosts.set(item.regionName, {
+                                            regionName: item.regionName,
+                                            cost: 0,
+                                            resources: []
+                                        });
+                                    }
+                                    const region = service.regionCosts.get(item.regionName);
+                                    region.cost += cost;
+
+                                    // 3. Resource Level
+                                    region.resources.push({
+                                        resourceId: `${item.serviceName}-${item.regionName}-${item.resourceName}-${item.cost}`, // Unique key for loop
+                                        resourceName: item.resourceName,
+                                        usageQuantity: item.usageQuantity,
+                                        unit: item.unit,
+                                        cost: cost
+                                    });
+                                }
+
+                                // Convert Maps to Arrays for Alpine x-for
+                                const result = [];
+                                for (const service of serviceMap.values()) {
+                                    service.regionCosts = Array.from(service.regionCosts.values());
+                                    result.push(service);
+                                }
+                                return result.sort((a, b) => b.totalCost - a.totalCost); // Sort by cost desc
+                            },
+
+                            downloadInvoice() {
+                                if (!this.selectedInvoice) return;
+                                // Use whichever ID is available for filename
+                                const id = this.selectedInvoice.awsAccountId !== 'N/A' ? this.selectedInvoice.awsAccountId :
+                                    (this.selectedInvoice.gcpProjectId !== 'N/A' ? this.selectedInvoice.gcpProjectId : this.selectedInvoice.azureSubscriptionId);
+
+                                fetch('/api/billops/invoices/download-preview', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify(this.selectedInvoice)
+                                })
+                                    .then(res => {
+                                        if (!res.ok) throw new Error('PDF generation failed.');
+                                        return res.blob();
+                                    })
+                                    .then(blob => {
+                                        const url = window.URL.createObjectURL(blob);
+                                        const a = document.createElement('a');
+                                        a.style.display = 'none';
+                                        a.href = url;
+                                        a.download = `invoice-${id}-${this.selectedInvoice.billingPeriod}.pdf`;
+                                        document.body.appendChild(a);
+                                        a.click();
+                                        window.URL.revokeObjectURL(url);
+                                        document.body.removeChild(a);
+                                    })
+                                    .catch(err => {
+                                        console.error('Download error:', err);
+                                        alert('Could not download the invoice PDF.');
+                                    });
+                            },
+
+                            calculateDiscountAmount(discount) {
+                                try {
+                                    let amount = 0;
+                                    const percentage = new Big(discount.percentage).div(100);
+
+                                    if (discount.serviceName === 'ALL') {
+                                        amount = new Big(this.selectedInvoice.preDiscountTotal).times(percentage);
+                                    } else {
+                                        const service = this.detailedBreakdown.find(s => s.serviceName === discount.serviceName);
+                                        if (service) {
+                                            amount = new Big(service.totalCost).times(percentage);
+                                        }
+                                    }
+                                    return amount.times(-1).toNumber();
+                                } catch (e) { return 0; }
+                            },
+
+                            formatCurrency(value) {
+                                if (typeof value !== 'number') return '$0.00';
+                                return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
+                            },
+
+                            formatNumber(value) {
+                                if (typeof value !== 'number' && typeof value !== 'string') return '0';
+                                const num = Number(value);
+                                if (isNaN(num)) return '0';
+                                return num.toLocaleString('en-US', { maximumFractionDigits: 3 });
+                            },
+
+                            toggleService(serviceName) {
+                                this.expandedServices[serviceName] = !this.expandedServices[serviceName];
+                            },
+
+                            toggleRegion(serviceName, regionName) {
+                                const key = `${serviceName}-${regionName}`;
+                                this.expandedRegions[key] = !this.expandedRegions[key];
+                            }
+                        }
+                    }
+                </script>
             </main>
         </div>
     </div>
-
-    <script>
-        function invoicePage() {
-            return {
-                selectedAccountId: null,
-                selectedAccountName: '',
-                years: [new Date().getFullYear(), new Date().getFullYear() - 1],
-                selectedYear: 'all',
-                months: [
-                    { name: 'January', value: 1 }, { name: 'February', value: 2 }, { name: 'March', value: 3 },
-                    { name: 'April', value: 4 }, { name: 'May', value: 5 }, { name: 'June', value: 6 },
-                    { name: 'July', value: 7 }, { name: 'August', value: 8 }, { name: 'September', value: 9 },
-                    { name: 'October', value: 10 }, { name: 'November', value: 11 }, { name: 'December', value: 12 }
-                ],
-                selectedMonth: 'all',
-
-                viewState: 'list',
-                allInvoices: [],
-                filteredInvoices: [],
-                selectedInvoice: null,
-
-                listLoading: true,
-                detailLoading: false,
-                isUpdating: false,
-
-                error: null,
-                updateError: null,
-
-                detailedBreakdown: [],
-                expandedServices: {},
-                expandedRegions: {},
-
-                // Computed property for data existence
-                get hasData() {
-                    return this.allInvoices && this.allInvoices.length > 0;
-                },
-
-                init() {
-                    const urlParams = new URLSearchParams(window.location.search);
-                    const accountIds = urlParams.get('accountId') || urlParams.get('accountIds');
-
-                    if (accountIds) {
-                        this.selectedAccountId = accountIds.split(',')[0];
-                        // Unified Fetch: Initial load (forceRefresh = false)
-                        this.fetchData(false);
-                    } else {
-                        this.error = "No account selected. Please choose an account from the sidebar.";
-                        this.listLoading = false;
-                    }
-                },
-
-                // Unified function handling both Initial Load and Force Refresh
-                fetchData(forceRefresh = false) {
-                    if (forceRefresh) {
-                        this.isUpdating = true;
-                        this.updateError = null;
-                        console.log("🔄 Refreshing invoice list...");
-                    } else {
-                        this.listLoading = true;
-                        this.error = null;
-                        console.log("📥 Initial load for invoice list...");
-                    }
-
-                    // Using Admin endpoint for now as per requirements. 
-                    // Ideally this should be a user-scoped endpoint like /api/billops/invoices
-                    fetch(`/api/admin/invoices?forceRefresh=${forceRefresh}`)
-                        .then(res => {
-                            if (!res.ok) throw new Error('Failed to load invoice list.');
-                            return res.json();
-                        })
-                        .then(data => {
-                            console.log('✅ Invoice list received.');
-                            this.allInvoices = data;
-                            this.filterAndDisplayInvoices();
-                        })
-                        .catch(error => {
-                            console.error('Error fetching invoice list:', error);
-                            const msg = 'Failed to load invoice data.';
-
-                            if (forceRefresh) {
-                                this.updateError = msg;
-                            } else {
-                                if (!this.hasData) {
-                                    this.error = msg;
-                                } else {
-                                    this.updateError = msg + " Showing cached data.";
-                                }
-                            }
-                        })
-                        .finally(() => {
-                            this.listLoading = false;
-                            this.isUpdating = false;
-                        });
-                },
-
-                handleFilterChange() {
-                    this.filterAndDisplayInvoices();
-                },
-
-                filterAndDisplayInvoices() {
-                    this.viewState = 'list';
-                    this.selectedInvoice = null;
-
-                    // Filter for current account and FINALIZED status (Users only see finalized)
-                    let invoices = this.allInvoices.filter(inv =>
-                        inv.awsAccountId === this.selectedAccountId && inv.status === 'FINALIZED'
-                    );
-
-                    if (this.selectedYear !== 'all') {
-                        invoices = invoices.filter(inv => inv.billingPeriod.startsWith(this.selectedYear));
-                    }
-
-                    if (this.selectedMonth !== 'all') {
-                        const monthStr = `-${String(this.selectedMonth).padStart(2, '0')}`;
-                        invoices = invoices.filter(inv => inv.billingPeriod.endsWith(monthStr));
-                    }
-
-                    if (invoices.length > 0 && !this.selectedAccountName) {
-                        this.selectedAccountName = invoices[0].accountName;
-                    }
-
-                    this.filteredInvoices = invoices.sort((a, b) => b.id - a.id);
-                },
-
-                viewInvoice(invoice) {
-                    this.viewState = 'detail';
-                    this.detailLoading = true;
-                    this.error = null;
-                    this.selectedInvoice = invoice;
-
-                    // Small timeout to allow UI transition before heavy transformation
-                    setTimeout(() => {
-                        this.detailedBreakdown = this.transformToDrilldown(invoice.lineItems);
-                        this.detailLoading = false;
-                    }, 50);
-                },
-
-                goBackToList() {
-                    this.viewState = 'list';
-                    this.selectedInvoice = null;
-                    this.error = null;
-                    this.filterAndDisplayInvoices();
-                },
-
-                transformToDrilldown(lineItems) {
-                    if (!lineItems || lineItems.length === 0) return [];
-
-                    const serviceMap = new Map();
-
-                    for (const item of lineItems) {
-                        // 1. Service Level
-                        if (!serviceMap.has(item.serviceName)) {
-                            serviceMap.set(item.serviceName, {
-                                serviceName: item.serviceName,
-                                totalCost: 0,
-                                regionCosts: new Map()
-                            });
-                        }
-                        const service = serviceMap.get(item.serviceName);
-                        service.totalCost += item.cost;
-
-                        // 2. Region Level
-                        if (!service.regionCosts.has(item.regionName)) {
-                            service.regionCosts.set(item.regionName, {
-                                regionName: item.regionName,
-                                cost: 0,
-                                resources: []
-                            });
-                        }
-                        const region = service.regionCosts.get(item.regionName);
-                        region.cost += item.cost;
-
-                        // 3. Resource Level
-                        region.resources.push({
-                            resourceId: `${item.serviceName}-${item.regionName}-${item.resourceName}-${item.cost}`, // Unique key for loop
-                            resourceName: item.resourceName,
-                            usageQuantity: item.usageQuantity,
-                            unit: item.unit,
-                            cost: item.cost
-                        });
-                    }
-
-                    // Convert Maps to Arrays for Alpine x-for
-                    const result = [];
-                    for (const service of serviceMap.values()) {
-                        service.regionCosts = Array.from(service.regionCosts.values());
-                        result.push(service);
-                    }
-                    return result.sort((a, b) => b.totalCost - a.totalCost); // Sort by cost desc
-                },
-
-                downloadInvoice() {
-                    if (!this.selectedInvoice) return;
-
-                    fetch('/api/billops/invoices/download-preview', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(this.selectedInvoice)
-                    })
-                        .then(res => {
-                            if (!res.ok) throw new Error('PDF generation failed.');
-                            return res.blob();
-                        })
-                        .then(blob => {
-                            const url = window.URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.style.display = 'none';
-                            a.href = url;
-                            a.download = `invoice-${this.selectedInvoice.awsAccountId}-${this.selectedInvoice.billingPeriod}.pdf`;
-                            document.body.appendChild(a);
-                            a.click();
-                            window.URL.revokeObjectURL(url);
-                            document.body.removeChild(a);
-                        })
-                        .catch(err => {
-                            console.error('Download error:', err);
-                            alert('Could not download the invoice PDF.');
-                        });
-                },
-
-                calculateDiscountAmount(discount) {
-                    try {
-                        let amount = 0;
-                        const percentage = new Big(discount.percentage).div(100);
-
-                        if (discount.serviceName === 'ALL') {
-                            amount = new Big(this.selectedInvoice.preDiscountTotal).times(percentage);
-                        } else {
-                            const service = this.detailedBreakdown.find(s => s.serviceName === discount.serviceName);
-                            if (service) {
-                                amount = new Big(service.totalCost).times(percentage);
-                            }
-                        }
-                        return amount.times(-1).toNumber();
-                    } catch (e) { return 0; }
-                },
-
-                formatCurrency(value) {
-                    if (typeof value !== 'number') return '$0.00';
-                    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
-                },
-
-                formatNumber(value) {
-                    if (typeof value !== 'number' && typeof value !== 'string') return '0';
-                    const num = Number(value);
-                    if (isNaN(num)) return '0';
-                    return num.toLocaleString('en-US', { maximumFractionDigits: 3 });
-                },
-
-                toggleService(serviceName) {
-                    this.expandedServices[serviceName] = !this.expandedServices[serviceName];
-                },
-
-                toggleRegion(serviceName, regionName) {
-                    const key = `${serviceName}-${regionName}`;
-                    this.expandedRegions[key] = !this.expandedRegions[key];
-                }
-            }
-        }
-    </script>
 </body>
 
 </html>
