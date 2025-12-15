@@ -772,6 +772,15 @@ public class AutoSpottingService {
         }
     }
 
+    /**
+     * Get RI/SP Coverage
+     */
+    public RiSpCoverageResponse getRiSpCoverage(Long cloudAccountId) {
+        CloudAccount account = getByAwsAccountId(cloudAccountId);
+
+        return apiClient.getRiSpCoverage(account.getAwsAccountId());
+    }
+
     // ================= DTO CLASS =================
 
     /**
