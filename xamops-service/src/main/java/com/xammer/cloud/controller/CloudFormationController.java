@@ -42,13 +42,15 @@ public class CloudFormationController {
     // The stack name used in the customer's account
     private static final String CUSTOMER_STACK_NAME = "XamOps-AutoSpotting-Integration";
 
-    // Default regions list (17 standard regions, no opt-in required)
+    // ✅ UPDATED: Default regions list (16 standard regions, excluding us-east-1 by
+    // default)
+    // us-east-1 is typically the deployment region, so excluded from StackSet
     private static final String DEFAULT_REGIONS = "ap-northeast-1,ap-northeast-2,ap-northeast-3,ap-south-1," +
             "ap-southeast-1,ap-southeast-2," +
             "ca-central-1,eu-central-1,eu-north-1," +
             "eu-west-1,eu-west-2,eu-west-3," +
             "sa-east-1," +
-            "us-east-1,us-east-2,us-west-1,us-west-2";
+            "us-east-2,us-west-1,us-west-2";
 
     public CloudFormationController(
             CloudFormationClient cloudFormationClient,
@@ -200,8 +202,9 @@ public class CloudFormationController {
     /**
      * ✅ UPDATED: Generate CloudFormation Quick Create URL for "Deploy to AWS"
      * button
-     * This is the recommended approach - opens AWS Console with pre-filled
-     * parameters
+     * This automatically excludes the deployment region from the StackSet regions
+     * list
+     * to prevent duplicate EventBridge rules
      */
     @GetMapping("/deploy-url")
     public ResponseEntity<Map<String, Object>> getDeployUrl(
@@ -220,10 +223,12 @@ public class CloudFormationController {
                         "Please ensure the main AutoSpotting stack is deployed and in CREATE_COMPLETE state"));
             }
 
-            // Use default regions if not provided
-            if (regions == null || regions.trim().isEmpty()) {
-                regions = DEFAULT_REGIONS;
-            }
+            // ✅ FIX: Exclude deployment region from StackSet regions
+            // This prevents creating duplicate EventBridge rules in the deployment region
+            String targetRegions = getRegionsExcludingDeploymentRegion(regions, deployRegion);
+
+            log.info("📍 Deploy region: {}", deployRegion);
+            log.info("📍 StackSet regions (excluding deploy region): {}", targetRegions);
 
             // Build the AWS Console Quick Create URL
             String cfUrl = buildCloudFormationQuickCreateUrl(
@@ -232,16 +237,18 @@ public class CloudFormationController {
                     MAIN_ACCOUNT_ID,
                     MAIN_REGION,
                     LAMBDA_EXECUTION_ROLE_ARN,
-                    regions,
+                    targetRegions, // ✅ Use filtered regions
                     deployRegion);
 
             Map<String, Object> response = new HashMap<>();
             response.put("url", cfUrl);
             response.put("stackName", CUSTOMER_STACK_NAME);
             response.put("deployRegion", deployRegion);
+            response.put("stackSetRegions", targetRegions);
             response.put("templateUrl", TEMPLATE_S3_URL);
             response.put("method", "quick-create-url");
             response.put("description", "Click this URL to deploy the stack in AWS Console");
+            response.put("note", "Deployment region is excluded from StackSet to prevent duplicate resources");
 
             return ResponseEntity.ok(response);
 
@@ -251,6 +258,32 @@ public class CloudFormationController {
                     "error", "Failed to generate deploy URL",
                     "message", e.getMessage()));
         }
+    }
+
+    /**
+     * ✅ NEW: Get regions list excluding the deployment region
+     * This prevents duplicate EventBridge rules in the deployment region
+     * The main stack creates rules in the deployment region,
+     * StackSet creates rules in all other regions
+     */
+    private String getRegionsExcludingDeploymentRegion(String regions, String deployRegion) {
+        // Use default regions if not provided
+        String regionsToProcess = (regions == null || regions.trim().isEmpty())
+                ? DEFAULT_REGIONS
+                : regions;
+
+        // Split, filter out deployment region, rejoin
+        String filteredRegions = java.util.Arrays.stream(regionsToProcess.split(","))
+                .map(String::trim)
+                .filter(region -> !region.isEmpty())
+                .filter(region -> !region.equals(deployRegion))
+                .collect(Collectors.joining(","));
+
+        log.info("🔧 Original regions count: {}", regionsToProcess.split(",").length);
+        log.info("🔧 Filtered regions count: {}", filteredRegions.isEmpty() ? 0 : filteredRegions.split(",").length);
+        log.info("🔧 Excluded deployment region: {}", deployRegion);
+
+        return filteredRegions;
     }
 
     /**
@@ -343,6 +376,7 @@ public class CloudFormationController {
         info.put("mainRegion", MAIN_REGION);
         info.put("healthy", isMainStackHealthy());
         info.put("templateUrl", TEMPLATE_S3_URL);
+        info.put("defaultRegions", DEFAULT_REGIONS);
 
         return ResponseEntity.ok(info);
     }
