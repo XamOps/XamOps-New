@@ -34,8 +34,6 @@
                         --glass-border: rgba(229, 231, 235, 0.8);
                     }
 
-                    /* CHANGE: Removed body style here to prevent global conflicts */
-
                     [x-cloak] {
                         display: none !important;
                     }
@@ -107,18 +105,6 @@
                         border: 1px solid var(--glass-border);
                     }
 
-                    .code-block {
-                        background: #1e293b;
-                        color: #e2e8f0;
-                        padding: 1rem;
-                        border-radius: 0.5rem;
-                        font-family: 'Courier New', Courier, monospace;
-                        white-space: pre-wrap;
-                        word-break: break-all;
-                        max-height: 60vh;
-                        overflow-y: auto;
-                    }
-
                     .status-badge {
                         display: inline-flex;
                         align-items: center;
@@ -129,14 +115,6 @@
                         text-transform: uppercase;
                     }
 
-                    .sortable-header {
-                        cursor: pointer;
-                    }
-
-                    .sortable-header:hover {
-                        color: #326ce5;
-                    }
-
                     .btn-primary {
                         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                         transition: all 0.3s ease;
@@ -145,14 +123,6 @@
                     .btn-primary:hover {
                         transform: translateY(-2px);
                         box-shadow: 0 10px 15px -3px rgba(102, 126, 234, 0.4);
-                    }
-
-                    .placeholder-highlight {
-                        background-color: #fef3c7;
-                        color: #92400e;
-                        padding: 2px 4px;
-                        border-radius: 3px;
-                        font-weight: 600;
                     }
                 </style>
 
@@ -167,20 +137,16 @@
                             <p class="text-sm text-gray-600">Monitor your EKS clusters and workloads</p>
                         </div>
                     </div>
-                    <button @click="view === 'clusters' ? fetchClusters(true) : navigateToClusters()"
-                        class="px-4 py-2 text-sm font-semibold rounded-lg bg-white border hover:bg-gray-50 flex items-center"
+                    <button @click="fetchClusters(true)"
+                        class="px-4 py-2 text-sm font-semibold rounded-lg bg-white border hover:bg-gray-50 flex items-center transition-colors"
                         :disabled="isRefreshing">
-                        <i class="fas fa-sync-alt mr-2" :class="{'fa-spin': isRefreshing}"
-                            x-show="view === 'clusters'"></i>
-                        <i class="fas fa-arrow-left mr-2" x-show="view !== 'clusters'"></i>
-                        <span x-show="view === 'clusters'"
-                            x-text="isRefreshing ? 'Refreshing...' : 'Refresh Now'"></span>
-                        <span x-show="view !== 'clusters'">Back to Clusters</span>
+                        <i class="fas fa-sync-alt mr-2" :class="{'fa-spin': isRefreshing}"></i>
+                        <span x-text="isRefreshing ? 'Refreshing...' : 'Refresh Now'"></span>
                     </button>
                 </header>
 
                 <div class="flex-1 p-4 md:p-8 space-y-8">
-                    <div x-show="view === 'clusters'" class="space-y-8">
+                    <div class="space-y-8">
                         <div class="glass-card rounded-2xl p-6 md:p-8 fade-in">
                             <h2 class="text-xl font-bold text-gray-800 mb-6">EKS Clusters</h2>
                             <div x-show="isLoading.clusters" class="text-center py-12">
@@ -218,7 +184,7 @@
                                                 <template x-if="!cluster.connected">
                                                     <button @click="enableMonitoring(cluster)"
                                                         :disabled="cluster.isEnabling"
-                                                        class="px-3 py-1 text-xs font-semibold rounded-lg bg-yellow-500 text-white hover:bg-yellow-600 disabled:opacity-50">
+                                                        class="px-3 py-1 text-xs font-semibold rounded-lg bg-yellow-500 text-white hover:bg-yellow-600 disabled:opacity-50 transition-colors">
                                                         <span x-show="!cluster.isEnabling"><i
                                                                 class="fas fa-magic mr-1"></i> Enable Monitoring</span>
                                                         <span x-show="cluster.isEnabling"><i
@@ -228,10 +194,10 @@
                                                 </template>
                                             </td>
                                             <td class="px-6 py-4 text-center">
-                                                <button @click="navigateToDetails(cluster)"
-                                                    class="px-4 py-2 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700">
+                                                <a :href="`/eks-details.html?name=${cluster.name}&region=${cluster.region}&accountIds=${selectedAccountId}`"
+                                                    class="nav-item inline-block px-4 py-2 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors shadow-sm">
                                                     Details
-                                                </button>
+                                                </a>
                                             </td>
                                         </tr>
                                     </template>
@@ -258,14 +224,12 @@
                                             class="w-12 h-12 bg-orange-50 rounded-lg flex items-center justify-center border border-orange-100">
                                             <i class="fas fa-code-branch text-orange-500 text-xl"></i>
                                         </div>
-                                        <i
-                                            class="fas fa-arrow-right text-gray-300 group-hover:text-indigo-400 transition-colors"></i>
                                     </div>
 
                                     <h4 class="font-bold text-gray-800 text-lg mb-2">ArgoCD GitOps</h4>
                                     <p class="text-sm text-gray-500 mb-6 leading-relaxed">
                                         Automated continuous delivery. Sync your cluster state directly from your Git
-                                        repositories with full observability.
+                                        repositories.
                                     </p>
 
                                     <button disabled
@@ -273,80 +237,19 @@
                                         <i class="fas fa-clock mr-2"></i> Integration Pending
                                     </button>
                                 </div>
-
-                                <div
-                                    class="glass-card p-6 rounded-xl border border-dashed border-gray-200 opacity-60 flex flex-col items-center justify-center text-center">
-                                    <div
-                                        class="w-12 h-12 bg-gray-50 rounded-full flex items-center justify-center mb-3">
-                                        <i class="fas fa-plus text-gray-400"></i>
-                                    </div>
-                                    <p class="text-sm text-gray-500 font-medium">More tools arriving soon</p>
-                                </div>
-
-                            </div>
-                        </div>
-                    </div>
-
-                    <div x-show="view === 'details' && selectedCluster" x-cloak class="fade-in space-y-8">
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            <div class="glass-card p-6 rounded-lg shadow-md">
-                                <h3 class="font-semibold text-gray-600">Status</h3>
-                                <p class="text-2xl font-bold text-green-500" x-text="selectedCluster.status"></p>
-                            </div>
-                            <div class="glass-card p-6 rounded-lg shadow-md">
-                                <h3 class="font-semibold text-gray-600">Kubernetes Version</h3>
-                                <p class="text-2xl font-bold text-gray-800" x-text="selectedCluster.version"></p>
-                            </div>
-                            <div class="glass-card p-6 rounded-lg shadow-md">
-                                <h3 class="font-semibold text-gray-600">Region</h3>
-                                <p class="text-2xl font-bold text-gray-800" x-text="selectedCluster.region"></p>
-                            </div>
-                        </div>
-
-                        <div class="glass-card rounded-2xl p-6 md:p-8" x-show="clusterUsage">
-                            <h3 class="text-lg font-semibold mb-2">Cluster Usage Summary</h3>
-                            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                <div>
-                                    <p class="text-sm font-medium text-gray-600">CPU Usage</p>
-                                    <p class="text-xl font-bold"
-                                        x-text="(clusterUsage.cpuUsage || 0).toFixed(2) + ' %'"></p>
-                                </div>
-                                <div>
-                                    <p class="text-sm font-medium text-gray-600">Memory Usage</p>
-                                    <p class="text-xl font-bold"
-                                        x-text="(clusterUsage.memoryUsage || 0).toFixed(2) + ' %'"></p>
-                                </div>
-                                <div>
-                                    <p class="text-sm font-medium text-gray-600">Nodes</p>
-                                    <p class="text-xl font-bold" x-text="clusterUsage.nodeCount || 0"></p>
-                                </div>
-                                <div>
-                                    <p class="text-sm font-medium text-gray-600">Pods</p>
-                                    <p class="text-xl font-bold" x-text="clusterUsage.podCount || 0"></p>
-                                </div>
-                            </div>
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mt-6">
-                                <div class="glass-card p-6">
-                                    <h4 class="text-lg font-semibold text-gray-700 mb-4 text-center">CPU Usage</h4>
-                                    <div class="h-64"><canvas id="cpuUsageChart"></canvas></div>
-                                </div>
-                                <div class="glass-card p-6">
-                                    <h4 class="text-lg font-semibold text-gray-700 mb-4 text-center">Memory Usage</h4>
-                                    <div class="h-64"><canvas id="memoryUsageChart"></canvas></div>
-                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
 
                 <div @click="isHelpModalOpen = true"
-                    class="fixed bottom-8 right-8 w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center text-white text-2xl shadow-lg cursor-pointer hover:scale-110 transition-transform">
+                    class="fixed bottom-8 right-8 w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center text-white text-2xl shadow-lg cursor-pointer hover:scale-110 transition-transform z-30">
                     <i class="fas fa-question"></i>
                 </div>
 
                 <div x-show="isHelpModalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
                     <div @click="isHelpModalOpen = false" class="modal-overlay fixed inset-0"></div>
-                    <div class="modal-content rounded-2xl p-8 w-full max-w-3xl mx-auto max-h-[90vh] overflow-y-auto fade-in"
+                    <div class="modal-content rounded-2xl p-8 w-full max-w-3xl mx-auto max-h-[90vh] overflow-y-auto fade-in z-50"
                         @click.stop>
                         <div class="flex items-center justify-between pb-4 border-b">
                             <div class="flex items-center space-x-4">
@@ -375,42 +278,32 @@
                 <script>
                     function cloudK8s() {
                         return {
-                            view: 'clusters',
-                            isLoading: { clusters: true, details: true, usage: true },
+                            isLoading: { clusters: true },
                             isRefreshing: false,
                             clusters: [],
-                            selectedCluster: null,
-                            clusterUsage: null,
-                            activeTab: 'nodes',
                             selectedAccountId: null,
                             pollingInterval: null,
-                            openCostStatus: 'not_installed',
-                            installationMessage: '',
-                            installationSuccess: false,
                             isHelpModalOpen: false,
-                            appBaseUrl: window.location.origin,
 
                             init() {
-                                const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-                                this.selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
+                                // 1. Restore context
+                                const urlParams = new URLSearchParams(window.location.search);
+                                let ids = urlParams.get('accountIds');
+                                if (!ids) {
+                                    const storedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                                    ids = storedIds.length > 0 ? storedIds[0] : null;
+                                }
+                                this.selectedAccountId = ids;
+
                                 if (!this.selectedAccountId) {
-                                    this.isLoading.clusters = false; return;
+                                    this.isLoading.clusters = false;
+                                    return;
                                 }
                                 this.fetchClusters(false);
                             },
+
                             cleanup() {
                                 if (this.pollingInterval) clearInterval(this.pollingInterval);
-                            },
-                            navigateToClusters() {
-                                window.location.href = `/cloudk8s.html?accountIds=${this.selectedAccountId}`;
-                            },
-
-                            navigateToDetails(cluster) {
-                                const url = new URL(`${this.appBaseUrl}/eks-details.html`);
-                                url.searchParams.set('name', cluster.name);
-                                url.searchParams.set('region', cluster.region);
-                                url.searchParams.set('accountId', this.selectedAccountId);
-                                window.location.href = url.toString();
                             },
 
                             fetchClusters(forceRefresh = false) {
@@ -426,7 +319,7 @@
                                     return;
                                 }
 
-                                this.isLoading.clusters = !cachedData;
+                                this.isLoading.clusters = true;
                                 this.isRefreshing = forceRefresh;
 
                                 fetch(`/api/xamops/k8s/clusters?accountIds=${this.selectedAccountId}&forceRefresh=${forceRefresh}`)
@@ -438,91 +331,13 @@
                                         this.clusters = data.map(c => ({ ...c, isEnabling: false }));
                                         sessionStorage.setItem(cacheKey, JSON.stringify(data));
                                     })
-                                    .catch(err => console.error('Failed to fetch clusters', err))
+                                    .catch(err => {
+                                        console.error('Failed to fetch clusters', err);
+                                        this.clusters = [];
+                                    })
                                     .finally(() => {
                                         this.isLoading.clusters = false;
                                         this.isRefreshing = false;
-                                    });
-                            },
-
-                            async fetchClusterUsage() {
-                                if (!this.selectedCluster) return;
-                                this.isLoading.usage = true;
-                                const { name, region } = this.selectedCluster;
-
-                                try {
-                                    const response = await fetch(`/api/xamops/k8s/clusters/usage?accountId=${this.selectedAccountId}&clusterName=${name}&region=${region}`, { method: 'POST' });
-                                    if (!response.ok) throw new Error('Failed to fetch usage data');
-                                    this.clusterUsage = await response.json();
-                                    this.$nextTick(() => this.renderUsageCharts());
-                                } catch (err) {
-                                    console.error('Failed to fetch cluster usage', err);
-                                    this.clusterUsage = null;
-                                } finally {
-                                    this.isLoading.usage = false;
-                                }
-                            },
-
-                            renderUsageCharts() {
-                                if (!this.clusterUsage) return;
-                                if (window.cpuChartInstance) window.cpuChartInstance.destroy();
-                                if (window.memChartInstance) window.memChartInstance.destroy();
-
-                                const cpuCtx = document.getElementById('cpuUsageChart')?.getContext('2d');
-                                if (cpuCtx) {
-                                    // CHANGE: Fixed syntax error (removed extra closing brace)
-                                    window.cpuChartInstance = new Chart(cpuCtx, {
-                                        type: 'doughnut',
-                                        data: {
-                                            labels: ['Used', 'Free'],
-                                            datasets: [{ data: [this.clusterUsage.cpuUsage, 100 - this.clusterUsage.cpuUsage], backgroundColor: ['#326ce5', '#e5e7eb'], borderWidth: 4, hoverOffset: 8 }]
-                                        },
-                                        options: { responsive: true, maintainAspectRatio: false, cutout: '70%', plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.label}: ${ctx.raw.toFixed(2)}%` } } } }
-                                    });
-                                }
-
-                                const memCtx = document.getElementById('memoryUsageChart')?.getContext('2d');
-                                if (memCtx) {
-                                    // CHANGE: Fixed syntax error (removed extra closing brace)
-                                    window.memChartInstance = new Chart(memCtx, {
-                                        type: 'doughnut',
-                                        data: {
-                                            labels: ['Used', 'Free'],
-                                            datasets: [{ data: [this.clusterUsage.memoryUsage, 100 - this.clusterUsage.memoryUsage], backgroundColor: ['#667eea', '#e5e7eb'], borderWidth: 4, hoverOffset: 8 }]
-                                        },
-                                        options: { responsive: true, maintainAspectRatio: false, cutout: '70%', plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.label}: ${ctx.raw.toFixed(2)}%` } } } }
-                                    });
-                                }
-                            },
-
-                            installOpenCost() {
-                                this.openCostStatus = 'installing';
-                                this.installationMessage = '';
-
-                                if (!this.selectedAccountId || !this.selectedCluster.name || !this.selectedCluster.region) {
-                                    this.installationMessage = 'Error: Missing account, cluster, or region information.';
-                                    this.installationSuccess = false;
-                                    this.openCostStatus = 'not_installed';
-                                    return;
-                                }
-
-                                const apiUrl = `/api/xamops/eks/${this.selectedCluster.name}/install-opencost?accountId=${this.selectedAccountId}&region=${this.selectedCluster.region}`;
-
-                                fetch(apiUrl, { method: 'POST' })
-                                    .then(res => {
-                                        if (!res.ok) { return res.json().then(err => { throw new Error(err.message || 'Installation failed'); }); }
-                                        return res.json();
-                                    })
-                                    .then(data => {
-                                        this.openCostStatus = 'installed';
-                                        this.installationMessage = data.message || 'OpenCost installed successfully!';
-                                        this.installationSuccess = true;
-                                    })
-                                    .catch(err => {
-                                        console.error('OpenCost installation error:', err);
-                                        this.openCostStatus = 'not_installed';
-                                        this.installationMessage = `Error: ${err.message}. Check server logs for details.`;
-                                        this.installationSuccess = false;
                                     });
                             },
 
