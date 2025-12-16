@@ -317,7 +317,19 @@ public class GcpDataService {
                             }).collect(Collectors.toList());
 
                     data.setSecurityInsights(securityInsights);
+                    data.setSecurityInsights(securityInsights);
                     data.setIamResources(iamResourcesFuture.join());
+
+                    // Fetch IAM Details (Service Accounts & Roles)
+                    // We do this synchronously here or could add to futures, but for simplicity
+                    // let's do sync or simple join if I add method
+                    try {
+                        data.setIamDetails(getIamDetails(gcpProjectId).get());
+                    } catch (Exception e) {
+                        log.error("Failed to fetch detailed IAM info for project {}", gcpProjectId, e);
+                        data.setIamDetails(
+                                new DashboardData.IamDetail(Collections.emptyList(), Collections.emptyList()));
+                    }
 
                     // ✅ Cache the result for 10 minutes
                     redisCache.put(cacheKey, data, 10);
@@ -633,6 +645,57 @@ public class GcpDataService {
                 log.error("Error fetching IAM resources for project: {}", gcpProjectId, e);
                 return new DashboardData.IamResources(0, 0, 0, 0);
             }
+        });
+    }
+
+    public CompletableFuture<DashboardData.IamDetail> getIamDetails(String gcpProjectId) {
+        return CompletableFuture.supplyAsync(() -> {
+            List<DashboardData.IamUserDetail> users = new ArrayList<>();
+            List<DashboardData.IamRoleDetail> roles = new ArrayList<>();
+
+            // 1. Fetch Service Accounts
+            try (com.google.cloud.iam.admin.v1.IAMClient iamClient = gcpClientProvider.getIamClient(gcpProjectId)
+                    .orElse(null)) {
+                if (iamClient != null) {
+                    com.google.iam.admin.v1.ListServiceAccountsRequest request = com.google.iam.admin.v1.ListServiceAccountsRequest
+                            .newBuilder()
+                            .setName("projects/" + gcpProjectId)
+                            .build();
+
+                    for (com.google.iam.admin.v1.ServiceAccount sa : iamClient.listServiceAccounts(request)
+                            .iterateAll()) {
+                        DashboardData.IamUserDetail user = new DashboardData.IamUserDetail();
+                        user.setUserName(sa.getDisplayName().isEmpty() ? sa.getEmail() : sa.getDisplayName());
+                        user.setUserId(sa.getUniqueId());
+                        user.setArn(sa.getName()); // "projects/PID/serviceAccounts/email"
+                        user.setCreateDate(null); // Not readily available in list?
+                        user.setPasswordLastUsed(null);
+                        users.add(user);
+                    }
+
+                    // 2. Fetch Roles (Custom roles usually, pre-defined are too many)
+                    // For now, let's list custom roles or just leave roles empty/minimal to avoid
+                    // massive list
+                    com.google.iam.admin.v1.ListRolesRequest rolesRequest = com.google.iam.admin.v1.ListRolesRequest
+                            .newBuilder()
+                            .setParent("projects/" + gcpProjectId)
+                            .setView(com.google.iam.admin.v1.RoleView.BASIC)
+                            .build();
+
+                    for (com.google.iam.admin.v1.Role role : iamClient.listRoles(rolesRequest).iterateAll()) {
+                        DashboardData.IamRoleDetail roleDetail = new DashboardData.IamRoleDetail();
+                        roleDetail.setRoleName(role.getTitle());
+                        roleDetail.setRoleId(role.getName());
+                        roleDetail.setArn(role.getName());
+                        roleDetail.setCreateDate(null);
+                        roles.add(roleDetail);
+                    }
+                }
+            } catch (Exception e) {
+                log.error("Error fetching IAM details for project {}", gcpProjectId, e);
+            }
+
+            return new DashboardData.IamDetail(users, roles);
         });
     }
 
