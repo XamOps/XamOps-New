@@ -63,11 +63,6 @@
                             <p class="text-xs text-gray-500" x-text="accountId || '...'">ID</p>
                         </div>
 
-                        <button @click="showDebug = !showDebug" class="text-gray-400 hover:text-gray-600 p-2"
-                            title="Toggle Debug Info">
-                            <i class="fas fa-bug"></i>
-                        </button>
-
                         <button @click="fetchData(true)" :disabled="loading || !accountId"
                             class="px-4 py-2 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition text-sm font-medium disabled:opacity-50 flex items-center">
                             <i class="fas fa-sync-alt mr-2" :class="{'fa-spin': loading}"></i>
@@ -77,19 +72,6 @@
                 </header>
 
                 <div class="flex-1 overflow-y-auto p-6 bg-gray-50">
-
-                    <div x-show="showDebug"
-                        class="mb-6 p-4 bg-gray-800 text-green-400 font-mono text-xs rounded-lg shadow-lg overflow-auto max-h-64 border border-gray-700"
-                        x-cloak>
-                        <div class="flex justify-between items-center mb-2 border-b border-gray-700 pb-2">
-                            <span class="font-bold">Backend Response Debugger</span>
-                            <button @click="showDebug = false" class="text-red-400 hover:text-red-300">Close</button>
-                        </div>
-                        <div class="mb-2">
-                            <span class="text-gray-400">Last URL:</span> <span x-text="lastUrl"></span>
-                        </div>
-                        <pre x-text="debugInfo || 'No data fetched yet...'"></pre>
-                    </div>
 
                     <div x-show="error" x-transition x-cloak
                         class="mb-6 p-4 bg-red-50 border-l-4 border-red-500 rounded-r shadow-sm">
@@ -106,7 +88,8 @@
 
                     <div x-show="loading && !users.length" class="flex flex-col justify-center items-center h-96">
                         <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mb-4"></div>
-                        <p class="text-gray-500 text-sm">Fetching IAM details from AWS...</p>
+                        <p class="text-gray-500 text-sm">Fetching IAM details from <span x-text="provider"></span>...
+                        </p>
                         <p class="text-xs text-gray-400 mt-2">Account ID: <span x-text="accountId"></span></p>
                     </div>
 
@@ -116,7 +99,8 @@
                             <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
                                 <div class="flex items-center justify-between">
                                     <div>
-                                        <p class="text-sm font-medium text-gray-500 mb-1">Total IAM Users</p>
+                                        <p class="text-sm font-medium text-gray-500 mb-1"
+                                            x-text="'Total ' + usersLabel">Total IAM Users</p>
                                         <h3 class="text-2xl font-bold text-gray-800" x-text="users.length">0</h3>
                                     </div>
                                     <div
@@ -139,11 +123,12 @@
                                 </div>
                             </div>
 
-                            <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+                            <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-100" x-show="isAws">
                                 <div class="flex items-center justify-between">
                                     <div>
                                         <p class="text-sm font-medium text-gray-500 mb-1">MFA Status</p>
-                                        <h3 class="text-2xl font-bold text-gray-800" x-text="countNoMfa(users)">0</h3>
+                                        <h3 class="text-2xl font-bold text-gray-800" x-text="countNoMfa(users)">0
+                                        </h3>
                                         <p class="text-xs text-red-500 mt-1" x-show="countNoMfa(users) > 0">Users
                                             potentially missing MFA</p>
                                     </div>
@@ -161,7 +146,7 @@
                                     <button @click="activeTab = 'users'"
                                         :class="activeTab === 'users' ? 'border-purple-500 text-purple-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
                                         class="py-4 px-1 text-center border-b-2 font-medium text-sm transition-colors duration-200 flex items-center">
-                                        <i class="fas fa-user mr-2"></i> IAM Users
+                                        <i class="fas fa-user mr-2"></i> <span x-text="usersLabel">IAM Users</span>
                                         <span class="ml-2 bg-gray-200 text-gray-600 py-0.5 px-2 rounded-full text-xs"
                                             x-text="users.length"></span>
                                     </button>
@@ -191,7 +176,8 @@
                                         <thead class="bg-gray-50">
                                             <tr>
                                                 <th scope="col"
-                                                    class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                    class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                                                    x-text="userIdentityLabel">
                                                     User Identity</th>
                                                 <th scope="col"
                                                     class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -268,7 +254,8 @@
                                                         <div class="text-xs text-gray-500">
                                                             <div class="mb-1"><span
                                                                     class="font-medium text-gray-600">Created:</span>
-                                                                <span x-text="formatDate(user.createDate)"></span></div>
+                                                                <span x-text="formatDate(user.createDate)"></span>
+                                                            </div>
                                                             <div><span class="font-medium text-gray-600">Last Pwd
                                                                     Use:</span> <span
                                                                     x-text="formatDate(user.passwordLastUsed)"
@@ -288,7 +275,8 @@
                                                 <td colspan="4" class="px-6 py-10 text-center text-gray-500">
                                                     <div class="flex flex-col items-center justify-center">
                                                         <i class="fas fa-ghost text-4xl text-gray-300 mb-2"></i>
-                                                        <p class="font-semibold text-gray-600">No IAM Users found</p>
+                                                        <p class="font-semibold text-gray-600">No IAM Users found
+                                                        </p>
                                                         <button @click="showDebug = true"
                                                             class="text-xs text-indigo-500 mt-2 hover:underline">
                                                             Check Debug Info
@@ -362,7 +350,8 @@
                                                             </template>
                                                             <template
                                                                 x-if="!role.attachedPolicies || role.attachedPolicies.length === 0">
-                                                                <span class="text-xs text-gray-400 italic">No policies
+                                                                <span class="text-xs text-gray-400 italic">No
+                                                                    policies
                                                                     attached</span>
                                                             </template>
                                                         </div>
@@ -382,7 +371,8 @@
                                                 <td colspan="4" class="px-6 py-10 text-center text-gray-500">
                                                     <div class="flex flex-col items-center justify-center">
                                                         <i class="fas fa-ghost text-4xl text-gray-300 mb-2"></i>
-                                                        <p class="font-semibold text-gray-600">No IAM Roles found</p>
+                                                        <p class="font-semibold text-gray-600">No IAM Roles found
+                                                        </p>
                                                     </div>
                                                 </td>
                                             </tr>
@@ -403,6 +393,7 @@
                             activeTab: 'users',
                             accountName: '',
                             accountId: '',
+                            provider: 'AWS', // Default to AWS
                             searchQuery: '',
                             users: [],
                             roles: [],
@@ -410,9 +401,45 @@
                             debugInfo: '',
                             lastUrl: '',
 
+                            get isAws() { return this.provider === 'AWS'; },
+                            get isGcp() { return this.provider === 'GCP'; },
+                            get isAzure() { return this.provider === 'Azure'; },
+
+                            get usersLabel() {
+                                if (this.isGcp) return 'Service Accounts';
+                                if (this.isAzure) return 'Principals';
+                                return 'IAM Users';
+                            },
+
+                            get rolesLabel() {
+                                return 'IAM Roles'; // Pretty standard across all
+                            },
+
+                            get userIdentityLabel() {
+                                if (this.isGcp) return 'Service Account';
+                                if (this.isAzure) return 'Principal Name';
+                                return 'User Identity';
+                            },
+
                             async initData() {
                                 this.loadAccountFromStorage();
                                 window.addEventListener('account-changed', () => this.loadAccountFromStorage());
+                            },
+
+
+                            determineProvider(accountId) {
+                                try {
+                                    const cached = sessionStorage.getItem('cached_accounts');
+                                    if (cached) {
+                                        const accounts = JSON.parse(cached);
+                                        const account = accounts.find(a => a.id === accountId);
+                                        if (account && account.provider) {
+                                            this.provider = account.provider;
+                                            return;
+                                        }
+                                    }
+                                } catch (e) { console.error("Error determining provider", e); }
+                                // Fallback: Don't reset to AWS here if we don't know, keep previous or default
                             },
 
                             loadAccountFromStorage() {
@@ -431,6 +458,7 @@
                                 if (targetId) {
                                     if (this.accountId !== targetId || this.users.length === 0) {
                                         this.accountId = targetId;
+                                        this.determineProvider(targetId); // Update provider before fetch
                                         this.fetchData(false, targetId);
                                     }
                                 } else {
@@ -468,24 +496,29 @@
 
                                     this.debugInfo = JSON.stringify(data.selectedAccount ? (data.selectedAccount.iamDetails || 'iamDetails is Missing') : 'No Account Data', null, 2);
 
-                                    if (data && data.selectedAccount) {
-                                        this.accountName = data.selectedAccount.name;
-                                        this.accountId = data.selectedAccount.id;
+                                    if (data) {
+                                        // Capture Provider
+                                        this.provider = data.selectedProvider || 'AWS';
 
-                                        if (!data.selectedAccount.iamDetails && !forceRefresh) {
-                                            console.warn("Stale cache detected (missing iamDetails). Auto-refreshing...");
-                                            await this.fetchData(true, idToFetch);
-                                            return;
-                                        }
+                                        if (data.selectedAccount) {
+                                            this.accountName = data.selectedAccount.name;
+                                            this.accountId = data.selectedAccount.id;
 
-                                        if (data.selectedAccount.iamDetails) {
-                                            this.users = data.selectedAccount.iamDetails.users || [];
-                                            this.roles = data.selectedAccount.iamDetails.roles || [];
-                                        } else {
-                                            console.warn("IAM Details missing even after refresh.");
-                                            this.users = [];
-                                            this.roles = [];
-                                            if (forceRefresh) this.error = "Backend returned incomplete data (iamDetails is null). Check Debug Info.";
+                                            if (!data.selectedAccount.iamDetails && !forceRefresh) {
+                                                console.warn("Stale cache detected (missing iamDetails). Auto-refreshing...");
+                                                await this.fetchData(true, idToFetch);
+                                                return;
+                                            }
+
+                                            if (data.selectedAccount.iamDetails) {
+                                                this.users = data.selectedAccount.iamDetails.users || [];
+                                                this.roles = data.selectedAccount.iamDetails.roles || [];
+                                            } else {
+                                                console.warn("IAM Details missing even after refresh.");
+                                                this.users = [];
+                                                this.roles = [];
+                                                if (forceRefresh) this.error = "Backend returned incomplete data (iamDetails is null). Check Debug Info.";
+                                            }
                                         }
                                     } else {
                                         throw new Error("Invalid response format");
@@ -503,8 +536,8 @@
                                 if (!this.searchQuery) return this.users;
                                 const lower = this.searchQuery.toLowerCase();
                                 return this.users.filter(u =>
-                                    u.userName.toLowerCase().includes(lower) ||
-                                    u.userId.toLowerCase().includes(lower)
+                                    (u.userName && u.userName.toLowerCase().includes(lower)) ||
+                                    (u.userId && u.userId.toLowerCase().includes(lower))
                                 );
                             },
 
@@ -533,7 +566,10 @@
                                 return date < ninetyDaysAgo;
                             },
 
-                            countNoMfa(users) { return 0; },
+                            countNoMfa(users) {
+                                if (!this.isAws) return 0; // Not applicable or not fetched for GCP/Azure yet
+                                return 0; // The logic for checking MFA was likely missing in backend or not exposed in IamUserDetail. Returning 0 to be safe.
+                            },
 
                             async copyToClipboard(text) {
                                 try { await navigator.clipboard.writeText(text); } catch (e) { }

@@ -867,7 +867,7 @@
                         <a :href="getLink('/reservation.html')"
                             :class="{'text-green-600 font-bold bg-green-50': isActive('/reservation.html')}"
                             class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-green-600">Reservations</a>
-                        <a :href="getLink('/spot-automation.html')"
+                        <a :href="getLink('/spot-automation.html')" x-show="selectedAccountDisplay.provider === 'AWS'"
                             :class="{'text-green-600 font-bold bg-green-50': isActive('/spot-automation.html')}"
                             class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-green-600">Spot
                             Automation</a>
