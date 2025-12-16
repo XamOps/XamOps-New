@@ -255,7 +255,9 @@
 <script>
     // Define in window scope so it's accessible when loaded dynamically
     window.actionsHistoryTab = function () {
-        const backendBaseUrl = 'http://localhost:8080';
+        const backendBaseUrl = window.location.hostname === 'localhost'
+            ? 'http://localhost:8080'
+            : window.location.origin;
         const tenantId = sessionStorage.getItem('tenantId') || 'customer1';
 
         return {
