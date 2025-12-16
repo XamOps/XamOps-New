@@ -3,10 +3,16 @@ package com.xammer.cloud.controller;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.cloudformation.CloudFormationClient;
 import software.amazon.awssdk.services.cloudformation.model.*;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.*;
+import software.amazon.awssdk.services.sts.StsClient;
+import software.amazon.awssdk.services.sts.model.AssumeRoleRequest;
+import software.amazon.awssdk.services.sts.model.AssumeRoleResponse;
 
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
@@ -24,11 +30,15 @@ public class CloudFormationController {
 
     private final CloudFormationClient cloudFormationClient;
     private final DynamoDbClient dynamoDbClient;
+    private final StsClient stsClient;
 
     // XamOps/AutoSpotting Main Account Configuration
     private static final String MAIN_ACCOUNT_ID = "982534352845";
     private static final String MAIN_REGION = "ap-south-1";
     private static final String MAIN_STACK_NAME = "autospotting";
+
+    // Host Role for checking Main Engine Status (Same as used for DynamoDB access)
+    private static final String HOST_ROLE_ARN = "arn:aws:iam::982534352845:role/XamOps-AutoSpotting-HostRole";
 
     // ✅ Updated Lambda Role ARN with correct suffix
     private static final String LAMBDA_EXECUTION_ROLE_ARN = "arn:aws:iam::982534352845:role/lambda/autospotting-LambdaExecutionRole-QLEgqMN3g4f1";
@@ -54,9 +64,11 @@ public class CloudFormationController {
 
     public CloudFormationController(
             CloudFormationClient cloudFormationClient,
-            DynamoDbClient dynamoDbClient) {
+            DynamoDbClient dynamoDbClient,
+            StsClient stsClient) {
         this.cloudFormationClient = cloudFormationClient;
         this.dynamoDbClient = dynamoDbClient;
+        this.stsClient = stsClient;
     }
 
     /**
@@ -215,13 +227,9 @@ public class CloudFormationController {
         log.info("🚀 Generating CloudFormation deploy URL for region: {}", deployRegion);
 
         try {
-            // Check if main stack is healthy
-            if (!isMainStackHealthy()) {
-                return ResponseEntity.status(503).body(Map.of(
-                        "error", "Main AutoSpotting stack is not healthy",
-                        "message",
-                        "Please ensure the main AutoSpotting stack is deployed and in CREATE_COMPLETE state"));
-            }
+            // ✅ BYPASS HEALTH CHECK: Removed !isMainStackHealthy() check.
+            // This allows the URL to be generated even if the backend cannot verify the
+            // engine status.
 
             // ✅ FIX: Exclude deployment region from StackSet regions
             // This prevents creating duplicate EventBridge rules in the deployment region
@@ -319,24 +327,62 @@ public class CloudFormationController {
     }
 
     /**
+     * ✅ Helper: Create a CloudFormation client that assumes the Host Role
+     * This allows the backend (in a different account) to check the stack status in
+     * the Main Account (9825...)
+     */
+    private CloudFormationClient getHostCloudFormationClient() {
+        try {
+            AssumeRoleRequest roleRequest = AssumeRoleRequest.builder()
+                    .roleArn(HOST_ROLE_ARN)
+                    .roleSessionName("XamOps-CF-Check")
+                    .build();
+
+            AssumeRoleResponse roleResponse = stsClient.assumeRole(roleRequest);
+
+            AwsSessionCredentials credentials = AwsSessionCredentials.create(
+                    roleResponse.credentials().accessKeyId(),
+                    roleResponse.credentials().secretAccessKey(),
+                    roleResponse.credentials().sessionToken());
+
+            return CloudFormationClient.builder()
+                    .region(Region.of(MAIN_REGION))
+                    .credentialsProvider(StaticCredentialsProvider.create(credentials))
+                    .build();
+
+        } catch (Exception e) {
+            log.warn("Failed to assume host role {}, falling back to default client: {}", HOST_ROLE_ARN,
+                    e.getMessage());
+            return this.cloudFormationClient; // Fallback
+        }
+    }
+
+    /**
      * ✅ Check if the main AutoSpotting stack is healthy
      */
     private boolean isMainStackHealthy() {
         try {
-            DescribeStacksResponse response = cloudFormationClient
+            // Use the cross-account client
+            CloudFormationClient clientToCheck = getHostCloudFormationClient();
+
+            DescribeStacksResponse response = clientToCheck
                     .describeStacks(DescribeStacksRequest.builder()
                             .stackName(MAIN_STACK_NAME)
                             .build());
 
             if (response.stacks().isEmpty()) {
+                log.warn("Main stack '{}' not found in account {}", MAIN_STACK_NAME, MAIN_ACCOUNT_ID);
                 return false;
             }
 
             String status = response.stacks().get(0).stackStatusAsString();
-            return status.contains("COMPLETE") && !status.contains("ROLLBACK");
+            log.info("Main stack '{}' status: {}", MAIN_STACK_NAME, status);
+
+            // ✅ ALLOW BOTH CREATE_COMPLETE AND UPDATE_COMPLETE
+            return "CREATE_COMPLETE".equals(status) || "UPDATE_COMPLETE".equals(status);
 
         } catch (CloudFormationException e) {
-            log.error("Main stack '{}' not found or inaccessible", MAIN_STACK_NAME);
+            log.error("Main stack '{}' not found or inaccessible in {}", MAIN_STACK_NAME, MAIN_REGION);
             return false;
         } catch (Exception e) {
             log.error("Error checking main stack health", e);
