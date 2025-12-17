@@ -47,6 +47,11 @@ public class CacheConfig {
         // Teaches Jackson how to handle your custom 'ClientUserDetails' object
         objectMapper.registerModule(new ClientUserDetailsJacksonModule());
 
+        // ✅ FIX 3: Register Mixin for JDBCConnectionException
+        // Fixes "Cannot construct instance of JDBCConnectionException" error
+        objectMapper.addMixIn(org.hibernate.exception.JDBCConnectionException.class,
+                com.xammer.cloud.config.mixin.JDBCConnectionExceptionMixin.class);
+
         // --- Type Info Configuration (Fixes LinkedHashMap Error) ---
         objectMapper.activateDefaultTyping(
                 LaissezFaireSubTypeValidator.instance,
