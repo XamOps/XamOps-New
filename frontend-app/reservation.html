@@ -36,8 +36,6 @@
                         --glass-border: rgba(229, 231, 235, 0.8);
                     }
 
-                    /* CHANGE: Removed commented out body styles to keep code clean */
-
                     [x-cloak] {
                         display: none !important;
                     }
@@ -250,8 +248,23 @@
                         </div>
 
                         <div class="space-y-4">
-                            <h2 class="text-xl font-bold text-gray-800 pt-4">Current RI Inventory</h2>
-                            <div class="table-enhanced">
+                            <div class="flex justify-between items-center pt-4">
+                                <h2 class="text-xl font-bold text-gray-800">Current Inventory</h2>
+                                <div class="flex space-x-2 bg-gray-100 p-1 rounded-lg">
+                                    <button @click="inventoryTab = 'ris'"
+                                        class="px-4 py-2 text-sm font-medium rounded-md transition-all"
+                                        :class="inventoryTab === 'ris' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'">
+                                        Reserved Instances
+                                    </button>
+                                    <button @click="inventoryTab = 'sps'"
+                                        class="px-4 py-2 text-sm font-medium rounded-md transition-all"
+                                        :class="inventoryTab === 'sps' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'">
+                                        Savings Plans
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div x-show="inventoryTab === 'ris'" class="table-enhanced">
                                 <table class="w-full text-sm text-left text-gray-500">
                                     <thead class="text-xs text-gray-700 uppercase">
                                         <tr>
@@ -285,7 +298,7 @@
                                                     </td>
                                                     <td class="px-6 py-4">
                                                         <span class="font-semibold"
-                                                            :class="{'text-green-600': item.state === 'active', 'text-yellow-600': item.state === 'pending'}"
+                                                            :class="{'text-green-600': item.state === 'active', 'text-yellow-600': item.state === 'pending', 'text-gray-500': item.state === 'retired'}"
                                                             x-text="item.state"></span>
                                                     </td>
                                                     <td class="px-6 py-4">
@@ -310,8 +323,73 @@
                                         </template>
                                         <template x-if="!data.inventory || data.inventory.length === 0">
                                             <tr>
-                                                <td colspan="7" class="text-center py-12 text-gray-500">No active
+                                                <td colspan="7" class="text-center py-12 text-gray-500">No
                                                     Reserved Instances found.</td>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div x-show="inventoryTab === 'sps'" class="table-enhanced" x-cloak>
+                                <table class="w-full text-sm text-left text-gray-500">
+                                    <thead class="text-xs text-gray-700 uppercase">
+                                        <tr>
+                                            <th scope="col" class="px-6 py-3">Plan ID / Type</th>
+                                            <th scope="col" class="px-6 py-3">Region</th>
+                                            <th scope="col" class="px-6 py-3">Commitment / Payment</th>
+                                            <th scope="col" class="px-6 py-3">State</th>
+                                            <th scope="col" class="px-6 py-3">Start Date</th>
+                                            <th scope="col" class="px-6 py-3">End Date</th>
+                                            <th scope="col" class="px-6 py-3">Upfront Cost</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <template x-if="data.savingsPlans && data.savingsPlans.length > 0">
+                                            <template x-for="sp in data.savingsPlans" :key="sp.savingsPlanId">
+                                                <tr class="border-b border-gray-200">
+                                                    <td class="px-6 py-4 font-medium text-gray-900">
+                                                        <span x-text="sp.type"></span>
+                                                        <div class="text-xs text-gray-500 truncate w-32"
+                                                            x-text="sp.savingsPlanId"></div>
+                                                    </td>
+                                                    <td class="px-6 py-4">
+                                                        <span x-text="sp.region || 'Global'"></span>
+                                                    </td>
+                                                    <td class="px-6 py-4">
+                                                        <span class="font-semibold"
+                                                            x-text="sp.commitment ? '$' + sp.commitment + '/hr' : 'N/A'"></span>
+                                                        <div class="text-xs text-gray-500" x-text="sp.paymentOption">
+                                                        </div>
+                                                    </td>
+                                                    <td class="px-6 py-4">
+                                                        <span class="font-semibold px-2 py-1 rounded-full text-xs"
+                                                            :class="{
+                                                                'bg-green-100 text-green-800': sp.state === 'active', 
+                                                                'bg-gray-100 text-gray-800': sp.state === 'retired',
+                                                                'bg-yellow-100 text-yellow-800': sp.state === 'payment-pending'
+                                                            }" x-text="sp.state"></span>
+                                                    </td>
+                                                    <td class="px-6 py-4" x-text="formatDate(sp.start)"></td>
+                                                    <td class="px-6 py-4">
+                                                        <span class="font-semibold"
+                                                            :class="{'text-red-600': isExpiringSoon(sp.end)}"
+                                                            x-text="formatDate(sp.end)"></span>
+                                                        <span x-show="isExpiringSoon(sp.end)"
+                                                            class="ml-2 px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">
+                                                            Expiring Soon
+                                                        </span>
+                                                    </td>
+                                                    <td class="px-6 py-4"
+                                                        x-text="sp.upfrontCost ? '$' + parseFloat(sp.upfrontCost).toFixed(2) : '$0.00'">
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                        </template>
+                                        <template x-if="!data.savingsPlans || data.savingsPlans.length === 0">
+                                            <tr>
+                                                <td colspan="7" class="text-center py-12 text-gray-500">No Savings Plans
+                                                    found.</td>
                                             </tr>
                                         </template>
                                     </tbody>
@@ -440,10 +518,12 @@
                             isLoading: true,
                             isRecsLoading: false,
                             selectedAccountId: null,
+                            inventoryTab: 'ris', // Controls active tab
                             data: {
                                 analysis: {},
                                 historicalData: {},
                                 inventory: [],
+                                savingsPlans: [], // Added
                                 purchaseRecommendations: [],
                                 modificationRecommendations: []
                             },
@@ -550,6 +630,8 @@
 
                                 if (cachedData && !forceRefresh) {
                                     this.data = JSON.parse(cachedData);
+                                    // Ensure savingsPlans array exists even if cache is old
+                                    if (!this.data.savingsPlans) this.data.savingsPlans = [];
                                     this.isLoading = false;
                                     this.$nextTick(() => this.initCharts());
                                     return;
@@ -566,6 +648,9 @@
                                     })
                                     .then(data => {
                                         this.data = data;
+                                        // Ensure savingsPlans array exists
+                                        if (!this.data.savingsPlans) this.data.savingsPlans = [];
+
                                         // CHANGE: Save to cache
                                         sessionStorage.setItem(cacheKey, JSON.stringify(data));
                                         this.$nextTick(() => this.initCharts());
@@ -577,6 +662,7 @@
                                             analysis: {},
                                             historicalData: {},
                                             inventory: [],
+                                            savingsPlans: [],
                                             purchaseRecommendations: [],
                                             modificationRecommendations: []
                                         };
