@@ -1,26 +1,21 @@
-<!-- Actions History Tab Content -->
 <div x-data="actionsHistoryTab()" x-init="init()">
 
-    <!-- Filters Section -->
     <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
         <h3 class="text-lg font-semibold text-gray-900 mb-4">Filters</h3>
 
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <!-- Start Date -->
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">From</label>
                 <input type="date" x-model="filters.startDate"
                     class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
             </div>
 
-            <!-- End Date -->
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">To</label>
                 <input type="date" x-model="filters.endDate"
                     class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
             </div>
 
-            <!-- Event Type Filter -->
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Type</label>
                 <select x-model="filters.eventType"
@@ -32,7 +27,6 @@
                 </select>
             </div>
 
-            <!-- ASG Name Filter -->
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">ASG Name</label>
                 <input type="text" x-model="filters.asgName" placeholder="Filter by ASG..."
@@ -40,7 +34,6 @@
             </div>
         </div>
 
-        <!-- Filter Actions -->
         <div class="flex gap-3 mt-4">
             <button @click="loadEvents()" :disabled="loading"
                 class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed transition-colors font-medium text-sm flex items-center">
@@ -55,9 +48,7 @@
         </div>
     </div>
 
-    <!-- Summary Cards -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-        <!-- Total Replacements -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
         <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <div class="flex items-center justify-between">
                 <div>
@@ -71,7 +62,6 @@
             </div>
         </div>
 
-        <!-- Total Interruptions -->
         <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <div class="flex items-center justify-between">
                 <div>
@@ -85,7 +75,6 @@
             </div>
         </div>
 
-        <!-- Total Savings -->
         <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <div class="flex items-center justify-between">
                 <div>
@@ -100,15 +89,28 @@
                 </div>
             </div>
         </div>
+
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-gray-600">Stability Score (MTBI)</p>
+                    <p class="text-2xl font-bold mt-1" :class="summary.mtbiColor || 'text-gray-800'"
+                        x-text="summary.mtbi || '-'">
+                    </p>
+                    <p class="text-xs text-gray-500 mt-1">Mean time b/w interruptions</p>
+                </div>
+                <div class="bg-indigo-100 rounded-full p-3">
+                    <i class="fas fa-heartbeat text-indigo-600 text-xl"></i>
+                </div>
+            </div>
+        </div>
     </div>
 
-    <!-- Loading State -->
     <div x-show="loading" class="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
         <i class="fas fa-spinner fa-spin text-4xl text-blue-600 mb-4"></i>
         <p class="text-gray-600 font-medium">Loading events...</p>
     </div>
 
-    <!-- Events Table -->
     <div x-show="!loading && events.length > 0" x-cloak
         class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         <div class="px-6 py-4 border-b border-gray-200 bg-gray-50">
@@ -139,12 +141,10 @@
                 <tbody class="divide-y divide-gray-100">
                     <template x-for="(event, index) in events" :key="index">
                         <tr class="hover:bg-gray-50 transition-colors">
-                            <!-- Timestamp -->
                             <td class="px-6 py-4 text-sm text-gray-900">
                                 <div x-text="formatDateTime(event.timestamp)"></div>
                             </td>
 
-                            <!-- Event Type -->
                             <td class="px-6 py-4">
                                 <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"
                                     :class="{
@@ -161,12 +161,10 @@
                                 </span>
                             </td>
 
-                            <!-- ASG Name -->
                             <td class="px-6 py-4">
                                 <div class="text-sm font-medium text-gray-900" x-text="event.asg_name"></div>
                             </td>
 
-                            <!-- Region -->
                             <td class="px-6 py-4">
                                 <span
                                     class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
@@ -175,7 +173,6 @@
                                 </span>
                             </td>
 
-                            <!-- Old Instance -->
                             <td class="px-6 py-4">
                                 <div class="text-xs font-mono text-gray-600" x-text="event.old_instance_id || '-'">
                                 </div>
@@ -186,7 +183,6 @@
                                 </div>
                             </td>
 
-                            <!-- Old Instance Type -->
                             <td class="px-6 py-4">
                                 <span class="text-xs font-medium text-gray-700"
                                     x-text="event.old_instance_type || '-'"></span>
@@ -195,7 +191,6 @@
                                 </div>
                             </td>
 
-                            <!-- New Instance -->
                             <td class="px-6 py-4">
                                 <div class="text-xs font-mono text-gray-600" x-text="event.new_instance_id || '-'">
                                 </div>
@@ -206,7 +201,6 @@
                                 </div>
                             </td>
 
-                            <!-- New Instance Type -->
                             <td class="px-6 py-4">
                                 <span class="text-xs font-medium text-gray-700"
                                     x-text="event.new_instance_type || '-'"></span>
@@ -215,7 +209,6 @@
                                 </div>
                             </td>
 
-                            <!-- Estimated Savings -->
                             <td class="px-6 py-4">
                                 <div class="text-sm font-bold text-green-600" x-show="event.estimated_savings > 0">
                                     $<span x-text="(event.estimated_savings || 0).toFixed(4)"></span>/hr
@@ -224,7 +217,6 @@
                                     x-show="!event.estimated_savings || event.estimated_savings <= 0">-</span>
                             </td>
 
-                            <!-- Reason -->
                             <td class="px-6 py-4">
                                 <div class="text-xs text-gray-600 max-w-xs" x-text="event.reason || '-'"></div>
                             </td>
@@ -235,7 +227,6 @@
         </div>
     </div>
 
-    <!-- Empty State -->
     <div x-show="!loading && events.length === 0" x-cloak
         class="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
         <div class="text-gray-400 mb-4">
@@ -266,7 +257,9 @@
             summary: {
                 total_replacements: 0,
                 total_interruptions: 0,
-                total_estimated_savings: 0.0
+                total_estimated_savings: 0.0,
+                mtbi: '-',
+                mtbiColor: 'text-gray-800'
             },
             filters: {
                 startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
@@ -352,6 +345,41 @@
                         total_interruptions: 0,
                         total_estimated_savings: 0.0
                     };
+
+                    // --- MTBI CALCULATION ---
+                    const interruptions = this.events
+                        .filter(e => e.event_type === 'spot_interruption')
+                        .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+                    let mtbiText = "N/A";
+                    let mtbiColor = "text-gray-400"; // Default gray
+
+                    if (interruptions.length > 1) {
+                        let totalDiffHours = 0;
+                        for (let i = 1; i < interruptions.length; i++) {
+                            const diffMs = new Date(interruptions[i].timestamp) - new Date(interruptions[i - 1].timestamp);
+                            totalDiffHours += diffMs / (1000 * 60 * 60);
+                        }
+                        const avgHours = totalDiffHours / (interruptions.length - 1);
+
+                        if (avgHours < 24) {
+                            mtbiText = `${avgHours.toFixed(1)} hrs`;
+                            mtbiColor = "text-red-600"; // Frequent interruptions
+                        } else {
+                            mtbiText = `${(avgHours / 24).toFixed(1)} days`;
+                            mtbiColor = "text-emerald-600"; // Stable
+                        }
+                    } else if (interruptions.length === 1) {
+                        mtbiText = "Single Event";
+                        mtbiColor = "text-blue-600";
+                    } else {
+                        mtbiText = "No Events";
+                        mtbiColor = "text-emerald-600"; // Very stable
+                    }
+
+                    this.summary.mtbi = mtbiText;
+                    this.summary.mtbiColor = mtbiColor;
+                    // ------------------------
 
                     console.log(`📊 Loaded ${this.events.length} events`);
                     this.dispatchNotification(
