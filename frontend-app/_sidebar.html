@@ -430,6 +430,11 @@
                 case 'Azure': targetPage = '/azure_dashboard.html'; break;
                 case 'AWS': default: targetPage = '/dashboard.html'; break;
             }
+
+            // Exception: Allow CloudShell to stay on page (supports soft nav)
+            if (window.location.pathname === '/cloudshell.html') {
+                targetPage = '/cloudshell.html';
+            }
         }
 
         // 2. Handle Multi-Account Mode (Dispatch event if on same dashboard type)
@@ -982,7 +987,7 @@
                     <button @click="open = !open"
                         class="nav-item w-full flex items-center justify-between rounded-xl px-7 py-3 font-semibold"
                         :class="isActive('/billops/') ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg' : 'text-gray-600 hover:bg-cyan-50'">
-                        <div class="flex items-cente">
+                        <div class="flex items-center">
                             <i class="fas fa-file-invoice-dollar fa-fw w-5 text-center"></i>
                             <span>BillOps</span>
                         </div>
@@ -992,7 +997,6 @@
             </div>
         </div>
         <div x-show="hasAnyRole('ROLE_BILLOPS_ADMIN')" x-cloak class="relative">
-            <div class="px-3 py-2 text-xs font-semibold text-gray-400 uppercase">Admin Tools</div>
 
             <div class="sidebar-section">
                 <div x-data="{ open: isActive('/billops/admin_') }">
@@ -1239,17 +1243,47 @@
                             // 4. Update Title
                             document.title = doc.title;
 
-                            // 5. Swap HTML
-                            if (currentMain) {
-                                currentMain.replaceWith(newMain);
+                            // --- FIX: Update Body Attributes (for Theme/Bg changes) ---
+                            document.body.className = doc.body.className;
+                            document.body.style.cssText = doc.body.style.cssText;
+
+                            // --- FIX 1: Load Head Scripts (Critical Libs) FIRST ---
+                            const newHeadScripts = doc.head.querySelectorAll('script[src]');
+                            // Helper to normalize URLs for comparison if needed, but simple string check usually works for basic case
+                            const loadedScripts = new Set(Array.from(document.querySelectorAll('script[src]')).map(s => s.src));
+
+                            for (const script of newHeadScripts) {
+                                if (!loadedScripts.has(script.src)) {
+                                    const newScript = document.createElement('script');
+                                    newScript.src = script.src;
+                                    newScript.async = false;
+                                    document.head.appendChild(newScript);
+                                    loadedScripts.add(script.src);
+
+                                    // Wait for critical libraries
+                                    if (script.src.includes('chart.js') ||
+                                        script.src.includes('highcharts') ||
+                                        script.src.includes('highmaps') ||
+                                        script.src.includes('proj4') ||
+                                        script.src.includes('sockjs') ||
+                                        script.src.includes('stomp')) {
+                                        await new Promise((resolve, reject) => {
+                                            newScript.onload = resolve;
+                                            newScript.onerror = resolve;
+                                        });
+                                    }
+                                }
                             }
 
-                            // 6. Execute New Scripts (Safely)
-                            const scripts = newMain.querySelectorAll('script');
-                            scripts.forEach(oldScript => {
-                                const newScript = document.createElement('script');
+                            // --- FIX 2: Execute Body Scripts (Definitions) BEFORE Swap ---
+                            // This ensures 'dashboardApp' is defined when Alpine initializes the new HTML
+                            const scripts = doc.body.querySelectorAll('script');
 
-                                // Add a class so we can identify and remove these scripts later
+                            scripts.forEach(oldScript => {
+                                // Skip if it's an external script we already have
+                                if (oldScript.src && loadedScripts.has(oldScript.src)) return;
+
+                                const newScript = document.createElement('script');
                                 newScript.classList.add('dynamic-page-script');
 
                                 Array.from(oldScript.attributes).forEach(attr => {
@@ -1260,20 +1294,20 @@
                                     newScript.appendChild(document.createTextNode(oldScript.innerHTML));
                                 }
 
-                                // Append to body to execute
                                 document.body.appendChild(newScript);
+
+                                if (oldScript.src) loadedScripts.add(oldScript.src);
                             });
+
+                            // 5. Swap HTML (Triggers Alpine Auto-Init for new nodes which now find dashboardApp defined)
+                            if (currentMain) {
+                                currentMain.replaceWith(newMain);
+                            }
 
                             // 7. Update URL
                             window.history.pushState({}, '', url);
 
-                            // 8. Re-init Alpine.js
-                            if (window.Alpine) {
-                                // Wait for the scripts to execute/define the x-data functions
-                                setTimeout(() => {
-                                    window.Alpine.initTree(document.getElementById('main-content'));
-                                }, 50);
-                            }
+                            // 8. Re-init Alpine.js - REMOVED (Auto-init handles this)
 
                             // 9. Update Sidebar Visual State
                             updateSidebarActiveState(link.getAttribute('href'));
