@@ -55,7 +55,7 @@ import com.google.cloud.securitycenter.v2.SecurityCenterClient;
 import com.google.cloud.securitycenter.v2.SecurityCenterSettings;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.StorageOptions;
-import com.google.cloud.aiplatform.v1.EndpointServiceSettings;  // ✅ CORRECT
+import com.google.cloud.aiplatform.v1.EndpointServiceSettings; // ✅ CORRECT
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.google.cloud.aiplatform.v1.EndpointServiceClient;
@@ -109,7 +109,7 @@ public class GcpClientProvider {
         });
     }
 
-    @Cacheable(value = "gcpCredentials", key = "#gcpProjectId")
+    @Cacheable(value = "gcpCredentials", key = "#gcpProjectId", unless = "#result.isEmpty()")
     private Optional<GoogleCredentials> getCredentials(String gcpProjectId) {
         Optional<CloudAccount> accountOpt = cloudAccountRepository.findByGcpProjectId(gcpProjectId);
         if (accountOpt.isEmpty()) {
@@ -123,7 +123,7 @@ public class GcpClientProvider {
                 return Optional.empty();
             }
             return Optional.of(GoogleCredentials.fromStream(
-                            new ByteArrayInputStream(account.getGcpServiceAccountKey().getBytes()))
+                    new ByteArrayInputStream(account.getGcpServiceAccountKey().getBytes()))
                     .createScoped("https://www.googleapis.com/auth/cloud-platform"));
         } catch (IOException e) {
             log.error("Failed to create GoogleCredentials for project ID: {}", gcpProjectId, e);
@@ -133,9 +133,10 @@ public class GcpClientProvider {
 
     /**
      * Get credentials for billing account access
-     * Uses the same service account key but can be used for billing account scope operations
+     * Uses the same service account key but can be used for billing account scope
+     * operations
      */
-    @Cacheable(value = "gcpCredentialsByBillingAccount", key = "#billingAccountId")
+    @Cacheable(value = "gcpCredentialsByBillingAccount", key = "#billingAccountId", unless = "#result.isEmpty()")
     private Optional<GoogleCredentials> getCredentialsByBillingAccount(String billingAccountId) {
         Optional<CloudAccount> accountOpt = cloudAccountRepository.findByGcpBillingAccountId(billingAccountId);
         if (accountOpt.isEmpty()) {
@@ -149,7 +150,7 @@ public class GcpClientProvider {
                 return Optional.empty();
             }
             return Optional.of(GoogleCredentials.fromStream(
-                            new ByteArrayInputStream(account.getGcpServiceAccountKey().getBytes()))
+                    new ByteArrayInputStream(account.getGcpServiceAccountKey().getBytes()))
                     .createScoped("https://www.googleapis.com/auth/cloud-platform"));
         } catch (IOException e) {
             log.error("Failed to create GoogleCredentials for billing account ID: {}", billingAccountId, e);
@@ -337,21 +338,19 @@ public class GcpClientProvider {
     }
 
     public Optional<Storage> getStorageClient(String gcpProjectId) {
-        return getCredentials(gcpProjectId).map(credentials ->
-                StorageOptions.newBuilder()
-                        .setCredentials(credentials)
-                        .setProjectId(gcpProjectId)
-                        .build()
-                        .getService());
+        return getCredentials(gcpProjectId).map(credentials -> StorageOptions.newBuilder()
+                .setCredentials(credentials)
+                .setProjectId(gcpProjectId)
+                .build()
+                .getService());
     }
 
     public Optional<BigQuery> getBigQueryClient(String gcpProjectId) {
-        return getCredentials(gcpProjectId).map(credentials ->
-                BigQueryOptions.newBuilder()
-                        .setCredentials(credentials)
-                        .setProjectId(gcpProjectId)
-                        .build()
-                        .getService());
+        return getCredentials(gcpProjectId).map(credentials -> BigQueryOptions.newBuilder()
+                .setCredentials(credentials)
+                .setProjectId(gcpProjectId)
+                .build()
+                .getService());
     }
 
     public Optional<MetricServiceClient> getMetricServiceClient(String gcpProjectId) {
@@ -492,7 +491,8 @@ public class GcpClientProvider {
 
     /**
      * Fetch billing account ID for a GCP project
-     * This method automatically retrieves the billing account ID from GCP Billing API
+     * This method automatically retrieves the billing account ID from GCP Billing
+     * API
      */
     public Optional<String> getBillingAccountIdForProject(String gcpProjectId) {
         try {
@@ -527,7 +527,8 @@ public class GcpClientProvider {
 
     public Optional<Storage> createStorageClient(String serviceAccountKey) {
         try {
-            GoogleCredentials credentials = GoogleCredentials.fromStream(new ByteArrayInputStream(serviceAccountKey.getBytes()))
+            GoogleCredentials credentials = GoogleCredentials
+                    .fromStream(new ByteArrayInputStream(serviceAccountKey.getBytes()))
                     .createScoped("https://www.googleapis.com/auth/cloud-platform");
             return Optional.of(StorageOptions.newBuilder().setCredentials(credentials).build().getService());
         } catch (IOException e) {
@@ -539,7 +540,8 @@ public class GcpClientProvider {
     public Optional<Dns> getDnsZonesClient(String gcpProjectId) {
         try {
             Optional<GoogleCredentials> credsOpt = getCredentials(gcpProjectId);
-            if (credsOpt.isEmpty()) return Optional.empty();
+            if (credsOpt.isEmpty())
+                return Optional.empty();
             GoogleCredentials credentials = credsOpt.get().createScoped(DnsScopes.all());
             var httpTransport = GoogleNetHttpTransport.newTrustedTransport();
             var jsonFactory = new GsonFactory();
@@ -878,6 +880,7 @@ public class GcpClientProvider {
             return Optional.empty();
         }
     }
+
     public Optional<RegionsClient> getRegionsClient(String gcpProjectId) {
         return getCredentials(gcpProjectId).map(credentials -> {
             try {
@@ -891,5 +894,5 @@ public class GcpClientProvider {
             }
         });
     }
-    
+
 }

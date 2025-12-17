@@ -27,6 +27,9 @@ public class AzureDashboardData {
     private List<RightsizingRecommendation> diskRecommendations;
     private List<RightsizingRecommendation> functionRecommendations;
 
+    // Hints/IAM
+    private DashboardData.IamDetail iamDetails;
+
     // --- Getters and Setters ---
 
     public ResourceInventory getResourceInventory() {
@@ -118,6 +121,14 @@ public class AzureDashboardData {
         this.functionRecommendations = functionRecommendations;
     }
 
+    public DashboardData.IamDetail getIamDetails() {
+        return iamDetails;
+    }
+
+    public void setIamDetails(DashboardData.IamDetail iamDetails) {
+        this.iamDetails = iamDetails;
+    }
+
     // --- Inner Classes for Data Structure ---
 
     /**
@@ -137,30 +148,101 @@ public class AzureDashboardData {
         private long appServices;
         private long staticWebApps;
 
-        public long getVirtualMachines() { return virtualMachines; }
-        public void setVirtualMachines(long virtualMachines) { this.virtualMachines = virtualMachines; }
-        public long getStorageAccounts() { return storageAccounts; }
-        public void setStorageAccounts(long storageAccounts) { this.storageAccounts = storageAccounts; }
-        public long getSqlDatabases() { return sqlDatabases; }
-        public void setSqlDatabases(long sqlDatabases) { this.sqlDatabases = sqlDatabases; }
-        public long getVirtualNetworks() { return virtualNetworks; }
-        public void setVirtualNetworks(long virtualNetworks) { this.virtualNetworks = virtualNetworks; }
-        public long getFunctions() { return functions; }
-        public void setFunctions(long functions) { this.functions = functions; }
-        public long getDisks() { return disks; }
-        public void setDisks(long disks) { this.disks = disks; }
-        public long getDnsZones() { return dnsZones; }
-        public void setDnsZones(long dnsZones) { this.dnsZones = dnsZones; }
-        public long getLoadBalancers() { return loadBalancers; }
-        public void setLoadBalancers(long loadBalancers) { this.loadBalancers = loadBalancers; }
-        public long getContainerInstances() { return containerInstances; }
-        public void setContainerInstances(long containerInstances) { this.containerInstances = containerInstances; }
-        public long getKubernetesServices() { return kubernetesServices; }
-        public void setKubernetesServices(long kubernetesServices) { this.kubernetesServices = kubernetesServices; }
-        public long getAppServices() { return appServices; }
-        public void setAppServices(long appServices) { this.appServices = appServices; }
-        public long getStaticWebApps() { return staticWebApps; }
-        public void setStaticWebApps(long staticWebApps) { this.staticWebApps = staticWebApps; }
+        public long getVirtualMachines() {
+            return virtualMachines;
+        }
+
+        public void setVirtualMachines(long virtualMachines) {
+            this.virtualMachines = virtualMachines;
+        }
+
+        public long getStorageAccounts() {
+            return storageAccounts;
+        }
+
+        public void setStorageAccounts(long storageAccounts) {
+            this.storageAccounts = storageAccounts;
+        }
+
+        public long getSqlDatabases() {
+            return sqlDatabases;
+        }
+
+        public void setSqlDatabases(long sqlDatabases) {
+            this.sqlDatabases = sqlDatabases;
+        }
+
+        public long getVirtualNetworks() {
+            return virtualNetworks;
+        }
+
+        public void setVirtualNetworks(long virtualNetworks) {
+            this.virtualNetworks = virtualNetworks;
+        }
+
+        public long getFunctions() {
+            return functions;
+        }
+
+        public void setFunctions(long functions) {
+            this.functions = functions;
+        }
+
+        public long getDisks() {
+            return disks;
+        }
+
+        public void setDisks(long disks) {
+            this.disks = disks;
+        }
+
+        public long getDnsZones() {
+            return dnsZones;
+        }
+
+        public void setDnsZones(long dnsZones) {
+            this.dnsZones = dnsZones;
+        }
+
+        public long getLoadBalancers() {
+            return loadBalancers;
+        }
+
+        public void setLoadBalancers(long loadBalancers) {
+            this.loadBalancers = loadBalancers;
+        }
+
+        public long getContainerInstances() {
+            return containerInstances;
+        }
+
+        public void setContainerInstances(long containerInstances) {
+            this.containerInstances = containerInstances;
+        }
+
+        public long getKubernetesServices() {
+            return kubernetesServices;
+        }
+
+        public void setKubernetesServices(long kubernetesServices) {
+            this.kubernetesServices = kubernetesServices;
+        }
+
+        public long getAppServices() {
+            return appServices;
+        }
+
+        public void setAppServices(long appServices) {
+            this.appServices = appServices;
+        }
+
+        public long getStaticWebApps() {
+            return staticWebApps;
+        }
+
+        public void setStaticWebApps(long staticWebApps) {
+            this.staticWebApps = staticWebApps;
+        }
     }
 
     /**
@@ -180,10 +262,21 @@ public class AzureDashboardData {
             this.cost = cost;
         }
 
-        public String getService() { return service; }
-        public void setService(String service) { this.service = service; }
-        public double getCost() { return cost; }
-        public void setCost(double cost) { this.cost = cost; }
+        public String getService() {
+            return service;
+        }
+
+        public void setService(String service) {
+            this.service = service;
+        }
+
+        public double getCost() {
+            return cost;
+        }
+
+        public void setCost(double cost) {
+            this.cost = cost;
+        }
     }
 
     /**
@@ -194,12 +287,29 @@ public class AzureDashboardData {
         private List<Double> costs;
         private List<Boolean> anomalies;
 
-        public List<String> getLabels() { return labels; }
-        public void setLabels(List<String> labels) { this.labels = labels; }
-        public List<Double> getCosts() { return costs; }
-        public void setCosts(List<Double> costs) { this.costs = costs; }
-        public List<Boolean> getAnomalies() { return anomalies; }
-        public void setAnomalies(List<Boolean> anomalies) { this.anomalies = anomalies; }
+        public List<String> getLabels() {
+            return labels;
+        }
+
+        public void setLabels(List<String> labels) {
+            this.labels = labels;
+        }
+
+        public List<Double> getCosts() {
+            return costs;
+        }
+
+        public void setCosts(List<Double> costs) {
+            this.costs = costs;
+        }
+
+        public List<Boolean> getAnomalies() {
+            return anomalies;
+        }
+
+        public void setAnomalies(List<Boolean> anomalies) {
+            this.anomalies = anomalies;
+        }
     }
 
     /**
@@ -211,7 +321,8 @@ public class AzureDashboardData {
         private double longitude;
         private String status;
 
-        public RegionStatus() {}
+        public RegionStatus() {
+        }
 
         public RegionStatus(String name, double latitude, double longitude, String status) {
             this.name = name;
@@ -220,14 +331,37 @@ public class AzureDashboardData {
             this.status = status;
         }
 
-        public String getName() { return name; }
-        public void setName(String name) { this.name = name; }
-        public double getLatitude() { return latitude; }
-        public void setLatitude(double latitude) { this.latitude = latitude; }
-        public double getLongitude() { return longitude; }
-        public void setLongitude(double longitude) { this.longitude = longitude; }
-        public String getStatus() { return status; }
-        public void setStatus(String status) { this.status = status; }
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+
+        public double getLatitude() {
+            return latitude;
+        }
+
+        public void setLatitude(double latitude) {
+            this.latitude = latitude;
+        }
+
+        public double getLongitude() {
+            return longitude;
+        }
+
+        public void setLongitude(double longitude) {
+            this.longitude = longitude;
+        }
+
+        public String getStatus() {
+            return status;
+        }
+
+        public void setStatus(String status) {
+            this.status = status;
+        }
     }
 
     /**

@@ -13,6 +13,7 @@ public class GcpDashboardData {
     // Fields to mirror AWS DashboardData.Account for parity
     private DashboardData.ResourceInventory resourceInventory;
     private DashboardData.IamResources iamResources;
+    private DashboardData.IamDetail iamDetails; // Detailed user/role lists
     private int securityScore;
     private List<DashboardData.SecurityInsight> securityInsights;
     private DashboardData.SavingsSummary savingsSummary;

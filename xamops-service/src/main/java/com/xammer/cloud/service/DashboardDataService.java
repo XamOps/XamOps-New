@@ -52,6 +52,7 @@ public class DashboardDataService {
     private final ObjectMapper objectMapper;
     private final CachedDataRepository cachedDataRepository;
     private final CostService costService;
+    private final com.xammer.cloud.service.azure.AzureDashboardService azureDashboardService;
 
     @Autowired
     public DashboardDataService(
@@ -66,7 +67,8 @@ public class DashboardDataService {
             RedisCacheService redisCache,
             ObjectMapper objectMapper,
             CachedDataRepository cachedDataRepository,
-            @Lazy CostService costService) {
+            @Lazy CostService costService,
+            @Lazy com.xammer.cloud.service.azure.AzureDashboardService azureDashboardService) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.gcpDataService = gcpDataService;
@@ -79,6 +81,7 @@ public class DashboardDataService {
         this.objectMapper = objectMapper;
         this.cachedDataRepository = cachedDataRepository;
         this.costService = costService;
+        this.azureDashboardService = azureDashboardService;
     }
 
     private CloudAccount getAccount(String accountId) {
@@ -696,6 +699,18 @@ public class DashboardDataService {
                     })
                     .get();
             freshData = mapGcpDataToDashboardData(gcpData, account);
+        } else if ("Azure".equalsIgnoreCase(account.getProvider())) {
+            try {
+                com.xammer.cloud.dto.azure.AzureDashboardData azureData = azureDashboardService
+                        .getDashboardData(account.getAzureSubscriptionId(), forceRefresh);
+                freshData = mapAzureDataToDashboardData(azureData, account);
+            } catch (Exception e) {
+                logger.error("Error fetching Azure dashboard data for account {}: {}", account.getAccountName(),
+                        e.getMessage());
+                // Return empty/partial data instead of failing the entire request
+                com.xammer.cloud.dto.azure.AzureDashboardData emptyData = new com.xammer.cloud.dto.azure.AzureDashboardData();
+                freshData = mapAzureDataToDashboardData(emptyData, account);
+            }
         } else {
             freshData = getAwsDashboardData(account, forceRefresh, userDetails);
         }
@@ -724,6 +739,7 @@ public class DashboardDataService {
 
     private DashboardData mapGcpDataToDashboardData(GcpDashboardData gcpData, CloudAccount account) {
         DashboardData data = new DashboardData();
+        data.setSelectedProvider("GCP");
 
         DashboardData.Account mainAccount = new DashboardData.Account();
         mainAccount.setId(account.getGcpProjectId());
@@ -731,6 +747,7 @@ public class DashboardDataService {
 
         mainAccount.setResourceInventory(gcpData.getResourceInventory());
         mainAccount.setIamResources(gcpData.getIamResources());
+        mainAccount.setIamDetails(gcpData.getIamDetails());
         mainAccount.setSecurityScore(gcpData.getSecurityScore());
         mainAccount.setSecurityInsights(gcpData.getSecurityInsights());
         mainAccount.setSavingsSummary(gcpData.getSavingsSummary());
@@ -740,32 +757,46 @@ public class DashboardDataService {
         mainAccount.setOptimizationSummary(gcpData.getOptimizationSummary());
         mainAccount.setRegionStatus(gcpData.getRegionStatus());
 
-        List<String> costLabels = gcpData.getCostHistory().stream().map(c -> c.getName()).collect(Collectors.toList());
-        List<Double> costValues = gcpData.getCostHistory().stream().map(c -> c.getAmount())
-                .collect(Collectors.toList());
-        List<Boolean> costAnomalies = gcpData.getCostHistory().stream().map(c -> c.isAnomaly())
-                .collect(Collectors.toList());
+        List<String> costLabels = (gcpData.getCostHistory() != null)
+                ? gcpData.getCostHistory().stream().map(c -> c.getName()).collect(Collectors.toList())
+                : new ArrayList<>();
+        List<Double> costValues = (gcpData.getCostHistory() != null)
+                ? gcpData.getCostHistory().stream().map(c -> c.getAmount()).collect(Collectors.toList())
+                : new ArrayList<>();
+        List<Boolean> costAnomalies = (gcpData.getCostHistory() != null)
+                ? gcpData.getCostHistory().stream().map(c -> c.isAnomaly()).collect(Collectors.toList())
+                : new ArrayList<>();
         mainAccount.setCostHistory(new DashboardData.CostHistory(costLabels, costValues, costAnomalies));
-        List<DashboardData.BillingSummary> billingSummary = gcpData.getBillingSummary().stream()
-                .map(b -> new DashboardData.BillingSummary(b.getName(), b.getAmount()))
-                .collect(Collectors.toList());
+
+        List<DashboardData.BillingSummary> billingSummary = (gcpData.getBillingSummary() != null)
+                ? gcpData.getBillingSummary().stream()
+                        .map(b -> new DashboardData.BillingSummary(b.getName(), b.getAmount()))
+                        .collect(Collectors.toList())
+                : new ArrayList<>();
         mainAccount.setBillingSummary(billingSummary);
-        List<DashboardData.OptimizationRecommendation> gceRecs = gcpData.getRightsizingRecommendations().stream()
-                .map(rec -> new DashboardData.OptimizationRecommendation(
-                        "GCE", rec.getResourceName(), rec.getCurrentMachineType(),
-                        rec.getRecommendedMachineType(), rec.getMonthlySavings(), "Rightsizing opportunity", 0.0, 0.0))
-                .collect(Collectors.toList());
+
+        List<DashboardData.OptimizationRecommendation> gceRecs = (gcpData.getRightsizingRecommendations() != null)
+                ? gcpData.getRightsizingRecommendations().stream()
+                        .map(rec -> new DashboardData.OptimizationRecommendation(
+                                "GCE", rec.getResourceName(), rec.getCurrentMachineType(),
+                                rec.getRecommendedMachineType(), rec.getMonthlySavings(), "Rightsizing opportunity",
+                                0.0, 0.0))
+                        .collect(Collectors.toList())
+                : new ArrayList<>();
         mainAccount.setEc2Recommendations(gceRecs);
-        List<DashboardData.WastedResource> wastedResources = gcpData.getWastedResources().stream()
-                .map(waste -> new DashboardData.WastedResource(
-                        waste.getResourceName(), waste.getResourceName(), waste.getType(),
-                        waste.getLocation(), waste.getMonthlySavings(), "Idle Resource"))
-                .collect(Collectors.toList());
+
+        List<DashboardData.WastedResource> wastedResources = (gcpData.getWastedResources() != null)
+                ? gcpData.getWastedResources().stream()
+                        .map(waste -> new DashboardData.WastedResource(
+                                waste.getResourceName(), waste.getResourceName(), waste.getType(),
+                                waste.getLocation(), waste.getMonthlySavings(), "Idle Resource"))
+                        .collect(Collectors.toList())
+                : new ArrayList<>();
         mainAccount.setWastedResources(wastedResources);
         mainAccount.setCloudWatchStatus(new DashboardData.CloudWatchStatus(0, 0, 0));
-        mainAccount.setCostAnomalies(Collections.emptyList());
-        mainAccount.setEbsRecommendations(Collections.emptyList());
-        mainAccount.setLambdaRecommendations(Collections.emptyList());
+        mainAccount.setCostAnomalies(new ArrayList<>());
+        mainAccount.setEbsRecommendations(new ArrayList<>());
+        mainAccount.setLambdaRecommendations(new ArrayList<>());
 
         data.setSelectedAccount(mainAccount);
         populateAvailableAccounts(data, null); // userDetails already passed in main flow or fetched inside
@@ -878,6 +909,7 @@ public class DashboardDataService {
                 int securityScore = calculateSecurityScore(securityFindings);
 
                 DashboardData data = new DashboardData();
+                data.setSelectedProvider("AWS");
                 DashboardData.Account mainAccount = new DashboardData.Account(
                         account.getAwsAccountId(), account.getAccountName(),
                         activeRegions, inventoryFuture.join(), cwStatusFuture.join(), securityInsights,
@@ -1180,5 +1212,87 @@ public class DashboardDataService {
         double score = 100.0 / (1 + 0.1 * weightedScore);
 
         return Math.max(0, (int) Math.round(score));
+    }
+
+    private DashboardData mapAzureDataToDashboardData(com.xammer.cloud.dto.azure.AzureDashboardData azureData,
+            CloudAccount account) {
+        DashboardData data = new DashboardData();
+        data.setSelectedProvider("Azure");
+
+        DashboardData.Account mainAccount = new DashboardData.Account();
+        mainAccount.setId(account.getAzureSubscriptionId());
+        mainAccount.setName(account.getAccountName());
+
+        // Map Inventory
+        DashboardData.ResourceInventory inv = new DashboardData.ResourceInventory();
+        if (azureData.getResourceInventory() != null) {
+            com.xammer.cloud.dto.azure.AzureDashboardData.ResourceInventory azInv = azureData.getResourceInventory();
+            inv.setEc2((int) azInv.getVirtualMachines());
+            inv.setS3Buckets((int) azInv.getStorageAccounts());
+            inv.setRdsInstances((int) azInv.getSqlDatabases());
+            inv.setVpc((int) azInv.getVirtualNetworks());
+            inv.setLambdas((int) azInv.getFunctions());
+            inv.setEbsVolumes((int) azInv.getDisks());
+            inv.setRoute53Zones((int) azInv.getDnsZones());
+            inv.setLoadBalancers((int) azInv.getLoadBalancers());
+            inv.setKubernetes((int) azInv.getKubernetesServices());
+            // Map App Services to "Lightsail" or similar field just to show it somewhere if
+            // needed,
+            // or just rely on generic fields if available. For now using 'amplify' as a
+            // placeholder for App Services
+            inv.setAmplify((int) azInv.getAppServices());
+        }
+        mainAccount.setResourceInventory(inv);
+
+        // Map Hints/IAM
+        if (azureData.getIamDetails() != null) {
+            mainAccount.setIamDetails(azureData.getIamDetails());
+            // Create summary resources
+            int userCount = azureData.getIamDetails().getUsers() != null ? azureData.getIamDetails().getUsers().size()
+                    : 0;
+            int roleCount = azureData.getIamDetails().getRoles() != null ? azureData.getIamDetails().getRoles().size()
+                    : 0;
+            mainAccount.setIamResources(new DashboardData.IamResources(userCount, 0, 0, roleCount));
+        } else {
+            mainAccount.setIamResources(new DashboardData.IamResources(0, 0, 0, 0));
+        }
+
+        mainAccount.setMonthToDateSpend(azureData.getMonthToDateSpend());
+        mainAccount.setForecastedSpend(azureData.getForecastedSpend());
+
+        // Cost History
+        if (azureData.getCostHistory() != null) {
+            mainAccount.setCostHistory(new DashboardData.CostHistory(
+                    azureData.getCostHistory().getLabels(),
+                    azureData.getCostHistory().getCosts(),
+                    azureData.getCostHistory().getAnomalies()));
+        }
+
+        // Region Status
+        if (azureData.getRegionStatus() != null) {
+            List<DashboardData.RegionStatus> regions = azureData.getRegionStatus().stream()
+                    .map(r -> new DashboardData.RegionStatus(r.getName(), r.getStatus(), r.getStatus(), r.getLatitude(),
+                            r.getLongitude()))
+                    .collect(Collectors.toList());
+            mainAccount.setRegionStatus(regions);
+        }
+
+        // Empty Defaults for AWS specific fields
+        mainAccount.setSecurityScore(100);
+        mainAccount.setSecurityInsights(new ArrayList<>());
+        mainAccount.setSavingsSummary(new DashboardData.SavingsSummary(0.0, new ArrayList<>()));
+        mainAccount.setOptimizationSummary(new DashboardData.OptimizationSummary(0.0, 0));
+        mainAccount.setEc2Recommendations(new ArrayList<>());
+        mainAccount.setWastedResources(new ArrayList<>());
+        mainAccount.setCloudWatchStatus(new DashboardData.CloudWatchStatus(0, 0, 0));
+        mainAccount.setCostAnomalies(new ArrayList<>());
+        mainAccount.setEbsRecommendations(new ArrayList<>());
+        mainAccount.setLambdaRecommendations(new ArrayList<>());
+        mainAccount.setBillingSummary(new ArrayList<>());
+
+        data.setSelectedAccount(mainAccount);
+        populateAvailableAccounts(data, null);
+
+        return data;
     }
 }
