@@ -10,7 +10,8 @@ import java.util.List;
 
 /**
  * Data Transfer Object for the Reservation page.
- * This DTO combines reservation analysis, purchase recommendations, inventory, historical data, and modification recommendations.
+ * This DTO combines reservation analysis, purchase recommendations, inventory,
+ * historical data, and modification recommendations.
  */
 @Data
 @NoArgsConstructor
@@ -21,4 +22,5 @@ public class ReservationDto {
     private List<ReservationInventoryDto> inventory;
     private HistoricalReservationDataDto historicalData;
     private List<ReservationModificationRecommendationDto> modificationRecommendations;
+    private List<SavingsPlanDto> savingsPlans;
 }
