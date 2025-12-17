@@ -29,9 +29,9 @@ public class AzureDashboardService {
     private final AzureBillingDataIngestionService billingIngestionService;
 
     public AzureDashboardService(AzureClientProvider clientProvider,
-                                 CloudAccountRepository cloudAccountRepository,
-                                 RedisCacheService redisCache,
-                                 AzureBillingDataIngestionService billingIngestionService) {
+            CloudAccountRepository cloudAccountRepository,
+            RedisCacheService redisCache,
+            AzureBillingDataIngestionService billingIngestionService) {
         this.clientProvider = clientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
         this.redisCache = redisCache;
@@ -42,18 +42,25 @@ public class AzureDashboardService {
         log.info("Fetching dashboard data for Azure account ID: {}", accountId);
         try {
             CloudAccount account = cloudAccountRepository.findByAzureSubscriptionId(accountId)
-                .orElseThrow(() -> new IllegalArgumentException("Azure account not found for Subscription ID: " + accountId));
-            
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "Azure account not found for Subscription ID: " + accountId));
+
             AzureResourceManager azure = clientProvider.getAzureClient(accountId);
             AzureDashboardData dashboardData = new AzureDashboardData();
 
             // Run data fetching in parallel
-            CompletableFuture<Void> inventoryFuture = CompletableFuture.runAsync(() -> getAndSetResourceInventory(azure, dashboardData));
-            CompletableFuture<Void> costFuture = CompletableFuture.runAsync(() -> getAndSetCostHistoryAndBilling(dashboardData, account, force));
-            CompletableFuture<Void> regionFuture = CompletableFuture.runAsync(() -> getAndSetRegionStatus(azure, dashboardData));
-            CompletableFuture<Void> optimizationFuture = CompletableFuture.runAsync(() -> getAndSetOptimizationSummary(azure, dashboardData, accountId));
+            CompletableFuture<Void> inventoryFuture = CompletableFuture
+                    .runAsync(() -> getAndSetResourceInventory(azure, dashboardData));
+            CompletableFuture<Void> costFuture = CompletableFuture
+                    .runAsync(() -> getAndSetCostHistoryAndBilling(dashboardData, account, force));
+            CompletableFuture<Void> regionFuture = CompletableFuture
+                    .runAsync(() -> getAndSetRegionStatus(azure, dashboardData));
+            CompletableFuture<Void> optimizationFuture = CompletableFuture
+                    .runAsync(() -> getAndSetOptimizationSummary(azure, dashboardData, accountId));
+            CompletableFuture<Void> iamFuture = CompletableFuture
+                    .runAsync(() -> getAndSetIamDetails(azure, dashboardData, accountId));
 
-            CompletableFuture.allOf(inventoryFuture, costFuture, regionFuture, optimizationFuture).join();
+            CompletableFuture.allOf(inventoryFuture, costFuture, regionFuture, optimizationFuture, iamFuture).join();
 
             // Ensure all lists are initialized
             if (dashboardData.getVmRecommendations() == null) {
@@ -99,7 +106,8 @@ public class AzureDashboardService {
             AzureDashboardData.ResourceInventory inventory = new AzureDashboardData.ResourceInventory();
             inventory.setVirtualMachines(azure.virtualMachines().list().stream().count());
             inventory.setStorageAccounts(azure.storageAccounts().list().stream().count());
-            inventory.setSqlDatabases(azure.sqlServers().list().stream().mapToLong(s -> s.databases().list().stream().count()).sum());
+            inventory.setSqlDatabases(
+                    azure.sqlServers().list().stream().mapToLong(s -> s.databases().list().stream().count()).sum());
             inventory.setVirtualNetworks(azure.networks().list().stream().count());
             inventory.setFunctions(azure.functionApps().list().stream().count());
             inventory.setDisks(azure.disks().list().stream().count());
@@ -123,7 +131,9 @@ public class AzureDashboardService {
         String historyCacheKey = AzureBillingDataIngestionService.AZURE_COST_HISTORY_CACHE_PREFIX + accountId;
 
         if (force) {
-            log.info("Force refresh requested for Azure billing data for account {}. Evicting cache and triggering ingestion.", accountId);
+            log.info(
+                    "Force refresh requested for Azure billing data for account {}. Evicting cache and triggering ingestion.",
+                    accountId);
             try {
                 redisCache.evict(billingCacheKey);
                 redisCache.evict(historyCacheKey);
@@ -132,13 +142,16 @@ public class AzureDashboardService {
                 billingIngestionService.ingestDataForAccount(account);
                 log.info("Force ingestion complete for {}.", accountId);
             } catch (Exception e) {
-                log.error("Failed to perform force refresh for account {}. Will proceed with (possibly stale) cached data.", accountId, e);
+                log.error(
+                        "Failed to perform force refresh for account {}. Will proceed with (possibly stale) cached data.",
+                        accountId, e);
             }
         }
 
         // 1. Get Billing Summary from Cache (Cost by Service)
-        Optional<List<AzureDashboardData.BillingSummary>> billingSummary =
-            redisCache.get(billingCacheKey, new TypeReference<>() {});
+        Optional<List<AzureDashboardData.BillingSummary>> billingSummary = redisCache.get(billingCacheKey,
+                new TypeReference<>() {
+                });
 
         if (billingSummary.isPresent()) {
             dashboardData.setBillingSummary(billingSummary.get());
@@ -148,12 +161,12 @@ public class AzureDashboardService {
         }
 
         // 2. Get Cost History from Cache
-        Optional<AzureDashboardData.CostHistory> costHistory =
-            redisCache.get(historyCacheKey, AzureDashboardData.CostHistory.class);
+        Optional<AzureDashboardData.CostHistory> costHistory = redisCache.get(historyCacheKey,
+                AzureDashboardData.CostHistory.class);
 
         if (costHistory.isPresent()) {
             dashboardData.setCostHistory(costHistory.get());
-            
+
             // *** CRITICAL FIX: Separate MTD from Forecasted Spend ***
             AzureDashboardData.CostHistory history = costHistory.get();
             List<String> labels = history.getLabels();
@@ -163,15 +176,15 @@ public class AzureDashboardService {
             if (labels != null && costs != null && anomalies != null && labels.size() == costs.size()) {
                 // MTD = sum of ACTUAL costs only (anomalies = false)
                 double mtdSpend = IntStream.range(0, labels.size())
-                    .filter(i -> !Boolean.TRUE.equals(anomalies.get(i)))
-                    .mapToDouble(costs::get)
-                    .sum();
+                        .filter(i -> !Boolean.TRUE.equals(anomalies.get(i)))
+                        .mapToDouble(costs::get)
+                        .sum();
 
                 // Forecasted = sum of FORECAST costs only (anomalies = true)
                 double forecastedSpend = IntStream.range(0, labels.size())
-                    .filter(i -> Boolean.TRUE.equals(anomalies.get(i)))
-                    .mapToDouble(costs::get)
-                    .sum();
+                        .filter(i -> Boolean.TRUE.equals(anomalies.get(i)))
+                        .mapToDouble(costs::get)
+                        .sum();
 
                 dashboardData.setMonthToDateSpend(mtdSpend);
                 dashboardData.setForecastedSpend(forecastedSpend);
@@ -191,10 +204,16 @@ public class AzureDashboardService {
 
     private void getAndSetRegionStatus(AzureResourceManager azure, AzureDashboardData dashboardData) {
         try {
-            // Mock implementation
+            // Mock implementation but try to use azure.providers().list() or similar if
+            // possible, or just static list
+            // For now static list of popular regions is fine or we can assume active based
+            // on resources
             List<AzureDashboardData.RegionStatus> statuses = new ArrayList<>();
+            // We could iterate resources to find regions, but for now stick to simple mock
+            // or existing logic
             statuses.add(new AzureDashboardData.RegionStatus("eastus", 38.0, -78.0, "ACTIVE"));
             statuses.add(new AzureDashboardData.RegionStatus("westus", 37.0, -122.0, "SUSTAINABLE"));
+            statuses.add(new AzureDashboardData.RegionStatus("westeurope", 52.3, 4.8, "ACTIVE"));
             dashboardData.setRegionStatus(statuses);
         } catch (Exception e) {
             log.error("Error fetching region statuses: {}", e.getMessage());
@@ -202,7 +221,8 @@ public class AzureDashboardService {
         }
     }
 
-    private void getAndSetOptimizationSummary(AzureResourceManager azure, AzureDashboardData dashboardData, String accountId) {
+    private void getAndSetOptimizationSummary(AzureResourceManager azure, AzureDashboardData dashboardData,
+            String accountId) {
         try {
             DashboardData.OptimizationSummary summary = new DashboardData.OptimizationSummary();
             summary.setTotalPotentialSavings(0.0);
@@ -211,6 +231,61 @@ public class AzureDashboardService {
         } catch (Exception e) {
             log.error("Error fetching optimization summary for account {}: {}", accountId, e.getMessage());
             dashboardData.setOptimizationSummary(new DashboardData.OptimizationSummary());
+        }
+    }
+
+    private void getAndSetIamDetails(AzureResourceManager azure, AzureDashboardData dashboardData, String accountId) {
+        try {
+            List<DashboardData.IamUserDetail> users = new ArrayList<>();
+            List<DashboardData.IamRoleDetail> roles = new ArrayList<>();
+
+            // 1. Fetch Role Definitions (Roles)
+            // Lists all built-in and custom roles. Might be large, so maybe limit or
+            // filter?
+            // Azure has a lot of built-in roles.
+            try {
+                azure.accessManagement().roleDefinitions().listByScope(accountId).stream().limit(50).forEach(role -> {
+                    DashboardData.IamRoleDetail r = new DashboardData.IamRoleDetail();
+                    r.setRoleName(role.roleName());
+                    r.setRoleId(role.id());
+                    r.setArn(role.id());
+                    r.setCreateDate(null);
+                    roles.add(r);
+                });
+            } catch (Exception e) {
+                log.warn("Failed to list role definitions for account {}: {}", accountId, e.getMessage());
+            }
+
+            // 2. Fetch Role Assignments (Users/Principals)
+            // This gives us who has access.
+            try {
+                azure.accessManagement().roleAssignments().listByScope(accountId).stream().limit(50)
+                        .forEach(assignment -> {
+                            DashboardData.IamUserDetail user = new DashboardData.IamUserDetail();
+                            // Principal Name often not available in assignment, only ID.
+                            // We would need Graph API to resolve ID to Name.
+                            // For now use Principal ID as name fallback.
+                            user.setUserName(assignment.principalId());
+                            user.setUserId(assignment.principalId());
+                            user.setArn(assignment.id());
+                            user.setCreateDate(null);
+                            user.setPasswordLastUsed(null);
+                            // Add role name to attached policies/groups if possible
+                            DashboardData.IamPolicyDetail policy = new DashboardData.IamPolicyDetail();
+                            policy.setPolicyName(assignment.roleDefinitionId()); // ID of the role definition
+                            user.setAttachedPolicies(List.of(policy));
+
+                            users.add(user);
+                        });
+            } catch (Exception e) {
+                log.warn("Failed to list role assignments for account {}: {}", accountId, e.getMessage());
+            }
+
+            dashboardData.setIamDetails(new DashboardData.IamDetail(users, roles));
+
+        } catch (Exception e) {
+            log.error("Error fetching IAM details for account {}: {}", accountId, e.getMessage());
+            dashboardData.setIamDetails(new DashboardData.IamDetail(Collections.emptyList(), Collections.emptyList()));
         }
     }
 }
