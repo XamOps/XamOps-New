@@ -31,7 +31,6 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import java.time.ZoneId;
 
 @Service
 public class ReservationService {
@@ -80,15 +79,13 @@ public class ReservationService {
 
         CloudAccount account = getAccount(accountId);
 
-        // Use getAllOptedInRegions to ensure we scan ALL regions for RIs
         return cloudListService.getAllOptedInRegions(account).thenCompose(activeRegions -> {
 
             if (activeRegions == null) {
-                // Ensure DTO constructor matches (null for savings plans if not available)
                 return CompletableFuture.completedFuture(new ReservationDto(null, null, null, null, null, null));
             }
 
-            logger.info("--- LAUNCHING RESERVATION PAGE SCAN for account {} (Scanning {} regions) ---",
+            logger.info("--- LAUNCHING RESERVATION & SP SCAN for account {} (Scanning {} regions) ---",
                     account.getAwsAccountId(), activeRegions.size());
 
             CompletableFuture<DashboardData.ReservationAnalysis> analysisFuture = getReservationAnalysis(account,
@@ -102,14 +99,12 @@ public class ReservationService {
             CompletableFuture<List<ReservationModificationRecommendationDto>> modificationRecsFuture = getReservationModificationRecommendations(
                     account, activeRegions, forceRefresh);
 
-            // ✅ NEW: Fetch Savings Plans
             CompletableFuture<List<SavingsPlanDto>> savingsPlansFuture = getSavingsPlans(account, activeRegions,
                     forceRefresh);
 
             return CompletableFuture.allOf(analysisFuture, purchaseRecsFuture, inventoryFuture, historicalDataFuture,
                     modificationRecsFuture, savingsPlansFuture).thenApply(v -> {
                         logger.info("--- RESERVATION PAGE DATA FETCH COMPLETE ---");
-                        // ✅ Pass savingsPlansFuture.join() to the DTO constructor
                         ReservationDto result = new ReservationDto(
                                 analysisFuture.join(),
                                 purchaseRecsFuture.join(),
@@ -128,7 +123,6 @@ public class ReservationService {
             List<DashboardData.RegionStatus> activeRegions, boolean forceRefresh) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                // Using us-east-1 as the primary endpoint for global Savings Plans
                 SavingsplansClient client = awsClientProvider.getSavingsplansClient(account, "us-east-1");
                 DescribeSavingsPlansResponse response = client
                         .describeSavingsPlans(DescribeSavingsPlansRequest.builder().build());
@@ -143,9 +137,7 @@ public class ReservationService {
                         sp.start(),
                         sp.end(),
                         sp.region(),
-                        // FIX: commitment() returns a String directly in most SDK versions
                         sp.commitment() + "/hr",
-                        // FIX: upfrontPaymentAmount() returns a String directly
                         sp.upfrontPaymentAmount() != null ? sp.upfrontPaymentAmount() : "0.0",
                         sp.currencyAsString())).collect(Collectors.toList());
             } catch (Exception e) {
@@ -168,30 +160,154 @@ public class ReservationService {
             }
         }
 
-        CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
-        try {
-            String today = LocalDate.now().toString();
-            String thirtyDaysAgo = LocalDate.now().minusDays(30).toString();
-            DateInterval last30Days = DateInterval.builder().start(thirtyDaysAgo).end(today).build();
-            GetReservationUtilizationRequest utilRequest = GetReservationUtilizationRequest.builder()
-                    .timePeriod(last30Days).build();
-            List<UtilizationByTime> utilizations = ce.getReservationUtilization(utilRequest).utilizationsByTime();
-            GetReservationCoverageRequest covRequest = GetReservationCoverageRequest.builder().timePeriod(last30Days)
-                    .build();
-            List<CoverageByTime> coverages = ce.getReservationCoverage(covRequest).coveragesByTime();
-            double utilizationPercentage = utilizations.isEmpty() || utilizations.get(0).total() == null ? 0.0
-                    : Double.parseDouble(utilizations.get(0).total().utilizationPercentage());
-            double coveragePercentage = coverages.isEmpty() || coverages.get(0).total() == null ? 0.0
-                    : Double.parseDouble(coverages.get(0).total().coverageHours().coverageHoursPercentage());
+        return CompletableFuture.supplyAsync(() -> {
+            CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
+            try {
+                String today = LocalDate.now().toString();
+                String thirtyDaysAgo = LocalDate.now().minusDays(30).toString();
+                DateInterval last30Days = DateInterval.builder().start(thirtyDaysAgo).end(today).build();
 
-            DashboardData.ReservationAnalysis result = new DashboardData.ReservationAnalysis(utilizationPercentage,
-                    coveragePercentage);
-            redisCache.put(cacheKey, result, 10);
-            return CompletableFuture.completedFuture(result);
-        } catch (Exception e) {
-            logger.error("Could not fetch reservation analysis data for account {}", account.getAwsAccountId(), e);
-            return CompletableFuture.completedFuture(new DashboardData.ReservationAnalysis(0.0, 0.0));
+                // 1. Fetch RI Metrics
+                GetReservationUtilizationRequest riUtilReq = GetReservationUtilizationRequest.builder()
+                        .timePeriod(last30Days).build();
+                List<UtilizationByTime> riUtils = ce.getReservationUtilization(riUtilReq).utilizationsByTime();
+                GetReservationCoverageRequest riCovReq = GetReservationCoverageRequest.builder()
+                        .timePeriod(last30Days).build();
+                List<CoverageByTime> riCovs = ce.getReservationCoverage(riCovReq).coveragesByTime();
+
+                double riUtil = riUtils.isEmpty() || riUtils.get(0).total() == null ? 0.0
+                        : Double.parseDouble(riUtils.get(0).total().utilizationPercentage());
+                double riCov = riCovs.isEmpty() || riCovs.get(0).total() == null ? 0.0
+                        : Double.parseDouble(riCovs.get(0).total().coverageHours().coverageHoursPercentage());
+
+                // 2. Fetch Savings Plan Metrics
+                GetSavingsPlansUtilizationRequest spUtilReq = GetSavingsPlansUtilizationRequest.builder()
+                        .timePeriod(last30Days).build();
+                List<SavingsPlansUtilizationByTime> spUtils = ce
+                        .getSavingsPlansUtilization(spUtilReq).savingsPlansUtilizationsByTime();
+
+                GetSavingsPlansCoverageRequest spCovReq = GetSavingsPlansCoverageRequest.builder()
+                        .timePeriod(last30Days).build();
+                List<SavingsPlansCoverage> spCovs = ce
+                        .getSavingsPlansCoverage(spCovReq).savingsPlansCoverages();
+
+                double spUtil = spUtils.isEmpty() || spUtils.get(0).utilization() == null ? 0.0
+                        : Double.parseDouble(spUtils.get(0).utilization().utilizationPercentage());
+
+                double spCov = spCovs.isEmpty() || spCovs.get(0).coverage() == null ? 0.0
+                        : Double.parseDouble(spCovs.get(0).coverage().coveragePercentage());
+
+                logger.info("Account {}: RI Util={}%, SP Util={}%", account.getAwsAccountId(), riUtil, spUtil);
+
+                // 3. Merge Logic: Show max of either to represent total optimization effort
+                double finalUtil = (riUtil > 0) ? riUtil : spUtil;
+                double finalCov = (riCov > 0) ? riCov : spCov;
+
+                DashboardData.ReservationAnalysis result = new DashboardData.ReservationAnalysis(finalUtil, finalCov);
+                redisCache.put(cacheKey, result, 10);
+                return result;
+            } catch (Exception e) {
+                logger.error("Error fetching analysis for account {}", account.getAwsAccountId(), e);
+                return new DashboardData.ReservationAnalysis(0.0, 0.0);
+            }
+        });
+    }
+
+    @Async("awsTaskExecutor")
+    public CompletableFuture<HistoricalReservationDataDto> getHistoricalReservationData(CloudAccount account,
+            boolean forceRefresh) {
+        String cacheKey = "historicalReservationData-" + account.getAwsAccountId();
+        if (!forceRefresh) {
+            Optional<HistoricalReservationDataDto> cachedData = redisCache.get(cacheKey,
+                    HistoricalReservationDataDto.class);
+            if (cachedData.isPresent()) {
+                return CompletableFuture.completedFuture(cachedData.get());
+            }
         }
+
+        return CompletableFuture.supplyAsync(() -> {
+            CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
+            try {
+                LocalDate endDate = LocalDate.now();
+                LocalDate startDate = endDate.minusMonths(6).withDayOfMonth(1);
+                DateInterval period = DateInterval.builder().start(startDate.toString()).end(endDate.toString())
+                        .build();
+
+                // 1. RI History
+                GetReservationUtilizationRequest riUtilReq = GetReservationUtilizationRequest.builder()
+                        .timePeriod(period).granularity(Granularity.MONTHLY).build();
+                List<UtilizationByTime> riUtilList = ce.getReservationUtilization(riUtilReq).utilizationsByTime();
+
+                GetReservationCoverageRequest riCovReq = GetReservationCoverageRequest.builder()
+                        .timePeriod(period).granularity(Granularity.MONTHLY).build();
+                List<CoverageByTime> riCovList = ce.getReservationCoverage(riCovReq).coveragesByTime();
+
+                // 2. SP History
+                GetSavingsPlansUtilizationRequest spUtilReq = GetSavingsPlansUtilizationRequest.builder()
+                        .timePeriod(period).granularity(Granularity.MONTHLY).build();
+                List<SavingsPlansUtilizationByTime> spUtilList = ce
+                        .getSavingsPlansUtilization(spUtilReq).savingsPlansUtilizationsByTime();
+
+                GetSavingsPlansCoverageRequest spCovReq = GetSavingsPlansCoverageRequest.builder()
+                        .timePeriod(period).granularity(Granularity.MONTHLY).build();
+                List<SavingsPlansCoverage> spCovList = ce
+                        .getSavingsPlansCoverage(spCovReq).savingsPlansCoverages();
+
+                // 3. Build Result Arrays (Merge RI and SP)
+                List<String> labels = new ArrayList<>();
+                List<Double> utilPercentages = new ArrayList<>();
+                List<Double> covPercentages = new ArrayList<>();
+
+                int size = Math.max(Math.max(riUtilList.size(), spUtilList.size()),
+                        Math.max(riCovList.size(), spCovList.size()));
+
+                for (int i = 0; i < size; i++) {
+                    // Extract Date Label - prefer SP coverage data for date as it has timePeriod
+                    String dateStr = null;
+                    if (i < spCovList.size() && spCovList.get(i).timePeriod() != null) {
+                        dateStr = spCovList.get(i).timePeriod().start();
+                    } else if (i < spUtilList.size() && spUtilList.get(i).timePeriod() != null) {
+                        dateStr = spUtilList.get(i).timePeriod().start();
+                    } else if (i < riUtilList.size() && riUtilList.get(i).timePeriod() != null) {
+                        dateStr = riUtilList.get(i).timePeriod().start();
+                    } else if (i < riCovList.size() && riCovList.get(i).timePeriod() != null) {
+                        dateStr = riCovList.get(i).timePeriod().start();
+                    }
+
+                    if (dateStr != null) {
+                        labels.add(LocalDate.parse(dateStr).format(DateTimeFormatter.ofPattern("MMM uuuu")));
+                    }
+
+                    // Extract Utilization Values
+                    double rUtil = (i < riUtilList.size() && riUtilList.get(i).total() != null)
+                            ? Double.parseDouble(riUtilList.get(i).total().utilizationPercentage())
+                            : 0.0;
+                    double sUtil = (i < spUtilList.size() && spUtilList.get(i).utilization() != null)
+                            ? Double.parseDouble(spUtilList.get(i).utilization().utilizationPercentage())
+                            : 0.0;
+
+                    // Extract Coverage Values
+                    double rCov = (i < riCovList.size() && riCovList.get(i).total() != null)
+                            ? Double.parseDouble(riCovList.get(i).total().coverageHours().coverageHoursPercentage())
+                            : 0.0;
+                    double sCov = (i < spCovList.size() && spCovList.get(i).coverage() != null)
+                            ? Double.parseDouble(spCovList.get(i).coverage().coveragePercentage())
+                            : 0.0;
+
+                    // Merge logic: use whichever is higher to show "Optimization Activity"
+                    utilPercentages.add(Math.max(rUtil, sUtil));
+                    covPercentages.add(Math.max(rCov, sCov));
+                }
+
+                HistoricalReservationDataDto result = new HistoricalReservationDataDto(labels, utilPercentages,
+                        covPercentages);
+                redisCache.put(cacheKey, result, 10);
+                return result;
+            } catch (Exception e) {
+                logger.error("Error fetching historical data for account {}", account.getAwsAccountId(), e);
+                return new HistoricalReservationDataDto(new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
+            }
+        });
     }
 
     @Async("awsTaskExecutor")
@@ -303,21 +419,18 @@ public class ReservationService {
             }
         }
 
-        // Step 1: Fetch Inventory Details
         CompletableFuture<List<ReservationInventoryDto>> inventoryFuture = fetchAllRegionalResources(account,
                 activeRegions, regionId -> {
                     try {
                         Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
 
-                        // ✅ Fetch ALL RIs (No filters applied in request)
                         DescribeReservedInstancesRequest request = DescribeReservedInstancesRequest.builder().build();
                         DescribeReservedInstancesResponse response = ec2.describeReservedInstances(request);
 
                         if (response.hasReservedInstances() && !response.reservedInstances().isEmpty()) {
-                            logger.info("🔍 Found {} RIs in region {} for account {}", regionId,
-                                    response.reservedInstances().size(), account.getAwsAccountId());
+                            logger.info("🔍 Found {} RIs in region {} for account {}",
+                                    response.reservedInstances().size(), regionId, account.getAwsAccountId());
 
-                            // ✅ REMOVED FILTER: Now returns 'active', 'retired', 'payment-pending', etc.
                             return response.reservedInstances().stream()
                                     .map(ri -> new ReservationInventoryDto(
                                             ri.reservedInstancesId(), ri.offeringTypeAsString(),
@@ -325,8 +438,7 @@ public class ReservationService {
                                             ri.scopeAsString(), ri.availabilityZone(), ri.duration(), ri.start(),
                                             ri.end(),
                                             ri.instanceCount(), ri.stateAsString(),
-                                            0.0 // Placeholder
-                            ))
+                                            0.0))
                                     .collect(Collectors.toList());
                         } else {
                             return Collections.emptyList();
@@ -337,7 +449,6 @@ public class ReservationService {
                     }
                 }, "Reservation Inventory");
 
-        // Step 2: Fetch Utilization
         return inventoryFuture.thenCompose(inventory -> {
             if (inventory.isEmpty()) {
                 logger.info("🔍 DEBUG: Final inventory list is empty. AWS returned 0 RIs.");
@@ -348,7 +459,6 @@ public class ReservationService {
 
             List<CompletableFuture<ReservationInventoryDto>> utilizationFutures = inventory.stream()
                     .map(ri -> CompletableFuture.supplyAsync(() -> {
-                        // Only fetch utilization if state is active to avoid unnecessary API calls
                         double utilization = 0.0;
                         if ("active".equalsIgnoreCase(ri.getState())) {
                             utilization = fetchSingleRIUtilization(account, ri.getReservationId());
@@ -371,52 +481,6 @@ public class ReservationService {
                         return updatedInventory;
                     });
         });
-    }
-
-    @Async("awsTaskExecutor")
-    public CompletableFuture<HistoricalReservationDataDto> getHistoricalReservationData(CloudAccount account,
-            boolean forceRefresh) {
-        String cacheKey = "historicalReservationData-" + account.getAwsAccountId();
-        if (!forceRefresh) {
-            Optional<HistoricalReservationDataDto> cachedData = redisCache.get(cacheKey,
-                    HistoricalReservationDataDto.class);
-            if (cachedData.isPresent()) {
-                return CompletableFuture.completedFuture(cachedData.get());
-            }
-        }
-
-        CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
-        try {
-            LocalDate endDate = LocalDate.now();
-            LocalDate startDate = endDate.minusMonths(6).withDayOfMonth(1);
-            DateInterval period = DateInterval.builder().start(startDate.toString()).end(endDate.toString()).build();
-
-            GetReservationUtilizationRequest utilRequest = GetReservationUtilizationRequest.builder().timePeriod(period)
-                    .granularity(Granularity.MONTHLY).build();
-            List<UtilizationByTime> utilizations = ce.getReservationUtilization(utilRequest).utilizationsByTime();
-
-            GetReservationCoverageRequest covRequest = GetReservationCoverageRequest.builder().timePeriod(period)
-                    .granularity(Granularity.MONTHLY).build();
-            List<CoverageByTime> coverages = ce.getReservationCoverage(covRequest).coveragesByTime();
-
-            List<String> labels = utilizations.stream()
-                    .map(u -> LocalDate.parse(u.timePeriod().start()).format(DateTimeFormatter.ofPattern("MMM uuuu")))
-                    .collect(Collectors.toList());
-            List<Double> utilPercentages = utilizations.stream()
-                    .map(u -> Double.parseDouble(u.total().utilizationPercentage())).collect(Collectors.toList());
-            List<Double> covPercentages = coverages.stream()
-                    .map(c -> Double.parseDouble(c.total().coverageHours().coverageHoursPercentage()))
-                    .collect(Collectors.toList());
-
-            HistoricalReservationDataDto result = new HistoricalReservationDataDto(labels, utilPercentages,
-                    covPercentages);
-            redisCache.put(cacheKey, result, 10);
-            return CompletableFuture.completedFuture(result);
-        } catch (Exception e) {
-            logger.error("Could not fetch historical reservation data for account {}", account.getAwsAccountId(), e);
-            return CompletableFuture.completedFuture(new HistoricalReservationDataDto(Collections.emptyList(),
-                    Collections.emptyList(), Collections.emptyList()));
-        }
     }
 
     @Async("awsTaskExecutor")
