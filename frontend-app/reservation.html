@@ -284,7 +284,8 @@
                                                     <td class="px-6 py-4 font-medium text-gray-900">
                                                         <span x-text="item.instanceType"></span>
                                                         <div class="text-xs text-gray-500 truncate w-32"
-                                                            x-text="item.reservationId"></div>
+                                                            x-text="item.reservationId" :title="item.reservationId">
+                                                        </div>
                                                     </td>
                                                     <td class="px-6 py-4">
                                                         <span x-text="item.scope"></span>
@@ -297,14 +298,21 @@
                                                         </div>
                                                     </td>
                                                     <td class="px-6 py-4">
-                                                        <span class="font-semibold"
-                                                            :class="{'text-green-600': item.state === 'active', 'text-yellow-600': item.state === 'pending', 'text-gray-500': item.state === 'retired'}"
-                                                            x-text="item.state"></span>
+                                                        <span class="px-2 py-1 rounded-full text-xs font-semibold"
+                                                            :class="{
+                                                                'bg-green-100 text-green-800': item.state === 'active',
+                                                                'bg-gray-100 text-gray-600': item.state === 'retired' || item.state === 'expired',
+                                                                'bg-yellow-100 text-yellow-800': item.state === 'pending' || item.state === 'payment-pending'
+                                                            }" x-text="item.state"></span>
                                                     </td>
                                                     <td class="px-6 py-4">
-                                                        <span class="font-semibold"
-                                                            :class="{'text-red-600': item.utilizationPercentage < 80, 'text-green-600': item.utilizationPercentage >= 95}"
-                                                            x-text="item.utilizationPercentage ? item.utilizationPercentage.toFixed(1) + '%' : 'N/A'"></span>
+                                                        <div x-show="item.state === 'active'">
+                                                            <span class="font-semibold"
+                                                                :class="{'text-red-600': item.utilizationPercentage < 80, 'text-green-600': item.utilizationPercentage >= 95}"
+                                                                x-text="item.utilizationPercentage ? item.utilizationPercentage.toFixed(1) + '%' : 'N/A'"></span>
+                                                        </div>
+                                                        <div x-show="item.state !== 'active'"
+                                                            class="text-gray-400 text-xs italic">N/A</div>
                                                     </td>
                                                     <td class="px-6 py-4">
                                                         <span x-text="formatDate(item.start)"></span>
@@ -356,7 +364,7 @@
                                                     <td class="px-6 py-4 font-medium text-gray-900">
                                                         <span x-text="sp.type"></span>
                                                         <div class="text-xs text-gray-500 truncate w-32"
-                                                            x-text="sp.savingsPlanId"></div>
+                                                            x-text="sp.savingsPlanId" :title="sp.savingsPlanId"></div>
                                                     </td>
                                                     <td class="px-6 py-4">
                                                         <span x-text="sp.region || 'Global'"></span>
@@ -364,14 +372,15 @@
                                                     <td class="px-6 py-4">
                                                         <span class="font-semibold text-gray-900"
                                                             x-text="formatCurrency(sp.commitment)"></span>
-                                                        <div class="text-xs text-gray-500" x-text="sp.paymentOption">
+                                                        <div class="text-xs text-gray-500 mt-0.5"
+                                                            x-text="sp.paymentOption">
                                                         </div>
                                                     </td>
                                                     <td class="px-6 py-4">
                                                         <span class="px-2 py-1 rounded-full text-xs font-semibold"
                                                             :class="{
                                                                 'bg-green-100 text-green-800': sp.state === 'active', 
-                                                                'bg-gray-100 text-gray-800': sp.state === 'retired',
+                                                                'bg-gray-100 text-gray-600': sp.state === 'retired' || sp.state === 'expired',
                                                                 'bg-yellow-100 text-yellow-800': sp.state === 'payment-pending'
                                                             }" x-text="sp.state"></span>
                                                     </td>
@@ -573,6 +582,8 @@
                                 const expiry = new Date(endDate);
                                 const threshold = new Date();
                                 threshold.setDate(today.getDate() + 60);
+
+                                // Must be in the future AND within threshold
                                 return expiry > today && expiry < threshold;
                             },
 
@@ -587,13 +598,14 @@
                             // Clean currency formatting
                             formatCurrency(val, isHourly = true) {
                                 if (!val) return 'N/A';
-                                let numStr = String(val).replace('/hr', ''); // clean backend suffix if present
+                                // Remove all slashes and text chars to leave just the number
+                                let numStr = String(val).replace(/[^0-9.]/g, '');
                                 const num = parseFloat(numStr);
                                 if (isNaN(num)) return val;
 
                                 // if hourly and very small, show 4 decimals, else 2
                                 const decimals = (isHourly && num < 1) ? 4 : 2;
-                                return '$' + num.toFixed(decimals) + (isHourly && num < 10 ? '/hr' : '');
+                                return '$' + num.toFixed(decimals) + (isHourly ? '/hr' : '');
                             },
 
                             initCharts() {
