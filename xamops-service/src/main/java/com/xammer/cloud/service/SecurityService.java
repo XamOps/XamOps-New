@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.DashboardData;
+import com.xammer.cloud.dto.ProwlerFinding;
 import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import org.slf4j.Logger;
@@ -32,12 +33,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -53,6 +49,7 @@ public class SecurityService {
     private final RedisCacheService redisCache;
     private final CachedDataRepository cachedDataRepository;
     private final ObjectMapper objectMapper;
+    private final ProwlerService prowlerService;
 
     @Autowired
     public SecurityService(
@@ -60,70 +57,154 @@ public class SecurityService {
             AwsClientProvider awsClientProvider,
             RedisCacheService redisCache,
             CachedDataRepository cachedDataRepository,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            ProwlerService prowlerService) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.redisCache = redisCache;
         this.cachedDataRepository = cachedDataRepository;
         this.objectMapper = objectMapper;
+        this.prowlerService = prowlerService;
         this.configuredRegion = System.getenv().getOrDefault("AWS_REGION", "us-east-1");
-    }
-
-    private CloudAccount getAccount(String accountId) {
-        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
-        if (accounts.isEmpty()) {
-            throw new RuntimeException("Account not found in database: " + accountId);
-        }
-        return accounts.get(0);
     }
 
     @Async("awsTaskExecutor")
     public CompletableFuture<List<DashboardData.SecurityFinding>> getComprehensiveSecurityFindings(CloudAccount account,
             List<DashboardData.RegionStatus> activeRegions, boolean forceRefresh) {
-        String cacheKey = "securityFindings-" + account.getAwsAccountId();
+
+        String accountId = account.getAwsAccountId();
+        String redisKey = "securityFindings-" + accountId;
+        String dbKeyLatest = "SECURITY::" + accountId + "::LATEST";
+
+        // 1. SMART CHECK: Redis -> Database
         if (!forceRefresh) {
-            Optional<List<DashboardData.SecurityFinding>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {
+            // A. Check Redis (Fastest L1 Cache)
+            Optional<List<DashboardData.SecurityFinding>> cachedRedis = redisCache.get(redisKey, new TypeReference<>() {
             });
-            if (cachedData.isPresent()) {
-                return CompletableFuture.completedFuture(cachedData.get());
+            if (cachedRedis.isPresent()) {
+                return CompletableFuture.completedFuture(cachedRedis.get());
+            }
+
+            // B. Check Database (Persistent L2 Cache)
+            // If Redis is empty (app restart/expiry), load the last known scan immediately.
+            Optional<CachedData> dbData = cachedDataRepository.findById(dbKeyLatest);
+            if (dbData.isPresent()) {
+                try {
+                    List<DashboardData.SecurityFinding> findings = objectMapper.readValue(
+                            dbData.get().getJsonData(),
+                            new TypeReference<List<DashboardData.SecurityFinding>>() {
+                            });
+
+                    logger.info("Cache miss for {}, but found persistence in DB. Returning {} findings immediately.",
+                            accountId, findings.size());
+
+                    // Populate Redis so subsequent calls are instant
+                    redisCache.put(redisKey, findings, 1440);
+
+                    // Silent Refresh: If data is older than 24h, trigger a background scan
+                    if (dbData.get().getLastUpdated().isBefore(LocalDateTime.now().minusHours(24))) {
+                        logger.info("Data is stale (>24h). Triggering background refresh for {}", accountId);
+                        prowlerService.triggerScanAsync(accountId, configuredRegion, "s3", "ec2", "iam", "rds");
+                    }
+
+                    return CompletableFuture.completedFuture(findings);
+                } catch (Exception e) {
+                    logger.error("Failed to parse archived findings from DB for {}", accountId, e);
+                }
             }
         }
-        if (activeRegions == null) {
-            return CompletableFuture.completedFuture(Collections.emptyList());
+
+        // 2. If we are here, it means we have NO data (New Account) or
+        // forceRefresh=true.
+        logger.info("No valid cache found or refresh requested for {}. Initiating checks.", accountId);
+
+        // Fire and forget Prowler (Async) - DO NOT WAIT FOR THIS
+        if (forceRefresh || activeRegions != null) {
+            prowlerService.triggerScanAsync(account.getAwsAccountId(), configuredRegion, "s3", "ec2", "iam", "rds");
         }
 
-        logger.info("Starting comprehensive security scan for account {}...", account.getAwsAccountId());
+        // 3. Run Fast Manual AWS SDK Checks (These are usually < 10 seconds)
         List<CompletableFuture<List<DashboardData.SecurityFinding>>> futures = List.of(
-                findUsersWithoutMfa(account), findPublicS3Buckets(account),
+                findUsersWithoutMfa(account),
+                findPublicS3Buckets(account),
                 findUnrestrictedSecurityGroups(account, activeRegions),
-                findVpcsWithoutFlowLogs(account, activeRegions), checkCloudTrailStatus(account, activeRegions),
+                findVpcsWithoutFlowLogs(account, activeRegions),
+                checkCloudTrailStatus(account, activeRegions),
                 findUnusedIamRoles(account),
                 findSoc2ComplianceFindings(account, activeRegions));
+
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
                 .thenApply(v -> {
-                    List<DashboardData.SecurityFinding> result = futures.stream().map(CompletableFuture::join)
-                            .flatMap(List::stream).collect(Collectors.toList());
-                    redisCache.put(cacheKey, result, 10);
+                    // Combine Manual Findings
+                    List<DashboardData.SecurityFinding> findings = futures.stream()
+                            .map(CompletableFuture::join)
+                            .flatMap(List::stream)
+                            .collect(Collectors.toList());
 
-                    // ✅ Archive AWS Security Data to Postgres for Superset
-                    try {
-                        String dbKey = "SECURITY::" + account.getAwsAccountId() + "::" + LocalDate.now();
-                        String json = objectMapper.writeValueAsString(result);
+                    // 4. Merge with whatever Prowler data we have in cache (Instant Retrieval)
+                    // If the async scan above hasn't finished (it won't have), this returns old
+                    // data or empty.
+                    // The UI handles polling for the new data.
+                    List<DashboardData.SecurityFinding> prowlerFindings = getCachedProwlerFindings(accountId);
+                    findings.addAll(prowlerFindings);
 
-                        CachedData archivalData = cachedDataRepository.findById(dbKey).orElse(new CachedData());
-                        archivalData.setCacheKey(dbKey);
-                        archivalData.setJsonData(json);
-                        archivalData.setLastUpdated(LocalDateTime.now());
+                    // Update Caches
+                    redisCache.put(redisKey, findings, 1440); // 24 Hours
+                    archiveFindings(account, findings); // Save to DB
 
-                        cachedDataRepository.save(archivalData);
-                        logger.info("✅ Archived AWS Security data to DB for account {}", account.getAwsAccountId());
-                    } catch (Exception e) {
-                        logger.error("❌ Failed to archive AWS Security data", e);
-                    }
-                    // -----------------------------------------------------
-
-                    return result;
+                    return findings;
                 });
+    }
+
+    // --- Helper: Get Cached Prowler Findings ---
+    private List<DashboardData.SecurityFinding> getCachedProwlerFindings(String accountId) {
+        List<ProwlerFinding> rawFindings = prowlerService.getCachedFindings(accountId);
+
+        return rawFindings.stream()
+                .filter(f -> "FAIL".equalsIgnoreCase(f.getStatus()))
+                .map(pf -> {
+                    String severity = pf.getSeverity() != null
+                            ? pf.getSeverity().substring(0, 1).toUpperCase() + pf.getSeverity().substring(1)
+                            : "Medium";
+
+                    return new DashboardData.SecurityFinding(
+                            pf.getResourceId(),
+                            pf.getRegion(),
+                            pf.getServiceName() != null ? pf.getServiceName().toUpperCase() : "UNKNOWN",
+                            severity,
+                            pf.getDescription(),
+                            "Prowler (CIS/Best Practices)",
+                            pf.getCheckId());
+                })
+                .collect(Collectors.toList());
+    }
+
+    // --- Helper: Archive Findings to Database ---
+    private void archiveFindings(CloudAccount account, List<DashboardData.SecurityFinding> findings) {
+        try {
+            String json = objectMapper.writeValueAsString(findings);
+            LocalDateTime now = LocalDateTime.now();
+
+            // 1. Save Historical Record (Audit Trail - Key includes Date)
+            String historyKey = "SECURITY::" + account.getAwsAccountId() + "::" + LocalDate.now();
+            saveToDb(historyKey, json, now);
+
+            // 2. Save LATEST Record (Fast Fallback - Key is constant)
+            String latestKey = "SECURITY::" + account.getAwsAccountId() + "::LATEST";
+            saveToDb(latestKey, json, now);
+
+            logger.info("✅ Archived AWS Security data (History & Latest) for account {}", account.getAwsAccountId());
+        } catch (Exception e) {
+            logger.error("❌ Failed to archive AWS Security data", e);
+        }
+    }
+
+    private void saveToDb(String key, String json, LocalDateTime now) {
+        CachedData data = cachedDataRepository.findById(key).orElse(new CachedData());
+        data.setCacheKey(key);
+        data.setJsonData(json);
+        data.setLastUpdated(now);
+        cachedDataRepository.save(data);
     }
 
     private CompletableFuture<List<DashboardData.SecurityFinding>> findUsersWithoutMfa(CloudAccount account) {
