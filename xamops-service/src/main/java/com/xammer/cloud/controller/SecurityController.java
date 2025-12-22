@@ -5,6 +5,7 @@ import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.service.CloudListService;
 import com.xammer.cloud.service.ExcelExportService;
+import com.xammer.cloud.service.ProwlerService;
 import com.xammer.cloud.service.SecurityService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,65 +33,66 @@ public class SecurityController {
     private final CloudListService cloudListService;
     private final ExcelExportService excelExportService;
     private final CloudAccountRepository cloudAccountRepository;
+    private final ProwlerService prowlerService; // ✅ Added ProwlerService
 
     public SecurityController(SecurityService securityService,
-                              CloudListService cloudListService,
-                              ExcelExportService excelExportService,
-                              CloudAccountRepository cloudAccountRepository) {
+            CloudListService cloudListService,
+            ExcelExportService excelExportService,
+            CloudAccountRepository cloudAccountRepository,
+            ProwlerService prowlerService) { // ✅ Injected here
         this.securityService = securityService;
         this.cloudListService = cloudListService;
         this.excelExportService = excelExportService;
         this.cloudAccountRepository = cloudAccountRepository;
+        this.prowlerService = prowlerService;
     }
 
     @GetMapping("/findings")
     public CompletableFuture<ResponseEntity<List<DashboardData.SecurityFinding>>> getSecurityFindings(
             @RequestParam String accountId,
             @RequestParam(defaultValue = "false") boolean forceRefresh) {
-        
+
         logger.info("Fetching security findings for accountId: {}, forceRefresh: {}", accountId, forceRefresh);
-        
+
         List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
         if (accounts.isEmpty()) {
             logger.warn("No account found for accountId: {}", accountId);
             return CompletableFuture.completedFuture(
-                ResponseEntity.ok(Collections.emptyList())
-            );
+                    ResponseEntity.ok(Collections.emptyList()));
         }
-        
+
         CloudAccount account = accounts.get(0);
-        
+
         return cloudListService.getRegionStatusForAccount(account, forceRefresh)
                 .thenCompose(activeRegions -> {
-                    logger.info("Found {} active regions for account {}", 
-                        activeRegions.size(), accountId);
+                    logger.info("Found {} active regions for account {}",
+                            activeRegions.size(), accountId);
                     return securityService.getComprehensiveSecurityFindings(
-                        account, activeRegions, forceRefresh);
+                            account, activeRegions, forceRefresh);
                 })
                 .thenApply(findings -> {
-                    logger.info("Returning {} security findings for account {}", 
-                        findings.size(), accountId);
+                    logger.info("Returning {} security findings for account {}",
+                            findings.size(), accountId);
                     return ResponseEntity.ok(findings);
                 })
                 .exceptionally(ex -> {
-                    logger.error("Error fetching security findings for account {}", 
-                        accountId, ex);
+                    logger.error("Error fetching security findings for account {}",
+                            accountId, ex);
                     return ResponseEntity.status(500).body(Collections.emptyList());
                 });
     }
-     
+
     @GetMapping("/export")
     public CompletableFuture<ResponseEntity<byte[]>> exportFindingsToExcel(@RequestParam String accountId) {
-        // MODIFIED: Handle list of accounts to prevent crash
         List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
         if (accounts.isEmpty()) {
             throw new RuntimeException("Account not found: " + accountId);
         }
-        CloudAccount account = accounts.get(0); // Use the first account
+        CloudAccount account = accounts.get(0);
 
-        // For exports, always get the freshest data.
         return cloudListService.getRegionStatusForAccount(account, true)
-                .thenCompose((List<DashboardData.RegionStatus> activeRegions) -> securityService.getComprehensiveSecurityFindings(account, activeRegions, true))
+                .thenCompose((List<DashboardData.RegionStatus> activeRegions) -> securityService
+                        .getComprehensiveSecurityFindings(account, activeRegions, true))
                 .thenApply(findings -> {
                     ByteArrayInputStream in = excelExportService.exportSecurityFindingsToExcel(findings);
                     HttpHeaders headers = new HttpHeaders();
@@ -106,5 +108,11 @@ public class SecurityController {
                     logger.error("Error exporting security findings for account {}", accountId, ex);
                     return ResponseEntity.status(500).build();
                 });
+    }
+
+    // ✅ New Endpoint for Polling Status
+    @GetMapping("/prowler/status")
+    public ResponseEntity<Map<String, Object>> getProwlerStatus(@RequestParam String accountId) {
+        return ResponseEntity.ok(prowlerService.getScanStatus(accountId));
     }
 }

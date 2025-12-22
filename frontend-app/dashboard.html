@@ -637,7 +637,6 @@
 
 
         <div class="flex-1 pl-64">
-            <!-- MOVED x-data to main and added ID for soft navigation -->
             <main id="main-content" class="flex-1 p-6 bg-transparent space-y-6" x-data="dashboardApp()">
                 <header
                     class="h-20 flex items-center justify-between glass-card px-6 -mx-6 -mt-6 mb-6 border-b sticky top-0 z-10 fade-in relative">
@@ -705,7 +704,7 @@
 
                         </a>
                         <a href="/cloudshell.html" x-show="hasAnyRole(['ROLE_XAMOPS'])"
-                            class="flex items-center text-sm font-semibold text-gray-600 hover:text-indigo-600 px-4 py-2 rounded-lg hover:bg-indigo-50 transition-all border border-transparent hover:border-indigo-100 group"
+                            class="nav-item flex items-center text-sm font-semibold text-gray-600 hover:text-indigo-600 px-4 py-2 rounded-lg hover:bg-indigo-50 transition-all border border-transparent hover:border-indigo-100 group"
                             title="Launch CloudShell">
                             <i class="fas fa-laptop-code mr-2 text-gray-500 group-hover:text-indigo-600 transition-colors text-lg drop-shadow-sm group-hover:drop-shadow-md"
                                 style="text-shadow: 0 1px 2px var(--gradient-primary);"></i>
@@ -868,7 +867,6 @@
                         </div>
                     </div>
                 </div>
-                <!-- MOVED script inside main -->
                 <script>
                     function dashboardApp() {
                         return {
@@ -890,6 +888,40 @@
 
                             init() {
                                 console.log('[Dashboard] Initializing dashboardApp...');
+
+                                // --- FIX: Handle BFCache Restoration (Back Button Fix) ---
+                                // This ensures charts and data re-load when coming back from a hard navigation
+                                window.addEventListener('pageshow', (event) => {
+                                    if (event.persisted) {
+                                        console.log('[Dashboard] Page restored from cache. Reloading data...');
+
+                                        // 1. Destroy existing Chart instances to prevent conflicts
+                                        Chart.helpers.each(Chart.instances, (instance) => {
+                                            instance.destroy();
+                                        });
+
+                                        // 2. Clear global chart/sparkline variables
+                                        Object.keys(window).forEach(key => {
+                                            if (key.includes('_instance') || key.includes('sparkline') || key.includes('costHistoryChartInstance')) {
+                                                if (window[key] && typeof window[key].destroy === 'function') {
+                                                    window[key].destroy();
+                                                }
+                                                delete window[key];
+                                            }
+                                        });
+
+                                        // 3. Clear KPI container content
+                                        const kpiContainer = document.getElementById('kpi-cards');
+                                        if (kpiContainer) kpiContainer.innerHTML = '';
+
+                                        // 4. Reload data
+                                        this.isLoading = true;
+                                        setTimeout(() => {
+                                            this.loadDashboardData(false);
+                                        }, 100);
+                                    }
+                                });
+                                // -----------------------------------------------------------
 
                                 if (window.Highcharts) {
                                     console.log('[Map Debug] Highcharts object found on window.', window.Highcharts);
@@ -919,17 +951,17 @@
                                 this.fetchUserRoles();
                                 this.fetchAccounts();
 
-                                // Define named handlers for cleanup
-                                this.handleMultiAccountChange = (event) => {
+                                // Event listeners for sidebar account changes
+                                window.addEventListener('multi-account-selection-changed', (event) => {
                                     console.log('[Dashboard] Multi-account selection changed:', event.detail.accountIds);
                                     this.selectedAccountIds = event.detail.accountIds;
                                     this.isMultiAccountMode = this.selectedAccountIds.length > 1;
                                     sessionStorage.setItem('selectedAccountIds', JSON.stringify(this.selectedAccountIds));
                                     sessionStorage.setItem('multiAccountMode', 'true');
                                     this.loadDashboardData(false);
-                                };
+                                });
 
-                                this.handleAccountChange = (event) => {
+                                window.addEventListener('account-changed', (event) => {
                                     console.log('[Dashboard] Single account changed:', event.detail.accountId);
                                     this.selectedAccountIds = [event.detail.accountId];
                                     this.isMultiAccountMode = false;
@@ -937,59 +969,16 @@
                                     sessionStorage.setItem('selectedAccountIds', JSON.stringify(this.selectedAccountIds));
                                     sessionStorage.setItem('multiAccountMode', 'false');
                                     this.loadDashboardData(false);
-                                };
+                                });
 
-                                this.handleStorageChange = (event) => {
+                                window.addEventListener('storage', (event) => {
                                     if (event.key === 'selectedAccountIds') {
                                         window.location.reload();
                                     }
-                                };
-
-                                // Add Event Listeners
-                                window.addEventListener('multi-account-selection-changed', this.handleMultiAccountChange);
-                                window.addEventListener('account-changed', this.handleAccountChange);
-                                window.addEventListener('storage', this.handleStorageChange);
+                                });
 
                                 this.initializeDashboardLayout();
                                 this.loadDashboardData(false);
-
-                                // Cleanup Function (Alpine v3)
-                                return () => {
-                                    console.log('[Dashboard] Cleaning up resources...');
-                                    this.cleanup();
-                                };
-                            },
-
-                            cleanup() {
-                                // 1. Remove Event Listeners
-                                if (this.handleMultiAccountChange) window.removeEventListener('multi-account-selection-changed', this.handleMultiAccountChange);
-                                if (this.handleAccountChange) window.removeEventListener('account-changed', this.handleAccountChange);
-                                if (this.handleStorageChange) window.removeEventListener('storage', this.handleStorageChange);
-
-                                // 2. Disconnect WebSocket
-                                if (this.stompClient) {
-                                    try {
-                                        this.stompClient.disconnect(() => console.log('[Dashboard] WebSocket disconnected'));
-                                    } catch (e) { console.error('Error disconnecting websocket', e); }
-                                    this.stompClient = null;
-                                }
-
-                                // 3. Destroy Chart Instances
-                                if (window.costHistoryChartInstance) {
-                                    window.costHistoryChartInstance.destroy();
-                                    window.costHistoryChartInstance = null;
-                                }
-
-                                // Helper to clear sparklines map if you store them globally, 
-                                // otherwise chart.js handles canvas cleanup partially, but explicit destroy is better.
-                                Object.keys(window).forEach(key => {
-                                    if (key.startsWith('sparklineChart_')) {  // Assuming you named them this way or similar
-                                        if (window[key] && typeof window[key].destroy === 'function') {
-                                            window[key].destroy();
-                                            delete window[key];
-                                        }
-                                    }
-                                });
                             },
 
                             async apiFetch(url, options = {}) {
@@ -1061,7 +1050,7 @@
 
                             async fetchTenantUsers(tenantId) {
                                 try {
-                                    // The interceptor or apiFetch will handle headers. 
+                                    // The interceptor or apiFetch will handle headers.
                                     // If tenantId is passed explicitly to backend, we use query param.
                                     const res = await this.apiFetch(`/api/xamops/superadmin/users?tenantId=${tenantId}`);
                                     this.tenantUsers = await res.json();
@@ -1401,6 +1390,14 @@
                                         change: 100
                                     }
                                 ];
+
+                                // Destroy existing sparklines before rendering new ones to prevent leaks
+                                kpis.forEach(kpi => {
+                                    const canvasId = `sparkline-${kpi.id}`;
+                                    if (window[canvasId + '_instance']) {
+                                        window[canvasId + '_instance'].destroy();
+                                    }
+                                });
 
                                 kpiContainer.innerHTML = kpis.map(kpi => `
                     <div class="kpi-card rounded-xl p-6 group" @mouseenter="renderSparkline('sparkline-${kpi.id}', [${kpi.trendData.join(',')}], '${kpi.color.chartColor}')">
@@ -1956,22 +1953,22 @@
 
                 </script>
 
-                <div id="xamops-chatbot" class="fixed bottom-6 right-6 z-50 font-sans" x-data="{ 
-        open: false, 
-        newMessage: '', 
+                <div id="xamops-chatbot" class="fixed bottom-6 right-6 z-50 font-sans" x-data="{
+        open: false,
+        newMessage: '',
         isLoading: false,
         messages: [
             { text: 'Hello! I am XamOps AI. I can analyze your AWS costs and find idle resources. How can I help?', isUser: false }
         ],
-        
+       
         // 1. SMART URL DETECTOR: Works on Localhost AND Production automatically
         get backendUrl() {
             return window.location.port === '5173' ? 'http://localhost:8080' : '';
         },
-        
+       
         async sendMessage() {
             if (this.newMessage.trim() === '') return;
-            
+           
             this.messages.push({ text: this.newMessage, isUser: true });
             const userMsg = this.newMessage;
             this.newMessage = '';
@@ -1988,7 +1985,7 @@
                 // 3. DYNAMIC FETCH (Uses the smart backendUrl)
                 const response = await fetch(`${this.backendUrl}/api/ai/chat`, {
                     method: 'POST',
-                    headers: { 
+                    headers: {
                         'Content-Type': 'application/json',
                         'X-XSRF-TOKEN': csrfToken
                     },

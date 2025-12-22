@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit; // ✅ Added Import
 
 @Service
 public class RedisCacheService {
@@ -50,11 +51,13 @@ public class RedisCacheService {
         return Optional.empty();
     }
 
-    public <T> void put(String key, T value, int i) {
+    // ✅ FIX: Renamed parameter 'i' to 'minutes' and applied it to redisTemplate
+    public <T> void put(String key, T value, int minutes) {
         try {
             String jsonData = objectMapper.writeValueAsString(value);
-            redisTemplate.opsForValue().set(key, jsonData);
-            logger.info("--- SAVED TO REDIS CACHE: {} ---", key);
+            // ✅ FIX: Added timeout arguments so cache actually expires
+            redisTemplate.opsForValue().set(key, jsonData, minutes, TimeUnit.MINUTES);
+            logger.info("--- SAVED TO REDIS CACHE: {} (TTL: {} mins) ---", key, minutes);
         } catch (JsonProcessingException e) {
             logger.error("Error serializing data for caching for key {}: {}", key, e.getMessage());
         }
