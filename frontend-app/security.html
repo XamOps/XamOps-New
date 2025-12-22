@@ -159,6 +159,12 @@
                         color: #047857;
                     }
 
+                    .prowler-badge {
+                        background: linear-gradient(135deg, rgba(124, 58, 237, 0.1) 0%, rgba(124, 58, 237, 0.15) 100%);
+                        border: 1px solid rgba(124, 58, 237, 0.25);
+                        color: #5b21b6;
+                    }
+
                     .glass-card {
                         background: var(--glass-bg);
                         backdrop-filter: blur(10px);
@@ -281,6 +287,12 @@
                         </div>
                     </div>
                     <div class="flex items-center space-x-4">
+                        <div x-show="prowlerStatus.status === 'RUNNING'"
+                            class="flex items-center space-x-2 bg-blue-50 px-3 py-1 rounded-full border border-blue-100 mr-2">
+                            <div class="w-2 h-2 bg-blue-500 rounded-full animate-ping"></div>
+                            <span class="text-xs text-blue-700 font-medium">Deep Scan Running...</span>
+                        </div>
+
                         <div class="flex items-center space-x-2">
                             <div class="w-2 h-2 bg-red-500 rounded-full pulse-dot"></div>
                             <span class="text-sm text-gray-600">Security monitoring</span>
@@ -300,72 +312,92 @@
                     </div>
                 </header>
 
+                <div x-show="prowlerStatus && prowlerStatus.status === 'RUNNING'" x-transition x-cloak
+                    class="mx-8 mt-6 bg-blue-50 border-l-4 border-blue-500 p-4 rounded shadow-sm">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0">
+                            <i class="fas fa-circle-notch fa-spin text-blue-500 text-xl"></i>
+                        </div>
+                        <div class="ml-3">
+                            <p class="text-sm text-blue-700 font-medium">
+                                Deep Scan in Progress (Prowler)
+                            </p>
+                            <p class="text-xs text-blue-600"
+                                x-text="prowlerStatus.message || 'Scanning cloud resources...'"></p>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="flex-1 p-8 space-y-8">
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                         <template x-if="isLoading">
-                            <div class="skeleton h-36 rounded-2xl"></div>
-                            <div class="skeleton h-36 rounded-2xl"></div>
-                            <div class="skeleton h-36 rounded-2xl"></div>
-                            <div class="skeleton h-36 rounded-2xl"></div>
+                            <div class="contents">
+                                <div class="skeleton h-36 rounded-2xl"></div>
+                                <div class="skeleton h-36 rounded-2xl"></div>
+                                <div class="skeleton h-36 rounded-2xl"></div>
+                                <div class="skeleton h-36 rounded-2xl"></div>
+                            </div>
                         </template>
 
                         <template x-if="!isLoading">
-                            <div class="security-card rounded-2xl p-6 fade-in">
-                                <div class="flex justify-between items-start mb-4">
-                                    <div class="flex-1">
-                                        <h3 class="text-gray-600 text-sm font-medium mb-2">Total Findings</h3>
-                                        <p class="text-4xl font-bold gradient-text mb-1"
-                                            x-text="filteredFindings.length"></p>
-                                        <p class="text-xs text-gray-500">security issues detected</p>
-                                    </div>
-                                    <div
-                                        class="w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center">
-                                        <i class="fas fa-search text-white text-xl"></i>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="security-card rounded-2xl p-6 fade-in">
-                                <div class="flex justify-between items-start mb-4">
-                                    <div class="flex-1">
-                                        <h3 class="text-gray-600 text-sm font-medium mb-2">Critical</h3>
-                                        <p class="text-4xl font-bold text-red-600 mb-1"
-                                            x-text="severityCounts.Critical || 0"></p>
-                                        <p class="text-xs text-gray-500">immediate attention</p>
-                                    </div>
-                                    <div
-                                        class="w-14 h-14 bg-gradient-to-br from-red-500 to-red-600 rounded-xl flex items-center justify-center">
-                                        <i class="fas fa-exclamation-triangle text-white text-xl"></i>
+                            <div class="contents">
+                                <div class="security-card rounded-2xl p-6 fade-in">
+                                    <div class="flex justify-between items-start mb-4">
+                                        <div class="flex-1">
+                                            <h3 class="text-gray-600 text-sm font-medium mb-2">Total Findings</h3>
+                                            <p class="text-4xl font-bold gradient-text mb-1"
+                                                x-text="filteredFindings.length"></p>
+                                            <p class="text-xs text-gray-500">security issues detected</p>
+                                        </div>
+                                        <div
+                                            class="w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center">
+                                            <i class="fas fa-search text-white text-xl"></i>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
 
-                            <div class="security-card rounded-2xl p-6 fade-in">
-                                <div class="flex justify-between items-start mb-4">
-                                    <div class="flex-1">
-                                        <h3 class="text-gray-600 text-sm font-medium mb-2">High Priority</h3>
-                                        <p class="text-4xl font-bold text-orange-500 mb-1"
-                                            x-text="severityCounts.High || 0"></p>
-                                        <p class="text-xs text-gray-500">requires action</p>
-                                    </div>
-                                    <div
-                                        class="w-14 h-14 bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl flex items-center justify-center">
-                                        <i class="fas fa-fire text-white text-xl"></i>
+                                <div class="security-card rounded-2xl p-6 fade-in">
+                                    <div class="flex justify-between items-start mb-4">
+                                        <div class="flex-1">
+                                            <h3 class="text-gray-600 text-sm font-medium mb-2">Critical</h3>
+                                            <p class="text-4xl font-bold text-red-600 mb-1"
+                                                x-text="severityCounts.Critical || 0"></p>
+                                            <p class="text-xs text-gray-500">immediate attention</p>
+                                        </div>
+                                        <div
+                                            class="w-14 h-14 bg-gradient-to-br from-red-500 to-red-600 rounded-xl flex items-center justify-center">
+                                            <i class="fas fa-exclamation-triangle text-white text-xl"></i>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
 
-                            <div class="security-card rounded-2xl p-6 fade-in">
-                                <div class="flex justify-between items-start mb-4">
-                                    <div class="flex-1">
-                                        <h3 class="text-gray-600 text-sm font-medium mb-2">Medium & Low</h3>
-                                        <p class="text-4xl font-bold text-yellow-500 mb-1"
-                                            x-text="(severityCounts.Medium || 0) + (severityCounts.Low || 0)"></p>
-                                        <p class="text-xs text-gray-500">monitor closely</p>
+                                <div class="security-card rounded-2xl p-6 fade-in">
+                                    <div class="flex justify-between items-start mb-4">
+                                        <div class="flex-1">
+                                            <h3 class="text-gray-600 text-sm font-medium mb-2">High Priority</h3>
+                                            <p class="text-4xl font-bold text-orange-500 mb-1"
+                                                x-text="severityCounts.High || 0"></p>
+                                            <p class="text-xs text-gray-500">requires action</p>
+                                        </div>
+                                        <div
+                                            class="w-14 h-14 bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl flex items-center justify-center">
+                                            <i class="fas fa-fire text-white text-xl"></i>
+                                        </div>
                                     </div>
-                                    <div
-                                        class="w-14 h-14 bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-xl flex items-center justify-center">
-                                        <i class="fas fa-eye text-white text-xl"></i>
+                                </div>
+
+                                <div class="security-card rounded-2xl p-6 fade-in">
+                                    <div class="flex justify-between items-start mb-4">
+                                        <div class="flex-1">
+                                            <h3 class="text-gray-600 text-sm font-medium mb-2">Medium & Low</h3>
+                                            <p class="text-4xl font-bold text-yellow-500 mb-1"
+                                                x-text="(severityCounts.Medium || 0) + (severityCounts.Low || 0)"></p>
+                                            <p class="text-xs text-gray-500">monitor closely</p>
+                                        </div>
+                                        <div
+                                            class="w-14 h-14 bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-xl flex items-center justify-center">
+                                            <i class="fas fa-eye text-white text-xl"></i>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -436,7 +468,7 @@
                                                             <th>Category</th>
                                                             <th>Description</th>
                                                             <th>Resource</th>
-                                                            <th>Compliance</th>
+                                                            <th>Source & Control</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody>
@@ -461,9 +493,12 @@
                                                                     </div>
                                                                 </td>
                                                                 <td>
-                                                                    <span class="compliance-badge"
-                                                                        :class="finding.complianceFramework === 'SOC2' ? 'soc2-badge' : ''"
-                                                                        x-text="finding.complianceFramework + ' ' + finding.controlId"></span>
+                                                                    <span class="compliance-badge" :class="{
+                                                                            'soc2-badge': finding.complianceFramework && finding.complianceFramework.includes('SOC2'),
+                                                                            'prowler-badge': finding.complianceFramework && finding.complianceFramework.includes('Prowler')
+                                                                        }"
+                                                                        x-text="(finding.complianceFramework || 'Unknown') + (finding.controlId ? ' (' + finding.controlId + ')' : '')">
+                                                                    </span>
                                                                 </td>
                                                             </tr>
                                                         </template>
@@ -488,6 +523,8 @@
                             openSeverities: [],
                             selectedCompliance: 'All',
                             selectedAccountId: null,
+                            prowlerStatus: { status: 'UNKNOWN' },
+                            pollInterval: null,
 
                             init() {
                                 const urlParams = new URLSearchParams(window.location.search);
@@ -500,9 +537,41 @@
                                     }
                                 }
                                 this.loadFindings(false);
+                                this.startPolling();
                             },
 
-                            loadFindings(forceRefresh = false) {
+                            startPolling() {
+                                if (this.pollInterval) clearInterval(this.pollInterval);
+
+                                const checkStatus = () => {
+                                    if (!this.selectedAccountId) return;
+
+                                    fetch(`/api/xamops/security/prowler/status?accountId=${this.selectedAccountId}`)
+                                        .then(r => r.json())
+                                        .then(data => {
+                                            // Check if scan just finished (transitioned from RUNNING to COMPLETED)
+                                            // We use === 'RUNNING' to avoid double-fetching on page load (when status goes UNKNOWN -> COMPLETED)
+                                            if (data.status === 'COMPLETED' && this.prowlerStatus.status === 'RUNNING') {
+                                                // Clear client cache to ensure we fetch fresh data from the server
+                                                sessionStorage.removeItem(`securityFindings-${this.selectedAccountId}`);
+
+                                                // Call loadFindings with forceRefresh=false.
+                                                // This is CRITICAL: forceRefresh=false tells the backend "Don't trigger a new Prowler scan",
+                                                // but since ProwlerService evicted the backend cache upon completion, 
+                                                // the backend will rebuild the findings list with the newly available Prowler data.
+                                                this.loadFindings(false, true);
+                                            }
+                                            this.prowlerStatus = data;
+                                        })
+                                        .catch(e => console.error("Polling error", e));
+                                };
+
+                                // Run immediately and then interval
+                                checkStatus();
+                                this.pollInterval = setInterval(checkStatus, 5000);
+                            },
+
+                            loadFindings(forceRefresh = false, silent = false) {
                                 if (!this.selectedAccountId) {
                                     this.isLoading = false;
                                     return;
@@ -511,18 +580,23 @@
                                 const cacheKey = `securityFindings-${this.selectedAccountId}`;
                                 const cachedData = sessionStorage.getItem(cacheKey);
 
+                                // 1. Try to load from cache first (Instant Load)
                                 if (cachedData && !forceRefresh) {
                                     try {
                                         const parsed = JSON.parse(cachedData);
                                         this.processFindings(parsed);
                                         this.isLoading = false;
-                                        return;
+
+                                        // Even if we found data, let's fetch in background to check for server updates/stale data
+                                        // unless it's a very fresh session.
+                                        silent = true;
                                     } catch (e) {
                                         sessionStorage.removeItem(cacheKey);
                                     }
                                 }
 
-                                if (!cachedData) {
+                                // 2. Set loading state (only if not silent)
+                                if (!silent) {
                                     this.isLoading = true;
                                 }
 
@@ -544,8 +618,11 @@
                                     })
                                     .catch(err => {
                                         console.error('Fetch error:', err);
-                                        this.findings = [];
-                                        alert(`Failed to load security findings: ${err.message}`);
+                                        // Don't clear findings if we have cached data and just failed a background refresh
+                                        if (!silent) {
+                                            this.findings = [];
+                                            alert(`Failed to load security findings: ${err.message}`);
+                                        }
                                     })
                                     .finally(() => {
                                         this.isLoading = false;
