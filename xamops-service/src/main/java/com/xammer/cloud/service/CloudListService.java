@@ -159,7 +159,7 @@ public class CloudListService {
         return accounts.get(0);
     }
 
-private void loadRegionCoordinates() {
+    private void loadRegionCoordinates() {
         ObjectMapper mapper = new ObjectMapper();
         try {
             URL url = new URL(
@@ -1397,10 +1397,10 @@ private void loadRegionCoordinates() {
         }, "EventBridge Buses");
     }
 
+    // In
+    // xamops-service/src/main/java/com/xammer/cloud/service/CloudListService.java
 
-  // In xamops-service/src/main/java/com/xammer/cloud/service/CloudListService.java
-
-private CompletableFuture<List<ResourceDto>> fetchDataZoneDomainsForCloudlist(CloudAccount account,
+    private CompletableFuture<List<ResourceDto>> fetchDataZoneDomainsForCloudlist(CloudAccount account,
             List<DashboardData.RegionStatus> activeRegions) {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
             try {
@@ -1417,10 +1417,34 @@ private CompletableFuture<List<ResourceDto>> fetchDataZoneDomainsForCloudlist(Cl
                                 Collections.emptyMap()))
                         .collect(Collectors.toList());
             } catch (Exception e) {
-                // Log as debug so it doesn't clutter logs for regions where service isn't supported
+                // Log as debug so it doesn't clutter logs for regions where service isn't
+                // supported
                 logger.debug("DataZone not available or accessible in region {}: {}", regionId, e.getMessage());
                 return Collections.emptyList();
             }
         }, "DataZone Domains");
+    }
+
+    /**
+     * ✅ NEW METHOD: Fetch ALL opted-in regions (Active + Inactive)
+     * Used specifically by ReservationService to ensure all RIs are found.
+     */
+    @Async("awsTaskExecutor")
+    public CompletableFuture<List<DashboardData.RegionStatus>> getAllOptedInRegions(CloudAccount account) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                Ec2Client ec2 = awsClientProvider.getEc2Client(account, configuredRegion);
+                List<Region> allRegions = ec2.describeRegions().regions();
+
+                return allRegions.stream()
+                        .filter(region -> !"not-opted-in".equals(region.optInStatus()))
+                        .map(this::mapRegionToStatus)
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toList());
+            } catch (Exception e) {
+                logger.error("Failed to fetch all regions for account {}", account.getAwsAccountId(), e);
+                return Collections.emptyList();
+            }
+        });
     }
 }
