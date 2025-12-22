@@ -1,14 +1,14 @@
 package com.xammer.cloud.controller;
 
-import com.xammer.cloud.config.multitenancy.ImpersonationContext; // ✅ ADD IMPORT
+import com.xammer.cloud.config.multitenancy.ImpersonationContext;
 import com.xammer.cloud.config.multitenancy.TenantContext;
 import com.xammer.cloud.domain.Client;
 import com.xammer.cloud.domain.CloudAccount;
-import com.xammer.cloud.domain.User; // ✅ ADD IMPORT
+import com.xammer.cloud.domain.User;
 import com.xammer.cloud.dto.*;
 import com.xammer.cloud.repository.ClientRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
-import com.xammer.cloud.repository.UserRepository; // ✅ ADD IMPORT
+import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.service.AwsAccountService;
 import com.xammer.cloud.service.MasterDatabaseService;
@@ -48,7 +48,7 @@ public class AccountManagerController {
     private ClientRepository clientRepository;
 
     @Autowired
-    private UserRepository userRepository; // ✅ INJECT USER REPOSITORY
+    private UserRepository userRepository;
 
     @Autowired
     private AzureCostManagementService azureCostService;
@@ -221,6 +221,10 @@ public class AccountManagerController {
         return dto;
     }
 
+    /**
+     * Adds or Updates an Azure account based on Subscription ID.
+     * Handles upsert logic: inserts if new, updates if existing.
+     */
     @PostMapping("/azure")
     public ResponseEntity<?> addAzureAccount(@RequestBody AzureAccountRequestDto request,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
@@ -230,22 +234,46 @@ public class AccountManagerController {
             Client client = clientRepository.findById(clientId)
                     .orElseThrow(() -> new RuntimeException("Client not found for ID: " + clientId));
 
-            CloudAccount newAccount = new CloudAccount();
-            newAccount.setAccountName(request.getAccountName());
-            newAccount.setProvider("Azure");
-            newAccount.setAzureTenantId(request.getTenantId());
-            newAccount.setAzureSubscriptionId(request.getSubscriptionId());
-            newAccount.setAzureClientId(request.getClientId());
-            newAccount.setAzureClientSecret(request.getClientSecret());
-            newAccount.setStatus("CONNECTED"); // Set to CONNECTED, as setup follows
-            newAccount.setClient(client);
-            newAccount.setAccessType(request.getAccess());
-            newAccount.setExternalId(request.getPrincipalId());
+            // Check if account already exists by Subscription ID
+            Optional<CloudAccount> existingAccountOpt = cloudAccountRepository
+                    .findByAzureSubscriptionId(request.getSubscriptionId());
 
-            // First save to get an ID and basic info
-            CloudAccount savedAccount = cloudAccountRepository.save(newAccount);
+            CloudAccount account;
+            if (existingAccountOpt.isPresent()) {
+                // UPDATE existing account
+                account = existingAccountOpt.get();
+                logger.info("Updating existing Azure account: {}", account.getAccountName());
+
+                account.setAccountName(request.getAccountName());
+                account.setAzureTenantId(request.getTenantId());
+                // Subscription ID doesn't change as it is the lookup key
+                account.setAzureClientId(request.getClientId());
+                account.setAzureClientSecret(request.getClientSecret());
+                account.setAccessType(request.getAccess());
+                account.setExternalId(request.getPrincipalId());
+                account.setStatus("CONNECTED"); // Re-enable status to CONNECTED
+            } else {
+                // INSERT new account
+                logger.info("Creating new Azure account: {}", request.getAccountName());
+
+                account = new CloudAccount();
+                account.setAccountName(request.getAccountName());
+                account.setProvider("Azure");
+                account.setAzureTenantId(request.getTenantId());
+                account.setAzureSubscriptionId(request.getSubscriptionId());
+                account.setAzureClientId(request.getClientId());
+                account.setAzureClientSecret(request.getClientSecret());
+                account.setStatus("CONNECTED");
+                account.setClient(client);
+                account.setAccessType(request.getAccess());
+                account.setExternalId(request.getPrincipalId());
+            }
+
+            // Save to DB (Insert or Update)
+            CloudAccount savedAccount = cloudAccountRepository.save(account);
 
             try {
+                // Attempt to setup or update cost exports
                 Map<String, String> exportConfig = azureCostService.setupCostExports(savedAccount, request);
                 savedAccount.setAzureBillingContainer(exportConfig.get("containerName"));
                 savedAccount.setAzureBillingDirectory(exportConfig.get("directoryName"));
@@ -253,15 +281,17 @@ public class AccountManagerController {
                 return ResponseEntity.ok(finalAccount);
 
             } catch (Exception e) {
-                logger.error("Azure account {} added, but cost export setup failed: {}", savedAccount.getId(),
+                logger.error("Azure account {} saved/updated, but cost export setup failed: {}", savedAccount.getId(),
                         e.getMessage());
+                // Return the saved account anyway so the connection succeeds even if billing
+                // setup fails
                 return ResponseEntity.ok(savedAccount);
             }
 
         } catch (Exception e) {
-            logger.error("Error adding Azure account (pre-cost-setup)", e);
+            logger.error("Error adding/updating Azure account", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body("An unexpected error occurred while adding the account.");
+                    .body("An unexpected error occurred while processing the account.");
         }
     }
 
