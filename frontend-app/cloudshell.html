@@ -15,189 +15,227 @@
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </head>
 
-<body class="bg-gray-900 text-white flex h-screen overflow-hidden">
-  <include file="/_sidebar.html"></include>
+<body class="bg-gray-900 text-white h-screen overflow-hidden">
 
-  <div class="flex-1 flex flex-col ml-64">
-    <!-- Header -->
-    <div class="bg-gray-800 px-6 py-4 flex items-center justify-between shadow-lg">
-      <h1 class="text-xl font-bold flex items-center gap-3">
-        <i class="fas fa-terminal"></i>
-        Cloud Shell
-      </h1>
-      <div id="connection-status" class="px-3 py-1 rounded text-xs font-medium bg-yellow-600">
-        Connecting...
-      </div>
+  <div class="flex h-full">
+    <include file="/_sidebar.html"></include>
+
+    <div class="flex-1 pl-64 flex flex-col h-full">
+
+      <main id="main-content" class="flex-1 flex flex-col min-h-0 relative bg-gray-900">
+
+        <div class="bg-gray-800 px-6 py-4 flex items-center justify-between shadow-lg z-10 shrink-0">
+          <h1 class="text-xl font-bold flex items-center gap-3">
+            <i class="fas fa-terminal text-green-500"></i>
+            Cloud Shell
+          </h1>
+          <div id="connection-status"
+            class="px-3 py-1 rounded text-xs font-medium bg-yellow-600 transition-colors duration-300">
+            Connecting...
+          </div>
+        </div>
+
+        <div id="terminal" class="flex-1 bg-black overflow-hidden relative"></div>
+
+        <script>
+          (function () {
+            let term;
+            let socket;
+            let fitAddon;
+            let accountId = null;
+            let resizeListener;
+            let accountChangeListener;
+
+            function cleanup() {
+              if (socket) {
+                socket.close();
+                socket = null;
+              }
+              if (term) {
+                term.dispose();
+                term = null;
+              }
+              if (resizeListener) {
+                window.removeEventListener('resize', resizeListener);
+                resizeListener = null;
+              }
+              if (accountChangeListener) {
+                window.removeEventListener('account-changed', accountChangeListener);
+                accountChangeListener = null;
+              }
+              const container = document.getElementById("terminal");
+              if (container) container.innerHTML = '';
+            }
+
+            function getAccountId() {
+              const urlParam = new URLSearchParams(window.location.search).get("accountId");
+              if (urlParam) return urlParam;
+
+              const saved = JSON.parse(sessionStorage.getItem("selectedAccountIds") || "[]");
+              if (saved.length > 0) return saved[0];
+
+              return null;
+            }
+
+            function initWebSocket() {
+              const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+              const host = window.location.host;
+              const tenantId = sessionStorage.getItem("selectedTenantId") || 'customer1';
+
+              // Construct WebSocket URL
+              const wsUrl = `${protocol}//${host}/terminal?accountId=${accountId}&tenantId=${tenantId}`;
+
+              const status = document.getElementById("connection-status");
+              if (status) {
+                status.textContent = "Connecting...";
+                status.className = "px-3 py-1 rounded text-xs font-medium bg-yellow-600";
+              }
+
+              socket = new WebSocket(wsUrl);
+
+              socket.onopen = () => {
+                console.log('WebSocket Connected');
+                if (status) {
+                  status.textContent = `Connected: ${accountId}`;
+                  status.className = "px-3 py-1 rounded text-xs font-medium bg-green-600";
+                }
+                if (term) {
+                  term.focus();
+                  term.writeln(`\r\n\x1b[32mSuccessfully connected to instance.\x1b[0m\r\n`);
+                }
+              };
+
+              socket.onmessage = (event) => {
+                if (term) term.write(event.data);
+              };
+
+              socket.onclose = (event) => {
+                console.warn('WebSocket Closed', event);
+                if (status) {
+                  status.textContent = "Disconnected";
+                  status.className = "px-3 py-1 rounded text-xs font-medium bg-red-600";
+                }
+                if (term) term.writeln("\r\n\x1b[31mConnection closed. Select a different account or refresh.\x1b[0m");
+              };
+
+              socket.onerror = (error) => {
+                console.error('WebSocket Error:', error);
+                if (status) {
+                  status.textContent = "Connection Error";
+                  status.className = "px-3 py-1 rounded text-xs font-medium bg-red-600";
+                }
+              };
+            }
+
+            function initTerminal() {
+              cleanup();
+
+              accountId = getAccountId();
+
+              if (!accountId) {
+                const container = document.getElementById("terminal");
+                if (container) container.innerHTML = '<div class="p-8 text-red-400 font-mono">No account selected. Please select an account from the sidebar.</div>';
+                return;
+              }
+
+              term = new Terminal({
+                cursorBlink: true,
+                cursorStyle: "block",
+                fontSize: 14,
+                fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+                theme: {
+                  background: "#0d1117",
+                  foreground: "#c9d1d9",
+                  cursor: "#58a6ff",
+                  selection: "#58a6ff33",
+                  black: "#000000",
+                  red: "#ff7b72",
+                  green: "#3fb950",
+                  yellow: "#d29922",
+                  blue: "#58a6ff",
+                  magenta: "#bc8cff",
+                  cyan: "#39c5cf",
+                  white: "#d0d7de"
+                },
+                scrollback: 10000,
+              });
+
+              fitAddon = new FitAddon.FitAddon();
+              term.loadAddon(fitAddon);
+
+              const container = document.getElementById("terminal");
+              if (container) {
+                term.open(container);
+                setTimeout(() => {
+                  fitAddon.fit();
+                  term.focus();
+                }, 100);
+
+                container.addEventListener("click", () => {
+                  if (term) term.focus();
+                });
+              }
+
+              resizeListener = () => {
+                if (fitAddon) fitAddon.fit();
+              };
+              window.addEventListener("resize", resizeListener);
+
+              term.writeln("\x1b[1;36mXamOps CloudShell v2.0\x1b[0m");
+              term.writeln(`Target Account: \x1b[1;33m${accountId}\x1b[0m`);
+              term.writeln("Initializing secure connection...\r\n");
+
+              term.onData((data) => {
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                  socket.send(data);
+                }
+              });
+
+              term.attachCustomKeyEventHandler((e) => {
+                if (e.type === "keydown") {
+                  if (e.ctrlKey && e.shiftKey && e.key === "C") {
+                    const selection = term.getSelection();
+                    if (selection) {
+                      navigator.clipboard.writeText(selection);
+                      return false;
+                    }
+                  }
+                  if (e.ctrlKey && e.shiftKey && e.key === "V") {
+                    navigator.clipboard.readText().then(text => {
+                      if (socket) socket.send(text);
+                    });
+                    return false;
+                  }
+                  if (e.ctrlKey && e.key === "l") {
+                    term.clear();
+                    return false;
+                  }
+                }
+                return true;
+              });
+
+              initWebSocket();
+
+              accountChangeListener = (e) => {
+                console.log("CloudShell: Account change detected", e.detail);
+                if (e.detail && e.detail.accountId) {
+                  accountId = e.detail.accountId;
+                  const newUrl = new URL(window.location);
+                  newUrl.searchParams.set('accountId', accountId);
+                  window.history.replaceState(null, '', newUrl);
+                }
+                term.writeln("\r\n\x1b[33mSwitching accounts...\x1b[0m");
+                setTimeout(() => initTerminal(), 500);
+              };
+
+              window.addEventListener('account-changed', accountChangeListener);
+            }
+
+            initTerminal();
+          })();
+        </script>
+      </main>
     </div>
-
-    <!-- Terminal Container -->
-    <div id="terminal" class="flex-1 bg-black overflow-hidden"></div>
-
-    <!-- Single Terminal Script -->
-    <script>
-      (function () {
-        let term;
-        let socket;
-        let fitAddon;
-        let accountId = null;
-        let resizeListener;
-
-        function cleanup() {
-          if (socket) {
-            socket.close();
-            socket = null;
-          }
-          if (term) {
-            term.dispose();
-            term = null;
-          }
-          if (resizeListener) {
-            window.removeEventListener('resize', resizeListener);
-            resizeListener = null;
-          }
-          const container = document.getElementById("terminal");
-          if (container) container.innerHTML = '';
-        }
-
-        function getAccountId() {
-          const urlParam = new URLSearchParams(window.location.search).get("accountId");
-          if (urlParam) return urlParam;
-
-          const saved = JSON.parse(sessionStorage.getItem("selectedAccountIds") || "[]");
-          if (saved.length > 0) return saved[0];
-
-          return null;
-        }
-
-        function initWebSocket() {
-          const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-          const host = window.location.host;
-          const tenantId = sessionStorage.getItem("selectedTenantId") || 'customer1';
-
-          const wsUrl = `${protocol}//${host}/terminal?accountId=${accountId}&tenantId=${tenantId}`;
-
-          const status = document.getElementById("connection-status");
-          if (status) {
-            status.textContent = "Connecting...";
-            status.className = "px-3 py-1 rounded text-xs font-medium bg-yellow-600";
-          }
-
-          socket = new WebSocket(wsUrl);
-
-          socket.onopen = () => {
-            console.log('WebSocket Connected');
-            if (status) {
-              status.textContent = `Connected: ${accountId}`;
-              status.className = "px-3 py-1 rounded text-xs font-medium bg-green-600";
-            }
-            if (term) term.focus();
-          };
-
-          socket.onmessage = (event) => {
-            if (term) term.write(event.data);
-          };
-
-          socket.onclose = (event) => {
-            console.warn('WebSocket Closed', event);
-            if (status) {
-              status.textContent = "Disconnected";
-              status.className = "px-3 py-1 rounded text-xs font-medium bg-red-600";
-            }
-            if (term) term.writeln("\r\n\x1b[31mConnection closed. Refresh to reconnect.\x1b[0m");
-          };
-
-          socket.onerror = (error) => {
-            console.error('WebSocket Error:', error);
-            if (status) {
-              status.textContent = "Error";
-              status.className = "px-3 py-1 rounded text-xs font-medium bg-red-600";
-            }
-          };
-        }
-
-        function initTerminal() {
-          cleanup();
-
-          accountId = getAccountId();
-
-          if (!accountId) {
-            const container = document.getElementById("terminal");
-            if (container) container.innerHTML = '<div class="p-8 text-red-400">No account selected. Please select an account from the sidebar.</div>';
-            return;
-          }
-
-          sessionStorage.setItem("selectedAccountIds", JSON.stringify([accountId]));
-
-          term = new Terminal({
-            cursorBlink: true,
-            cursorStyle: "block",
-            fontSize: 14,
-            fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-            theme: {
-              background: "#000000",
-              foreground: "#00ff00",
-              cursor: "#00ff00",
-              selection: "#ffffff33",
-            },
-            scrollback: 10000,
-          });
-
-          fitAddon = new FitAddon.FitAddon();
-          term.loadAddon(fitAddon);
-
-          const container = document.getElementById("terminal");
-          if (container) {
-            term.open(container);
-            setTimeout(() => {
-              fitAddon.fit();
-              term.focus();
-            }, 100);
-
-            container.addEventListener("click", () => {
-              if (term) term.focus();
-            });
-          }
-
-          resizeListener = () => {
-            if (fitAddon) fitAddon.fit();
-          };
-          window.addEventListener("resize", resizeListener);
-
-          term.writeln("\x1b[1;36mXamOps CloudShell\x1b[0m");
-          term.writeln(`Connected to Account: \x1b[1;33m${accountId}\x1b[0m`);
-          term.writeln("");
-          term.write("$ ");
-
-          term.onData((data) => {
-            if (socket && socket.readyState === WebSocket.OPEN) {
-              socket.send(data);
-            }
-          });
-
-          term.attachCustomKeyEventHandler((e) => {
-            if (e.type === "keydown") {
-              if (e.ctrlKey && e.key === "c") {
-                if (socket && socket.readyState === WebSocket.OPEN) socket.send("\x03");
-                return false;
-              }
-              if (e.ctrlKey && e.key === "d") {
-                if (socket && socket.readyState === WebSocket.OPEN) socket.send("\x04");
-                return false;
-              }
-              if (e.ctrlKey && e.key === "l") {
-                term.clear();
-                return false;
-              }
-            }
-            return true;
-          });
-
-          initWebSocket();
-        }
-
-        initTerminal();
-      })();
-    </script>
   </div>
 </body>
 

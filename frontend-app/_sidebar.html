@@ -209,6 +209,43 @@
         this.fetchUserRoles();
         
         window.addEventListener('account-changed', () => this.fetchAccounts());
+
+        // 5. Soft Navigation: Handle Browser Back/Forward Buttons
+        window.addEventListener('popstate', (event) => {
+            console.log('[Sidebar] Popstate event detected:', window.location.href);
+            
+            const urlParams = new URLSearchParams(window.location.search);
+            const urlAccountIds = urlParams.get('accountIds');
+            const urlAccountId = urlParams.get('accountId');
+            const urlProjectId = urlParams.get('projectId');
+            
+            let recoveredIds = [];
+            
+            if (urlAccountIds) {
+                recoveredIds = urlAccountIds.split(',');
+            } else if (urlAccountId) {
+                recoveredIds = [urlAccountId];
+            } else if (urlProjectId) {
+                recoveredIds = [urlProjectId];
+            }
+            
+            if (recoveredIds.length > 0) {
+                console.log('[Sidebar] Restoring selection from history:', recoveredIds);
+                this.selectedAccountIds = recoveredIds;
+                this.tempSelectedAccounts = [...recoveredIds];
+                
+                // Update Storage
+                sessionStorage.setItem('selectedAccountIds', JSON.stringify(this.selectedAccountIds));
+                
+                // Dispatch Event so Dashboard/Page refreshes
+                window.dispatchEvent(new CustomEvent('account-changed', {
+                    detail: { 
+                        accountId: recoveredIds[0], 
+                        accountIds: recoveredIds 
+                    }
+                }));
+            }
+        });
     },
 
     checkCurrentPage() {
@@ -400,6 +437,7 @@
     },
 
     applySelection() {
+        console.log('[Sidebar] applySelection called');
         if (this.tempSelectedAccounts.length === 0) {
             alert('Please select at least one account');
             return;
@@ -414,6 +452,7 @@
         const firstSelectedId = this.selectedAccountIds[0];
         const account = this.accounts.find(a => a.id === firstSelectedId);
         const provider = account ? account.provider : 'AWS';
+        console.log('[Sidebar] Selected Provider:', provider);
 
         let targetPage;
         const isBillOpsUser = this.hasAnyRole(['ROLE_BILLOPS', 'ROLE_BILLOPS_ADMIN']);
@@ -436,11 +475,13 @@
                 targetPage = '/cloudshell.html';
             }
         }
+        console.log('[Sidebar] Target Page:', targetPage);
 
         // 2. Handle Multi-Account Mode (Dispatch event if on same dashboard type)
         if (this.multiAccountMode && this.selectedAccountIds.length > 1 && this.isDashboardPage) {
              // Check if we are already on the correct provider's dashboard
              if (window.location.pathname === targetPage) {
+                console.log('[Sidebar] Multi-account soft update. Dispatching event.');
                 window.dispatchEvent(new CustomEvent('multi-account-selection-changed', {
                     detail: { accountIds: this.selectedAccountIds }
                 }));
@@ -463,14 +504,21 @@
         }
 
         const targetUrl = `${targetPage}?${urlParams.toString()}`;
+        console.log('[Sidebar] Constructed Target URL:', targetUrl);
 
         // 4. SMART NAVIGATION CHECK
         if (window.location.pathname === targetPage) {
+            console.log('[Sidebar] Soft navigation detected. Updating state and dispatching account-changed.');
+            
+            // Push new state to history so back button works expectedly
             window.history.pushState(null, '', targetUrl);
+            
+            // Critical: Dispatch event so Dashboard reloads data
             window.dispatchEvent(new CustomEvent('account-changed', {
                 detail: { accountId: firstSelectedId, accountIds: this.selectedAccountIds }
             }));
         } else {
+            console.log('[Sidebar] Hard navigation required. Redirecting...');
             window.location.href = targetUrl;
         }
     },
@@ -1257,6 +1305,9 @@
                                     const newScript = document.createElement('script');
                                     newScript.src = script.src;
                                     newScript.async = false;
+
+                                    if (script.type) newScript.type = script.type;
+
                                     document.head.appendChild(newScript);
                                     loadedScripts.add(script.src);
 
