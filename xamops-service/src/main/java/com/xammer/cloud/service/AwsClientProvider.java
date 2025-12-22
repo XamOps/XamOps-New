@@ -67,6 +67,7 @@ import software.amazon.awssdk.services.sts.model.AssumeRoleRequest;
 import software.amazon.awssdk.services.sts.model.AssumeRoleResponse;
 import software.amazon.awssdk.services.textract.TextractClient;
 import software.amazon.awssdk.services.wafv2.Wafv2Client;
+import software.amazon.awssdk.services.savingsplans.SavingsplansClient;
 
 @Service
 public class AwsClientProvider {
@@ -439,5 +440,12 @@ public class AwsClientProvider {
 
     public ApiGatewayClient getApiGatewayClient(CloudAccount account, String region) {
         return getClient(ApiGatewayClient.class, ApiGatewayClient.builder(), account, region);
+    }
+
+    public SavingsplansClient getSavingsplansClient(CloudAccount account, String region) {
+        return SavingsplansClient.builder()
+                .credentialsProvider(getCredentialsProvider(account))
+                .region(Region.of(region))
+                .build();
     }
 }

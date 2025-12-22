@@ -36,8 +36,6 @@
                         --glass-border: rgba(229, 231, 235, 0.8);
                     }
 
-                    /* CHANGE: Removed commented out body styles to keep code clean */
-
                     [x-cloak] {
                         display: none !important;
                     }
@@ -250,8 +248,23 @@
                         </div>
 
                         <div class="space-y-4">
-                            <h2 class="text-xl font-bold text-gray-800 pt-4">Current RI Inventory</h2>
-                            <div class="table-enhanced">
+                            <div class="flex justify-between items-center pt-4">
+                                <h2 class="text-xl font-bold text-gray-800">Current Inventory</h2>
+                                <div class="flex space-x-2 bg-gray-100 p-1 rounded-lg">
+                                    <button @click="inventoryTab = 'ris'"
+                                        class="px-4 py-2 text-sm font-medium rounded-md transition-all"
+                                        :class="inventoryTab === 'ris' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'">
+                                        Reserved Instances
+                                    </button>
+                                    <button @click="inventoryTab = 'sps'"
+                                        class="px-4 py-2 text-sm font-medium rounded-md transition-all"
+                                        :class="inventoryTab === 'sps' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'">
+                                        Savings Plans
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div x-show="inventoryTab === 'ris'" class="table-enhanced">
                                 <table class="w-full text-sm text-left text-gray-500">
                                     <thead class="text-xs text-gray-700 uppercase">
                                         <tr>
@@ -271,7 +284,8 @@
                                                     <td class="px-6 py-4 font-medium text-gray-900">
                                                         <span x-text="item.instanceType"></span>
                                                         <div class="text-xs text-gray-500 truncate w-32"
-                                                            x-text="item.reservationId"></div>
+                                                            x-text="item.reservationId" :title="item.reservationId">
+                                                        </div>
                                                     </td>
                                                     <td class="px-6 py-4">
                                                         <span x-text="item.scope"></span>
@@ -284,34 +298,117 @@
                                                         </div>
                                                     </td>
                                                     <td class="px-6 py-4">
-                                                        <span class="font-semibold"
-                                                            :class="{'text-green-600': item.state === 'active', 'text-yellow-600': item.state === 'pending'}"
-                                                            x-text="item.state"></span>
+                                                        <span class="px-2 py-1 rounded-full text-xs font-semibold"
+                                                            :class="{
+                                                                'bg-green-100 text-green-800': item.state === 'active',
+                                                                'bg-gray-100 text-gray-600': item.state === 'retired' || item.state === 'expired',
+                                                                'bg-yellow-100 text-yellow-800': item.state === 'pending' || item.state === 'payment-pending'
+                                                            }" x-text="item.state"></span>
                                                     </td>
                                                     <td class="px-6 py-4">
-                                                        <span class="font-semibold"
-                                                            :class="{'text-red-600': item.utilizationPercentage < 80, 'text-green-600': item.utilizationPercentage >= 95}"
-                                                            x-text="item.utilizationPercentage ? item.utilizationPercentage.toFixed(1) + '%' : 'N/A'"></span>
+                                                        <div x-show="item.state === 'active'">
+                                                            <span class="font-semibold"
+                                                                :class="{'text-red-600': item.utilizationPercentage < 80, 'text-green-600': item.utilizationPercentage >= 95}"
+                                                                x-text="item.utilizationPercentage ? item.utilizationPercentage.toFixed(1) + '%' : 'N/A'"></span>
+                                                        </div>
+                                                        <div x-show="item.state !== 'active'"
+                                                            class="text-gray-400 text-xs italic">N/A</div>
                                                     </td>
                                                     <td class="px-6 py-4">
                                                         <span x-text="formatDate(item.start)"></span>
                                                     </td>
                                                     <td class="px-6 py-4">
-                                                        <span class="font-semibold"
-                                                            :class="{'text-red-600': isExpiringSoon(item.end)}"
-                                                            x-text="formatDate(item.end)"></span>
-                                                        <span x-show="isExpiringSoon(item.end)"
-                                                            class="ml-2 px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">
-                                                            Expiring Soon
-                                                        </span>
+                                                        <div class="flex flex-col">
+                                                            <span x-text="formatDate(item.end)"
+                                                                :class="{'text-red-600 font-bold': isExpiringSoon(item.end)}"></span>
+                                                            <span x-show="isExpiringSoon(item.end)"
+                                                                class="mt-1 px-2 py-0.5 inline-flex text-[10px] font-semibold rounded bg-red-100 text-red-800 w-fit">
+                                                                Expiring Soon
+                                                            </span>
+                                                            <span x-show="isExpired(item.end)"
+                                                                class="mt-1 px-2 py-0.5 inline-flex text-[10px] font-semibold rounded bg-gray-100 text-gray-600 w-fit">
+                                                                Expired
+                                                            </span>
+                                                        </div>
                                                     </td>
                                                 </tr>
                                             </template>
                                         </template>
                                         <template x-if="!data.inventory || data.inventory.length === 0">
                                             <tr>
-                                                <td colspan="7" class="text-center py-12 text-gray-500">No active
+                                                <td colspan="7" class="text-center py-12 text-gray-500">No
                                                     Reserved Instances found.</td>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div x-show="inventoryTab === 'sps'" class="table-enhanced" x-cloak>
+                                <table class="w-full text-sm text-left text-gray-500">
+                                    <thead class="text-xs text-gray-700 uppercase">
+                                        <tr>
+                                            <th scope="col" class="px-6 py-3">Plan ID / Type</th>
+                                            <th scope="col" class="px-6 py-3">Region</th>
+                                            <th scope="col" class="px-6 py-3">Commitment / Payment</th>
+                                            <th scope="col" class="px-6 py-3">State</th>
+                                            <th scope="col" class="px-6 py-3">Start Date</th>
+                                            <th scope="col" class="px-6 py-3">End Date</th>
+                                            <th scope="col" class="px-6 py-3">Upfront Cost</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <template x-if="data.savingsPlans && data.savingsPlans.length > 0">
+                                            <template x-for="sp in data.savingsPlans" :key="sp.savingsPlanId">
+                                                <tr class="border-b border-gray-200">
+                                                    <td class="px-6 py-4 font-medium text-gray-900">
+                                                        <span x-text="sp.type"></span>
+                                                        <div class="text-xs text-gray-500 truncate w-32"
+                                                            x-text="sp.savingsPlanId" :title="sp.savingsPlanId"></div>
+                                                    </td>
+                                                    <td class="px-6 py-4">
+                                                        <span x-text="sp.region || 'Global'"></span>
+                                                    </td>
+                                                    <td class="px-6 py-4">
+                                                        <span class="font-semibold text-gray-900"
+                                                            x-text="formatCurrency(sp.commitment)"></span>
+                                                        <div class="text-xs text-gray-500 mt-0.5"
+                                                            x-text="sp.paymentOption">
+                                                        </div>
+                                                    </td>
+                                                    <td class="px-6 py-4">
+                                                        <span class="px-2 py-1 rounded-full text-xs font-semibold"
+                                                            :class="{
+                                                                'bg-green-100 text-green-800': sp.state === 'active', 
+                                                                'bg-gray-100 text-gray-600': sp.state === 'retired' || sp.state === 'expired',
+                                                                'bg-yellow-100 text-yellow-800': sp.state === 'payment-pending'
+                                                            }" x-text="sp.state"></span>
+                                                    </td>
+                                                    <td class="px-6 py-4" x-text="formatDate(sp.start)"></td>
+                                                    <td class="px-6 py-4">
+                                                        <div class="flex flex-col">
+                                                            <span x-text="formatDate(sp.end)"
+                                                                :class="{'text-red-600 font-bold': isExpiringSoon(sp.end)}"></span>
+                                                            <span x-show="isExpiringSoon(sp.end)"
+                                                                class="mt-1 px-2 py-0.5 inline-flex text-[10px] font-semibold rounded bg-red-100 text-red-800 w-fit">
+                                                                Expiring Soon
+                                                            </span>
+                                                            <span x-show="isExpired(sp.end)"
+                                                                class="mt-1 px-2 py-0.5 inline-flex text-[10px] font-semibold rounded bg-gray-100 text-gray-600 w-fit">
+                                                                Expired
+                                                            </span>
+                                                        </div>
+                                                    </td>
+                                                    <td class="px-6 py-4"
+                                                        x-text="formatCurrency(sp.upfrontCost, false)">
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                        </template>
+                                        <template x-if="!data.savingsPlans || data.savingsPlans.length === 0">
+                                            <tr>
+                                                <td colspan="7" class="text-center py-12 text-gray-500">No Savings Plans
+                                                    found.</td>
                                             </tr>
                                         </template>
                                     </tbody>
@@ -400,12 +497,12 @@
                                                         <td class="px-6 py-4"
                                                             x-text="recFilters.paymentOption.replace('_', ' ')"></td>
                                                         <td class="px-6 py-4"
-                                                            x-text="`$${parseFloat(rec.onDemandCost).toFixed(2)}`"></td>
+                                                            x-text="formatCurrency(rec.onDemandCost, false)"></td>
                                                         <td class="px-6 py-4"
-                                                            x-text="`$${parseFloat(rec.estimatedMonthlyCost).toFixed(2)}`">
+                                                            x-text="formatCurrency(rec.estimatedMonthlyCost, false)">
                                                         </td>
                                                         <td class="px-6 py-4 text-green-600 font-bold"
-                                                            x-text="`$${parseFloat(rec.monthlySavings).toFixed(2)}`">
+                                                            x-text="formatCurrency(rec.monthlySavings, false)">
                                                         </td>
                                                     </tr>
                                                 </template>
@@ -440,10 +537,12 @@
                             isLoading: true,
                             isRecsLoading: false,
                             selectedAccountId: null,
+                            inventoryTab: 'ris', // Controls active tab
                             data: {
                                 analysis: {},
                                 historicalData: {},
                                 inventory: [],
+                                savingsPlans: [], // Added
                                 purchaseRecommendations: [],
                                 modificationRecommendations: []
                             },
@@ -472,16 +571,41 @@
                             // CHANGE: Helper function to safely format dates
                             formatDate(dateString) {
                                 if (!dateString) return 'N/A';
-                                return new Date(dateString).toLocaleDateString();
+                                const date = new Date(dateString);
+                                return isNaN(date.getTime()) ? dateString : date.toLocaleDateString();
                             },
 
+                            // Correct Logic: Expiring soon = Future Date AND < 60 days
                             isExpiringSoon(endDate) {
                                 if (!endDate) return false;
                                 const today = new Date();
+                                const expiry = new Date(endDate);
                                 const threshold = new Date();
                                 threshold.setDate(today.getDate() + 60);
-                                const expiryDate = new Date(endDate);
-                                return expiryDate < threshold;
+
+                                // Must be in the future AND within threshold
+                                return expiry > today && expiry < threshold;
+                            },
+
+                            // Check if expired
+                            isExpired(endDate) {
+                                if (!endDate) return false;
+                                const today = new Date();
+                                const expiry = new Date(endDate);
+                                return expiry < today;
+                            },
+
+                            // Clean currency formatting
+                            formatCurrency(val, isHourly = true) {
+                                if (!val) return 'N/A';
+                                // Remove all slashes and text chars to leave just the number
+                                let numStr = String(val).replace(/[^0-9.]/g, '');
+                                const num = parseFloat(numStr);
+                                if (isNaN(num)) return val;
+
+                                // if hourly and very small, show 4 decimals, else 2
+                                const decimals = (isHourly && num < 1) ? 4 : 2;
+                                return '$' + num.toFixed(decimals) + (isHourly ? '/hr' : '');
                             },
 
                             initCharts() {
@@ -550,6 +674,8 @@
 
                                 if (cachedData && !forceRefresh) {
                                     this.data = JSON.parse(cachedData);
+                                    // Ensure savingsPlans array exists even if cache is old
+                                    if (!this.data.savingsPlans) this.data.savingsPlans = [];
                                     this.isLoading = false;
                                     this.$nextTick(() => this.initCharts());
                                     return;
@@ -566,6 +692,9 @@
                                     })
                                     .then(data => {
                                         this.data = data;
+                                        // Ensure savingsPlans array exists
+                                        if (!this.data.savingsPlans) this.data.savingsPlans = [];
+
                                         // CHANGE: Save to cache
                                         sessionStorage.setItem(cacheKey, JSON.stringify(data));
                                         this.$nextTick(() => this.initCharts());
@@ -577,6 +706,7 @@
                                             analysis: {},
                                             historicalData: {},
                                             inventory: [],
+                                            savingsPlans: [],
                                             purchaseRecommendations: [],
                                             modificationRecommendations: []
                                         };
