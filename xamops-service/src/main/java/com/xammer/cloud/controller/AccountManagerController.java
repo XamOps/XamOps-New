@@ -272,6 +272,9 @@ public class AccountManagerController {
             // Save to DB (Insert or Update)
             CloudAccount savedAccount = cloudAccountRepository.save(account);
 
+            // Logic to skip export setup based on account type is REMOVED.
+            // We now rely on try-catch fallback below.
+
             try {
                 // Attempt to setup or update cost exports
                 Map<String, String> exportConfig = azureCostService.setupCostExports(savedAccount, request);

@@ -1,6 +1,6 @@
 package com.xammer.cloud.exception;
 
-import org.apache.catalina.connector.ClientAbortException; // Import the specific exception
+import org.apache.catalina.connector.ClientAbortException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
 
+import javax.servlet.http.HttpServletRequest; // ✅ Added Import
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
@@ -31,11 +32,23 @@ public class GlobalExceptionHandler {
      * Handles general, unexpected exceptions throughout the application.
      */
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<?> globalExceptionHandler(Exception ex, WebRequest request) {
+    public ResponseEntity<?> globalExceptionHandler(Exception ex, HttpServletRequest request) { // ✅ Changed WebRequest
+                                                                                                // to HttpServletRequest
         // Fallback check in case ClientAbortException is wrapped or not caught by the
         // specific handler
         if (ex instanceof ClientAbortException || ex.getCause() instanceof ClientAbortException) {
             return null;
+        }
+
+        // ✅ FIX: Prevent HttpMessageNotWritableException for static resources
+        // If the request expects JS/CSS/Images, do NOT try to return a JSON body (Map),
+        // as Spring cannot convert Map -> application/javascript.
+        String path = request.getRequestURI().toLowerCase();
+        if (path.endsWith(".js") || path.endsWith(".css") || path.endsWith(".map") ||
+                path.endsWith(".ico") || path.endsWith(".png") || path.endsWith(".jpg") ||
+                path.endsWith(".woff") || path.endsWith(".woff2")) {
+            // Return status only, no JSON body
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
 
         Map<String, Object> body = new HashMap<>();
