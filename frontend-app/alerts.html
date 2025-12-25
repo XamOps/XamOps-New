@@ -711,8 +711,12 @@
               selectedService: "All",
 
               init() {
-                this.loadAlerts(false);
-                this.fetchGrafanaAlerts();
+                // Wait for Alpine to be fully initialized before loading data
+                this.$nextTick(() => {
+                  console.log('[Alerts] Alpine ready, loading alerts...');
+                  this.loadAlerts(false);
+                  this.fetchGrafanaAlerts();
+                });
               },
 
               loadAlerts(forceRefresh = false) {

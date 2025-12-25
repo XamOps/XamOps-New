@@ -617,8 +617,12 @@
                                     this.newSchedule.cloudAccountId = selectedAccountIds[0];
                                 }
 
-                                this.loadReport(false);
-                                this.loadSchedules();
+                                // Wait for Alpine to be fully initialized before loading data
+                                this.$nextTick(() => {
+                                    console.log('[FinOps] Alpine ready, loading report data...');
+                                    this.loadReport(false);
+                                    this.loadSchedules();
+                                });
                                 // this.connectWebSocket();
                             },
 

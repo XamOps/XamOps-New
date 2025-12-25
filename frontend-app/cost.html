@@ -389,11 +389,12 @@
 
                                 if (this.selectedAccountId) {
 
-                                    this.loadCostData();
-
-                                    // this.loadHistoricalData(); // Removed to prevent initial load error if no dimension selected
-
-                                    this.loadForecast();
+                                    // Wait for Alpine to be fully initialized before loading data
+                                    this.$nextTick(() => {
+                                        console.log('[Cost] Alpine ready, loading cost data...');
+                                        this.loadCostData();
+                                        this.loadForecast();
+                                    });
 
                                 }
 

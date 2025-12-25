@@ -978,7 +978,12 @@
                                 });
 
                                 this.initializeDashboardLayout();
-                                this.loadDashboardData(false);
+
+                                // Wait for Alpine to be fully initialized before loading data
+                                this.$nextTick(() => {
+                                    console.log('[Dashboard] Alpine ready, loading dashboard data...');
+                                    this.loadDashboardData(false);
+                                });
                             },
 
                             async apiFetch(url, options = {}) {
