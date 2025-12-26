@@ -142,6 +142,19 @@
               id="security-tab">
               Security (Falco)
             </button>
+            <!-- 🆕 NEW: Kubescape Tab -->
+            <button @click="activeTab = 'kubescape'; loadKubescapeData()"
+              :class="{'border-indigo-600 text-indigo-600 border-b-2': activeTab === 'kubescape'}"
+              class="py-4 px-1 font-semibold text-gray-500 hover:text-indigo-600 focus:outline-none" role="tab">
+              <i class="fas fa-shield-alt"></i> Security (Kubescape)
+            </button>
+
+            <!-- 🆕 NEW: Karpenter Tab -->
+            <button @click="activeTab = 'karpenter'; loadKarpenterData()"
+              :class="{'border-indigo-600 text-indigo-600 border-b-2': activeTab === 'karpenter'}"
+              class="py-4 px-1 font-semibold text-gray-500 hover:text-indigo-600 focus:outline-none" role="tab">
+              <i class="fas fa-layer-group"></i> Autoscaling (Karpenter)
+            </button>
           </nav>
 
           <div class="p-7">
@@ -255,6 +268,220 @@
                 </template>
               </div>
 
+
+
+              <!-- 🆕 NEW: Kubescape Panel -->
+              <div x-show="activeTab === 'kubescape'" id="kubescape-panel" role="tabpanel">
+                <div x-show="kubescapeLoading" class="text-center py-12">
+                  <i class="fas fa-spinner fa-spin text-4xl mb-4"></i>
+                  <p>Loading Kubescape data...</p>
+                </div>
+
+                <div x-show="!kubescapeLoading && kubescapeData" x-cloak>
+                  <!-- Compliance Score Card -->
+                  <div class="glass-card mb-6 text-center">
+                    <h3 class="text-gray-600 font-semibold mb-2">Overall Compliance Score</h3>
+                    <div class="text-5xl font-extrabold" :class="{
+             'text-green-600': kubescapeData.overallComplianceScore >= 80,
+             'text-yellow-600': kubescapeData.overallComplianceScore >= 60 && kubescapeData.overallComplianceScore < 80,
+             'text-red-600': kubescapeData.overallComplianceScore < 60
+           }" x-text="kubescapeData.overallComplianceScore ? kubescapeData.overallComplianceScore.toFixed(1) + '%' : 'N/A'">
+                    </div>
+                    <p class="text-sm text-gray-500 mt-2"
+                      x-text="'Last scan: ' + (kubescapeData.lastScanTime || 'Unknown')"></p>
+                  </div>
+
+                  <!-- Vulnerability Summary Cards -->
+                  <div class="grid grid-cols-4 gap-4 mb-6">
+                    <div class="glass-card text-center">
+                      <i class="fas fa-exclamation-circle text-red-600 text-3xl mb-2"></i>
+                      <h4 class="text-gray-600 font-semibold">Critical</h4>
+                      <p class="text-3xl font-bold text-red-600" x-text="kubescapeData.totalCritical || 0"></p>
+                    </div>
+                    <div class="glass-card text-center">
+                      <i class="fas fa-exclamation-triangle text-orange-600 text-3xl mb-2"></i>
+                      <h4 class="text-gray-600 font-semibold">High</h4>
+                      <p class="text-3xl font-bold text-orange-600" x-text="kubescapeData.totalHigh || 0"></p>
+                    </div>
+                    <div class="glass-card text-center">
+                      <i class="fas fa-exclamation text-yellow-600 text-3xl mb-2"></i>
+                      <h4 class="text-gray-600 font-semibold">Medium</h4>
+                      <p class="text-3xl font-bold text-yellow-600" x-text="kubescapeData.totalMedium || 0"></p>
+                    </div>
+                    <div class="glass-card text-center">
+                      <i class="fas fa-info-circle text-blue-600 text-3xl mb-2"></i>
+                      <h4 class="text-gray-600 font-semibold">Low</h4>
+                      <p class="text-3xl font-bold text-blue-600" x-text="kubescapeData.totalLow || 0"></p>
+                    </div>
+                  </div>
+
+                  <!-- Vulnerabilities Table -->
+                  <div class="glass-card">
+                    <h3 class="text-lg font-semibold mb-4">Workload Vulnerabilities</h3>
+                    <template x-if="kubescapeData.vulnerabilities && kubescapeData.vulnerabilities.length > 0">
+                      <table class="data-table">
+                        <thead>
+                          <tr>
+                            <th>Workload Name</th>
+                            <th>Namespace</th>
+                            <th>Type</th>
+                            <th class="text-center">Critical</th>
+                            <th class="text-center">High</th>
+                            <th class="text-center">Medium</th>
+                            <th class="text-center">Low</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <template x-for="vuln in kubescapeData.vulnerabilities" :key="vuln.workloadName">
+                            <tr>
+                              <td x-text="vuln.workloadName"></td>
+                              <td x-text="vuln.namespace"></td>
+                              <td x-text="vuln.workloadKind"></td>
+                              <td class="text-center text-red-600 font-semibold" x-text="vuln.criticalCount"></td>
+                              <td class="text-center text-orange-600 font-semibold" x-text="vuln.highCount"></td>
+                              <td class="text-center text-yellow-600 font-semibold" x-text="vuln.mediumCount"></td>
+                              <td class="text-center text-blue-600 font-semibold" x-text="vuln.lowCount"></td>
+                            </tr>
+                          </template>
+                        </tbody>
+                      </table>
+                    </template>
+                    <template x-if="!kubescapeData.vulnerabilities || kubescapeData.vulnerabilities.length === 0">
+                      <p class="text-gray-600 text-center py-8">✅ No vulnerabilities found - excellent security posture!
+                      </p>
+                    </template>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 🆕 NEW: Karpenter Panel -->
+              <div x-show="activeTab === 'karpenter'" id="karpenter-panel" role="tabpanel">
+                <div x-show="karpenterLoading" class="text-center py-12">
+                  <i class="fas fa-spinner fa-spin text-4xl mb-4"></i>
+                  <p>Loading Karpenter data...</p>
+                </div>
+
+                <div x-show="!karpenterLoading && karpenterData" x-cloak>
+                  <!-- Node Lifecycle Summary -->
+                  <div class="grid grid-cols-3 gap-4 mb-6">
+
+                  </div>
+
+                  <!-- Resource Utilization -->
+                  <!-- <div class="grid grid-cols-2 gap-6 mb-6">
+                    <div class="glass-card">
+                      <h4 class="font-semibold mb-3"><i class="fas fa-microchip"></i> CPU Utilization</h4>
+                      <div class="mb-2 text-sm text-gray-600">
+                        <span>Allocatable: <span
+                            x-text="karpenterData.metrics?.cpuAllocatable?.toFixed(1) || '0'"></span> cores</span>
+                        <span class="float-right">Limit: <span
+                            x-text="karpenterData.metrics?.cpuLimit?.toFixed(1) || '0'"></span> cores</span>
+                      </div>
+                      <div class="w-full bg-gray-200 rounded-full h-8">
+                        <div
+                          class="bg-green-600 h-8 rounded-full flex items-center justify-center text-white text-sm font-semibold"
+                          :style="`width: ${karpenterData.metrics?.cpuLimit > 0 ? (karpenterData.metrics?.cpuAllocatable / karpenterData.metrics?.cpuLimit * 100) : 0}%`"
+                          x-text="karpenterData.metrics?.cpuLimit > 0 ? ((karpenterData.metrics?.cpuAllocatable / karpenterData.metrics?.cpuLimit * 100).toFixed(1) + '%') : '0%'">
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="glass-card">
+                      <h4 class="font-semibold mb-3"><i class="fas fa-memory"></i> Memory Utilization</h4>
+                      <div class="mb-2 text-sm text-gray-600">
+                        <span>Allocatable: <span
+                            x-text="karpenterData.metrics?.memoryAllocatableGb?.toFixed(1) || '0'"></span> GB</span>
+                        <span class="float-right">Limit: <span
+                            x-text="karpenterData.metrics?.memoryLimitGb?.toFixed(1) || '0'"></span> GB</span>
+                      </div>
+                      <div class="w-full bg-gray-200 rounded-full h-8">
+                        <div
+                          class="bg-blue-600 h-8 rounded-full flex items-center justify-center text-white text-sm font-semibold"
+                          :style="`width: ${karpenterData.metrics?.memoryLimitGb > 0 ? (karpenterData.metrics?.memoryAllocatableGb / karpenterData.metrics?.memoryLimitGb * 100) : 0}%`"
+                          x-text="karpenterData.metrics?.memoryLimitGb > 0 ? ((karpenterData.metrics?.memoryAllocatableGb / karpenterData.metrics?.memoryLimitGb * 100).toFixed(1) + '%') : '0%'">
+                        </div>
+                      </div>
+                    </div>
+                  </div> -->
+
+                  <!-- Node Pools Table -->
+                  <div class="glass-card mb-6">
+                    <h3 class="text-lg font-semibold mb-4">Node Pools</h3>
+                    <template x-if="karpenterData.nodePools && karpenterData.nodePools.length > 0">
+                      <table class="data-table">
+                        <thead>
+                          <tr>
+                            <th>Pool Name</th>
+                            <th>Instance Types</th>
+                            <th>CPU Limit</th>
+                            <th>Memory Limit</th>
+                            <th>Consolidation</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <template x-for="pool in karpenterData.nodePools" :key="pool.poolName">
+                            <tr>
+                              <td x-text="pool.poolName"></td>
+                              <td x-text="pool.instanceTypes ? pool.instanceTypes.join(', ') : 'N/A'"></td>
+                              <td x-text="(pool.cpuLimit || 0) + ' cores'"></td>
+                              <td x-text="(pool.memoryLimitGb || 0) + ' GB'"></td>
+                              <td>
+                                <span :class="pool.consolidationEnabled ? 'text-green-600' : 'text-gray-400'"
+                                  class="font-semibold">
+                                  <i
+                                    :class="pool.consolidationEnabled ? 'fas fa-check-circle' : 'fas fa-times-circle'"></i>
+                                  <span x-text="pool.consolidationEnabled ? 'Enabled' : 'Disabled'"></span>
+                                </span>
+                              </td>
+                            </tr>
+                          </template>
+                        </tbody>
+                      </table>
+                    </template>
+                    <template x-if="!karpenterData.nodePools || karpenterData.nodePools.length === 0">
+                      <p class="text-gray-600 text-center py-8">No node pools configured</p>
+                    </template>
+                  </div>
+
+                  Node Claims Table
+                  <div class="glass-card">
+                    <h3 class="text-lg font-semibold mb-4">Managed Nodes</h3>
+                    <template x-if="karpenterData.nodeClaims && karpenterData.nodeClaims.length > 0">
+                      <table class="data-table">
+                        <thead>
+                          <tr>
+                            <th>Node Name</th>
+                            <th>Pool</th>
+                            <th>Instance Type</th>
+                            <th>Zone</th>
+                            <th>Phase</th>
+                            <th>Age</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <template x-for="claim in karpenterData.nodeClaims" :key="claim.nodeName">
+                            <tr>
+                              <td x-text="claim.nodeName"></td>
+                              <td x-text="claim.nodePoolName"></td>
+                              <td x-text="claim.instanceType"></td>
+                              <td x-text="claim.zone"></td>
+                              <td>
+                                <span class="px-2 py-1 rounded text-xs font-semibold bg-blue-100 text-blue-800"
+                                  x-text="claim.phase"></span>
+                              </td>
+                              <td x-text="claim.age"></td>
+                            </tr>
+                          </template>
+                        </tbody>
+                      </table>
+                    </template>
+                    <template x-if="!karpenterData.nodeClaims || karpenterData.nodeClaims.length === 0">
+                      <p class="text-gray-600 text-center py-8">No Karpenter-managed nodes found</p>
+                    </template>
+                  </div>
+                </div>
+              </div>
+
               <div x-show="activeTab === 'security'" id="security-panel" role="tabpanel" aria-labelledby="security-tab">
                 <template x-if="alerts.length > 0">
                   <table class="data-table">
@@ -311,6 +538,15 @@
               nodes: [],
               pods: [],
               deployments: [],
+
+              // 🆕 NEW: Kubescape properties
+              kubescapeLoading: false,
+              kubescapeData: null,
+
+              // 🆕 NEW: Karpenter properties
+              karpenterLoading: false,
+              karpenterData: null,
+
               alerts: [],
               errorMessage: null,
 
@@ -327,6 +563,70 @@
                 if (storedIds.length > 0) this.selectedAccountId = storedIds[0];
 
                 this.fetchDetails();
+              },
+
+              // 🆕 NEW: Load Kubescape Data
+              async loadKubescapeData() {
+                if (this.kubescapeData) return; // Already loaded
+
+                this.kubescapeLoading = true;
+                try {
+                  const response = await fetch(
+                    `/api/xamops/k8s/security/kubescape?accountId=${this.selectedAccountId}&clusterName=${this.clusterName}`
+                  );
+
+                  if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                  }
+
+                  this.kubescapeData = await response.json();
+                  console.log('Kubescape data loaded:', this.kubescapeData);
+
+                } catch (error) {
+                  console.error('Failed to load Kubescape data:', error);
+                  this.kubescapeData = {
+                    overallComplianceScore: 0,
+                    vulnerabilities: [],
+                    totalCritical: 0,
+                    totalHigh: 0,
+                    totalMedium: 0,
+                    totalLow: 0,
+                    lastScanTime: 'Error loading data'
+                  };
+                } finally {
+                  this.kubescapeLoading = false;
+                }
+              },
+
+              // 🆕 NEW: Load Karpenter Data
+              async loadKarpenterData() {
+                if (this.karpenterData) return; // Already loaded
+
+                this.karpenterLoading = true;
+                try {
+                  const response = await fetch(
+                    `/api/xamops/k8s/security/karpenter?accountId=${this.selectedAccountId}&clusterName=${this.clusterName}`
+                  );
+
+                  if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                  }
+
+                  this.karpenterData = await response.json();
+                  console.log('Karpenter data loaded:', this.karpenterData);
+
+                } catch (error) {
+                  console.error('Failed to load Karpenter data:', error);
+                  this.karpenterData = {
+                    metrics: {},
+                    nodePools: [],
+                    nodeClaims: [],
+                    totalNodesCreated24h: 0,
+                    totalNodesTerminated24h: 0
+                  };
+                } finally {
+                  this.karpenterLoading = false;
+                }
               },
 
               async fetchDetails() {
@@ -473,7 +773,6 @@
                     duration: 1000,
                     easing: 'easeInOutQuart',
                     onComplete: function (animation) {
-                      // Add shimmer effect on complete
                       animation.chart.options.plugins.legend.display = false;
                     }
                   },
@@ -555,7 +854,7 @@
                     },
                   },
                 };
-              },
+              }
             };
           }
         </script>
