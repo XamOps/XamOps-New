@@ -13,7 +13,7 @@ import lombok.NoArgsConstructor;
 public class DashboardData {
   private List<Account> availableAccounts;
   private Account selectedAccount;
-  private String error; // <-- CRITICAL FIX: This field was missing
+  private String error; // <-- Field for error messages
   private static double potentialSavings;
   private boolean isMultiAccountView = false;
   private List<String> selectedAccountIds;
@@ -79,6 +79,14 @@ public class DashboardData {
     private int cloudArmorPolicies;
     private int lightsail;
     private int amplify;
+
+    public long getTotalCount() {
+      return (long) vpc + ecs + ec2 + kubernetes + lambdas + ebsVolumes + images + snapshots + s3Buckets
+          + rdsInstances
+          + route53Zones + loadBalancers + firewalls + cloudNatRouters + artifactRepositories + kmsKeys +
+          cloudFunctions + cloudBuildTriggers + secretManagerSecrets + cloudArmorPolicies + lightsail
+          + amplify;
+    }
   }
 
   @Data
@@ -160,6 +168,94 @@ public class DashboardData {
     private double monthToDateSpend;
     private double forecastedSpend;
     private double lastMonthSpend;
+    private CodeQualitySummary codeQuality;
+    private SystemHealthSummary systemHealth;
+
+    // Unified Dashboard Fields
+    private int awsAccountCount;
+    private int gcpAccountCount;
+    private int azureAccountCount;
+    private double awsCost;
+    private double gcpCost;
+    private double azureCost;
+    private long awsResourceCount;
+    private long gcpResourceCount;
+    private long azureResourceCount;
+    private List<String> awsAccountIds;
+    private List<String> gcpProjectIds;
+    private List<String> azureSubscriptionIds;
+
+    // --- NEW: Account Breakdown Lists for Smart View ---
+    private List<Account> subAccounts; // Generic breakdown
+    private List<Account> awsAccountList; // Specific to Unified View
+    private List<Account> gcpAccountList; // Specific to Unified View
+    private List<Account> azureAccountList; // Specific to Unified View
+
+    // ✅ NEW: Constructor for lightweight breakdown objects (4 arguments)
+    public Account(String id, String name, double monthToDateSpend, double forecastedSpend) {
+      this.id = id;
+      this.name = name;
+      this.monthToDateSpend = monthToDateSpend;
+      this.forecastedSpend = forecastedSpend;
+    }
+
+    // Compatibility Constructor (24 arguments)
+    public Account(String id, String name, List<RegionStatus> regionStatus, ResourceInventory resourceInventory,
+        CloudWatchStatus cloudWatchStatus, List<SecurityInsight> securityInsights, CostHistory costHistory,
+        List<BillingSummary> billingSummary, IamResources iamResources, IamDetail iamDetails,
+        SavingsSummary savingsSummary, List<OptimizationRecommendation> ec2Recommendations,
+        List<CostAnomaly> costAnomalies, List<OptimizationRecommendation> ebsRecommendations,
+        List<OptimizationRecommendation> lambdaRecommendations, ReservationAnalysis reservationAnalysis,
+        List<ReservationPurchaseRecommendation> reservationPurchaseRecommendations,
+        OptimizationSummary optimizationSummary, List<WastedResource> wastedResources,
+        List<ServiceQuotaInfo> serviceQuotas, int securityScore, double monthToDateSpend,
+        double forecastedSpend, double lastMonthSpend) {
+      this(id, name, regionStatus, resourceInventory, cloudWatchStatus, securityInsights, costHistory,
+          billingSummary, iamResources, iamDetails, savingsSummary, ec2Recommendations, costAnomalies,
+          ebsRecommendations, lambdaRecommendations, reservationAnalysis, reservationPurchaseRecommendations,
+          optimizationSummary, wastedResources, serviceQuotas, securityScore, monthToDateSpend,
+          forecastedSpend, lastMonthSpend, null, null);
+    }
+
+    // New Constructor (26 arguments)
+    public Account(String id, String name, List<RegionStatus> regionStatus, ResourceInventory resourceInventory,
+        CloudWatchStatus cloudWatchStatus, List<SecurityInsight> securityInsights, CostHistory costHistory,
+        List<BillingSummary> billingSummary, IamResources iamResources, IamDetail iamDetails,
+        SavingsSummary savingsSummary, List<OptimizationRecommendation> ec2Recommendations,
+        List<CostAnomaly> costAnomalies, List<OptimizationRecommendation> ebsRecommendations,
+        List<OptimizationRecommendation> lambdaRecommendations, ReservationAnalysis reservationAnalysis,
+        List<ReservationPurchaseRecommendation> reservationPurchaseRecommendations,
+        OptimizationSummary optimizationSummary, List<WastedResource> wastedResources,
+        List<ServiceQuotaInfo> serviceQuotas, int securityScore, double monthToDateSpend,
+        double forecastedSpend, double lastMonthSpend, CodeQualitySummary codeQuality,
+        SystemHealthSummary systemHealth) {
+      this.id = id;
+      this.name = name;
+      this.regionStatus = regionStatus;
+      this.resourceInventory = resourceInventory;
+      this.cloudWatchStatus = cloudWatchStatus;
+      this.securityInsights = securityInsights;
+      this.costHistory = costHistory;
+      this.billingSummary = billingSummary;
+      this.iamResources = iamResources;
+      this.iamDetails = iamDetails;
+      this.savingsSummary = savingsSummary;
+      this.ec2Recommendations = ec2Recommendations;
+      this.costAnomalies = costAnomalies;
+      this.ebsRecommendations = ebsRecommendations;
+      this.lambdaRecommendations = lambdaRecommendations;
+      this.reservationAnalysis = reservationAnalysis;
+      this.reservationPurchaseRecommendations = reservationPurchaseRecommendations;
+      this.optimizationSummary = optimizationSummary;
+      this.wastedResources = wastedResources;
+      this.serviceQuotas = serviceQuotas;
+      this.securityScore = securityScore;
+      this.monthToDateSpend = monthToDateSpend;
+      this.forecastedSpend = forecastedSpend;
+      this.lastMonthSpend = lastMonthSpend;
+      this.codeQuality = codeQuality;
+      this.systemHealth = systemHealth;
+    }
   }
 
   @Data
@@ -253,6 +349,28 @@ public class DashboardData {
     private String category;
     private String severity;
     private int count;
+  }
+
+  @Data
+  @NoArgsConstructor
+  @AllArgsConstructor
+  public static class CodeQualitySummary {
+    private String rating;
+    private int bugs;
+    private int vulnerabilities;
+    private int codeSmells;
+    private double coverage;
+    private int projectCount;
+  }
+
+  @Data
+  @NoArgsConstructor
+  @AllArgsConstructor
+  public static class SystemHealthSummary {
+    private double uptime;
+    private int totalAlerts;
+    private int criticalAlerts;
+    private String status;
   }
 
   // In xamops-service/src/main/java/com/xammer/cloud/dto/DashboardData.java
