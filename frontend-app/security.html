@@ -536,8 +536,13 @@
                                         this.selectedAccountId = storedIds.join(',');
                                     }
                                 }
-                                this.loadFindings(false);
-                                this.startPolling();
+
+                                // Wait for Alpine to be fully initialized before loading data
+                                this.$nextTick(() => {
+                                    console.log('[Security] Alpine ready, loading findings...');
+                                    this.loadFindings(false);
+                                    this.startPolling();
+                                });
                             },
 
                             startPolling() {

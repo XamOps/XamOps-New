@@ -106,7 +106,7 @@
                         <tbody class="divide-y divide-gray-100">
                             <template x-for="item in data.riCoverages"
                                 :key="item.instance_type + item.availability_zone">
-                                <tr class="hover:bg-gray-50 transition-colors">
+                                <tr x-show="item.coverage_percent > 0" class="hover:bg-gray-50 transition-colors">
                                     <td class="px-4 py-3 font-medium text-gray-900" x-text="item.instance_type"></td>
                                     <td class="px-4 py-3 text-gray-500">
                                         <div x-text="item.region"></div>
@@ -146,7 +146,7 @@
                         </thead>
                         <tbody class="divide-y divide-gray-100">
                             <template x-for="(item, index) in data.spCoverages" :key="index">
-                                <tr class="hover:bg-gray-50 transition-colors">
+                                <tr x-show="item.coverage_percent > 0" class="hover:bg-gray-50 transition-colors">
                                     <td class="px-4 py-3 font-medium text-gray-900" x-text="item.plan_type"></td>
                                     <td class="px-4 py-3 text-right">
                                         <span class="font-bold"
@@ -186,16 +186,24 @@
             : window.location.origin;
         const tenantId = sessionStorage.getItem('tenantId') || 'customer1';
 
+        // Initialize persistent cache in window scope if not exists
+        if (!window.rispCoverageCache) {
+            window.rispCoverageCache = {
+                dataLoaded: false,
+                data: {
+                    collectedAt: null,
+                    totalRiUtilizationPercent: 0,
+                    totalSpUtilizationPercent: 0,
+                    riCoverages: [],
+                    spCoverages: []
+                }
+            };
+        }
+
         return {
             loading: false,
             accountId: null,
-            data: {
-                collectedAt: null,
-                totalRiUtilizationPercent: 0,
-                totalSpUtilizationPercent: 0,
-                riCoverages: [],
-                spCoverages: []
-            },
+            data: window.rispCoverageCache.data,
 
             init() {
                 console.log('🚀 RI/SP Coverage tab initialized');
@@ -214,7 +222,14 @@
                 }
 
                 if (this.accountId) {
-                    this.loadData();
+                    // Only load data if it hasn't been loaded yet
+                    if (!window.rispCoverageCache.dataLoaded) {
+                        console.log('📊 Loading RI/SP data for the first time');
+                        this.loadData();
+                    } else {
+                        console.log('✨ Using cached RI/SP data');
+                        this.data = window.rispCoverageCache.data;
+                    }
                 }
             },
 
@@ -242,6 +257,10 @@
                         riCoverages: result.ri_coverages || [],
                         spCoverages: result.sp_coverages || []
                     };
+
+                    // Store in window cache
+                    window.rispCoverageCache.data = this.data;
+                    window.rispCoverageCache.dataLoaded = true;
 
                 } catch (error) {
                     console.error('❌ Error loading RI/SP data:', error);

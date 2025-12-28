@@ -108,7 +108,16 @@
         </div>
     </div>
 
-    <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+    <!-- Loading Indicator -->
+    <div x-show="loading && events.length === 0"
+        class="bg-white rounded-xl shadow-sm border border-gray-200 p-16 text-center mb-6">
+        <i class="fas fa-spinner fa-spin text-5xl text-blue-600 mb-4"></i>
+        <p class="text-gray-600 font-medium text-lg">Loading events history...</p>
+        <p class="text-sm text-gray-500 mt-2">Fetching AutoSpotting events data</p>
+    </div>
+
+    <div x-show="!loading || events.length > 0"
+        class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         <div class="px-6 py-4 border-b border-gray-200 bg-gray-50">
             <h3 class="font-semibold text-gray-800">Events Timeline</h3>
             <p class="text-xs text-gray-500 mt-1">
@@ -281,10 +290,19 @@
 
         const tenantId = sessionStorage.getItem('tenantId') || 'customer1';
 
+        // Initialize persistent cache in window scope if not exists
+        if (!window.actionsHistoryCache) {
+            window.actionsHistoryCache = {
+                dataLoaded: false,
+                events: [],
+                summary: {}
+            };
+        }
+
         return {
-            loading: true, // Start loading immediately
-            events: [],
-            summary: {},
+            loading: false,
+            events: window.actionsHistoryCache.events,
+            summary: window.actionsHistoryCache.summary,
             filters: {
                 startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
                 endDate: new Date().toISOString().split('T')[0],
@@ -304,10 +322,18 @@
                 } catch (e) { console.error(e); }
 
                 if (this.accountId) {
-                    this.loadEvents();
+                    // Only load events if data hasn't been loaded yet
+                    if (!window.actionsHistoryCache.dataLoaded) {
+                        console.log('📊 Loading events for the first time');
+                        this.loading = true;
+                        this.loadEvents();
+                    } else {
+                        console.log('✨ Using cached events data');
+                        this.events = window.actionsHistoryCache.events;
+                        this.summary = window.actionsHistoryCache.summary;
+                    }
                 } else {
                     this.dispatchNotification('No account selected', 'error');
-                    this.loading = false;
                 }
             },
 
@@ -349,6 +375,11 @@
                     };
 
                     this.calculateMTBI();
+
+                    // Store in window cache
+                    window.actionsHistoryCache.events = this.events;
+                    window.actionsHistoryCache.summary = this.summary;
+                    window.actionsHistoryCache.dataLoaded = true;
 
                 } catch (error) {
                     if (error.name !== 'AbortError') {

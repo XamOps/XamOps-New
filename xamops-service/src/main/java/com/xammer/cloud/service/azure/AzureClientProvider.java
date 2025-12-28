@@ -26,9 +26,11 @@ public class AzureClientProvider {
         return clientCache.computeIfAbsent(subscriptionId, id -> {
             // This now correctly finds the account by the Subscription ID string
             CloudAccount account = cloudAccountRepository.findByAzureSubscriptionId(id)
-                    .orElseThrow(() -> new IllegalArgumentException("Azure account not found for Subscription ID: " + id));
+                    .orElseThrow(
+                            () -> new IllegalArgumentException("Azure account not found for Subscription ID: " + id));
 
-            AzureProfile profile = new AzureProfile(account.getAzureTenantId(), account.getAzureSubscriptionId(), AzureEnvironment.AZURE);
+            AzureProfile profile = new AzureProfile(account.getAzureTenantId(), account.getAzureSubscriptionId(),
+                    AzureEnvironment.AZURE);
             TokenCredential credential = buildCredential(account);
 
             return AzureResourceManager.authenticate(credential, profile).withSubscription(id);
@@ -37,7 +39,12 @@ public class AzureClientProvider {
 
     public TokenCredential getCredential(String subscriptionId) {
         CloudAccount account = cloudAccountRepository.findByAzureSubscriptionId(subscriptionId)
-                .orElseThrow(() -> new IllegalArgumentException("Azure account not found for Subscription ID: " + subscriptionId));
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Azure account not found for Subscription ID: " + subscriptionId));
+        return buildCredential(account);
+    }
+
+    public TokenCredential getCredential(CloudAccount account) {
         return buildCredential(account);
     }
 
