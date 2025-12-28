@@ -28,10 +28,31 @@ public class MultiTenantDataSourceConfig {
     @Value("${spring.datasource.driver-class-name}")
     private String masterDriver;
 
+    // --- Inject Hikari Configurations ---
+    @Value("${spring.datasource.hikari.connection-timeout:20000}")
+    private long connectionTimeout;
+
+    @Value("${spring.datasource.hikari.idle-timeout:600000}")
+    private long idleTimeout;
+
+    @Value("${spring.datasource.hikari.max-lifetime:600000}")
+    private long maxLifetime;
+
+    @Value("${spring.datasource.hikari.keepalive-time:300000}")
+    private long keepaliveTime;
+
+    @Value("${spring.datasource.hikari.minimum-idle:5}")
+    private int minimumIdle;
+
+    @Value("${spring.datasource.hikari.validation-timeout:3000}")
+    private long validationTimeout;
+
+    @Value("${spring.datasource.hikari.connection-test-query:SELECT 1}")
+    private String connectionTestQuery;
+
     /**
      * 1. Master Data Source (Direct Access)
      * Used for Global User Lookups and Tenant Config loading.
-     * We expose this as a Bean so we can inject it into MasterDatabaseService.
      */
     @Bean(name = "masterDataSource")
     public DataSource createMasterDataSource() {
@@ -45,7 +66,8 @@ public class MultiTenantDataSourceConfig {
 
     /**
      * 2. Routing Data Source (The "Smart" Router)
-     * Used by the main application (JPA/Repositories) to switch databases dynamically.
+     * Used by the main application (JPA/Repositories) to switch databases
+     * dynamically.
      */
     @Bean
     @Primary
@@ -54,7 +76,8 @@ public class MultiTenantDataSourceConfig {
         JdbcTemplate jdbcTemplate = new JdbcTemplate(masterDs);
 
         // Load active tenants from the config table
-        List<Map<String, Object>> tenantRows = jdbcTemplate.queryForList("SELECT * FROM tenant_config WHERE active = true");
+        List<Map<String, Object>> tenantRows = jdbcTemplate
+                .queryForList("SELECT * FROM tenant_config WHERE active = true");
 
         Map<Object, Object> targetDataSources = new HashMap<>();
 
@@ -71,8 +94,16 @@ public class MultiTenantDataSourceConfig {
             tenantDs.setPassword(password);
             tenantDs.setDriverClassName(driver);
             tenantDs.setPoolName("TenantPool-" + tenantId);
+
+            // --- Apply Optimized Settings ---
             tenantDs.setMaximumPoolSize(10);
-            tenantDs.setMinimumIdle(2);
+            tenantDs.setMinimumIdle(minimumIdle);
+            tenantDs.setConnectionTimeout(connectionTimeout);
+            tenantDs.setIdleTimeout(idleTimeout);
+            tenantDs.setMaxLifetime(maxLifetime);
+            tenantDs.setKeepaliveTime(keepaliveTime);
+            tenantDs.setValidationTimeout(validationTimeout);
+            tenantDs.setConnectionTestQuery(connectionTestQuery);
 
             targetDataSources.put(tenantId, tenantDs);
         }
@@ -80,7 +111,7 @@ public class MultiTenantDataSourceConfig {
         TenantRoutingDataSource routingDataSource = new TenantRoutingDataSource();
         routingDataSource.setTargetDataSources(targetDataSources);
         routingDataSource.setDefaultTargetDataSource(masterDs); // Fallback to Master
-        
+
         routingDataSource.afterPropertiesSet();
         return routingDataSource;
     }

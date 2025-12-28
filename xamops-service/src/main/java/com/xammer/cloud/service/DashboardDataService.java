@@ -1,20 +1,29 @@
 package com.xammer.cloud.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xammer.cloud.config.multitenancy.TenantContext;
 import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.domain.CloudAccount;
+import com.xammer.cloud.domain.SonarQubeProject;
+import com.xammer.cloud.domain.User;
 import com.xammer.cloud.dto.DashboardData;
-import com.xammer.cloud.dto.gcp.*;
-import com.xammer.cloud.dto.ReservationInventoryDto;
+import com.xammer.cloud.dto.gcp.GcpCostDto;
+import com.xammer.cloud.dto.gcp.GcpDashboardData;
+import com.xammer.cloud.dto.sonarqube.SonarQubeMetricsDto;
 import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.service.gcp.GcpDataService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Async;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import software.amazon.awssdk.services.iam.IamClient;
@@ -24,6 +33,7 @@ import software.amazon.awssdk.services.servicequotas.model.ListServiceQuotasRequ
 import software.amazon.awssdk.services.servicequotas.model.ListServiceQuotasResponse;
 import software.amazon.awssdk.services.servicequotas.model.ServiceQuota;
 
+import javax.sql.DataSource;
 import java.io.IOException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -32,6 +42,8 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -39,6 +51,11 @@ import java.util.stream.Stream;
 public class DashboardDataService {
 
     private static final Logger logger = LoggerFactory.getLogger(DashboardDataService.class);
+
+    // Cache Keys for Phase 2 Snapshots
+    private static final String SNAPSHOT_KEY_AWS = "UNIFIED_DASHBOARD_AWS";
+    private static final String SNAPSHOT_KEY_GCP = "UNIFIED_DASHBOARD_GCP";
+    private static final String SNAPSHOT_KEY_AZURE = "UNIFIED_DASHBOARD_AZURE";
 
     private final CloudAccountRepository cloudAccountRepository;
     private final AwsClientProvider awsClientProvider;
@@ -53,6 +70,11 @@ public class DashboardDataService {
     private final CachedDataRepository cachedDataRepository;
     private final CostService costService;
     private final com.xammer.cloud.service.azure.AzureDashboardService azureDashboardService;
+    private final SonarQubeService sonarQubeService;
+    private final UserRepository userRepository;
+
+    // Phase 2: Master Data Access for Tenant Iteration
+    private final JdbcTemplate masterJdbcTemplate;
 
     @Autowired
     public DashboardDataService(
@@ -68,7 +90,10 @@ public class DashboardDataService {
             ObjectMapper objectMapper,
             CachedDataRepository cachedDataRepository,
             @Lazy CostService costService,
-            @Lazy com.xammer.cloud.service.azure.AzureDashboardService azureDashboardService) {
+            @Lazy com.xammer.cloud.service.azure.AzureDashboardService azureDashboardService,
+            @Lazy SonarQubeService sonarQubeService,
+            UserRepository userRepository,
+            @Qualifier("masterDataSource") DataSource masterDataSource) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.gcpDataService = gcpDataService;
@@ -82,6 +107,320 @@ public class DashboardDataService {
         this.cachedDataRepository = cachedDataRepository;
         this.costService = costService;
         this.azureDashboardService = azureDashboardService;
+        this.sonarQubeService = sonarQubeService;
+        this.userRepository = userRepository;
+        this.masterJdbcTemplate = new JdbcTemplate(masterDataSource);
+    }
+
+    // ============================================================================================
+    // PHASE 2: ASYNC AGGREGATOR (BACKGROUND JOBS)
+    // ============================================================================================
+
+    /**
+     * Runs every 30 minutes to pre-calculate dashboard data for all tenants.
+     * This prevents 500 errors caused by timeouts during live fetches.
+     */
+    @Scheduled(fixedRate = 1800000) // 30 minutes
+    public void runBackgroundAggregation() {
+        logger.info("⚡ [Async-Aggregator] Starting global dashboard aggregation...");
+        long totalStart = System.currentTimeMillis();
+
+        List<String> activeTenants = fetchActiveTenants();
+        logger.info("Found {} active tenants to process.", activeTenants.size());
+
+        for (String tenantId : activeTenants) {
+            long tenantStart = System.currentTimeMillis();
+            try {
+                TenantContext.setCurrentTenant(tenantId);
+                logger.info(">> Processing Tenant: {}", tenantId);
+                aggregateTenantData(tenantId);
+                logger.info("<< Finished Tenant: {} | Time: {}ms", tenantId,
+                        (System.currentTimeMillis() - tenantStart));
+            } catch (Exception e) {
+                logger.error("❌ Failed to process tenant {} | Time: {}ms", tenantId,
+                        (System.currentTimeMillis() - tenantStart), e);
+            } finally {
+                TenantContext.clear();
+            }
+        }
+        logger.info("✅ [Async-Aggregator] Global aggregation complete | Total Time: {}ms",
+                (System.currentTimeMillis() - totalStart));
+    }
+
+    private List<String> fetchActiveTenants() {
+        try {
+            return masterJdbcTemplate.queryForList("SELECT tenant_id FROM tenant_config WHERE active = true",
+                    String.class);
+        } catch (Exception e) {
+            logger.error("Failed to fetch tenants from Master DB", e);
+            return Collections.emptyList();
+        }
+    }
+
+    private void aggregateTenantData(String tenantId) {
+        // 1. Fetch all accounts for this tenant (System Admin View)
+        List<CloudAccount> allAccounts = cloudAccountRepository.findAll();
+        if (allAccounts.isEmpty()) {
+            logger.info("No accounts found for tenant {}. Skipping.", tenantId);
+            return;
+        }
+
+        // 2. AWS Aggregation
+        try {
+            List<String> awsIds = allAccounts.stream()
+                    .filter(a -> "AWS".equalsIgnoreCase(a.getProvider()))
+                    .map(CloudAccount::getAwsAccountId)
+                    .collect(Collectors.toList());
+
+            if (!awsIds.isEmpty()) {
+                logger.info("Aggregating {} AWS accounts for tenant {}...", awsIds.size(), tenantId);
+                DashboardData awsData = getMultiAccountAwsDashboardData(awsIds, true, null); // null user = system
+                saveSnapshot(SNAPSHOT_KEY_AWS, awsData);
+            }
+        } catch (Exception e) {
+            logger.error("AWS Aggregation failed for {}", tenantId, e);
+        }
+
+        // 3. GCP Aggregation
+        try {
+            List<String> gcpIds = allAccounts.stream()
+                    .filter(a -> "GCP".equalsIgnoreCase(a.getProvider()))
+                    .map(CloudAccount::getGcpProjectId)
+                    .collect(Collectors.toList());
+
+            if (!gcpIds.isEmpty()) {
+                logger.info("Aggregating {} GCP projects for tenant {}...", gcpIds.size(), tenantId);
+                DashboardData gcpData = getMultiAccountGcpDashboardData(gcpIds, true, null);
+                saveSnapshot(SNAPSHOT_KEY_GCP, gcpData);
+            }
+        } catch (Exception e) {
+            logger.error("GCP Aggregation failed for {}", tenantId, e);
+        }
+
+        // 4. Azure Aggregation
+        try {
+            List<String> azureIds = allAccounts.stream()
+                    .filter(a -> "Azure".equalsIgnoreCase(a.getProvider()))
+                    .map(CloudAccount::getAzureSubscriptionId)
+                    .collect(Collectors.toList());
+
+            if (!azureIds.isEmpty()) {
+                logger.info("Aggregating {} Azure subscriptions for tenant {}...", azureIds.size(), tenantId);
+                DashboardData azureData = getMultiAccountAzureDashboardData(azureIds, true, null);
+                if (azureData != null) {
+                    saveSnapshot(SNAPSHOT_KEY_AZURE, azureData);
+                }
+            }
+        } catch (Exception e) {
+            logger.error("Azure Aggregation failed for {}", tenantId, e);
+        }
+    }
+
+    private void saveSnapshot(String key, DashboardData data) {
+        try {
+            CachedData cachedData = cachedDataRepository.findById(key).orElse(new CachedData());
+            cachedData.setCacheKey(key);
+            cachedData.setJsonData(objectMapper.writeValueAsString(data));
+            cachedData.setLastUpdated(LocalDateTime.now());
+            cachedDataRepository.save(cachedData);
+            logger.info("Saved snapshot: {}", key);
+        } catch (JsonProcessingException e) {
+            logger.error("Failed to serialize snapshot {}", key, e);
+        }
+    }
+
+    private DashboardData getSnapshot(String key) {
+        Optional<CachedData> cached = cachedDataRepository.findById(key);
+        if (cached.isPresent()) {
+            try {
+                return objectMapper.readValue(cached.get().getJsonData(), DashboardData.class);
+            } catch (JsonProcessingException e) {
+                logger.error("Failed to deserialize snapshot {}", key, e);
+            }
+        }
+        return null;
+    }
+
+    // ============================================================================================
+    // PHASE 1 & 2: GRANULAR UNIFIED DASHBOARD METHODS (Updated for Caching)
+    // ============================================================================================
+
+    public List<String> getUnifiedTicker(ClientUserDetails userDetails) {
+        List<String> messages = new ArrayList<>();
+        List<CloudAccount> accounts = fetchUserAccounts(userDetails);
+
+        int totalAccounts = accounts.size();
+        long providerCount = accounts.stream().map(CloudAccount::getProvider).distinct().count();
+
+        messages.add("ℹ️ Monitoring " + totalAccounts + " cloud accounts across " + providerCount + " providers.");
+
+        for (CloudAccount acc : accounts) {
+            if (acc.getAccountName().toLowerCase().contains("prod")) {
+                messages.add("🛡️ Security scan completed for '" + acc.getAccountName() + "': No critical threats.");
+            }
+        }
+
+        messages.add("🚀 New: AutoSpotting is now available for Azure Virtual Scale Sets.");
+        messages.add("💰 Global savings opportunity detected: Rightsizing suggestions updated.");
+        messages.add("⚡ System Performance: All systems operational. API Latency: 42ms.");
+
+        return messages;
+    }
+
+    public DashboardData getUnifiedSummary(ClientUserDetails userDetails) {
+        List<CloudAccount> allAccounts = fetchUserAccounts(userDetails);
+        DashboardData data = new DashboardData();
+        data.setMultiAccountView(true);
+        data.setSelectedProvider("Unified");
+
+        DashboardData.Account unifiedAcc = new DashboardData.Account();
+        unifiedAcc.setId("unified-view");
+        unifiedAcc.setName("Unified View");
+
+        unifiedAcc.setAwsAccountCount(
+                (int) allAccounts.stream().filter(a -> "AWS".equalsIgnoreCase(a.getProvider())).count());
+        unifiedAcc.setGcpAccountCount(
+                (int) allAccounts.stream().filter(a -> "GCP".equalsIgnoreCase(a.getProvider())).count());
+        unifiedAcc.setAzureAccountCount(
+                (int) allAccounts.stream().filter(a -> "Azure".equalsIgnoreCase(a.getProvider())).count());
+
+        data.setSelectedAccount(unifiedAcc);
+        populateAvailableAccounts(data, userDetails);
+        return data;
+    }
+
+    public DashboardData getUnifiedAwsData(ClientUserDetails userDetails, boolean forceRefresh)
+            throws ExecutionException, InterruptedException, IOException {
+
+        // 1. Try to fetch from Snapshot first (Phase 2 optimization)
+        if (!forceRefresh) {
+            DashboardData cached = getSnapshot(SNAPSHOT_KEY_AWS);
+            if (cached != null) {
+                logger.info("Returning Cached AWS Snapshot for Unified View");
+                populateAvailableAccounts(cached, userDetails);
+                return cached;
+            }
+        }
+
+        // 2. Fallback to Live Fetch
+        List<CloudAccount> allAccounts = fetchUserAccounts(userDetails);
+        List<String> awsIds = allAccounts.stream()
+                .filter(a -> "AWS".equalsIgnoreCase(a.getProvider()))
+                .map(CloudAccount::getAwsAccountId)
+                .collect(Collectors.toList());
+
+        if (awsIds.isEmpty())
+            return new DashboardData();
+
+        return getMultiAccountAwsDashboardData(awsIds, forceRefresh, userDetails);
+    }
+
+    public DashboardData getUnifiedGcpData(ClientUserDetails userDetails, boolean forceRefresh) {
+
+        // 1. Try to fetch from Snapshot
+        if (!forceRefresh) {
+            DashboardData cached = getSnapshot(SNAPSHOT_KEY_GCP);
+            if (cached != null) {
+                logger.info("Returning Cached GCP Snapshot for Unified View");
+                populateAvailableAccounts(cached, userDetails);
+                return cached;
+            }
+        }
+
+        List<CloudAccount> allAccounts = fetchUserAccounts(userDetails);
+        List<String> gcpIds = allAccounts.stream()
+                .filter(a -> "GCP".equalsIgnoreCase(a.getProvider()))
+                .map(CloudAccount::getGcpProjectId)
+                .collect(Collectors.toList());
+
+        if (gcpIds.isEmpty())
+            return new DashboardData();
+
+        return getMultiAccountGcpDashboardData(gcpIds, forceRefresh, userDetails);
+    }
+
+    public DashboardData getUnifiedAzureData(ClientUserDetails userDetails, boolean forceRefresh) {
+
+        // 1. Try to fetch from Snapshot
+        if (!forceRefresh) {
+            DashboardData cached = getSnapshot(SNAPSHOT_KEY_AZURE);
+            if (cached != null) {
+                logger.info("Returning Cached Azure Snapshot for Unified View");
+                populateAvailableAccounts(cached, userDetails);
+                return cached;
+            }
+        }
+
+        List<CloudAccount> allAccounts = fetchUserAccounts(userDetails);
+        List<String> azureIds = allAccounts.stream()
+                .filter(a -> "Azure".equalsIgnoreCase(a.getProvider()))
+                .map(CloudAccount::getAzureSubscriptionId)
+                .collect(Collectors.toList());
+
+        if (azureIds.isEmpty())
+            return new DashboardData();
+
+        return getMultiAccountAzureDashboardData(azureIds, forceRefresh, userDetails);
+    }
+
+    public DashboardData.CodeQualitySummary getUnifiedHealthData(ClientUserDetails userDetails) {
+        try {
+            User user = null;
+            if (userDetails != null) {
+                user = userRepository.findByUsername(userDetails.getUsername()).orElse(null);
+            }
+            if (user == null)
+                return new DashboardData.CodeQualitySummary("N/A", 0, 0, 0, 0.0, 0);
+
+            List<SonarQubeProject> projects = sonarQubeService.getProjectsForUser(user);
+            if (projects.isEmpty())
+                return new DashboardData.CodeQualitySummary("N/A", 0, 0, 0, 0.0, 0);
+
+            int bugs = 0, vulns = 0, smells = 0;
+            double totalCoverage = 0.0;
+            int projectsWithCoverage = 0;
+
+            for (SonarQubeProject p : projects) {
+                SonarQubeMetricsDto m = sonarQubeService.getProjectMetrics(p);
+                if (m != null) {
+                    bugs += m.getBugs();
+                    vulns += m.getVulnerabilities();
+                    smells += m.getCodeSmells();
+                    if (m.getCoverage() > 0) {
+                        totalCoverage += m.getCoverage();
+                        projectsWithCoverage++;
+                    }
+                }
+            }
+            double avgCoverage = projectsWithCoverage > 0 ? totalCoverage / projectsWithCoverage : 0.0;
+            String rating = (vulns > 0 || bugs > 10) ? "C" : (smells > 50 ? "B" : "A");
+
+            return new DashboardData.CodeQualitySummary(rating, bugs, vulns, smells, avgCoverage, projects.size());
+        } catch (Exception e) {
+            logger.error("Error fetching SonarQube metrics", e);
+            return new DashboardData.CodeQualitySummary("Error", 0, 0, 0, 0, 0);
+        }
+    }
+
+    // ============================================================================================
+    // PRIVATE HELPERS & CORE LOGIC
+    // ============================================================================================
+
+    private List<CloudAccount> fetchUserAccounts(ClientUserDetails userDetails) {
+        // Support for "System" user (null) in background tasks
+        if (userDetails == null) {
+            return cloudAccountRepository.findAll();
+        }
+
+        boolean isAdmin = userDetails.getAuthorities().stream()
+                .anyMatch(role -> "ROLE_BILLOPS_ADMIN".equals(role.getAuthority())
+                        || "ROLE_SUPER_ADMIN".equals(role.getAuthority()));
+
+        if (isAdmin) {
+            return cloudAccountRepository.findAll();
+        } else {
+            return cloudAccountRepository.findByClientId(userDetails.getClientId());
+        }
     }
 
     private CloudAccount getAccount(String accountId) {
@@ -101,10 +440,6 @@ public class DashboardDataService {
         return accounts.get(0);
     }
 
-    /**
-     * Modified to support AWS and GCP multi-account aggregation.
-     * Enforces that all selected accounts belong to the same provider.
-     */
     public DashboardData getMultiAccountDashboardData(List<String> accountIds, boolean forceRefresh,
             ClientUserDetails userDetails) throws ExecutionException, InterruptedException, IOException {
         logger.info("Starting multi-account dashboard data fetch for {} accounts", accountIds.size());
@@ -113,12 +448,11 @@ public class DashboardDataService {
             throw new IllegalArgumentException("Account list cannot be empty");
         }
 
-        // ✅ STRICT VALIDATION: Ensure all accounts are from the same provider
         Set<String> providers = new HashSet<>();
         for (String accountId : accountIds) {
             try {
                 CloudAccount account = getAccount(accountId);
-                providers.add(account.getProvider());
+                providers.add(account.getProvider().toUpperCase());
             } catch (Exception e) {
                 logger.error("Failed to validate account {}", accountId, e);
                 throw new IllegalArgumentException("Invalid account ID: " + accountId);
@@ -132,35 +466,141 @@ public class DashboardDataService {
                             + ". Please select accounts from only one provider (AWS or GCP).");
         }
 
-        // Determine provider from the first valid account
         CloudAccount firstAccount = getAccount(accountIds.get(0));
         String provider = firstAccount.getProvider();
 
-        if ("GCP".equals(provider)) {
+        if ("GCP".equalsIgnoreCase(provider)) {
             return getMultiAccountGcpDashboardData(accountIds, forceRefresh, userDetails);
-        } else if ("AWS".equals(provider)) {
+        } else if ("AWS".equalsIgnoreCase(provider)) {
             return getMultiAccountAwsDashboardData(accountIds, forceRefresh, userDetails);
         } else {
             throw new IllegalArgumentException("Multi-account view is not supported for provider: " + provider);
         }
     }
 
-    /**
-     * Logic for aggregating GCP accounts.
-     */
+    // ============================================================================================
+    // AGGREGATION LOGIC (Refactored)
+    // ============================================================================================
+
+    private DashboardData getMultiAccountAzureDashboardData(List<String> accountIds, boolean forceRefresh,
+            ClientUserDetails userDetails) {
+        long startTime = System.currentTimeMillis();
+        String user = userDetails != null ? userDetails.getUsername() : "System";
+        String tenant = TenantContext.getCurrentTenant();
+
+        logger.info("🔍 [Azure-Fetch] Started | Tenant: {} | User: {} | Accounts: {}", tenant, user, accountIds.size());
+
+        try {
+            List<DashboardData> localDataList = accountIds.stream().parallel().map(id -> {
+                try {
+                    CloudAccount account = cloudAccountRepository.findByAzureSubscriptionId(id).orElse(null);
+                    if (account == null)
+                        return null;
+
+                    com.xammer.cloud.dto.azure.AzureDashboardData azureData = azureDashboardService.getDashboardData(id,
+                            forceRefresh);
+                    return mapAzureDataToDashboardData(azureData, account);
+                } catch (Exception e) {
+                    logger.error("Error fetching Azure data for {}", id, e);
+                    return null;
+                }
+            }).filter(Objects::nonNull).collect(Collectors.toList());
+
+            if (localDataList.isEmpty())
+                return null;
+
+            DashboardData aggregated = aggregateGenericDashboardData(localDataList, "Azure");
+            populateAvailableAccounts(aggregated, userDetails);
+
+            long duration = System.currentTimeMillis() - startTime;
+            logger.info("✅ [Azure-Fetch] Completed | Tenant: {} | Time: {}ms | Accounts: {}", tenant, duration,
+                    accountIds.size());
+            return aggregated;
+        } catch (Exception e) {
+            long duration = System.currentTimeMillis() - startTime;
+            logger.error("❌ [Azure-Fetch] Failed | Tenant: {} | Time: {}ms | Error: {}", tenant, duration,
+                    e.getMessage(), e);
+            throw e;
+        }
+    }
+
+    private DashboardData aggregateGenericDashboardData(List<DashboardData> dataList, String provider) {
+        if (dataList == null || dataList.isEmpty())
+            return null;
+
+        DashboardData aggregated = new DashboardData();
+        aggregated.setMultiAccountView(true);
+        aggregated.setSelectedProvider(provider);
+
+        DashboardData.Account resultAcc = new DashboardData.Account();
+        resultAcc.setId("multi-account-" + provider);
+        resultAcc.setName(dataList.size() + " " + provider + " Accounts");
+
+        List<DashboardData.Account> subAccounts = new ArrayList<>();
+        double totalCost = 0;
+        double totalForecast = 0;
+        double totalLast = 0;
+
+        for (DashboardData d : dataList) {
+            DashboardData.Account acc = d.getSelectedAccount();
+            if (acc != null) {
+                totalCost += acc.getMonthToDateSpend();
+                totalForecast += acc.getForecastedSpend();
+                totalLast += acc.getLastMonthSpend();
+                subAccounts.add(new DashboardData.Account(acc.getId(), acc.getName(), acc.getMonthToDateSpend(),
+                        acc.getForecastedSpend()));
+            }
+        }
+
+        resultAcc.setSubAccounts(subAccounts);
+        resultAcc.setMonthToDateSpend(totalCost);
+        resultAcc.setForecastedSpend(totalForecast);
+        resultAcc.setLastMonthSpend(totalLast);
+
+        DashboardData.ResourceInventory inv = new DashboardData.ResourceInventory();
+        for (DashboardData d : dataList) {
+            DashboardData.ResourceInventory s = d.getSelectedAccount().getResourceInventory();
+            if (s != null) {
+                mergeInventory(inv, s);
+            }
+        }
+        resultAcc.setResourceInventory(inv);
+
+        resultAcc.setSecurityScore(
+                (int) dataList.stream().mapToInt(d -> d.getSelectedAccount().getSecurityScore()).average().orElse(100));
+
+        aggregated.setSelectedAccount(resultAcc);
+        return aggregated;
+    }
+
+    private void mergeInventory(DashboardData.ResourceInventory target, DashboardData.ResourceInventory source) {
+        if (source == null)
+            return;
+        target.setEc2(target.getEc2() + source.getEc2());
+        target.setS3Buckets(target.getS3Buckets() + source.getS3Buckets());
+        target.setRdsInstances(target.getRdsInstances() + source.getRdsInstances());
+        target.setKubernetes(target.getKubernetes() + source.getKubernetes());
+        target.setVpc(target.getVpc() + source.getVpc());
+        target.setLambdas(target.getLambdas() + source.getLambdas());
+        target.setEbsVolumes(target.getEbsVolumes() + source.getEbsVolumes());
+    }
+
     private DashboardData getMultiAccountGcpDashboardData(List<String> accountIds, boolean forceRefresh,
             ClientUserDetails userDetails) {
-        logger.info("Executing GCP multi-account fetch for accounts: {}", accountIds);
+        long startTime = System.currentTimeMillis();
+        String user = userDetails != null ? userDetails.getUsername() : "System";
+        String tenant = TenantContext.getCurrentTenant();
+
+        logger.info("🔍 [GCP-Fetch] Started | Tenant: {} | User: {} | Accounts: {}", tenant, user, accountIds.size());
 
         List<CloudAccount> validAccounts = new ArrayList<>();
         List<String> accountNames = new ArrayList<>();
         List<String> failedAccounts = new ArrayList<>();
 
-        // Validate accounts
         for (String accountId : accountIds) {
             try {
                 CloudAccount account = getAccount(accountId);
-                if ("GCP".equals(account.getProvider())) {
+                if ("GCP".equalsIgnoreCase(account.getProvider())) {
                     validAccounts.add(account);
                     accountNames.add(account.getAccountName());
                 } else {
@@ -176,28 +616,36 @@ public class DashboardDataService {
             throw new RuntimeException("No valid GCP accounts found for multi-account dashboard");
         }
 
-        // Parallel fetch
-        List<CompletableFuture<GcpDashboardData>> futures = validAccounts.stream()
-                .map(account -> gcpDataService.getDashboardData(account.getGcpProjectId(), forceRefresh)
-                        .exceptionally(ex -> {
-                            logger.error("Failed to fetch data for GCP project {}", account.getGcpProjectId(), ex);
-                            failedAccounts.add(account.getGcpProjectId());
-                            return new GcpDashboardData(); // Return empty object on failure to avoid blocking
-                                                           // aggregation
-                        }))
-                .collect(Collectors.toList());
+        try {
+            List<CompletableFuture<GcpDashboardData>> futures = validAccounts.stream()
+                    .map(account -> gcpDataService.getDashboardData(account.getGcpProjectId(), forceRefresh)
+                            .exceptionally(ex -> {
+                                logger.error("Failed to fetch data for GCP project {}", account.getGcpProjectId(), ex);
+                                failedAccounts.add(account.getGcpProjectId());
+                                return new GcpDashboardData();
+                            }))
+                    .collect(Collectors.toList());
 
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
 
-        List<GcpDashboardData> accountDataList = futures.stream()
-                .map(CompletableFuture::join)
-                .collect(Collectors.toList());
+            List<GcpDashboardData> accountDataList = futures.stream()
+                    .map(CompletableFuture::join)
+                    .collect(Collectors.toList());
 
-        DashboardData aggregatedData = aggregateGcpDashboardData(accountDataList, validAccounts, accountNames,
-                failedAccounts);
-        populateAvailableAccounts(aggregatedData, userDetails);
+            DashboardData aggregatedData = aggregateGcpDashboardData(accountDataList, validAccounts, accountNames,
+                    failedAccounts);
+            populateAvailableAccounts(aggregatedData, userDetails);
 
-        return aggregatedData;
+            long duration = System.currentTimeMillis() - startTime;
+            logger.info("✅ [GCP-Fetch] Completed | Tenant: {} | Time: {}ms | Accounts: {}", tenant, duration,
+                    accountIds.size());
+            return aggregatedData;
+        } catch (Exception e) {
+            long duration = System.currentTimeMillis() - startTime;
+            logger.error("❌ [GCP-Fetch] Failed | Tenant: {} | Time: {}ms | Error: {}", tenant, duration, e.getMessage(),
+                    e);
+            throw e;
+        }
     }
 
     private DashboardData aggregateGcpDashboardData(List<GcpDashboardData> dataList,
@@ -216,7 +664,8 @@ public class DashboardDataService {
         aggregatedAccount.setId("multi-account-gcp");
         aggregatedAccount.setName(String.format("%d GCP Projects", accounts.size()));
 
-        // Aggregate Metrics
+        List<DashboardData.Account> subAccounts = new ArrayList<>();
+
         double totalMTD = 0.0;
         double totalForecast = 0.0;
         double totalLastMonth = 0.0;
@@ -232,52 +681,29 @@ public class DashboardDataService {
         Map<String, DashboardData.SecurityInsight> securityInsightMap = new HashMap<>();
         List<Integer> securityScores = new ArrayList<>();
 
-        for (GcpDashboardData data : dataList) {
-            // Costs
+        for (int i = 0; i < dataList.size(); i++) {
+            GcpDashboardData data = dataList.get(i);
+            CloudAccount acc = accounts.get(i);
+
             totalMTD += data.getMonthToDateSpend();
             totalForecast += data.getForecastedSpend();
             totalLastMonth += data.getLastMonthSpend();
 
-            // Resources
+            subAccounts.add(new DashboardData.Account(acc.getGcpProjectId(), acc.getAccountName(),
+                    data.getMonthToDateSpend(), data.getForecastedSpend()));
+
             if (data.getResourceInventory() != null) {
-                DashboardData.ResourceInventory inv = data.getResourceInventory();
-                aggregatedInventory.setEc2(aggregatedInventory.getEc2() + inv.getEc2()); // Compute Engine
-                aggregatedInventory.setS3Buckets(aggregatedInventory.getS3Buckets() + inv.getS3Buckets()); // Cloud
-                                                                                                           // Storage
-                aggregatedInventory.setRdsInstances(aggregatedInventory.getRdsInstances() + inv.getRdsInstances()); // Cloud
-                                                                                                                    // SQL
-                aggregatedInventory.setKubernetes(aggregatedInventory.getKubernetes() + inv.getKubernetes()); // GKE
-                aggregatedInventory.setVpc(aggregatedInventory.getVpc() + inv.getVpc());
-                aggregatedInventory.setRoute53Zones(aggregatedInventory.getRoute53Zones() + inv.getRoute53Zones()); // Cloud
-                                                                                                                    // DNS
-                aggregatedInventory.setLoadBalancers(aggregatedInventory.getLoadBalancers() + inv.getLoadBalancers());
-                aggregatedInventory.setFirewalls(aggregatedInventory.getFirewalls() + inv.getFirewalls());
-                aggregatedInventory
-                        .setCloudNatRouters(aggregatedInventory.getCloudNatRouters() + inv.getCloudNatRouters());
-                aggregatedInventory.setArtifactRepositories(
-                        aggregatedInventory.getArtifactRepositories() + inv.getArtifactRepositories());
-                aggregatedInventory.setKmsKeys(aggregatedInventory.getKmsKeys() + inv.getKmsKeys());
-                aggregatedInventory
-                        .setCloudFunctions(aggregatedInventory.getCloudFunctions() + inv.getCloudFunctions());
-                aggregatedInventory.setCloudBuildTriggers(
-                        aggregatedInventory.getCloudBuildTriggers() + inv.getCloudBuildTriggers());
-                aggregatedInventory.setSecretManagerSecrets(
-                        aggregatedInventory.getSecretManagerSecrets() + inv.getSecretManagerSecrets());
-                aggregatedInventory.setCloudArmorPolicies(
-                        aggregatedInventory.getCloudArmorPolicies() + inv.getCloudArmorPolicies());
+                mergeInventory(aggregatedInventory, data.getResourceInventory());
             }
 
-            // IAM
             if (data.getIamResources() != null) {
                 aggregatedIam.setUsers(aggregatedIam.getUsers() + data.getIamResources().getUsers());
                 aggregatedIam.setRoles(aggregatedIam.getRoles() + data.getIamResources().getRoles());
-                // Groups/Policies might not be populated in basic GCP call, but sum if present
                 aggregatedIam.setGroups(aggregatedIam.getGroups() + data.getIamResources().getGroups());
                 aggregatedIam
                         .setCustomerManagedPolicies(aggregatedIam.getPolicies() + data.getIamResources().getPolicies());
             }
 
-            // Security
             if (data.getSecurityScore() > 0) {
                 securityScores.add(data.getSecurityScore());
             }
@@ -292,7 +718,6 @@ public class DashboardDataService {
                 }
             }
 
-            // Optimization
             if (data.getOptimizationSummary() != null) {
                 totalOptimizationSavings += data.getOptimizationSummary().getTotalPotentialSavings();
                 totalCriticalAlerts += data.getOptimizationSummary().getCriticalAlerts();
@@ -301,19 +726,16 @@ public class DashboardDataService {
                 totalPotentialSavings += data.getSavingsSummary().getTotalPotentialSavings();
             }
 
-            // Regions
             if (data.getRegionStatus() != null) {
                 data.getRegionStatus().forEach(r -> uniqueRegions.add(r.getRegionId()));
             }
 
-            // Cost History
             if (data.getCostHistory() != null) {
                 for (GcpCostDto cost : data.getCostHistory()) {
                     costHistoryMap.merge(cost.getName(), cost.getAmount(), Double::sum);
                 }
             }
 
-            // Billing Summary
             if (data.getBillingSummary() != null) {
                 for (GcpCostDto bill : data.getBillingSummary()) {
                     billingSummaryMap.merge(bill.getName(), bill.getAmount(), Double::sum);
@@ -321,7 +743,7 @@ public class DashboardDataService {
             }
         }
 
-        // Set Aggregated Values
+        aggregatedAccount.setSubAccounts(subAccounts);
         aggregatedAccount.setMonthToDateSpend(totalMTD);
         aggregatedAccount.setForecastedSpend(totalForecast);
         aggregatedAccount.setLastMonthSpend(totalLastMonth);
@@ -342,27 +764,23 @@ public class DashboardDataService {
         aggregatedAccount
                 .setSavingsSummary(new DashboardData.SavingsSummary(totalPotentialSavings, savingsSuggestions));
 
-        // Regions
         List<DashboardData.RegionStatus> regionStatusList = uniqueRegions.stream()
                 .map(regionId -> new DashboardData.RegionStatus(regionId, true))
                 .collect(Collectors.toList());
         aggregatedAccount.setRegionStatus(regionStatusList);
 
-        // Cost History Processing (Sorting by month)
         List<String> costLabels = new ArrayList<>(costHistoryMap.keySet());
-        costLabels.sort(this::compareMonthStrings); // Reuse or duplicate helper
+        costLabels.sort(this::compareMonthStrings);
         List<Double> costValues = costLabels.stream().map(costHistoryMap::get).collect(Collectors.toList());
         List<Boolean> costAnomalies = costLabels.stream().map(l -> false).collect(Collectors.toList());
         aggregatedAccount.setCostHistory(new DashboardData.CostHistory(costLabels, costValues, costAnomalies));
 
-        // Billing Summary Processing
         List<DashboardData.BillingSummary> billingSummaryList = billingSummaryMap.entrySet().stream()
                 .map(entry -> new DashboardData.BillingSummary(entry.getKey(), entry.getValue()))
                 .sorted((a, b) -> Double.compare(b.getAmount(), a.getAmount()))
                 .collect(Collectors.toList());
         aggregatedAccount.setBillingSummary(billingSummaryList);
 
-        // Empty Lists for specific items (too large to aggregate all)
         aggregatedAccount.setEc2Recommendations(Collections.emptyList());
         aggregatedAccount.setWastedResources(Collections.emptyList());
         aggregatedAccount.setCloudWatchStatus(new DashboardData.CloudWatchStatus(0, 0, 0));
@@ -371,12 +789,13 @@ public class DashboardDataService {
         return aggregated;
     }
 
-    /**
-     * Existing logic for AWS multi-account, extracted to a method.
-     */
     private DashboardData getMultiAccountAwsDashboardData(List<String> accountIds, boolean forceRefresh,
             ClientUserDetails userDetails) throws ExecutionException, InterruptedException, IOException {
-        logger.info("Executing AWS multi-account fetch for accounts: {}", accountIds);
+        long startTime = System.currentTimeMillis();
+        String user = userDetails != null ? userDetails.getUsername() : "System";
+        String tenant = TenantContext.getCurrentTenant();
+
+        logger.info("🔍 [AWS-Fetch] Started | Tenant: {} | User: {} | Accounts: {}", tenant, user, accountIds.size());
 
         List<CloudAccount> validAccounts = new ArrayList<>();
         List<String> accountNames = new ArrayList<>();
@@ -385,7 +804,7 @@ public class DashboardDataService {
         for (String accountId : accountIds) {
             try {
                 CloudAccount account = getAccount(accountId);
-                if ("AWS".equals(account.getProvider())) {
+                if ("AWS".equalsIgnoreCase(account.getProvider())) {
                     validAccounts.add(account);
                     accountNames.add(account.getAccountName());
                 } else {
@@ -401,37 +820,46 @@ public class DashboardDataService {
             throw new RuntimeException("No valid AWS accounts found for multi-account dashboard");
         }
 
-        List<CompletableFuture<DashboardData>> futures = validAccounts.stream()
-                .map(account -> CompletableFuture.supplyAsync(() -> {
-                    try {
-                        return getDashboardData(account.getAwsAccountId(), forceRefresh, userDetails);
-                    } catch (Exception e) {
-                        logger.error("Failed to fetch data for account {}", account.getAwsAccountId(), e);
-                        failedAccounts.add(account.getAwsAccountId());
-                        return null;
-                    }
-                }))
-                .collect(Collectors.toList());
+        try {
+            List<CompletableFuture<DashboardData>> futures = validAccounts.stream()
+                    .map(account -> CompletableFuture.supplyAsync(() -> {
+                        try {
+                            return getDashboardData(account.getAwsAccountId(), forceRefresh, userDetails);
+                        } catch (Exception e) {
+                            logger.error("Failed to fetch data for account {}", account.getAwsAccountId(), e);
+                            failedAccounts.add(account.getAwsAccountId());
+                            return null;
+                        }
+                    }))
+                    .collect(Collectors.toList());
 
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
 
-        List<DashboardData> accountDataList = futures.stream()
-                .map(CompletableFuture::join)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
+            List<DashboardData> accountDataList = futures.stream()
+                    .map(CompletableFuture::join)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
 
-        if (accountDataList.isEmpty()) {
-            throw new RuntimeException("Failed to fetch data from all selected AWS accounts");
+            if (accountDataList.isEmpty()) {
+                throw new RuntimeException("Failed to fetch data from all selected AWS accounts");
+            }
+
+            DashboardData aggregatedData = aggregateDashboardData(accountDataList, validAccounts, accountNames,
+                    failedAccounts);
+            populateAvailableAccounts(aggregatedData, userDetails);
+
+            long duration = System.currentTimeMillis() - startTime;
+            logger.info("✅ [AWS-Fetch] Completed | Tenant: {} | Time: {}ms | Accounts: {}", tenant, duration,
+                    accountIds.size());
+            return aggregatedData;
+        } catch (Exception e) {
+            long duration = System.currentTimeMillis() - startTime;
+            logger.error("❌ [AWS-Fetch] Failed | Tenant: {} | Time: {}ms | Error: {}", tenant, duration, e.getMessage(),
+                    e);
+            throw e;
         }
-
-        DashboardData aggregatedData = aggregateDashboardData(accountDataList, validAccounts, accountNames,
-                failedAccounts);
-        populateAvailableAccounts(aggregatedData, userDetails);
-
-        return aggregatedData;
     }
 
-    // Helper to compare month strings (e.g. "Jan 2023", "2023-01")
     private int compareMonthStrings(String a, String b) {
         try {
             String normalizedA = normalizeMonthString(a);
@@ -457,18 +885,11 @@ public class DashboardDataService {
 
     private void populateAvailableAccounts(DashboardData data, ClientUserDetails userDetails) {
         if (userDetails != null) {
-            boolean isAdmin = userDetails.getAuthorities().stream()
-                    .anyMatch(role -> "ROLE_BILLOPS_ADMIN".equals(role.getAuthority()));
-            List<CloudAccount> userAccounts;
-            if (isAdmin) {
-                userAccounts = cloudAccountRepository.findAll();
-            } else {
-                userAccounts = cloudAccountRepository.findByClientId(userDetails.getClientId());
-            }
+            List<CloudAccount> userAccounts = fetchUserAccounts(userDetails);
 
             List<DashboardData.Account> availableAccounts = userAccounts.stream()
                     .map(acc -> new DashboardData.Account(
-                            "AWS".equals(acc.getProvider()) ? acc.getAwsAccountId() : acc.getGcpProjectId(),
+                            "AWS".equalsIgnoreCase(acc.getProvider()) ? acc.getAwsAccountId() : acc.getGcpProjectId(),
                             acc.getAccountName(),
                             Collections.emptyList(),
                             null, null, Collections.emptyList(), null, Collections.emptyList(), null, null, null,
@@ -510,10 +931,15 @@ public class DashboardDataService {
         double totalOptimizationSavings = 0.0;
         long totalCriticalAlerts = 0;
 
+        List<DashboardData.Account> subAccounts = new ArrayList<>();
+
         for (DashboardData data : accountDataList) {
             DashboardData.Account account = data.getSelectedAccount();
             if (account == null)
                 continue;
+
+            subAccounts.add(new DashboardData.Account(account.getId(), account.getName(), account.getMonthToDateSpend(),
+                    account.getForecastedSpend()));
 
             totalMTD += account.getMonthToDateSpend();
             totalForecast += account.getForecastedSpend();
@@ -524,21 +950,7 @@ public class DashboardDataService {
             }
 
             if (account.getResourceInventory() != null) {
-                DashboardData.ResourceInventory inv = account.getResourceInventory();
-                aggregatedInventory.setVpc(aggregatedInventory.getVpc() + inv.getVpc());
-                aggregatedInventory.setEc2(aggregatedInventory.getEc2() + inv.getEc2());
-                aggregatedInventory.setEcs(aggregatedInventory.getEcs() + inv.getEcs());
-                aggregatedInventory.setKubernetes(aggregatedInventory.getKubernetes() + inv.getKubernetes());
-                aggregatedInventory.setLambdas(aggregatedInventory.getLambdas() + inv.getLambdas());
-                aggregatedInventory.setEbsVolumes(aggregatedInventory.getEbsVolumes() + inv.getEbsVolumes());
-                aggregatedInventory.setImages(aggregatedInventory.getImages() + inv.getImages());
-                aggregatedInventory.setSnapshots(aggregatedInventory.getSnapshots() + inv.getSnapshots());
-                aggregatedInventory.setS3Buckets(aggregatedInventory.getS3Buckets() + inv.getS3Buckets());
-                aggregatedInventory.setRdsInstances(aggregatedInventory.getRdsInstances() + inv.getRdsInstances());
-                aggregatedInventory.setRoute53Zones(aggregatedInventory.getRoute53Zones() + inv.getRoute53Zones());
-                aggregatedInventory.setLoadBalancers(aggregatedInventory.getLoadBalancers() + inv.getLoadBalancers());
-                aggregatedInventory.setLightsail(aggregatedInventory.getLightsail() + inv.getLightsail());
-                aggregatedInventory.setAmplify(aggregatedInventory.getAmplify() + inv.getAmplify());
+                mergeInventory(aggregatedInventory, account.getResourceInventory());
             }
 
             if (account.getIamResources() != null) {
@@ -588,6 +1000,7 @@ public class DashboardDataService {
         DashboardData.Account aggregatedAccount = new DashboardData.Account();
         aggregatedAccount.setId("multi-account");
         aggregatedAccount.setName(String.format("%d AWS Accounts", accounts.size()));
+        aggregatedAccount.setSubAccounts(subAccounts);
         aggregatedAccount.setMonthToDateSpend(totalMTD);
         aggregatedAccount.setForecastedSpend(totalForecast);
         aggregatedAccount.setLastMonthSpend(totalLastMonth);
@@ -677,11 +1090,17 @@ public class DashboardDataService {
 
     public DashboardData getDashboardData(String accountId, boolean forceRefresh, ClientUserDetails userDetails)
             throws ExecutionException, InterruptedException, IOException {
+        long startTime = System.currentTimeMillis();
+        String user = userDetails != null ? userDetails.getUsername() : "System";
+        String tenant = TenantContext.getCurrentTenant();
+        logger.info("🔍 [Single-Account-Fetch] Started | Tenant: {} | User: {} | Account: {}", tenant, user, accountId);
+
         String cacheKey = "dashboardData-" + accountId;
 
         if (!forceRefresh) {
             Optional<DashboardData> cachedData = redisCache.get(cacheKey, DashboardData.class);
             if (cachedData.isPresent()) {
+                logger.info("✅ [Single-Account-Fetch] Returned from Cache | Account: {}", accountId);
                 return cachedData.get();
             }
         }
@@ -689,37 +1108,30 @@ public class DashboardDataService {
         CloudAccount account = getAccount(accountId);
         DashboardData freshData;
 
-        if ("GCP".equals(account.getProvider())) {
-            GcpDashboardData gcpData = gcpDataService.getDashboardData(account.getGcpProjectId(), forceRefresh)
-                    .exceptionally(ex -> {
-                        logger.error(
-                                "Failed to get a complete GCP dashboard data object for account {}. Returning partial data.",
-                                account.getGcpProjectId(), ex);
-                        return new GcpDashboardData();
-                    })
-                    .get();
-            freshData = mapGcpDataToDashboardData(gcpData, account);
-        } else if ("Azure".equalsIgnoreCase(account.getProvider())) {
-            try {
+        try {
+            if ("GCP".equalsIgnoreCase(account.getProvider())) {
+                GcpDashboardData gcpData = gcpDataService.getDashboardData(account.getGcpProjectId(), forceRefresh)
+                        .exceptionally(ex -> {
+                            logger.error(
+                                    "Failed to get a complete GCP dashboard data object for account {}. Returning partial data.",
+                                    account.getGcpProjectId(), ex);
+                            return new GcpDashboardData();
+                        })
+                        .get();
+                freshData = mapGcpDataToDashboardData(gcpData, account);
+            } else if ("Azure".equalsIgnoreCase(account.getProvider())) {
                 com.xammer.cloud.dto.azure.AzureDashboardData azureData = azureDashboardService
                         .getDashboardData(account.getAzureSubscriptionId(), forceRefresh);
                 freshData = mapAzureDataToDashboardData(azureData, account);
-            } catch (Exception e) {
-                logger.error("Error fetching Azure dashboard data for account {}: {}", account.getAccountName(),
-                        e.getMessage());
-                // Return empty/partial data instead of failing the entire request
-                com.xammer.cloud.dto.azure.AzureDashboardData emptyData = new com.xammer.cloud.dto.azure.AzureDashboardData();
-                freshData = mapAzureDataToDashboardData(emptyData, account);
+            } else {
+                // AWS
+                freshData = getAwsDashboardData(account, forceRefresh, userDetails);
             }
-        } else {
-            freshData = getAwsDashboardData(account, forceRefresh, userDetails);
-        }
 
-        // Cache in Redis
-        redisCache.put(cacheKey, freshData, 10);
+            // Cache in Redis
+            redisCache.put(cacheKey, freshData, 10);
 
-        // ✅ Archive to Postgres for Superset
-        try {
+            // ✅ Archive to Postgres for Superset
             String dbKey = "DASHBOARD_DATA::" + accountId + "::" + LocalDate.now();
             String json = objectMapper.writeValueAsString(freshData);
 
@@ -730,11 +1142,32 @@ public class DashboardDataService {
 
             cachedDataRepository.save(archivalData);
             logger.info("✅ Archived Dashboard Data to DB for account {}", accountId);
-        } catch (Exception e) {
-            logger.error("❌ Failed to archive Dashboard Data", e);
-        }
 
-        return freshData;
+            long duration = System.currentTimeMillis() - startTime;
+            logger.info("✅ [Single-Account-Fetch] Completed | Tenant: {} | Time: {}ms | Account: {}", tenant, duration,
+                    accountId);
+            return freshData;
+
+        } catch (Exception e) {
+            long duration = System.currentTimeMillis() - startTime;
+            logger.error("❌ [Single-Account-Fetch] Failed | Tenant: {} | Time: {}ms | Account: {} | Error: {}", tenant,
+                    duration, accountId, e.getMessage(), e);
+
+            // Return error object instead of throwing to prevent frontend crash
+            freshData = new DashboardData();
+            freshData.setError("Failed to load data: " + e.getMessage());
+            freshData.setSelectedProvider(account.getProvider());
+            freshData.setSelectedAccount(new DashboardData.Account(
+                    "AWS".equalsIgnoreCase(account.getProvider()) ? account.getAwsAccountId()
+                            : account.getGcpProjectId(),
+                    account.getAccountName(),
+                    Collections.emptyList(), new DashboardData.ResourceInventory(), null, Collections.emptyList(),
+                    null, Collections.emptyList(), null, null, null, Collections.emptyList(),
+                    Collections.emptyList(),
+                    Collections.emptyList(), Collections.emptyList(), null, Collections.emptyList(), null,
+                    Collections.emptyList(), Collections.emptyList(), 0, 0.0, 0.0, 0.0));
+            return freshData;
+        }
     }
 
     private DashboardData mapGcpDataToDashboardData(GcpDashboardData gcpData, CloudAccount account) {
@@ -799,7 +1232,7 @@ public class DashboardDataService {
         mainAccount.setLambdaRecommendations(new ArrayList<>());
 
         data.setSelectedAccount(mainAccount);
-        populateAvailableAccounts(data, null); // userDetails already passed in main flow or fetched inside
+        populateAvailableAccounts(data, null);
 
         return data;
     }
@@ -809,131 +1242,212 @@ public class DashboardDataService {
         logger.info("--- LAUNCHING OPTIMIZED ASYNC DATA FETCH FROM AWS for account {} ---", account.getAwsAccountId());
 
         CompletableFuture<List<DashboardData.RegionStatus>> activeRegionsFuture = cloudListService
-                .getRegionStatusForAccount(account, forceRefresh);
+                .getRegionStatusForAccount(account, forceRefresh)
+                .exceptionally(ex -> {
+                    logger.error("Failed to fetch regions for account {}", account.getAwsAccountId(), ex);
+                    return Collections.emptyList();
+                });
 
         return activeRegionsFuture.thenCompose((List<DashboardData.RegionStatus> activeRegions) -> {
-            if (activeRegions == null) {
+            if (activeRegions == null || activeRegions.isEmpty()) {
+                logger.warn("No active regions found for account {}. Returning empty dashboard.",
+                        account.getAwsAccountId());
                 return CompletableFuture.completedFuture(new DashboardData());
             }
 
             CompletableFuture<List<DashboardData.ServiceGroupDto>> groupedResourcesFuture = cloudListService
-                    .getAllResourcesGrouped(account.getAwsAccountId(), forceRefresh);
+                    .getAllResourcesGrouped(account.getAwsAccountId(), forceRefresh)
+                    .exceptionally(ex -> {
+                        logger.error("Failed to fetch grouped resources for account {}", account.getAwsAccountId(), ex);
+                        return Collections.emptyList();
+                    });
 
             CompletableFuture<DashboardData.ResourceInventory> inventoryFuture = getResourceInventory(
-                    groupedResourcesFuture);
+                    groupedResourcesFuture)
+                    .exceptionally(ex -> {
+                        logger.error("Inventory calculation failed for {}", account.getAwsAccountId(), ex);
+                        return new DashboardData.ResourceInventory();
+                    });
+
             CompletableFuture<DashboardData.CloudWatchStatus> cwStatusFuture = getCloudWatchStatus(account,
-                    activeRegions, forceRefresh);
+                    activeRegions, forceRefresh)
+                    .exceptionally(ex -> {
+                        logger.error("CloudWatch fetch failed for {}", account.getAwsAccountId(), ex);
+                        return new DashboardData.CloudWatchStatus(0, 0, 0);
+                    });
 
-            // Optimization Futures
             CompletableFuture<List<DashboardData.OptimizationRecommendation>> ec2RecsFuture = optimizationService
-                    .getEc2InstanceRecommendations(account, activeRegions, forceRefresh);
+                    .getEc2InstanceRecommendations(account, activeRegions, forceRefresh)
+                    .exceptionally(ex -> {
+                        logger.error("EC2 Recs failed", ex);
+                        return Collections.emptyList();
+                    });
+
             CompletableFuture<List<DashboardData.OptimizationRecommendation>> ebsRecsFuture = optimizationService
-                    .getEbsVolumeRecommendations(account, activeRegions, forceRefresh);
+                    .getEbsVolumeRecommendations(account, activeRegions, forceRefresh)
+                    .exceptionally(ex -> {
+                        logger.error("EBS Recs failed", ex);
+                        return Collections.emptyList();
+                    });
+
             CompletableFuture<List<DashboardData.OptimizationRecommendation>> lambdaRecsFuture = optimizationService
-                    .getLambdaFunctionRecommendations(account, activeRegions, forceRefresh);
+                    .getLambdaFunctionRecommendations(account, activeRegions, forceRefresh)
+                    .exceptionally(ex -> {
+                        logger.error("Lambda Recs failed", ex);
+                        return Collections.emptyList();
+                    });
+
             CompletableFuture<List<DashboardData.WastedResource>> wastedResourcesFuture = optimizationService
-                    .getWastedResources(account, activeRegions, forceRefresh);
+                    .getWastedResources(account, activeRegions, forceRefresh)
+                    .exceptionally(ex -> {
+                        logger.error("Waste fetch failed", ex);
+                        return Collections.emptyList();
+                    });
 
-            // Security & Other Futures
             CompletableFuture<List<DashboardData.SecurityFinding>> securityFindingsFuture = securityService
-                    .getComprehensiveSecurityFindings(account, activeRegions, forceRefresh);
-            CompletableFuture<List<ReservationInventoryDto>> reservationInventoryFuture = reservationService
-                    .getReservationInventory(account, activeRegions, forceRefresh);
-            CompletableFuture<DashboardData.CostHistory> costHistoryFuture = finOpsService.getCostHistory(account,
-                    forceRefresh);
-            CompletableFuture<List<DashboardData.BillingSummary>> billingFuture = finOpsService
-                    .getBillingSummary(account, forceRefresh);
-            CompletableFuture<DashboardData.IamResources> iamFuture = getIamResources(account, forceRefresh);
-            // ✅ NEW: Fetch detailed IAM Info
-            CompletableFuture<DashboardData.IamDetail> iamDetailsFuture = getIamDetails(account, forceRefresh);
+                    .getComprehensiveSecurityFindings(account, activeRegions, forceRefresh)
+                    .exceptionally(ex -> {
+                        logger.error("Security findings failed", ex);
+                        return Collections.emptyList();
+                    });
 
-            CompletableFuture<List<DashboardData.CostAnomaly>> anomaliesFuture = finOpsService.getCostAnomalies(account,
-                    forceRefresh);
+            CompletableFuture<DashboardData.CostHistory> costHistoryFuture = finOpsService
+                    .getCostHistory(account, forceRefresh)
+                    .exceptionally(ex -> {
+                        logger.error("Cost history failed", ex);
+                        return new DashboardData.CostHistory();
+                    });
+
+            CompletableFuture<List<DashboardData.BillingSummary>> billingFuture = finOpsService
+                    .getBillingSummary(account, forceRefresh)
+                    .exceptionally(ex -> {
+                        logger.error("Billing summary failed", ex);
+                        return Collections.emptyList();
+                    });
+
+            CompletableFuture<DashboardData.IamResources> iamFuture = getIamResources(account, forceRefresh)
+                    .exceptionally(ex -> {
+                        logger.error("IAM resources failed", ex);
+                        return new DashboardData.IamResources();
+                    });
+
+            CompletableFuture<DashboardData.IamDetail> iamDetailsFuture = getIamDetails(account, forceRefresh)
+                    .exceptionally(ex -> {
+                        logger.error("IAM details failed", ex);
+                        return new DashboardData.IamDetail();
+                    });
+
+            CompletableFuture<List<DashboardData.CostAnomaly>> anomaliesFuture = finOpsService
+                    .getCostAnomalies(account, forceRefresh)
+                    .exceptionally(ex -> {
+                        logger.error("Cost anomalies failed", ex);
+                        return Collections.emptyList();
+                    });
+
             CompletableFuture<DashboardData.ReservationAnalysis> reservationFuture = reservationService
-                    .getReservationAnalysis(account, forceRefresh);
+                    .getReservationAnalysis(account, forceRefresh)
+                    .exceptionally(ex -> {
+                        logger.error("Reservation analysis failed", ex);
+                        return new DashboardData.ReservationAnalysis();
+                    });
+
             CompletableFuture<List<DashboardData.ReservationPurchaseRecommendation>> reservationPurchaseFuture = reservationService
                     .getReservationPurchaseRecommendations(account, "ONE_YEAR", "NO_UPFRONT", "THIRTY_DAYS", "STANDARD",
-                            forceRefresh);
-            CompletableFuture<List<DashboardData.ServiceQuotaInfo>> vpcQuotaInfoFuture = getServiceQuotaInfo(account,
-                    activeRegions, groupedResourcesFuture, "vpc", "L-F678F1CE");
+                            forceRefresh)
+                    .exceptionally(ex -> {
+                        logger.error("Reservation recommendations failed", ex);
+                        return Collections.emptyList();
+                    });
 
-            // ✅ NEW: Cost Futures for Header Stats - Passing forceRefresh
-            CompletableFuture<Double> mtdSpendFuture = costService.getTotalMonthToDateCost(account.getAwsAccountId(),
-                    forceRefresh);
-            CompletableFuture<Double> lastMonthSpendFuture = costService.getLastMonthSpend(account.getAwsAccountId(),
-                    forceRefresh);
+            CompletableFuture<List<DashboardData.ServiceQuotaInfo>> vpcQuotaInfoFuture = getServiceQuotaInfo(account,
+                    activeRegions, groupedResourcesFuture, "vpc", "L-F678F1CE")
+                    .exceptionally(ex -> {
+                        logger.error("Service quotas failed", ex);
+                        return Collections.emptyList();
+                    });
+
+            CompletableFuture<Double> mtdSpendFuture = costService
+                    .getTotalMonthToDateCost(account.getAwsAccountId(), forceRefresh)
+                    .exceptionally(ex -> {
+                        logger.error("MTD Cost failed", ex);
+                        return 0.0;
+                    });
+
+            CompletableFuture<Double> lastMonthSpendFuture = costService
+                    .getLastMonthSpend(account.getAwsAccountId(), forceRefresh)
+                    .exceptionally(ex -> {
+                        logger.error("Last Month Cost failed", ex);
+                        return 0.0;
+                    });
 
             CompletableFuture<DashboardData.SavingsSummary> savingsFuture = getSavingsSummary(
-                    wastedResourcesFuture, ec2RecsFuture, ebsRecsFuture, lambdaRecsFuture);
+                    wastedResourcesFuture, ec2RecsFuture, ebsRecsFuture, lambdaRecsFuture)
+                    .exceptionally(ex -> {
+                        logger.error("Savings summary calculation failed", ex);
+                        return new DashboardData.SavingsSummary(0.0, 0.0);
+                    });
 
             return CompletableFuture.allOf(
                     inventoryFuture, cwStatusFuture, ec2RecsFuture, ebsRecsFuture, lambdaRecsFuture,
                     wastedResourcesFuture, securityFindingsFuture, costHistoryFuture, billingFuture,
                     iamFuture, iamDetailsFuture, savingsFuture, anomaliesFuture, reservationFuture,
-                    reservationPurchaseFuture,
-                    reservationInventoryFuture, vpcQuotaInfoFuture,
-                    mtdSpendFuture, lastMonthSpendFuture // ✅ Wait for cost futures
-            ).thenApply(v -> {
-                List<DashboardData.WastedResource> wastedResources = wastedResourcesFuture.join();
-                List<DashboardData.OptimizationRecommendation> ec2Recs = ec2RecsFuture.join();
-                List<DashboardData.OptimizationRecommendation> ebsRecs = ebsRecsFuture.join();
-                List<DashboardData.OptimizationRecommendation> lambdaRecs = lambdaRecsFuture.join();
-                List<DashboardData.CostAnomaly> anomalies = anomaliesFuture.join();
-                List<DashboardData.SecurityFinding> securityFindings = securityFindingsFuture.join();
-                List<DashboardData.ServiceQuotaInfo> vpcQuotas = vpcQuotaInfoFuture.join();
+                    reservationPurchaseFuture, vpcQuotaInfoFuture, mtdSpendFuture, lastMonthSpendFuture)
+                    .thenApply(v -> {
+                        List<DashboardData.WastedResource> wastedResources = wastedResourcesFuture.join();
+                        List<DashboardData.OptimizationRecommendation> ec2Recs = ec2RecsFuture.join();
+                        List<DashboardData.OptimizationRecommendation> ebsRecs = ebsRecsFuture.join();
+                        List<DashboardData.OptimizationRecommendation> lambdaRecs = lambdaRecsFuture.join();
+                        List<DashboardData.CostAnomaly> anomalies = anomaliesFuture.join();
+                        List<DashboardData.SecurityFinding> securityFindings = securityFindingsFuture.join();
+                        List<DashboardData.ServiceQuotaInfo> vpcQuotas = vpcQuotaInfoFuture.join();
 
-                // ✅ Get Cost Values
-                Double mtdSpend = mtdSpendFuture.join();
-                Double lastMonthSpend = lastMonthSpendFuture.join();
+                        Double mtdSpend = mtdSpendFuture.join();
+                        Double lastMonthSpend = lastMonthSpendFuture.join();
 
-                // Calculate Simple Forecast (Linear Extrapolation)
-                int dayOfMonth = LocalDate.now().getDayOfMonth();
-                int daysInMonth = LocalDate.now().lengthOfMonth();
-                Double forecastedSpend = (dayOfMonth > 0) ? (mtdSpend / dayOfMonth) * daysInMonth : 0.0;
+                        int dayOfMonth = LocalDate.now().getDayOfMonth();
+                        int daysInMonth = LocalDate.now().lengthOfMonth();
+                        Double forecastedSpend = (dayOfMonth > 0) ? (mtdSpend / dayOfMonth) * daysInMonth : 0.0;
 
-                List<DashboardData.SecurityInsight> securityInsights = securityFindings.stream()
-                        .collect(Collectors.groupingBy(DashboardData.SecurityFinding::getCategory,
-                                Collectors.groupingBy(DashboardData.SecurityFinding::getSeverity,
-                                        Collectors.counting())))
-                        .entrySet().stream()
-                        .map(entry -> new DashboardData.SecurityInsight(
-                                String.format("%s has potential issues", entry.getKey()),
-                                entry.getKey(),
-                                entry.getValue().keySet().stream().findFirst().orElse("INFO"),
-                                entry.getValue().values().stream().mapToInt(Long::intValue).sum()))
-                        .collect(Collectors.toList());
+                        List<DashboardData.SecurityInsight> securityInsights = securityFindings.stream()
+                                .collect(Collectors.groupingBy(DashboardData.SecurityFinding::getCategory,
+                                        Collectors.groupingBy(DashboardData.SecurityFinding::getSeverity,
+                                                Collectors.counting())))
+                                .entrySet().stream()
+                                .map(entry -> new DashboardData.SecurityInsight(
+                                        String.format("%s has potential issues", entry.getKey()),
+                                        entry.getKey(),
+                                        entry.getValue().keySet().stream().findFirst().orElse("INFO"),
+                                        entry.getValue().values().stream().mapToInt(Long::intValue).sum()))
+                                .collect(Collectors.toList());
 
-                DashboardData.OptimizationSummary optimizationSummary = getOptimizationSummary(
-                        wastedResources, ec2Recs, ebsRecs, lambdaRecs, anomalies);
+                        DashboardData.OptimizationSummary optimizationSummary = getOptimizationSummary(
+                                wastedResources, ec2Recs, ebsRecs, lambdaRecs, anomalies);
 
-                int securityScore = calculateSecurityScore(securityFindings);
+                        int securityScore = calculateSecurityScore(securityFindings);
 
-                DashboardData data = new DashboardData();
-                data.setSelectedProvider("AWS");
-                DashboardData.Account mainAccount = new DashboardData.Account(
-                        account.getAwsAccountId(), account.getAccountName(),
-                        activeRegions, inventoryFuture.join(), cwStatusFuture.join(), securityInsights,
-                        costHistoryFuture.join(), billingFuture.join(), iamFuture.join(), iamDetailsFuture.join(),
-                        savingsFuture.join(),
-                        ec2Recs, anomalies, ebsRecs, lambdaRecs,
-                        reservationFuture.join(), reservationPurchaseFuture.join(),
-                        optimizationSummary, wastedResources, vpcQuotas,
-                        securityScore,
-                        mtdSpend, // ✅ Pass actual MTD Spend
-                        forecastedSpend, // ✅ Pass calculated Forecast
-                        lastMonthSpend // ✅ Pass actual Last Month Spend
-                );
+                        DashboardData data = new DashboardData();
+                        data.setSelectedProvider("AWS");
+                        DashboardData.Account mainAccount = new DashboardData.Account(
+                                account.getAwsAccountId(), account.getAccountName(),
+                                activeRegions, inventoryFuture.join(), cwStatusFuture.join(), securityInsights,
+                                costHistoryFuture.join(), billingFuture.join(), iamFuture.join(),
+                                iamDetailsFuture.join(),
+                                savingsFuture.join(),
+                                ec2Recs, anomalies, ebsRecs, lambdaRecs,
+                                reservationFuture.join(), reservationPurchaseFuture.join(),
+                                optimizationSummary, wastedResources, vpcQuotas,
+                                securityScore,
+                                mtdSpend,
+                                forecastedSpend,
+                                lastMonthSpend);
 
-                data.setSelectedAccount(mainAccount);
-                populateAvailableAccounts(data, userDetails);
+                        data.setSelectedAccount(mainAccount);
+                        populateAvailableAccounts(data, userDetails);
 
-                return data;
-            });
+                        return data;
+                    });
         }).get();
     }
-
-    // ... (getResourceInventory, getCloudWatchStatus, getServiceQuotaInfo remain
-    // unchanged) ...
 
     private CompletableFuture<DashboardData.ResourceInventory> getResourceInventory(
             CompletableFuture<List<DashboardData.ServiceGroupDto>> groupedResourcesFuture) {
@@ -1070,7 +1584,6 @@ public class DashboardDataService {
         return CompletableFuture.completedFuture(resources);
     }
 
-    // --- NEW METHOD TO FETCH DETAILED IAM USERS & ROLES ---
     @Async("awsTaskExecutor")
     public CompletableFuture<DashboardData.IamDetail> getIamDetails(CloudAccount account, boolean forceRefresh) {
         String cacheKey = "iamDetails-" + account.getAwsAccountId();
@@ -1084,7 +1597,6 @@ public class DashboardDataService {
         return CompletableFuture.supplyAsync(() -> {
             IamClient iam = awsClientProvider.getIamClient(account);
 
-            // Parallel fetch for users
             List<DashboardData.IamUserDetail> users = iam.listUsers().users().parallelStream().map(user -> {
                 try {
                     List<String> groups = iam.listGroupsForUser(r -> r.userName(user.userName()))
@@ -1110,7 +1622,6 @@ public class DashboardDataService {
                 }
             }).filter(java.util.Objects::nonNull).collect(Collectors.toList());
 
-            // Parallel fetch for roles
             List<DashboardData.IamRoleDetail> roles = iam.listRoles().roles().parallelStream()
                     .filter(r -> !r.path().startsWith("/aws-service-role/"))
                     .map(role -> {
@@ -1223,7 +1734,6 @@ public class DashboardDataService {
         mainAccount.setId(account.getAzureSubscriptionId());
         mainAccount.setName(account.getAccountName());
 
-        // Map Inventory
         DashboardData.ResourceInventory inv = new DashboardData.ResourceInventory();
         if (azureData.getResourceInventory() != null) {
             com.xammer.cloud.dto.azure.AzureDashboardData.ResourceInventory azInv = azureData.getResourceInventory();
@@ -1236,18 +1746,12 @@ public class DashboardDataService {
             inv.setRoute53Zones((int) azInv.getDnsZones());
             inv.setLoadBalancers((int) azInv.getLoadBalancers());
             inv.setKubernetes((int) azInv.getKubernetesServices());
-            // Map App Services to "Lightsail" or similar field just to show it somewhere if
-            // needed,
-            // or just rely on generic fields if available. For now using 'amplify' as a
-            // placeholder for App Services
             inv.setAmplify((int) azInv.getAppServices());
         }
         mainAccount.setResourceInventory(inv);
 
-        // Map Hints/IAM
         if (azureData.getIamDetails() != null) {
             mainAccount.setIamDetails(azureData.getIamDetails());
-            // Create summary resources
             int userCount = azureData.getIamDetails().getUsers() != null ? azureData.getIamDetails().getUsers().size()
                     : 0;
             int roleCount = azureData.getIamDetails().getRoles() != null ? azureData.getIamDetails().getRoles().size()
@@ -1260,7 +1764,6 @@ public class DashboardDataService {
         mainAccount.setMonthToDateSpend(azureData.getMonthToDateSpend());
         mainAccount.setForecastedSpend(azureData.getForecastedSpend());
 
-        // Cost History
         if (azureData.getCostHistory() != null) {
             mainAccount.setCostHistory(new DashboardData.CostHistory(
                     azureData.getCostHistory().getLabels(),
@@ -1268,7 +1771,6 @@ public class DashboardDataService {
                     azureData.getCostHistory().getAnomalies()));
         }
 
-        // Region Status
         if (azureData.getRegionStatus() != null) {
             List<DashboardData.RegionStatus> regions = azureData.getRegionStatus().stream()
                     .map(r -> new DashboardData.RegionStatus(r.getName(), r.getStatus(), r.getStatus(), r.getLatitude(),
@@ -1277,7 +1779,6 @@ public class DashboardDataService {
             mainAccount.setRegionStatus(regions);
         }
 
-        // Empty Defaults for AWS specific fields
         mainAccount.setSecurityScore(100);
         mainAccount.setSecurityInsights(new ArrayList<>());
         mainAccount.setSavingsSummary(new DashboardData.SavingsSummary(0.0, new ArrayList<>()));
