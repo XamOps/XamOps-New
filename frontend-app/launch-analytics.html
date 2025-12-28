@@ -305,6 +305,23 @@
             : window.location.origin;
         const tenantId = sessionStorage.getItem('tenantId') || 'customer1';
 
+        // Initialize persistent cache in window scope if not exists
+        if (!window.launchAnalyticsCache) {
+            window.launchAnalyticsCache = {
+                dataLoaded: false,
+                analytics: {
+                    totalAttempts: 0,
+                    successRate: 0,
+                    successful: 0,
+                    failed: 0,
+                    byInstanceType: [],
+                    byRegion: [],
+                    failureReasons: [],
+                    recommendations: []
+                }
+            };
+        }
+
         return {
             loading: false,
             accountId: null,
@@ -312,16 +329,7 @@
                 startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
                 endDate: new Date().toISOString().split('T')[0]
             },
-            analytics: {
-                totalAttempts: 0,
-                successRate: 0,
-                successful: 0,
-                failed: 0,
-                byInstanceType: [],
-                byRegion: [],
-                failureReasons: [],
-                recommendations: []
-            },
+            analytics: window.launchAnalyticsCache.analytics,
 
             init() {
                 console.log('🚀 Launch Analytics tab initialized');
@@ -345,8 +353,14 @@
                     return;
                 }
 
-                // Auto-load analytics on init
-                this.loadAnalytics();
+                // Only load analytics if data hasn't been loaded yet
+                if (!window.launchAnalyticsCache.dataLoaded) {
+                    console.log('📊 Loading analytics for the first time');
+                    this.loadAnalytics();
+                } else {
+                    console.log('✨ Using cached analytics data');
+                    this.analytics = window.launchAnalyticsCache.analytics;
+                }
             },
 
             async loadAnalytics() {
@@ -414,6 +428,10 @@
                             attempts: rec.total_launches + ' attempts'
                         }))
                     };
+
+                    // Store in window cache
+                    window.launchAnalyticsCache.analytics = this.analytics;
+                    window.launchAnalyticsCache.dataLoaded = true;
 
                     console.log('📊 Processed analytics:', this.analytics);
                     this.dispatchNotification(`Loaded analytics: ${this.analytics.totalAttempts} attempts`, 'success');

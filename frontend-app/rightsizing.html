@@ -435,79 +435,84 @@
                             </div>
 
                             <div x-show="!isLoading && filteredRecommendations.length > 0" x-cloak
-                                class="table-enhanced">
-                                <table class="w-full text-sm">
-                                    <thead
-                                        class="text-xs text-gray-700 uppercase bg-gradient-to-r from-gray-50 to-gray-100">
-                                        <tr>
-                                            <th class="px-6 py-4 text-left font-bold">Resource ID</th>
-                                            <th class="px-6 py-4 text-left font-bold">Cost Comparison</th>
-                                            <th class="px-6 py-4 text-left font-bold">Savings</th>
-                                            <th class="px-6 py-4 text-left font-bold">Reason</th>
-                                            <th class="px-6 py-4 text-center font-bold">AI</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody class="divide-y divide-gray-200">
-                                        <template x-for="rec in filteredRecommendations" :key="rec.resourceId">
-                                            <tr class="hover:bg-gray-50 transition-all">
-                                                <td class="px-6 py-4 first-cell-indicator">
-                                                    <div class="flex items-center space-x-3">
-                                                        <div class="w-8 h-8 rounded-lg flex-shrink-0">
-                                                            <img :src="'/icons/' + getServiceIcon(rec.service)"
-                                                                :alt="rec.service"
-                                                                class="w-full h-full rounded-lg object-cover">
-                                                        </div>
-                                                        <span class="font-mono text-gray-800 font-medium"
-                                                            x-text="rec.resourceId"></span>
-                                                    </div>
-                                                </td>
-                                                <td class="px-6 py-4">
-                                                    <div class="flex items-center justify-between space-x-4">
-                                                        <div class="text-center">
-                                                            <p class="font-bold text-red-600"
-                                                                x-text="`$${rec.currentMonthlyCost.toFixed(2)}`"></p>
-                                                            <p class="text-xs text-gray-500" x-text="rec.currentType">
-                                                            </p>
-                                                        </div>
-                                                        <i class="fas fa-arrow-right text-gray-400"></i>
-                                                        <div class="text-center">
-                                                            <p class="font-bold text-green-600"
-                                                                x-text="`$${rec.recommendedMonthlyCost.toFixed(2)}`">
-                                                            </p>
-                                                            <p class="text-xs text-gray-500"
-                                                                x-text="rec.recommendedType"></p>
-                                                        </div>
-                                                    </div>
-                                                </td>
-                                                <td class="px-6 py-4">
-                                                    <div class="flex flex-col space-y-1">
-                                                        <span class="savings-badge px-3 py-1 text-xs font-semibold"
-                                                            x-text="'$' + rec.estimatedMonthlySavings.toFixed(2)"></span>
-                                                        <span class="text-xs text-gray-500"
-                                                            x-text="`${((rec.estimatedMonthlySavings / rec.currentMonthlyCost) * 100).toFixed(1)}% savings`"
-                                                            x-show="rec.currentMonthlyCost > 0"></span>
-                                                    </div>
-                                                </td>
-                                                <td class="px-6 py-4">
-                                                    <p class="text-sm text-gray-700 break-words"
-                                                        x-text="rec.recommendationReason"></p>
-                                                </td>
-                                                <td class="px-6 py-4 text-center">
-                                                    <button @click="getAiRecommendation(rec)"
-                                                        class="sparkle-button-compact">
-                                                        <svg class="sparkle-compact" viewBox="0 0 24 24" fill="none"
-                                                            xmlns="http://www.w3.org/2000/svg">
-                                                            <path
-                                                                d="M14.187 8.096L15 5.25L15.813 8.096C16.0231 8.83114 16.4171 9.50062 16.9577 10.0413C17.4984 10.5819 18.1679 10.9759 18.903 11.186L21.75 12L18.904 12.813C18.1689 13.0231 17.4994 13.4171 16.9587 13.9577C16.4181 14.4984 16.0241 15.1679 15.814 15.903L15 18.75L14.187 15.904C13.9769 15.1689 13.5829 14.4994 13.0423 13.9587C12.5016 13.4181 11.8321 13.0241 11.097 12.814L8.25 12L11.096 11.187C11.8311 10.9769 12.5006 10.5829 13.0413 10.0423C13.5819 9.50162 13.9759 8.83214 14.186 8.097L14.187 8.096Z"
-                                                                fill="currentColor" stroke="currentColor"
-                                                                stroke-linecap="round" stroke-linejoin="round"></path>
-                                                        </svg>
-                                                    </button>
-                                                </td>
+                                class="max-h-[600px] overflow-y-auto">
+                                <div class="table-enhanced">
+                                    <table class="w-full text-sm">
+                                        <thead
+                                            class="text-xs text-gray-700 uppercase bg-gradient-to-r from-gray-50 to-gray-100 sticky top-0 z-10">
+                                            <tr>
+                                                <th class="px-6 py-4 text-left font-bold">Resource ID</th>
+                                                <th class="px-6 py-4 text-left font-bold">Cost Comparison</th>
+                                                <th class="px-6 py-4 text-left font-bold">Savings</th>
+                                                <th class="px-6 py-4 text-left font-bold">Reason</th>
+                                                <th class="px-6 py-4 text-center font-bold">AI</th>
                                             </tr>
-                                        </template>
-                                    </tbody>
-                                </table>
+                                        </thead>
+                                        <tbody class="divide-y divide-gray-200">
+                                            <template x-for="rec in filteredRecommendations" :key="rec.resourceId">
+                                                <tr class="hover:bg-gray-50 transition-all">
+                                                    <td class="px-6 py-4 first-cell-indicator">
+                                                        <div class="flex items-center space-x-3">
+                                                            <div class="w-8 h-8 rounded-lg flex-shrink-0">
+                                                                <img :src="'/icons/' + getServiceIcon(rec.service)"
+                                                                    :alt="rec.service"
+                                                                    class="w-full h-full rounded-lg object-cover">
+                                                            </div>
+                                                            <span class="font-mono text-gray-800 font-medium"
+                                                                x-text="rec.resourceId"></span>
+                                                        </div>
+                                                    </td>
+                                                    <td class="px-6 py-4">
+                                                        <div class="flex items-center justify-between space-x-4">
+                                                            <div class="text-center">
+                                                                <p class="font-bold text-red-600"
+                                                                    x-text="`$${rec.currentMonthlyCost.toFixed(2)}`">
+                                                                </p>
+                                                                <p class="text-xs text-gray-500"
+                                                                    x-text="rec.currentType">
+                                                                </p>
+                                                            </div>
+                                                            <i class="fas fa-arrow-right text-gray-400"></i>
+                                                            <div class="text-center">
+                                                                <p class="font-bold text-green-600"
+                                                                    x-text="`$${rec.recommendedMonthlyCost.toFixed(2)}`">
+                                                                </p>
+                                                                <p class="text-xs text-gray-500"
+                                                                    x-text="rec.recommendedType"></p>
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                    <td class="px-6 py-4">
+                                                        <div class="flex flex-col space-y-1">
+                                                            <span class="savings-badge px-3 py-1 text-xs font-semibold"
+                                                                x-text="'$' + rec.estimatedMonthlySavings.toFixed(2)"></span>
+                                                            <span class="text-xs text-gray-500"
+                                                                x-text="`${((rec.estimatedMonthlySavings / rec.currentMonthlyCost) * 100).toFixed(1)}% savings`"
+                                                                x-show="rec.currentMonthlyCost > 0"></span>
+                                                        </div>
+                                                    </td>
+                                                    <td class="px-6 py-4">
+                                                        <p class="text-sm text-gray-700 break-words"
+                                                            x-text="rec.recommendationReason"></p>
+                                                    </td>
+                                                    <td class="px-6 py-4 text-center">
+                                                        <button @click="getAiRecommendation(rec)"
+                                                            class="sparkle-button-compact">
+                                                            <svg class="sparkle-compact" viewBox="0 0 24 24" fill="none"
+                                                                xmlns="http://www.w3.org/2000/svg">
+                                                                <path
+                                                                    d="M14.187 8.096L15 5.25L15.813 8.096C16.0231 8.83114 16.4171 9.50062 16.9577 10.0413C17.4984 10.5819 18.1679 10.9759 18.903 11.186L21.75 12L18.904 12.813C18.1689 13.0231 17.4994 13.4171 16.9587 13.9577C16.4181 14.4984 16.0241 15.1679 15.814 15.903L15 18.75L14.187 15.904C13.9769 15.1689 13.5829 14.4994 13.0423 13.9587C12.5016 13.4181 11.8321 13.0241 11.097 12.814L8.25 12L11.096 11.187C11.8311 10.9769 12.5006 10.5829 13.0413 10.0423C13.5819 9.50162 13.9759 8.83214 14.186 8.097L14.187 8.096Z"
+                                                                    fill="currentColor" stroke="currentColor"
+                                                                    stroke-linecap="round" stroke-linejoin="round">
+                                                                </path>
+                                                            </svg>
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -541,84 +546,89 @@
                             </div>
 
                             <div x-show="!isLoadingXamOps && xamopsRecommendations.length > 0" x-cloak
-                                class="table-enhanced">
-                                <table>
-                                    <thead>
-                                        <tr>
-                                            <th style="width: 140px;">Instance ID</th>
-                                            <th style="width: 110px;">Current<br>Instance</th>
-                                            <th style="width: 90px;">Load Range</th>
-                                            <th style="width: 130px;">Intel Rec</th>
-                                            <th style="width: 130px;">AMD Rec</th>
-                                            <th style="width: 90px;">Projected<br>Max Util</th>
-                                            <th style="width: 100px;">Approx.<br>Savings</th>
-                                            <th style="width: 180px;">Reason</th>
-                                            <th style="width: 50px;" class="text-center">AI</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <template x-for="(rec, i) in xamopsRecommendations"
-                                            :key="(rec.instanceId || rec.currentInstance) + '-' + i">
+                                class="max-h-[600px] overflow-y-auto">
+                                <div class="table-enhanced">
+                                    <table>
+                                        <thead class="sticky top-0 bg-gradient-to-r from-gray-50 to-gray-100">
                                             <tr>
-                                                <td class="first-cell-indicator">
-                                                    <div class="flex items-center space-x-1">
-                                                        <i class="fas fa-server text-indigo-600"
-                                                            style="font-size: 0.6rem;"></i>
-                                                        <span class="font-mono text-gray-800 font-medium"
-                                                            style="font-size: 0.7rem;"
-                                                            x-text="rec.instanceId || 'N/A'"></span>
-                                                    </div>
-                                                </td>
-                                                <td>
-                                                    <div class="flex flex-col">
-                                                        <span class="font-mono font-semibold text-gray-800"
-                                                            x-text="rec.currentInstance"></span>
-                                                        <span class="text-indigo-600 font-medium"
-                                                            style="font-size: 0.65rem;" x-text="rec.currentUtilization"
-                                                            x-show="rec.currentUtilization"></span>
-                                                    </div>
-                                                </td>
-                                                <td class="text-gray-700" x-text="rec.loadRange"></td>
-                                                <td>
-                                                    <div class="flex flex-col">
-                                                        <span class="font-medium text-gray-800"
-                                                            style="font-size: 0.7rem;"
-                                                            x-text="rec.intelRecommendation.split('(')[0]"></span>
-                                                        <span class="text-gray-500" style="font-size: 0.6rem;"
-                                                            x-text="rec.intelRecommendation.includes('(') ? rec.intelRecommendation.match(/\((.*?)\)/)[0] : ''"></span>
-                                                    </div>
-                                                </td>
-                                                <td>
-                                                    <div class="flex flex-col">
-                                                        <span class="font-medium text-gray-800"
-                                                            style="font-size: 0.7rem;"
-                                                            x-text="rec.amdRecommendation.split('(')[0]"></span>
-                                                        <span class="text-gray-500" style="font-size: 0.6rem;"
-                                                            x-text="rec.amdRecommendation.includes('(') ? rec.amdRecommendation.match(/\((.*?)\)/)[0] : ''"></span>
-                                                    </div>
-                                                </td>
-                                                <td class="text-gray-700" x-text="rec.projectedMaxUtil"></td>
-                                                <td>
-                                                    <span class="savings-badge" x-text="rec.approxCostSavings"></span>
-                                                </td>
-                                                <td class="text-gray-700 truncate-text" :title="rec.reason"
-                                                    x-text="rec.reason"></td>
-                                                <td class="text-center">
-                                                    <button @click="getAiRecommendation(rec)"
-                                                        class="sparkle-button-compact">
-                                                        <svg class="sparkle-compact" viewBox="0 0 24 24" fill="none"
-                                                            xmlns="http://www.w3.org/2000/svg">
-                                                            <path
-                                                                d="M14.187 8.096L15 5.25L15.813 8.096C16.0231 8.83114 16.4171 9.50062 16.9577 10.0413C17.4984 10.5819 18.1679 10.9759 18.903 11.186L21.75 12L18.904 12.813C18.1689 13.0231 17.4994 13.4171 16.9587 13.9577C16.4181 14.4984 16.0241 15.1679 15.814 15.903L15 18.75L14.187 15.904C13.9769 15.1689 13.5829 14.4994 13.0423 13.9587C12.5016 13.4181 11.8321 13.0241 11.097 12.814L8.25 12L11.096 11.187C11.8311 10.9769 12.5006 10.5829 13.0413 10.0423C13.5819 9.50162 13.9759 8.83214 14.186 8.097L14.187 8.096Z"
-                                                                fill="currentColor" stroke="currentColor"
-                                                                stroke-linecap="round" stroke-linejoin="round"></path>
-                                                        </svg>
-                                                    </button>
-                                                </td>
+                                                <th style="width: 140px;">Instance ID</th>
+                                                <th style="width: 110px;">Current<br>Instance</th>
+                                                <th style="width: 90px;">Load Range</th>
+                                                <th style="width: 130px;">Intel Rec</th>
+                                                <th style="width: 130px;">AMD Rec</th>
+                                                <th style="width: 90px;">Projected<br>Max Util</th>
+                                                <th style="width: 100px;">Approx.<br>Savings</th>
+                                                <th style="width: 180px;">Reason</th>
+                                                <th style="width: 50px;" class="text-center">AI</th>
                                             </tr>
-                                        </template>
-                                    </tbody>
-                                </table>
+                                        </thead>
+                                        <tbody>
+                                            <template x-for="(rec, i) in xamopsRecommendations"
+                                                :key="(rec.instanceId || rec.currentInstance) + '-' + i">
+                                                <tr>
+                                                    <td class="first-cell-indicator">
+                                                        <div class="flex items-center space-x-1">
+                                                            <i class="fas fa-server text-indigo-600"
+                                                                style="font-size: 0.6rem;"></i>
+                                                            <span class="font-mono text-gray-800 font-medium"
+                                                                style="font-size: 0.7rem;"
+                                                                x-text="rec.instanceId || 'N/A'"></span>
+                                                        </div>
+                                                    </td>
+                                                    <td>
+                                                        <div class="flex flex-col">
+                                                            <span class="font-mono font-semibold text-gray-800"
+                                                                x-text="rec.currentInstance"></span>
+                                                            <span class="text-indigo-600 font-medium"
+                                                                style="font-size: 0.65rem;"
+                                                                x-text="rec.currentUtilization"
+                                                                x-show="rec.currentUtilization"></span>
+                                                        </div>
+                                                    </td>
+                                                    <td class="text-gray-700" x-text="rec.loadRange"></td>
+                                                    <td>
+                                                        <div class="flex flex-col">
+                                                            <span class="font-medium text-gray-800"
+                                                                style="font-size: 0.7rem;"
+                                                                x-text="rec.intelRecommendation.split('(')[0]"></span>
+                                                            <span class="text-gray-500" style="font-size: 0.6rem;"
+                                                                x-text="rec.intelRecommendation.includes('(') ? rec.intelRecommendation.match(/\((.*?)\)/)[0] : ''"></span>
+                                                        </div>
+                                                    </td>
+                                                    <td>
+                                                        <div class="flex flex-col">
+                                                            <span class="font-medium text-gray-800"
+                                                                style="font-size: 0.7rem;"
+                                                                x-text="rec.amdRecommendation.split('(')[0]"></span>
+                                                            <span class="text-gray-500" style="font-size: 0.6rem;"
+                                                                x-text="rec.amdRecommendation.includes('(') ? rec.amdRecommendation.match(/\((.*?)\)/)[0] : ''"></span>
+                                                        </div>
+                                                    </td>
+                                                    <td class="text-gray-700" x-text="rec.projectedMaxUtil"></td>
+                                                    <td>
+                                                        <span class="savings-badge"
+                                                            x-text="rec.approxCostSavings"></span>
+                                                    </td>
+                                                    <td class="text-gray-700 truncate-text" :title="rec.reason"
+                                                        x-text="rec.reason"></td>
+                                                    <td class="text-center">
+                                                        <button @click="getAiRecommendation(rec)"
+                                                            class="sparkle-button-compact">
+                                                            <svg class="sparkle-compact" viewBox="0 0 24 24" fill="none"
+                                                                xmlns="http://www.w3.org/2000/svg">
+                                                                <path
+                                                                    d="M14.187 8.096L15 5.25L15.813 8.096C16.0231 8.83114 16.4171 9.50062 16.9577 10.0413C17.4984 10.5819 18.1679 10.9759 18.903 11.186L21.75 12L18.904 12.813C18.1689 13.0231 17.4994 13.4171 16.9587 13.9577C16.4181 14.4984 16.0241 15.1679 15.814 15.903L15 18.75L14.187 15.904C13.9769 15.1689 13.5829 14.4994 13.0423 13.9587C12.5016 13.4181 11.8321 13.0241 11.097 12.814L8.25 12L11.096 11.187C11.8311 10.9769 12.5006 10.5829 13.0413 10.0423C13.5819 9.50162 13.9759 8.83214 14.186 8.097L14.187 8.096Z"
+                                                                    fill="currentColor" stroke="currentColor"
+                                                                    stroke-linecap="round" stroke-linejoin="round">
+                                                                </path>
+                                                            </svg>
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -729,8 +739,13 @@
 
                             init() {
                                 console.log('🚀 Initializing Rightsizing page...');
-                                this.loadRecommendations(false);
-                                this.loadXamOpsRecommendations(false);
+
+                                // Wait for Alpine to be fully initialized before loading data
+                                this.$nextTick(() => {
+                                    console.log('[Rightsizing] Alpine ready, loading recommendations...');
+                                    this.loadRecommendations(false);
+                                    this.loadXamOpsRecommendations(false);
+                                });
                             },
 
                             loadXamOpsRecommendations(forceRefresh = false) {
