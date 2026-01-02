@@ -158,7 +158,15 @@
               };
 
               socket.onmessage = (event) => {
-                if (term) term.write(event.data);
+                let data = event.data;
+
+                // Filter out common bash non-TTY warnings that appear on startup
+                if (data.includes("cannot set terminal process group") ||
+                  data.includes("no job control in this shell")) {
+                  return;
+                }
+
+                if (term) term.write(data);
               };
 
               socket.onclose = (event) => {
