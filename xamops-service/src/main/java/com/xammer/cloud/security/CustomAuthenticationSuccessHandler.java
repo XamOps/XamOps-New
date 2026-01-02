@@ -56,20 +56,8 @@ public class CustomAuthenticationSuccessHandler extends SimpleUrlAuthenticationS
         } else if (accounts.isEmpty()) {
             targetUrl = frontendUrl + "/account-manager.html";
         } else {
-            if (roles.contains("ROLE_BILLOPS")) {
-                String accountIdParam = accounts.isEmpty() ? "" : "?accountIds=" + accounts.get(0).getAwsAccountId();
-                targetUrl = frontendUrl + "/billops/billing.html" + accountIdParam;
-            } else {
-                CloudAccount defaultAccount = accounts.get(0);
-                String firstAccountId = "AWS".equals(defaultAccount.getProvider())
-                        ? defaultAccount.getAwsAccountId()
-                        : defaultAccount.getGcpProjectId();
-
-                String page = "GCP".equals(defaultAccount.getProvider())
-                        ? "/gcp_dashboard.html"
-                        : "/dashboard.html";
-                targetUrl = frontendUrl + page + "?accountId=" + firstAccountId;
-            }
+            // Default to Unified Dashboard for all users with accounts
+            targetUrl = frontendUrl + "/unified-dashboard.html";
         }
 
         // 2. Fetch Tenant ID for Frontend Context

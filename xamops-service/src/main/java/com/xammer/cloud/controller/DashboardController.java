@@ -14,7 +14,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.Authentication;
+import org.springframework.security.core.Authentication; // Added missing import
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
@@ -28,7 +28,7 @@ import java.util.concurrent.ExecutionException;
 /**
  * REST controller for handling all dashboard-related API requests for the
  * XamOps module.
- * This controller is now a pure backend component, returning JSON data.
+ * Updated for Phase 4: Robust Error Handling & Granular Loading.
  */
 @RestController
 @RequestMapping("/api/xamops")
@@ -57,82 +57,166 @@ public class DashboardController {
         this.dashboardLayoutRepository = dashboardLayoutRepository;
     }
 
+    // ============================================================================================
+    // PHASE 2: TICKER ENDPOINT
+    // ============================================================================================
+
+    @GetMapping("/dashboard/unified/ticker")
+    public ResponseEntity<List<String>> getUnifiedTicker(@AuthenticationPrincipal ClientUserDetails userDetails) {
+        try {
+            List<String> ticker = dashboardDataService.getUnifiedTicker(userDetails);
+            return ResponseEntity.ok(ticker);
+        } catch (Exception ex) {
+            logger.error("Error fetching ticker", ex);
+            return ResponseEntity.ok(Collections.emptyList()); // Fail silently for UI elements
+        }
+    }
+
+    // ============================================================================================
+    // PHASE 1 & 4: GRANULAR UNIFIED ENDPOINTS (With Safe Error Handling)
+    // ============================================================================================
+
     /**
-     * Fetches the main dashboard data for a single account.
-     * This endpoint now waits for the data fetching to complete and returns the
-     * full payload,
-     * supporting both initial loads and forced refreshes in a single, consistent
-     * way.
+     * 1. Summary Endpoint: Returns account counts and static high-level info.
      */
+    @GetMapping("/dashboard/unified/summary")
+    public ResponseEntity<?> getUnifiedSummary(@AuthenticationPrincipal ClientUserDetails userDetails) {
+        try {
+            DashboardData data = dashboardDataService.getUnifiedSummary(userDetails);
+            return ResponseEntity.ok(data);
+        } catch (Exception ex) {
+            logger.error("Error fetching unified summary", ex);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(createErrorResponse("Failed to fetch summary data"));
+        }
+    }
+
+    /**
+     * 2. AWS Specific Data
+     */
+    @GetMapping("/dashboard/unified/aws")
+    public ResponseEntity<?> getUnifiedAwsData(
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        try {
+            DashboardData data = dashboardDataService.getUnifiedAwsData(userDetails, forceRefresh);
+            return ResponseEntity.ok(data);
+        } catch (Exception ex) {
+            logger.error("Error fetching unified AWS data", ex);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(createErrorResponse("Failed to fetch AWS data: " + ex.getMessage()));
+        }
+    }
+
+    /**
+     * 3. GCP Specific Data
+     */
+    @GetMapping("/dashboard/unified/gcp")
+    public ResponseEntity<?> getUnifiedGcpData(
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        try {
+            DashboardData data = dashboardDataService.getUnifiedGcpData(userDetails, forceRefresh);
+            return ResponseEntity.ok(data);
+        } catch (Exception ex) {
+            logger.error("Error fetching unified GCP data", ex);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(createErrorResponse("Failed to fetch GCP data: " + ex.getMessage()));
+        }
+    }
+
+    /**
+     * 4. Azure Specific Data
+     */
+    @GetMapping("/dashboard/unified/azure")
+    public ResponseEntity<?> getUnifiedAzureData(
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        try {
+            DashboardData data = dashboardDataService.getUnifiedAzureData(userDetails, forceRefresh);
+            return ResponseEntity.ok(data);
+        } catch (Exception ex) {
+            logger.error("Error fetching unified Azure data", ex);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(createErrorResponse("Failed to fetch Azure data: " + ex.getMessage()));
+        }
+    }
+
+    /**
+     * 5. Health & Code Quality
+     */
+    @GetMapping("/dashboard/unified/health")
+    public ResponseEntity<?> getUnifiedHealthData(
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        try {
+            DashboardData.CodeQualitySummary data = dashboardDataService.getUnifiedHealthData(userDetails);
+            return ResponseEntity.ok(data);
+        } catch (Exception ex) {
+            logger.error("Error fetching health data", ex);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(createErrorResponse("Failed to fetch health metrics"));
+        }
+    }
+
+    /**
+     * Helper to create a consistent error JSON response.
+     * Uses DashboardData DTO which already has an 'error' field.
+     */
+    private DashboardData createErrorResponse(String message) {
+        DashboardData errorData = new DashboardData();
+        errorData.setError(message);
+        return errorData;
+    }
+
+    // ============================================================================================
+    // LEGACY / SHARED ENDPOINTS
+    // ============================================================================================
+
     @GetMapping("/dashboard/data")
     public ResponseEntity<DashboardData> getDashboardData(
             @RequestParam String accountId,
             @RequestParam(defaultValue = "false") boolean forceRefresh,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
         try {
-            // The method now directly calls the data service, waits for the result,
-            // and returns the full data payload in the response.
             DashboardData data = dashboardDataService.getDashboardData(accountId, forceRefresh, userDetails);
             return ResponseEntity.ok(data);
         } catch (Exception ex) {
             logger.error("Error fetching dashboard data for account {}", accountId, ex);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(createErrorResponse(ex.getMessage()));
         }
     }
 
-    /**
-     * NEW: Fetches aggregated dashboard data for multiple AWS accounts.
-     * This endpoint aggregates metrics across selected accounts and returns
-     * consolidated data.
-     */
     @GetMapping("/dashboard/data/multi-account")
     public ResponseEntity<?> getMultiAccountDashboardData(
             @RequestParam List<String> accountIds,
             @RequestParam(defaultValue = "false") boolean forceRefresh,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
         try {
-            // Validate input
             if (accountIds == null || accountIds.isEmpty()) {
-                logger.warn("Multi-account request received with empty account list");
-                return ResponseEntity.badRequest()
-                        .body(Map.of("error", "Account list cannot be empty"));
+                return ResponseEntity.badRequest().body(Map.of("error", "Account list cannot be empty"));
             }
-
             if (accountIds.size() > 10) {
-                logger.warn("Multi-account request exceeds maximum limit of 10 accounts");
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                         .body(Map.of("error", "Maximum 10 accounts can be selected"));
             }
-
-            logger.info("Fetching multi-account dashboard data for {} accounts: {}", accountIds.size(), accountIds);
-
-            DashboardData aggregatedData = dashboardDataService.getMultiAccountDashboardData(
-                    accountIds, forceRefresh, userDetails);
-
+            DashboardData aggregatedData = dashboardDataService.getMultiAccountDashboardData(accountIds, forceRefresh,
+                    userDetails);
             return ResponseEntity.ok(aggregatedData);
         } catch (IllegalArgumentException ex) {
-            // Validation errors (e.g., mixed providers, invalid account IDs)
-            logger.warn("Validation error for multi-account request: {}", ex.getMessage());
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(Map.of("error", ex.getMessage()));
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", ex.getMessage()));
         } catch (Exception ex) {
-            // Server errors
-            logger.error("Error fetching multi-account dashboard data for accounts {}", accountIds, ex);
+            logger.error("Error fetching multi-account data", ex);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Failed to fetch dashboard data", "message", ex.getMessage()));
+                    .body(Map.of("error", "Failed to fetch data", "message", ex.getMessage()));
         }
     }
 
-    /**
-     * Fetches wasted resources data.
-     */
     @GetMapping("/waste")
     public CompletableFuture<List<DashboardData.WastedResource>> getWastedResources(
             @RequestParam String accountIds,
             @RequestParam(defaultValue = "false") boolean forceRefresh) {
 
         String accountIdToUse = accountIds.split(",")[0];
-
         List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountIdToUse);
         if (accounts.isEmpty()) {
             throw new RuntimeException("Account not found: " + accountIdToUse);
@@ -148,20 +232,14 @@ public class DashboardController {
                 });
     }
 
-    /**
-     * Fetches the user-specific dashboard layout configuration.
-     */
     @GetMapping("/dashboard/layout")
     public DashboardLayout getDashboardLayout() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         String username = authentication.getName();
         return dashboardLayoutRepository.findById(username)
-                .orElse(new DashboardLayout(username, "[]")); // Return a default empty layout
+                .orElse(new DashboardLayout(username, "[]"));
     }
 
-    /**
-     * Saves the user-specific dashboard layout configuration.
-     */
     @PostMapping("/dashboard/layout")
     public ResponseEntity<Void> saveDashboardLayout(@RequestBody String layoutConfig) {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
@@ -171,9 +249,6 @@ public class DashboardController {
         return ResponseEntity.ok().build();
     }
 
-    /**
-     * Centralized exception handler for asynchronous errors in this controller.
-     */
     @ExceptionHandler({ ExecutionException.class, InterruptedException.class })
     public ResponseEntity<Map<String, String>> handleAsyncException(Exception e) {
         logger.error("An asynchronous execution error occurred: {}", e.getMessage(), e);
