@@ -64,7 +64,10 @@ public class CloudK8sSecurityController {
 
                 String kubeconfig = config.getKubeconfigYaml();
                 KubernetesClient client = k8sClientFactory.createFromKubeconfig(kubeconfig);
-                KubescapeDashboard dashboard = kubescapeService.fetchDashboardData(client);
+                KubescapeDashboard dashboard = kubescapeService.fetchDashboardData(
+                        client,
+                        clusterName,
+                        String.valueOf(accountId));
                 client.close();
                 logger.info("✅ Successfully fetched Kubescape data for cluster: {}", clusterName);
                 return ResponseEntity.ok(dashboard);
