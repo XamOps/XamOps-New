@@ -22,15 +22,15 @@ public class Client {
 
     // Establishes a one-to-many relationship with users
     @OneToMany(mappedBy = "client", cascade = CascadeType.ALL, orphanRemoval = true)
+    @lombok.ToString.Exclude
     private List<User> users;
 
     // Establishes a one-to-many relationship with cloud accounts
     @OneToMany(mappedBy = "client", cascade = CascadeType.ALL, orphanRemoval = true)
+    @lombok.ToString.Exclude
     private List<CloudAccount> cloudAccounts;
 
     public Client(String name) {
         this.name = name;
     }
 }
-
-

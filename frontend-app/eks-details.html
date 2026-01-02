@@ -1,863 +1,2306 @@
 <!DOCTYPE html>
-<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<html lang="en">
 
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>XamOps - EKS Cluster Details</title>
+  <title>XamOps - EKS Cluster Dashboard</title>
   <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png" />
-  <link rel="apple-touch-icon" href="/icons/XamOps.png" />
 
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
   <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script type="module" src="/src/main.js"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+    * {
+      font-family: 'Inter', sans-serif;
+    }
+
+    [x-cloak] {
+      display: none !important;
+    }
+
+    /* AWS Console-inspired color palette */
+    :root {
+      --aws-orange: #ff9900;
+      --aws-blue: #232f3e;
+      --aws-light-blue: #1e88e5;
+      --success-green: #16a34a;
+      --warning-amber: #f59e0b;
+      --danger-red: #dc2626;
+      --neutral-50: #f9fafb;
+      --neutral-100: #f3f4f6;
+      --neutral-200: #e5e7eb;
+      --neutral-800: #1f2937;
+      --neutral-900: #111827;
+    }
+
+    body {
+      background: linear-gradient(to bottom right, #f8fafc, #e2e8f0);
+    }
+
+    /* Health Badge Styles */
+    .health-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      border-radius: 0.5rem;
+      font-weight: 600;
+      font-size: 0.875rem;
+      transition: all 0.2s;
+    }
+
+    .health-badge.healthy {
+      background: #d1fae5;
+      color: #065f46;
+      border: 1px solid #6ee7b7;
+    }
+
+    .health-badge.degraded {
+      background: #fef3c7;
+      color: #92400e;
+      border: 1px solid #fcd34d;
+    }
+
+    .health-badge.at-risk {
+      background: #fee2e2;
+      color: #991b1b;
+      border: 1px solid #fca5a5;
+    }
+
+    /* Pulse indicator for live data */
+    .live-pulse {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--success-green);
+      animation: pulse-ring 2s ease-in-out infinite;
+      position: relative;
+    }
+
+    .live-pulse::before {
+      content: '';
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      background: inherit;
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse-ring {
+
+      0%,
+      100% {
+        box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.4);
+      }
+
+      50% {
+        box-shadow: 0 0 0 8px rgba(22, 163, 74, 0);
+      }
+    }
+
+    @keyframes pulse-dot {
+
+      0%,
+      100% {
+        transform: scale(1);
+        opacity: 1;
+      }
+
+      50% {
+        transform: scale(1.1);
+        opacity: 0.8;
+      }
+    }
+
+    /* Circular progress for CPU/Memory */
+    .circular-progress {
+      position: relative;
+      width: 120px;
+      height: 120px;
+    }
+
+    .circular-progress svg {
+      transform: rotate(-90deg);
+    }
+
+    .circular-progress .bg-circle {
+      fill: none;
+      stroke: var(--neutral-200);
+      stroke-width: 8;
+    }
+
+    .circular-progress .progress-circle {
+      fill: none;
+      stroke-width: 8;
+      stroke-linecap: round;
+      transition: stroke-dashoffset 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .circular-progress .center-text {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+    }
+
+    /* Node density visualization */
+    .node-density-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, 24px);
+      gap: 4px;
+      max-width: 300px;
+    }
+
+    .node-block {
+      width: 24px;
+      height: 24px;
+      border-radius: 4px;
+      transition: all 0.3s;
+      cursor: pointer;
+      position: relative;
+    }
+
+    .node-block:hover {
+      transform: scale(1.2);
+      z-index: 10;
+    }
+
+    .node-block.underutilized {
+      background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+      border: 1px solid #93c5fd;
+    }
+
+    .node-block.balanced {
+      background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+      border: 1px solid #6ee7b7;
+    }
+
+    .node-block.saturated {
+      background: linear-gradient(135deg, #fecaca 0%, #fca5a5 100%);
+      border: 1px solid #f87171;
+    }
+
+    /* Pod packing visualization */
+    .pod-fill-indicator {
+      height: 8px;
+      background: var(--neutral-200);
+      border-radius: 4px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .pod-fill-bar {
+      height: 100%;
+      border-radius: 4px;
+      transition: width 0.6s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .pod-fill-bar::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      right: 0;
+      background: linear-gradient(90deg,
+          transparent 0%,
+          rgba(255, 255, 255, 0.3) 50%,
+          transparent 100%);
+      animation: shimmer 2s infinite;
+    }
+
+    @keyframes shimmer {
+      0% {
+        transform: translateX(-100%);
+      }
+
+      100% {
+        transform: translateX(100%);
+      }
+    }
+
+    /* Cost efficiency indicator */
+    .cost-efficiency-bar {
+      height: 6px;
+      background: linear-gradient(90deg,
+          var(--danger-red) 0%,
+          var(--warning-amber) 50%,
+          var(--success-green) 100%);
+      border-radius: 3px;
+      position: relative;
+      margin-top: 0.5rem;
+    }
+
+    .efficiency-marker {
+      position: absolute;
+      top: -4px;
+      width: 2px;
+      height: 14px;
+      background: var(--neutral-900);
+      border-radius: 1px;
+      transition: left 0.6s ease;
+    }
+
+    /* Pressure indicator for resources */
+    .pressure-indicator {
+      display: flex;
+      gap: 2px;
+      align-items: flex-end;
+      height: 32px;
+    }
+
+    .pressure-bar {
+      width: 6px;
+      background: var(--neutral-200);
+      border-radius: 3px;
+      transition: all 0.4s ease;
+    }
+
+    .pressure-bar.active {
+      background: var(--success-green);
+    }
+
+    .pressure-bar.warning {
+      background: var(--warning-amber);
+    }
+
+    .pressure-bar.danger {
+      background: var(--danger-red);
+    }
+
+    /* Enhanced card styles */
+    .metric-card {
+      background: white;
+      border-radius: 12px;
+      border: 1px solid var(--neutral-200);
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .metric-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--aws-light-blue), var(--aws-orange));
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .metric-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 12px 24px rgba(0, 0, 0, 0.08);
+      border-color: var(--aws-light-blue);
+    }
+
+    .metric-card:hover::before {
+      opacity: 1;
+    }
+
+    /* Glassmorphism & Premium UI */
+    .metric-card {
+      background: white;
+      border: 1px solid #e2e8f0;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+      border-radius: 1rem;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .metric-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    }
+
+    .premium-gradient-blue {
+      background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+    }
+
+    /* Animated Circular Gauges */
+    .gauge-container {
+      position: relative;
+      width: 120px;
+      height: 120px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .gauge-svg {
+      transform: rotate(-90deg);
+      width: 100%;
+      height: 100%;
+    }
+
+    .gauge-bg {
+      fill: none;
+      stroke: #f1f5f9;
+      stroke-width: 10;
+    }
+
+    .gauge-progress {
+      fill: none;
+      stroke-width: 10;
+      stroke-linecap: round;
+      transition: stroke-dasharray 1s ease-out;
+      filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.1));
+    }
+
+    .gauge-text {
+      position: absolute;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* Transitions */
+    .fade-in {
+      animation: fadeIn 0.5s ease-out;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    /* Priority visual hierarchy */
+    .critical-item {
+      background: linear-gradient(to right, #fef2f2, white);
+      border-left: 4px solid var(--danger-red);
+    }
+
+    .warning-item {
+      background: linear-gradient(to right, #fffbeb, white);
+      border-left: 44px solid var(--warning-amber);
+    }
+
+    /* Smooth loading states */
+    .skeleton {
+      background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+      background-size: 200% 100%;
+      animation: loading 1.5s ease-in-out infinite;
+    }
+
+    @keyframes loading {
+      0% {
+        background-position: 200% 0;
+      }
+
+      100% {
+        background-position: -200% 0;
+      }
+    }
+
+    /* Tab styling */
+    .tab-button {
+      padding: 0.75rem 1.5rem;
+      font-weight: 600;
+      border-radius: 8px 8px 0 0;
+      transition: all 0.2s;
+      border: 1px solid transparent;
+      color: var(--neutral-800);
+    }
+
+    .tab-button:hover {
+      background: var(--neutral-100);
+    }
+
+    .tab-button.active {
+      background: white;
+      border-color: var(--neutral-200);
+      border-bottom-color: white;
+      color: var(--aws-light-blue);
+      position: relative;
+      z-index: 1;
+    }
+
+    /* Table enhancements */
+    .data-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+    }
+
+    .data-table thead {
+      background: var(--neutral-50);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .data-table th {
+      font-weight: 600;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--neutral-800);
+      padding: 0.75rem 1rem;
+      text-align: left;
+      border-bottom: 2px solid var(--neutral-200);
+    }
+
+    .data-table tbody tr {
+      transition: background 0.2s;
+      border-bottom: 1px solid var(--neutral-100);
+    }
+
+    .data-table tbody tr:hover {
+      background: var(--neutral-50);
+    }
+
+    .data-table td {
+      padding: 1rem;
+      color: var(--neutral-800);
+    }
+
+    /* Workload health score */
+    .health-score {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      font-weight: 700;
+      font-size: 1.125rem;
+      position: relative;
+    }
+
+    .health-score.excellent {
+      background: linear-gradient(135deg, #d1fae5, #a7f3d0);
+      color: #065f46;
+      box-shadow: 0 0 0 3px #6ee7b7;
+    }
+
+    .health-score.good {
+      background: linear-gradient(135deg, #dbeafe, #bfdbfe);
+      color: #1e3a8a;
+      box-shadow: 0 0 0 3px #93c5fd;
+    }
+
+    .health-score.poor {
+      background: linear-gradient(135deg, #fee2e2, #fecaca);
+      color: #991b1b;
+      box-shadow: 0 0 0 3px #fca5a5;
+    }
+
+    /* Security alert indicators */
+    .alert-count-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 24px;
+      height: 24px;
+      padding: 0 8px;
+      border-radius: 12px;
+      font-weight: 700;
+      font-size: 0.75rem;
+    }
+
+    .alert-count-badge.critical {
+      background: var(--danger-red);
+      color: white;
+    }
+
+    .alert-count-badge.warning {
+      background: var(--warning-amber);
+      color: white;
+    }
+
+    .alert-count-badge.info {
+      background: var(--aws-light-blue);
+      color: white;
+    }
+
+    /* Scrollbar styling */
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: var(--neutral-100);
+      border-radius: 4px;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: var(--neutral-200);
+      border-radius: 4px;
+      transition: background 0.2s;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: var(--neutral-800);
+    }
+
+    /* Responsive utilities */
+    @media (max-width: 768px) {
+      .circular-progress {
+        width: 80px;
+        height: 80px;
+      }
+
+      .node-density-grid {
+        grid-template-columns: repeat(auto-fill, 20px);
+      }
+
+      .node-block {
+        width: 20px;
+        height: 20px;
+      }
+    }
+
+    /* Kubescape Namespace Breakdown Styles */
+    .namespace-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .namespace-item {
+      padding: 12px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: all 0.2s;
+    }
+
+    .namespace-item:hover {
+      border-color: #6366f1;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+    }
+
+    .namespace-name {
+      font-weight: 700;
+      color: #334155;
+      font-size: 0.875rem;
+    }
+
+    .namespace-count {
+      color: #64748b;
+      font-size: 0.75rem;
+      font-weight: 600;
+      background: #f1f5f9;
+      padding: 2px 8px;
+      border-radius: 6px;
+    }
+  </style>
 </head>
 
-<body class="bg-gray-100">
-  <div class="flex">
+<body class="bg-[#f8fafc]">
+  <div class="flex min-h-screen">
     <include file="/_sidebar.html"></include>
 
     <div class="flex-1 pl-64">
-      <div id="main-content" class="flex-1 p-8" x-data="eksDetails()" x-init="init()">
+      <div class="p-6 max-w-[1600px] mx-auto" x-data="eksDashboard()" x-init="init()">
 
-        <style>
-          @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap");
+        <!-- ==================== CLUSTER HEADER (Identity + Health Banner) ==================== -->
+        <header class="mb-8">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-6">
+              <a href="/cloudk8s.html"
+                class="w-11 h-11 bg-white border border-gray-200 rounded-xl flex items-center justify-center text-gray-600 hover:text-indigo-600 hover:border-indigo-200 transition-all shadow-sm group">
+                <i class="fas fa-arrow-left group-hover:-translate-x-1 transition-transform"></i>
+              </a>
+              <div class="flex items-center gap-4">
+                <div
+                  class="w-14 h-14 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-2xl flex items-center justify-center text-white text-2xl shadow-lg shadow-indigo-200/50">
+                  <i class="fas fa-dharmachakra"></i>
+                </div>
+                <div>
+                  <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight"
+                    x-text="clusterName || 'Loading...'"></h1>
+                  <div class="flex items-center gap-4 mt-1.5">
+                    <span
+                      class="flex items-center gap-1.5 px-2 py-0.5 bg-slate-100 rounded text-xs font-bold text-slate-600 uppercase tracking-wider">
+                      <i class="fas fa-map-marker-alt text-indigo-500"></i>
+                      <span x-text="region"></span>
+                    </span>
+                    <span
+                      class="flex items-center gap-1.5 px-2 py-0.5 bg-indigo-50 rounded text-xs font-bold text-indigo-700 uppercase tracking-wider">
+                      <i class="fas fa-code-branch"></i>
+                      Kubernetes <span x-text="clusterVersion || 'N/A'"></span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
 
-          [x-cloak] {
-            display: none !important;
-          }
+            <!-- Health Indicators -->
+            <div class="flex items-center gap-6">
+              <div class="health-badge shadow-sm px-4 py-2" :class="{
+                     'healthy bg-emerald-50 text-emerald-700 border border-emerald-200': getClusterHealth() === 'healthy',
+                     'degraded bg-amber-50 text-amber-700 border border-amber-200': getClusterHealth() === 'degraded',
+                     'at-risk bg-rose-50 text-rose-700 border border-rose-200': getClusterHealth() === 'at-risk'
+                   }">
+                <i class="fas mr-2" :class="{
+                  'fa-check-circle': getClusterHealth() === 'healthy',
+                  'fa-exclamation-triangle': getClusterHealth() === 'degraded',
+                  'fa-times-circle': getClusterHealth() === 'at-risk'
+                }"></i>
+                <span class="font-bold uppercase tracking-wider text-xs"
+                  x-text="getClusterHealth() === 'healthy' ? 'Healthy' : getClusterHealth() === 'degraded' ? 'Degraded' : 'At Risk'"></span>
+              </div>
 
-          .glass-card {
-            background: rgba(255, 255, 255, 0.9);
-            backdrop-filter: saturate(180%) blur(12px);
-            border-radius: 1rem;
-            box-shadow: 0 6px 18px rgb(0 0 0 / 0.06);
-            border: 1px solid rgba(0, 0, 0, 0.08);
-            padding: 1.75rem;
-          }
+              <button @click="refresh()" :disabled="loading"
+                class="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg shadow-indigo-200 transition-all disabled:opacity-50 group">
+                <i class="fas fa-sync-alt" :class="{'fa-spin': loading}"></i>
+                <span x-text="loading ? 'Syncing...' : 'Sync Data'"></span>
+              </button>
 
-          .data-table {
-            width: 100%;
-            border-collapse: collapse;
-          }
+              <!-- Enable Karpenter Button -->
+              <button @click="showKarpenterModal = true; checkKarpenterStatus()" :title="getKarpenterButtonTooltip()"
+                class="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white rounded-xl font-bold shadow-lg shadow-emerald-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed ml-4">
+                <i class="fas fa-rocket text-lg"></i>
+                <span x-text="karpenterStatus?.karpenterInstalled ? 'Configure Karpenter' : 'Enable Karpenter'"></span>
+              </button>
 
-          .data-table th,
-          .data-table td {
-            border: 1px solid #e2e8f0;
-            padding: 12px 16px;
-            text-align: left;
-            font-size: 0.875rem;
-          }
 
-          .data-table th {
-            background-color: #f8fafc;
-            font-weight: 600;
-            color: #4a5568;
-          }
-
-          .data-table tbody tr:nth-child(even) {
-            background-color: #fdfdfe;
-          }
-        </style>
-
-        <header class="flex items-center justify-between mb-8">
-          <div>
-            <h1 class="text-3xl font-extrabold text-gray-800" x-text="clusterName" aria-live="polite">
-              EKS Cluster Details
-            </h1>
-            <p class="text-gray-500 mt-1">Details for your EKS cluster</p>
+            </div>
           </div>
-          <a :href="`/cloudk8s.html?accountIds=${selectedAccountId}`"
-            class="nav-item text-indigo-600 font-semibold hover:text-indigo-800 flex items-center gap-2">
-            <i class="fas fa-arrow-left"></i> Back to Clusters
-          </a>
         </header>
 
-        <section class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8" aria-label="Cluster key details">
-          <div class="glass-card">
-            <h3 class="font-semibold text-gray-600">Status</h3>
-            <p class="text-2xl font-extrabold text-green-600" x-text="cluster.status || '...'">
-              ...
-            </p>
+        <!-- Loading State -->
+        <div x-show="loading && !dashboard" x-cloak class="space-y-6">
+          <div class="grid grid-cols-4 gap-6">
+            <div class="skeleton h-40 rounded-xl" x-for="i in 4"></div>
           </div>
-          <div class="glass-card">
-            <h3 class="font-semibold text-gray-600">Kubernetes Version</h3>
-            <p class="text-2xl font-extrabold text-gray-800" x-text="cluster.version || '...'">
-              ...
-            </p>
-          </div>
-          <div class="glass-card">
-            <h3 class="font-semibold text-gray-600">Region</h3>
-            <p class="text-2xl font-extrabold text-gray-800" x-text="cluster.region || '...'">
-              ...
-            </p>
-          </div>
-        </section>
+          <div class="skeleton h-96 rounded-xl"></div>
+        </div>
 
-        <section class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8"
-          x-show="!isLoading && !errorMessage && nodes.length > 0">
-          <div class="glass-card">
-            <h3 class="font-semibold text-gray-600 mb-4">
-              Node CPU Utilization (%)
-            </h3>
-            <div style="height: 300px">
-              <canvas id="nodeCpuChart"></canvas>
-            </div>
-          </div>
-          <div class="glass-card">
-            <h3 class="font-semibold text-gray-600 mb-4">
-              Node Memory Utilization (%)
-            </h3>
-            <div style="height: 300px">
-              <canvas id="nodeMemoryChart"></canvas>
-            </div>
-          </div>
-        </section>
+        <!-- Main Dashboard Content -->
+        <div x-show="!loading || dashboard" x-cloak>
 
-        <section class="glass-card !p-0">
-          <nav class="flex space-x-4 border-b border-gray-300 px-7">
-            <button @click="activeTab = 'nodes'"
-              :class="{'border-indigo-600 text-indigo-600 border-b-2': activeTab === 'nodes'}"
-              class="py-4 px-1 font-semibold text-gray-500 hover:text-indigo-600 focus:outline-none" role="tab"
-              :aria-selected="activeTab === 'nodes'" aria-controls="nodes-panel" id="nodes-tab">
-              Nodes
-            </button>
-            <button @click="activeTab = 'pods'"
-              :class="{'border-indigo-600 text-indigo-600 border-b-2': activeTab === 'pods'}"
-              class="py-4 px-1 font-semibold text-gray-500 hover:text-indigo-600 focus:outline-none" role="tab"
-              :aria-selected="activeTab === 'pods'" aria-controls="pods-panel" id="pods-tab">
-              Pods
-            </button>
-            <button @click="activeTab = 'deployments'"
-              :class="{'border-indigo-600 text-indigo-600 border-b-2': activeTab === 'deployments'}"
-              class="py-4 px-1 font-semibold text-gray-500 hover:text-indigo-600 focus:outline-none" role="tab"
-              :aria-selected="activeTab === 'deployments'" aria-controls="deployments-panel" id="deployments-tab">
-              Deployments
-            </button>
-            <button @click="activeTab = 'security'"
-              :class="{'border-indigo-600 text-indigo-600 border-b-2': activeTab === 'security'}"
-              class="py-4 px-1 font-semibold text-gray-500 hover:text-indigo-600 focus:outline-none" role="tab"
-              id="security-tab">
-              Security (Falco)
-            </button>
-            <!-- 🆕 NEW: Kubescape Tab -->
-            <button @click="activeTab = 'kubescape'; loadKubescapeData()"
-              :class="{'border-indigo-600 text-indigo-600 border-b-2': activeTab === 'kubescape'}"
-              class="py-4 px-1 font-semibold text-gray-500 hover:text-indigo-600 focus:outline-none" role="tab">
-              <i class="fas fa-shield-alt"></i> Security (Kubescape)
-            </button>
+          <!-- ==================== QUICK STATS SECTION (Visual First) ==================== -->
+          <div class="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
 
-            <!-- 🆕 NEW: Karpenter Tab -->
-            <button @click="activeTab = 'karpenter'; loadKarpenterData()"
-              :class="{'border-indigo-600 text-indigo-600 border-b-2': activeTab === 'karpenter'}"
-              class="py-4 px-1 font-semibold text-gray-500 hover:text-indigo-600 focus:outline-none" role="tab">
-              <i class="fas fa-layer-group"></i> Autoscaling (Karpenter)
-            </button>
-          </nav>
-
-          <div class="p-7">
-            <div x-show="isLoading" class="text-center py-12 text-gray-600">
-              <i class="fas fa-spinner fa-spin text-4xl mb-4"></i>
-              <p>Loading data...</p>
-            </div>
-
-            <div x-show="errorMessage" x-cloak class="text-center py-12 text-red-600">
-              <i class="fas fa-exclamation-triangle text-4xl mb-4"></i>
-              <p x-text="errorMessage"></p>
-            </div>
-
-            <div x-show="!isLoading && !errorMessage" x-cloak>
-              <div x-show="activeTab === 'nodes'" id="nodes-panel" role="tabpanel" aria-labelledby="nodes-tab">
-                <template x-if="nodes.length > 0">
-                  <table class="data-table">
-                    <thead>
-                      <tr>
-                        <th>Name</th>
-                        <th>Status</th>
-                        <th>Instance Type</th>
-                        <th>Zone</th>
-                        <th>K8s Version</th>
-                        <th>Age</th>
-                        <th>CPU</th>
-                        <th>Memory</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <template x-for="node in nodes" :key="node.name">
-                        <tr>
-                          <td x-text="node.name"></td>
-                          <td x-text="node.status"></td>
-                          <td x-text="node.instanceType || 'N/A'"></td>
-                          <td x-text="node.availabilityZone || 'N/A'"></td>
-                          <td x-text="node.k8sVersion || 'N/A'"></td>
-                          <td x-text="node.age || 'N/A'"></td>
-                          <td x-text="node.cpuUsage || 'N/A'"></td>
-                          <td x-text="node.memUsage || 'N/A'"></td>
-                        </tr>
-                      </template>
-                    </tbody>
-                  </table>
-                </template>
-                <template x-if="nodes.length === 0">
-                  <p class="text-gray-700">No nodes found for this cluster.</p>
-                </template>
+            <!-- NODES - Capacity Headroom Visualization -->
+            <div class="metric-card p-6">
+              <div class="flex items-start justify-between mb-4">
+                <div>
+                  <div class="flex items-center gap-2 mb-1">
+                    <i class="fas fa-server text-blue-600"></i>
+                    <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Nodes</h3>
+                  </div>
+                  <div class="text-3xl font-bold text-gray-900" x-text="dashboard?.clusterOverview?.totalNodes || 0">
+                  </div>
+                  <p class="text-xs text-gray-500 mt-1">Active compute nodes</p>
+                </div>
               </div>
 
-              <div x-show="activeTab === 'pods'" id="pods-panel" role="tabpanel" aria-labelledby="pods-tab">
-                <template x-if="pods.length > 0">
-                  <table class="data-table">
-                    <thead>
-                      <tr>
-                        <th>Name</th>
-                        <th>Status</th>
-                        <th>Restarts</th>
-                        <th>Age</th>
-                        <th>Node</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <template x-for="pod in pods" :key="pod.name">
-                        <tr>
-                          <td x-text="pod.name"></td>
-                          <td x-text="pod.status"></td>
-                          <td x-text="pod.restarts"></td>
-                          <td x-text="pod.age || 'N/A'"></td>
-                          <td x-text="pod.nodeName || 'N/A'"></td>
-                        </tr>
-                      </template>
-                    </tbody>
-                  </table>
-                </template>
-                <template x-if="!isLoading && pods.length === 0">
-                  <p class="text-gray-700">No pods found for this cluster.</p>
-                </template>
-              </div>
+              <!-- Node Density Blocks -->
+              <div>
+                <h3 class="text-xs font-semibold text-gray-600">Capacity Distribution</h3>
+                <div class="node-density-grid">
+                  <template x-for="node in (dashboard?.resourceUtilization?.nodes || [])" :key="node.name">
+                    <div class="node-block" :class="{
+                           'underutilized': node.cpuUsagePercent < 40,
+                           'balanced': node.cpuUsagePercent >= 40 && node.cpuUsagePercent < 75,
+                           'saturated': node.cpuUsagePercent >= 75
+                         }" :title="`${node.name}: ${node.cpuUsagePercent.toFixed(1)}% CPU`">
+                    </div>
+                  </template>
+                </div>
+                <div class="flex items-center justify-between mt-2 text-xs">
+                  <span class="flex items-center gap-1">
+                    <div class="w-3 h-3 rounded-sm bg-gradient-to-br from-blue-100 to-blue-200 border border-blue-300">
+                    </div>
+                    <span class="text-gray-600">Underutilized</span>
+                  </span>
+                  <span class="flex items-center gap-1">
+                    <div
+                      class="w-3 h-3 rounded-sm bg-gradient-to-br from-green-100 to-green-200 border border-green-300">
+                    </div>
+                    <span class="text-gray-600">Balanced</span>
+                  </span>
+                  <span class="flex items-center gap-1">
+                    <div class="w-3 h-3 rounded-sm bg-gradient-to-br from-red-100 to-red-200 border border-red-300">
+                    </div>
+                    <span class="text-gray-600">Saturated</span>
+                  </span>
+                </div>
 
-              <div x-show="activeTab === 'deployments'" id="deployments-panel" role="tabpanel"
-                aria-labelledby="deployments-tab">
-                <template x-if="deployments.length > 0">
-                  <table class="data-table">
-                    <thead>
-                      <tr>
-                        <th>Name</th>
-                        <th>Ready</th>
-                        <th>Up-to-date</th>
-                        <th>Available</th>
-                        <th>Age</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <template x-for="dep in deployments" :key="dep.name">
-                        <tr>
-                          <td x-text="dep.name"></td>
-                          <td x-text="dep.ready"></td>
-                          <td x-text="dep.upToDate"></td>
-                          <td x-text="dep.available"></td>
-                          <td x-text="dep.age || 'N/A'"></td>
-                        </tr>
-                      </template>
-                    </tbody>
-                  </table>
-                </template>
-                <template x-if="!isLoading && deployments.length === 0">
-                  <p class="text-gray-700">
-                    No deployments found for this cluster.
+              </div>
+            </div>
+
+            <!-- PODS - Packing Efficiency -->
+            <div class="metric-card p-6">
+              <div class="flex items-start justify-between mb-4">
+                <div>
+                  <div class="flex items-center gap-2 mb-1">
+                    <i class="fas fa-cubes text-purple-600"></i>
+                    <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Pods</h3>
+                  </div>
+                  <div class="text-3xl font-bold text-gray-900" x-text="dashboard?.clusterOverview?.totalPods || 0">
+                  </div>
+                  <p class="text-xs text-gray-500 mt-1">
+                    Across <span x-text="dashboard?.clusterOverview?.totalNamespaces || 0"></span> namespaces
                   </p>
-                </template>
-              </div>
-
-
-
-              <!-- 🆕 NEW: Kubescape Panel -->
-              <div x-show="activeTab === 'kubescape'" id="kubescape-panel" role="tabpanel">
-                <div x-show="kubescapeLoading" class="text-center py-12">
-                  <i class="fas fa-spinner fa-spin text-4xl mb-4"></i>
-                  <p>Loading Kubescape data...</p>
-                </div>
-
-                <div x-show="!kubescapeLoading && kubescapeData" x-cloak>
-                  <!-- Compliance Score Card -->
-                  <div class="glass-card mb-6 text-center">
-                    <h3 class="text-gray-600 font-semibold mb-2">Overall Compliance Score</h3>
-                    <div class="text-5xl font-extrabold" :class="{
-             'text-green-600': kubescapeData.overallComplianceScore >= 80,
-             'text-yellow-600': kubescapeData.overallComplianceScore >= 60 && kubescapeData.overallComplianceScore < 80,
-             'text-red-600': kubescapeData.overallComplianceScore < 60
-           }" x-text="kubescapeData.overallComplianceScore ? kubescapeData.overallComplianceScore.toFixed(1) + '%' : 'N/A'">
-                    </div>
-                    <p class="text-sm text-gray-500 mt-2"
-                      x-text="'Last scan: ' + (kubescapeData.lastScanTime || 'Unknown')"></p>
-                  </div>
-
-                  <!-- Vulnerability Summary Cards -->
-                  <div class="grid grid-cols-4 gap-4 mb-6">
-                    <div class="glass-card text-center">
-                      <i class="fas fa-exclamation-circle text-red-600 text-3xl mb-2"></i>
-                      <h4 class="text-gray-600 font-semibold">Critical</h4>
-                      <p class="text-3xl font-bold text-red-600" x-text="kubescapeData.totalCritical || 0"></p>
-                    </div>
-                    <div class="glass-card text-center">
-                      <i class="fas fa-exclamation-triangle text-orange-600 text-3xl mb-2"></i>
-                      <h4 class="text-gray-600 font-semibold">High</h4>
-                      <p class="text-3xl font-bold text-orange-600" x-text="kubescapeData.totalHigh || 0"></p>
-                    </div>
-                    <div class="glass-card text-center">
-                      <i class="fas fa-exclamation text-yellow-600 text-3xl mb-2"></i>
-                      <h4 class="text-gray-600 font-semibold">Medium</h4>
-                      <p class="text-3xl font-bold text-yellow-600" x-text="kubescapeData.totalMedium || 0"></p>
-                    </div>
-                    <div class="glass-card text-center">
-                      <i class="fas fa-info-circle text-blue-600 text-3xl mb-2"></i>
-                      <h4 class="text-gray-600 font-semibold">Low</h4>
-                      <p class="text-3xl font-bold text-blue-600" x-text="kubescapeData.totalLow || 0"></p>
-                    </div>
-                  </div>
-
-                  <!-- Vulnerabilities Table -->
-                  <div class="glass-card">
-                    <h3 class="text-lg font-semibold mb-4">Workload Vulnerabilities</h3>
-                    <template x-if="kubescapeData.vulnerabilities && kubescapeData.vulnerabilities.length > 0">
-                      <table class="data-table">
-                        <thead>
-                          <tr>
-                            <th>Workload Name</th>
-                            <th>Namespace</th>
-                            <th>Type</th>
-                            <th class="text-center">Critical</th>
-                            <th class="text-center">High</th>
-                            <th class="text-center">Medium</th>
-                            <th class="text-center">Low</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <template x-for="vuln in kubescapeData.vulnerabilities" :key="vuln.workloadName">
-                            <tr>
-                              <td x-text="vuln.workloadName"></td>
-                              <td x-text="vuln.namespace"></td>
-                              <td x-text="vuln.workloadKind"></td>
-                              <td class="text-center text-red-600 font-semibold" x-text="vuln.criticalCount"></td>
-                              <td class="text-center text-orange-600 font-semibold" x-text="vuln.highCount"></td>
-                              <td class="text-center text-yellow-600 font-semibold" x-text="vuln.mediumCount"></td>
-                              <td class="text-center text-blue-600 font-semibold" x-text="vuln.lowCount"></td>
-                            </tr>
-                          </template>
-                        </tbody>
-                      </table>
-                    </template>
-                    <template x-if="!kubescapeData.vulnerabilities || kubescapeData.vulnerabilities.length === 0">
-                      <p class="text-gray-600 text-center py-8">✅ No vulnerabilities found - excellent security posture!
-                      </p>
-                    </template>
-                  </div>
                 </div>
               </div>
 
-              <!-- 🆕 NEW: Karpenter Panel -->
-              <div x-show="activeTab === 'karpenter'" id="karpenter-panel" role="tabpanel">
-                <div x-show="karpenterLoading" class="text-center py-12">
-                  <i class="fas fa-spinner fa-spin text-4xl mb-4"></i>
-                  <p>Loading Karpenter data...</p>
-                </div>
-
-                <div x-show="!karpenterLoading && karpenterData" x-cloak>
-                  <!-- Node Lifecycle Summary -->
-                  <div class="grid grid-cols-3 gap-4 mb-6">
-
-                  </div>
-
-                  <!-- Resource Utilization -->
-                  <!-- <div class="grid grid-cols-2 gap-6 mb-6">
-                    <div class="glass-card">
-                      <h4 class="font-semibold mb-3"><i class="fas fa-microchip"></i> CPU Utilization</h4>
-                      <div class="mb-2 text-sm text-gray-600">
-                        <span>Allocatable: <span
-                            x-text="karpenterData.metrics?.cpuAllocatable?.toFixed(1) || '0'"></span> cores</span>
-                        <span class="float-right">Limit: <span
-                            x-text="karpenterData.metrics?.cpuLimit?.toFixed(1) || '0'"></span> cores</span>
+              <!-- Pod Packing Visualization -->
+              <div>
+                <div class="text-xs font-semibold text-gray-600 mb-2">Scheduling Efficiency</div>
+                <div class="space-y-2">
+                  <template x-for="node in (dashboard?.resourceUtilization?.nodes || []).slice(0, 3)"
+                    :key="node.name + '-pods'">
+                    <div>
+                      <div class="flex items-center justify-between text-xs mb-1">
+                        <span class="text-gray-600 truncate max-w-[120px]" x-text="node.name.split('-').pop()"></span>
+                        <span class="font-semibold text-gray-900" x-text="node.pods + ' pods'"></span>
                       </div>
-                      <div class="w-full bg-gray-200 rounded-full h-8">
-                        <div
-                          class="bg-green-600 h-8 rounded-full flex items-center justify-center text-white text-sm font-semibold"
-                          :style="`width: ${karpenterData.metrics?.cpuLimit > 0 ? (karpenterData.metrics?.cpuAllocatable / karpenterData.metrics?.cpuLimit * 100) : 0}%`"
-                          x-text="karpenterData.metrics?.cpuLimit > 0 ? ((karpenterData.metrics?.cpuAllocatable / karpenterData.metrics?.cpuLimit * 100).toFixed(1) + '%') : '0%'">
+                      <div class="pod-fill-indicator">
+                        <div class="pod-fill-bar"
+                          :style="`width: ${Math.min((node.pods / 110) * 100, 100)}%; background: ${node.pods > 90 ? 'linear-gradient(90deg, #f87171, #dc2626)' : node.pods > 60 ? 'linear-gradient(90deg, #fbbf24, #f59e0b)' : 'linear-gradient(90deg, #34d399, #10b981)'};`">
                         </div>
                       </div>
                     </div>
+                  </template>
+                </div>
 
-                    <div class="glass-card">
-                      <h4 class="font-semibold mb-3"><i class="fas fa-memory"></i> Memory Utilization</h4>
-                      <div class="mb-2 text-sm text-gray-600">
-                        <span>Allocatable: <span
-                            x-text="karpenterData.metrics?.memoryAllocatableGb?.toFixed(1) || '0'"></span> GB</span>
-                        <span class="float-right">Limit: <span
-                            x-text="karpenterData.metrics?.memoryLimitGb?.toFixed(1) || '0'"></span> GB</span>
-                      </div>
-                      <div class="w-full bg-gray-200 rounded-full h-8">
-                        <div
-                          class="bg-blue-600 h-8 rounded-full flex items-center justify-center text-white text-sm font-semibold"
-                          :style="`width: ${karpenterData.metrics?.memoryLimitGb > 0 ? (karpenterData.metrics?.memoryAllocatableGb / karpenterData.metrics?.memoryLimitGb * 100) : 0}%`"
-                          x-text="karpenterData.metrics?.memoryLimitGb > 0 ? ((karpenterData.metrics?.memoryAllocatableGb / karpenterData.metrics?.memoryLimitGb * 100).toFixed(1) + '%') : '0%'">
-                        </div>
-                      </div>
-                    </div>
-                  </div> -->
+              </div>
+            </div>
 
-                  <!-- Node Pools Table -->
-                  <div class="glass-card mb-6">
-                    <h3 class="text-lg font-semibold mb-4">Node Pools</h3>
-                    <template x-if="karpenterData.nodePools && karpenterData.nodePools.length > 0">
-                      <table class="data-table">
-                        <thead>
-                          <tr>
-                            <th>Pool Name</th>
-                            <th>Instance Types</th>
-                            <th>CPU Limit</th>
-                            <th>Memory Limit</th>
-                            <th>Consolidation</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <template x-for="pool in karpenterData.nodePools" :key="pool.poolName">
-                            <tr>
-                              <td x-text="pool.poolName"></td>
-                              <td x-text="pool.instanceTypes ? pool.instanceTypes.join(', ') : 'N/A'"></td>
-                              <td x-text="(pool.cpuLimit || 0) + ' cores'"></td>
-                              <td x-text="(pool.memoryLimitGb || 0) + ' GB'"></td>
-                              <td>
-                                <span :class="pool.consolidationEnabled ? 'text-green-600' : 'text-gray-400'"
-                                  class="font-semibold">
-                                  <i
-                                    :class="pool.consolidationEnabled ? 'fas fa-check-circle' : 'fas fa-times-circle'"></i>
-                                  <span x-text="pool.consolidationEnabled ? 'Enabled' : 'Disabled'"></span>
-                                </span>
-                              </td>
-                            </tr>
-                          </template>
-                        </tbody>
-                      </table>
-                    </template>
-                    <template x-if="!karpenterData.nodePools || karpenterData.nodePools.length === 0">
-                      <p class="text-gray-600 text-center py-8">No node pools configured</p>
-                    </template>
+            <!-- CPU UTILIZATION -->
+            <div class="metric-card p-6">
+              <div class="flex items-center justify-between mb-6">
+                <div class="flex items-center gap-2">
+                  <div class="w-8 h-8 bg-indigo-50 rounded-lg flex items-center justify-center">
+                    <i class="fas fa-microchip text-indigo-600"></i>
                   </div>
+                  <h3 class="text-sm font-bold text-slate-600 uppercase tracking-widest">CPU</h3>
+                </div>
+              </div>
 
-                  Node Claims Table
-                  <div class="glass-card">
-                    <h3 class="text-lg font-semibold mb-4">Managed Nodes</h3>
-                    <template x-if="karpenterData.nodeClaims && karpenterData.nodeClaims.length > 0">
-                      <table class="data-table">
-                        <thead>
-                          <tr>
-                            <th>Node Name</th>
-                            <th>Pool</th>
-                            <th>Instance Type</th>
-                            <th>Zone</th>
-                            <th>Phase</th>
-                            <th>Age</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <template x-for="claim in karpenterData.nodeClaims" :key="claim.nodeName">
-                            <tr>
-                              <td x-text="claim.nodeName"></td>
-                              <td x-text="claim.nodePoolName"></td>
-                              <td x-text="claim.instanceType"></td>
-                              <td x-text="claim.zone"></td>
-                              <td>
-                                <span class="px-2 py-1 rounded text-xs font-semibold bg-blue-100 text-blue-800"
-                                  x-text="claim.phase"></span>
-                              </td>
-                              <td x-text="claim.age"></td>
-                            </tr>
-                          </template>
-                        </tbody>
-                      </table>
-                    </template>
-                    <template x-if="!karpenterData.nodeClaims || karpenterData.nodeClaims.length === 0">
-                      <p class="text-gray-600 text-center py-8">No Karpenter-managed nodes found</p>
+              <div class="flex items-center justify-around gap-4">
+                <div class="gauge-container">
+                  <svg class="gauge-svg" viewBox="0 0 100 100">
+                    <circle class="gauge-bg" cx="50" cy="50" r="42"></circle>
+                    <circle class="gauge-progress" cx="50" cy="50" r="42"
+                      :style="`stroke: #6366f1; stroke-dasharray: ${((dashboard?.clusterOverview?.cpuUsagePercent || 0) * 2.64)}, 264`">
+                    </circle>
+                  </svg>
+                  <div class="gauge-text">
+                    <div class="text-3xl font-extrabold text-slate-900"
+                      x-text="(dashboard?.clusterOverview?.cpuUsagePercent || 0).toFixed(1) + '%'"></div>
+                    <div class="text-[9px] text-slate-400 uppercase font-black tracking-[0.2em]">Usage</div>
+                  </div>
+                </div>
+
+                <div class="flex flex-col items-center">
+                  <div class="flex items-center gap-2 text-orange-500 mb-2">
+                    <i class="fas fa-bolt animate-pulse"></i>
+                    <span class="text-[10px] font-black uppercase tracking-widest leading-none">Pressure</span>
+                  </div>
+                  <div class="flex gap-1.5 h-8 items-end">
+                    <template x-for="i in 5">
+                      <div class="w-2 rounded-full transition-all duration-500"
+                        :class="(dashboard?.clusterOverview?.cpuUsagePercent || 0) > (i * 20) ? 'bg-orange-400' : 'bg-slate-100'"
+                        :style="`height: ${20 + (i * 15)}%`"></div>
                     </template>
                   </div>
                 </div>
               </div>
+            </div>
 
-              <div x-show="activeTab === 'security'" id="security-panel" role="tabpanel" aria-labelledby="security-tab">
-                <template x-if="alerts.length > 0">
+            <!-- MEMORY UTILIZATION -->
+            <div class="metric-card p-6 border-l-4 border-l-purple-500">
+              <div class="flex items-center justify-between mb-6">
+                <div class="flex items-center gap-2">
+                  <div class="w-8 h-8 bg-purple-50 rounded-lg flex items-center justify-center">
+                    <i class="fas fa-memory text-purple-600"></i>
+                  </div>
+                  <h3 class="text-sm font-bold text-slate-600 uppercase tracking-widest">Memory</h3>
+                </div>
+              </div>
+
+              <div class="flex items-center justify-around">
+                <div class="gauge-container">
+                  <svg class="gauge-svg" viewBox="0 0 100 100">
+                    <circle class="gauge-bg" cx="50" cy="50" r="42"></circle>
+                    <circle class="gauge-progress" cx="50" cy="50" r="42"
+                      :style="`stroke: #a855f7; stroke-dasharray: ${((dashboard?.clusterOverview?.memoryUsagePercent || 0) * 2.64)}, 264`">
+                    </circle>
+                  </svg>
+                  <div class="gauge-text">
+                    <div class="text-3xl font-extrabold text-slate-900"
+                      x-text="(dashboard?.clusterOverview?.memoryUsagePercent || 0).toFixed(1) + '%'"></div>
+                    <div class="text-[9px] text-slate-400 uppercase font-black tracking-[0.2em]">Usage</div>
+                  </div>
+                </div>
+
+                <div class="flex flex-col items-center"
+                  x-show="(dashboard?.clusterOverview?.memoryUsagePercent || 0) > 80">
+                  <div
+                    class="w-12 h-12 rounded-2xl bg-rose-100 flex items-center justify-center shadow-inner animate-bounce">
+                    <i class="fas fa-exclamation-triangle text-rose-600 text-xl"></i>
+                  </div>
+                  <span class="text-[10px] font-black text-rose-600 mt-2 uppercase tracking-tighter">OOM Risk</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ==================== TABS (Monitoring vs Security) ==================== -->
+          <div class="mb-6">
+            <div class="flex gap-2 border-b border-gray-200">
+              <button @click="activeTab = 'monitoring'" class="tab-button"
+                :class="{'active': activeTab === 'monitoring'}">
+                <i class="fas fa-chart-line mr-2"></i>
+                Monitoring & Resources
+              </button>
+              <button @click="activeTab = 'security'" class="tab-button" :class="{'active': activeTab === 'security'}">
+                <i class="fas fa-shield-alt mr-2"></i>
+                Security & Compliance
+              </button>
+            </div>
+          </div>
+
+          <!-- ==================== MONITORING TAB ==================== -->
+          <div x-show="activeTab === 'monitoring'" x-cloak class="space-y-8">
+
+            <!-- COST ANALYSIS - Efficiency Context -->
+            <section>
+              <h2 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
+                <i class="fas fa-dollar-sign text-green-600"></i>
+                Cost Analysis
+              </h2>
+
+              <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                <!-- Daily Cost -->
+                <div class="metric-card p-6">
+                  <div class="flex items-center justify-between">
+                    <div>
+                      <div class="text-sm font-semibold text-gray-600 mb-2">Daily Cost</div>
+                      <div class="text-4xl font-bold text-gray-900"
+                        x-text="'$' + (dashboard?.costMetrics?.dailyCost || 0).toFixed(2)"></div>
+                    </div>
+                    <div class=" w-14 h-14 bg-green-100 rounded-xl flex items-center justify-center">
+                      <i class="fas fa-calendar-day text-green-600 text-xl"></i>
+                    </div>
+                  </div>
+
+                  <!-- Cost Efficiency Bar -->
+                  <div class="mt-4">
+                    <div class="flex items-center justify-between text-xs text-gray-600 mb-1">
+                      <span>Cost Efficiency</span>
+                      <span class="font-semibold" x-text="getCostEfficiency() + '%'"></span>
+                    </div>
+                    <div class="cost-efficiency-bar">
+                      <div class="efficiency-marker" :style="`left: ${getCostEfficiency()}%`"></div>
+                    </div>
+                    <div class="flex items-center justify-between text-xs text-gray-500 mt-1">
+                      <span>Wasteful</span>
+                      <span>Optimal</span>
+                    </div>
+
+                  </div>
+                </div>
+
+                <!-- Monthly Projection -->
+                <div class="metric-card p-6">
+                  <div class="flex items-center justify-between">
+                    <div>
+                      <div class="text-sm font-semibold text-gray-600 mb-2">Monthly Projection</div>
+                      <div class="text-4xl font-bold text-gray-900"
+                        x-text="'$' + (dashboard?.costMetrics?.monthlyCost || 0).toFixed(2)"></div>
+                    </div>
+                    <div class="w-14 h-14 bg-blue-100 rounded-xl flex items-center justify-center">
+                      <i class="fas fa-calendar-alt text-blue-600 text-xl"></i>
+                    </div>
+                  </div>
+
+                  <!-- Idle Cost Warning -->
+                  <div class="mt-4 flex items-center gap-2 text-sm" x-show="getIdleCostPercentage() > 20">
+                    <i class="fas fa-info-circle text-amber-600"></i>
+                    <span class="text-gray-700">
+                      <span class="font-semibold text-amber-600" x-text="getIdleCostPercentage() + '%'"></span>
+                      idle capacity detected
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Node Cost Breakdown - Highlight Outliers -->
+              <div class="metric-card overflow-hidden">
+                <div class="px-6 py-4 bg-gray-50 border-b border-gray-200">
+                  <h3 class="font-semibold text-gray-900">Node Cost Breakdown</h3>
+                  <p class="text-sm text-gray-600 mt-1">Sorted by hourly rate - high-cost nodes highlighted</p>
+                </div>
+                <div class="overflow-x-auto custom-scrollbar">
                   <table class="data-table">
                     <thead>
                       <tr>
-                        <th>Severity</th>
-                        <th>Rule Name</th>
-                        <th>Pod</th>
-                        <th>Namespace</th>
+                        <th>Node Name</th>
+                        <th>Instance Type</th>
+                        <th class="text-right">Hourly Rate</th>
+                        <th class="text-right">Daily Cost</th>
+                        <th class="text-right">Utilization</th>
                       </tr>
                     </thead>
                     <tbody>
-                      <template x-for="(alert, i) in alerts" :key="i">
-                        <tr>
+                      <template x-for="node in getSortedNodesByCost()" :key="node.nodeName">
+                        <tr :class="{'critical-item': node.hourlyCost > 0.05}">
+                          <td class="font-medium" x-text="node.nodeName"></td>
                           <td>
-                            <span x-text="alert.priority" class="px-2 py-1 rounded text-xs text-white font-bold" :class="{
-                                                                    'bg-red-600': ['Critical', 'Emergency'].includes(alert.priority),
-                                                                    'bg-orange-500': alert.priority === 'Error',
-                                                                    'bg-yellow-500': alert.priority === 'Warning',
-                                                                    'bg-blue-400': !['Critical', 'Emergency', 'Error', 'Warning'].includes(alert.priority)
-                                                                  }">
+                            <span class="px-2 py-1 bg-gray-100 rounded text-sm font-mono"
+                              x-text="node.instanceType"></span>
+                          </td>
+                          <td class="text-right">
+                            <span class="font-bold text-slate-700 tabular-nums"
+                              x-text="'$' + (node.hourlyRate || 0).toFixed(4)">
                             </span>
                           </td>
-                          <td x-text="alert.rule"></td>
-                          <td x-text="alert.pod || 'N/A'"></td>
-                          <td x-text="alert.namespace || 'N/A'"></td>
+                          <td class="text-right font-bold text-slate-900 tabular-nums"
+                            x-text="'$' + (node.dailyCost || 0).toFixed(2)">
+                          </td>
+                          <td class="text-right">
+                            <span class="px-2 py-1 rounded-full text-xs font-semibold" :class="{
+                                    'bg-red-100 text-red-700': (node.cpuUsagePercent || 0) < 30,
+                                    'bg-green-100 text-green-700': (node.cpuUsagePercent || 0) >= 30
+                                  }" x-text="(node.cpuUsagePercent || 0).toFixed(0) + '%'">
+                            </span>
+                          </td>
                         </tr>
                       </template>
                     </tbody>
                   </table>
-                </template>
-                <template x-if="!isLoading && alerts.length === 0">
-                  <div class="p-6 text-center text-gray-500">
-                    <i class="fas fa-shield-alt text-green-500 text-2xl mb-2"></i>
-                    <p class="mt-2">
-                      No active security alerts found. System is secure.
-                    </p>
+                </div>
+              </div>
+            </section>
+
+            <!-- NODE RESOURCES - Ranked by Pressure -->
+            <section>
+              <h2 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
+                <i class="fas fa-server text-blue-600"></i>
+                Node Resources
+              </h2>
+
+              <div class="space-y-4">
+                <template x-for="node in getSortedNodesByPressure()" :key="node.nodeName">
+                  <div class="metric-card overflow-hidden"
+                    :class="{'critical-item': node.cpuUsagePercent >= 85 || node.memoryUsagePercent >= 85}">
+                    <div class="p-6">
+                      <div class="flex items-start justify-between mb-4">
+                        <div class="flex-1">
+                          <div class="flex items-center gap-3 mb-2">
+                            <h3 class="font-semibold text-gray-900" x-text="node.nodeName"></h3>
+                            <span class="px-2 py-1 bg-gray-100 rounded text-xs font-mono text-gray-600"
+                              x-text="node.instanceType"></span>
+                            <span class="px-2 py-1 rounded text-xs font-semibold" :class="{
+                                    'bg-red-100 text-red-700': node.cpuUsagePercent >= 85,
+                                    'bg-yellow-100 text-yellow-700': node.cpuUsagePercent >= 70 && node.cpuUsagePercent < 85,
+                                    'bg-green-100 text-green-700': node.cpuUsagePercent < 70
+                                  }">
+                              <i class="fas" :class="{
+                                'fa-exclamation-circle': node.cpuUsagePercent >= 85,
+                                'fa-exclamation-triangle': node.cpuUsagePercent >= 70 && node.cpuUsagePercent < 85,
+                                'fa-check-circle': node.cpuUsagePercent < 70
+                              }"></i>
+                              <span
+                                x-text="node.cpuUsagePercent >= 85 ? 'Critical' : node.cpuUsagePercent >= 70 ? 'Warning' : 'Healthy'"></span>
+                            </span>
+                          </div>
+                          <div class="text-sm text-gray-600">
+                            <span x-text="node.pods"></span> pods running
+                          </div>
+                        </div>
+                      </div>
+
+                      <!-- CPU & Memory Bars Side by Side -->
+                      <div class="grid grid-cols-2 gap-6">
+                        <!-- CPU -->
+                        <div>
+                          <div class="flex items-center justify-between mb-2">
+                            <span class="text-sm font-semibold text-gray-700">CPU</span>
+                            <span class="text-sm font-bold text-gray-900"
+                              x-text="node.cpuUsagePercent.toFixed(1) + '%'"></span>
+                          </div>
+                          <div class="h-3 bg-gray-200 rounded-full overflow-hidden">
+                            <div class="h-full rounded-full transition-all duration-500"
+                              :style="`width: ${node.cpuUsagePercent}%; background: ${node.cpuUsagePercent >= 85 ? 'linear-gradient(90deg, #dc2626, #991b1b)' : node.cpuUsagePercent >= 70 ? 'linear-gradient(90deg, #f59e0b, #d97706)' : 'linear-gradient(90deg, #10b981, #059669)'};`">
+                            </div>
+                          </div>
+                        </div>
+
+                        <!-- Memory -->
+                        <div>
+                          <div class="flex items-center justify-between mb-2">
+                            <span class="text-sm font-semibold text-gray-700">Memory</span>
+                            <span class="text-sm font-bold text-gray-900"
+                              x-text="node.memoryUsagePercent.toFixed(1) + '%'"></span>
+                          </div>
+                          <div class="h-3 bg-gray-200 rounded-full overflow-hidden">
+                            <div class="h-full rounded-full transition-all duration-500"
+                              :style="`width: ${node.memoryUsagePercent}%; background: ${node.memoryUsagePercent >= 85 ? 'linear-gradient(90deg, #dc2626, #991b1b)' : node.memoryUsagePercent >= 70 ? 'linear-gradient(90deg, #f59e0b, #d97706)' : 'linear-gradient(90deg, #10b981, #059669)'};`">
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </template>
               </div>
+            </section>
+
+            <!-- WORKLOAD HEALTH - Actionable First -->
+            <section>
+              <h2 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
+                <i class="fas fa-heartbeat text-red-600"></i>
+                Workload Health
+              </h2>
+
+              <!-- Deployments -->
+
+
+
+
+              <div class="mb-6">
+                <h3 class="text-lg font-semibold text-gray-800 mb-4">Deployments</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <template x-for="deployment in (dashboard?.workloadHealth?.deployments || [])" :key="deployment.name">
+                    <div class="metric-card p-5">
+                      <div class="flex items-start justify-between mb-3">
+                        <div class="flex-1">
+                          <div class="font-semibold text-gray-900 mb-1 truncate" x-text="deployment.name">
+                          </div>
+                          <div class="text-xs text-gray-500" x-text="deployment.namespace"></div>
+                        </div>
+                        <div class="health-score" :class="{
+                               'excellent': deployment.healthScore >= 90,
+                               'good': deployment.healthScore >= 70 && deployment.healthScore < 90,
+                               'poor': deployment.healthScore < 70
+                             }" x-text="deployment.healthScore">
+                        </div>
+                      </div>
+                      <div class="flex items-center justify-between text-sm">
+                        <span class="text-gray-600">Replicas</span>
+                        <span class="font-semibold"
+                          :class="{'text-red-600': deployment.replicas !== deployment.readyReplicas, 'text-green-600': deployment.replicas === deployment.readyReplicas}">
+                          <span x-text="deployment.readyReplicas"></span> / <span x-text="deployment.replicas"></span>
+                        </span>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
+
+              <div>
+                <h3 class="text-lg font-semibold text-gray-800 mb-4">DaemonSets</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <template x-for="daemonset in (dashboard?.workloadHealth?.daemonsets || [])" :key="daemonset.name">
+                    <div class="metric-card p-5">
+                      <div class="flex items-start justify-between mb-3">
+                        <div class="flex-1">
+                          <div class="font-semibold text-gray-900 mb-1 truncate" x-text="daemonset.name"></div>
+                          <div class="text-xs text-gray-500" x-text="daemonset.namespace"></div>
+                        </div>
+                        <div class="health-score" :class="{
+                               'excellent': daemonset.healthScore >= 90,
+                               'good': daemonset.healthScore >= 70 && daemonset.healthScore < 90,
+                               'poor': daemonset.healthScore < 70
+                             }" x-text="daemonset.healthScore">
+                        </div>
+                      </div>
+                      <div class="flex items-center justify-between text-sm">
+                        <span class="text-gray-600">Ready Nodes</span>
+                        <span class="font-semibold"
+                          :class="{'text-red-600': daemonset.currentNumberScheduled !== daemonset.numberReady, 'text-green-600': daemonset.currentNumberScheduled === daemonset.numberReady}">
+                          <span x-text="daemonset.numberReady"></span> / <span
+                            x-text="daemonset.currentNumberScheduled"></span>
+                        </span>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </section>
+
+            <!-- POD SECURITY OVERVIEW - Collapsed by Default -->
+            <section>
+              <h2 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
+                <i class="fas fa-shield-alt text-blue-600"></i>
+                Pod Security Overview
+              </h2>
+
+              <!-- Status Summary Cards -->
+              <div class="grid grid-cols-4 gap-4 mb-6">
+                <div class="metric-card p-4 text-center">
+                  <div class="text-3xl font-bold text-green-600" x-text="getPodsCountByPhase('Running')"></div>
+                  <div class="text-sm text-gray-600 mt-1">Running</div>
+                </div>
+                <div class="metric-card p-4 text-center">
+                  <div class="text-3xl font-bold text-yellow-600" x-text="getPodsCountByPhase('Pending')"></div>
+                  <div class="text-sm text-gray-600 mt-1">Pending</div>
+                </div>
+                <div class="metric-card p-4 text-center">
+                  <div class="text-3xl font-bold text-blue-600" x-text="getPodsCountByPhase('Succeeded')"></div>
+                  <div class="text-sm text-gray-600 mt-1">Succeeded</div>
+                </div>
+                <div class="metric-card p-4 text-center">
+                  <div class="text-3xl font-bold text-red-600"
+                    x-text="getPodsCountByPhase('Failed') + getPodsCountByPhase('Unknown')"></div>
+                  <div class="text-sm text-gray-600 mt-1">Failed/Unknown</div>
+                </div>
+              </div>
+
+              <!-- Expandable Pod Table -->
+              <div x-data="{ showPodTable: false }">
+                <button @click="showPodTable = !showPodTable"
+                  class="w-full metric-card p-4 text-left hover:bg-gray-50 transition-colors flex items-center justify-between">
+                  <span class="font-semibold text-gray-900">
+                    <i class="fas fa-table mr-2"></i>
+                    Detailed Pod Table
+                  </span>
+                  <i class="fas transition-transform" :class="showPodTable ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
+                </button>
+
+                <div x-show="showPodTable" x-collapse class="mt-4 metric-card overflow-hidden">
+                  <div class="overflow-x-auto custom-scrollbar" style="max-height: 600px;">
+                    <table class="data-table">
+                      <thead>
+                        <tr>
+                          <th>Pod Name</th>
+                          <th>Namespace</th>
+                          <th>Phase</th>
+                          <th>Node</th>
+                          <th class="text-center">Ready</th>
+                          <th class="text-center">Restarts</th>
+                          <th class="text-right">CPU</th>
+                          <th class="text-right">Memory</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <template x-for="pod in (dashboard?.workloadHealth?.pods || [])" :key="pod.name">
+                          <tr :class="{'warning-item': pod.restarts >= 3 || !pod.ready}">
+                            <td class="font-medium" x-text="pod.name"></td>
+                            <td class="text-gray-600" x-text="pod.namespace"></td>
+                            <td>
+                              <span class="px-2 py-1 rounded-full text-xs font-semibold" :class="{
+                                'bg-green-100 text-green-700': pod.phase === 'Running',
+                                'bg-yellow-100 text-yellow-700': pod.phase === 'Pending',
+                                'bg-blue-100 text-blue-700': pod.phase === 'Succeeded',
+                                'bg-red-100 text-red-700': ['Failed', 'Unknown'].includes(pod.phase)
+                              }" x-text="pod.phase">
+                              </span>
+                            </td>
+                            <td class="text-gray-600 text-sm" x-text="pod.node"></td>
+                            <td class="text-center">
+                              <i class="fas"
+                                :class="pod.ready ? 'fa-check-circle text-green-500' : 'fa-times-circle text-red-500'"></i>
+                            </td>
+                            <td class="text-center">
+                              <span class="alert-count-badge" :class="{
+                                'bg-gray-100 text-gray-700': pod.restarts === 0,
+                                'warning': pod.restarts > 0 && pod.restarts < 3,
+                                'critical': pod.restarts >= 3
+                              }" x-text="pod.restarts">
+                              </span>
+                            </td>
+                            <td class="text-right font-semibold text-gray-900"
+                              x-text="(pod.cpuUsage || 0).toFixed(2) + 'm'"></td>
+                            <td class="text-right font-semibold text-gray-900"
+                              x-text="(pod.memoryUsage || 0).toFixed(0) + 'Mi'"></td>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <!-- CONTAINER DETAILS - Deep Debug Only, Collapsed -->
+            <section>
+              <h2 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
+                <i class="fas fa-box text-teal-600"></i>
+                Container Resource Details
+              </h2>
+
+              <div class="space-y-3">
+                <template x-for="pod in (dashboard?.workloadHealth?.pods || [])" :key="pod.name + '-containers'">
+                  <div x-data="{ expanded: false }">
+                    <!-- Only show pods with anomalous container usage -->
+                    <div class="metric-card overflow-hidden">
+                      <button @click="expanded = !expanded"
+                        class="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors text-left">
+                        <div class="flex items-center gap-3">
+                          <i class="fas transition-transform text-gray-400"
+                            :class="expanded ? 'fa-chevron-down' : 'fa-chevron-right'"></i>
+                          <span class="font-semibold text-gray-900" x-text="pod.name"></span>
+                          <span class="text-sm text-gray-500"
+                            x-text="'(' + Object.keys(pod.containers || {}).length + ' containers)'"></span>
+                          <span x-show="hasAnomalousContainers(pod)"
+                            class="px-2 py-1 bg-red-100 text-red-700 rounded text-xs font-semibold">
+                            <i class="fas fa-exclamation-triangle"></i> Anomaly detected
+                          </span>
+                        </div>
+                        <span class="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700 font-semibold"
+                          x-text="pod.namespace"></span>
+                      </button>
+
+                      <div x-show="expanded" x-collapse class="border-t border-gray-200">
+                        <div class="p-6 space-y-4">
+                          <template x-for="[containerName, metrics] in Object.entries(pod.containers || {})"
+                            :key="containerName">
+                            <div class="bg-gray-50 rounded-lg p-4">
+                              <h4 class="font-semibold text-gray-900 mb-3 flex items-center justify-between">
+                                <div class="flex items-center gap-2">
+                                  <i class="fas fa-cube text-blue-600"></i>
+                                  <span x-text="containerName"></span>
+                                </div>
+                                <span x-show="metrics.cpuUsage > 100 || metrics.memoryUsage > 500"
+                                  class="px-2 py-0.5 bg-red-100 text-red-700 rounded text-[10px] font-bold">
+                                  HIGH USAGE
+                                </span>
+                              </h4>
+                              <div class="grid grid-cols-3 gap-4">
+                                <div>
+                                  <p class="text-xs text-gray-500 mb-1">CPU Usage</p>
+                                  <p class="text-lg font-bold text-blue-600"
+                                    x-text="(metrics.cpuUsage || 0).toFixed(2) + 'm'"></p>
+                                </div>
+                                <div>
+                                  <p class="text-xs text-gray-500 mb-1">Memory Usage</p>
+                                  <p class="text-lg font-bold text-purple-600"
+                                    x-text="(metrics.memoryUsage || 0).toFixed(0) + ' Mi'"></p>
+                                </div>
+                                <div>
+                                  <p class="text-xs text-gray-500 mb-1">Filesystem</p>
+                                  <p class="text-lg font-bold text-green-600"
+                                    x-text="(metrics.fsUsage || 0).toFixed(2) + ' GB'"></p>
+                                </div>
+                              </div>
+                            </div>
+                          </template>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </section>
+
+          </div>
+
+          <!-- ==================== SECURITY TAB ==================== -->
+          <div x-show="activeTab === 'security'" x-cloak class="space-y-8">
+
+            <!-- Security Health Banner -->
+            <div class="metric-card p-6" :class="{
+              'border-green-300 bg-green-50': getSecurityStatus() === 'safe',
+              'border-yellow-300 bg-yellow-50': getSecurityStatus() === 'warning',
+              'border-red-300 bg-red-50': getSecurityStatus() === 'critical'
+            }">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-4">
+                  <div class="w-16 h-16 rounded-full flex items-center justify-center" :class="{
+                         'bg-green-200': getSecurityStatus() === 'safe',
+                         'bg-yellow-200': getSecurityStatus() === 'warning',
+                         'bg-red-200': getSecurityStatus() === 'critical'
+                       }">
+                    <i class="fas text-2xl" :class="{
+                      'fa-shield-check text-green-700': getSecurityStatus() === 'safe',
+                      'fa-shield-exclamation text-yellow-700': getSecurityStatus() === 'warning',
+                      'fa-shield-xmark text-red-700': getSecurityStatus() === 'critical'
+                    }"></i>
+                  </div>
+                  <div>
+                    <h3 class="text-2xl font-bold" :class="{
+                      'text-green-800': getSecurityStatus() === 'safe',
+                      'text-yellow-800': getSecurityStatus() === 'warning',
+                      'text-red-800': getSecurityStatus() === 'critical'
+                    }"
+                      x-text="getSecurityStatus() === 'safe' ? 'Cluster Security: Healthy' : getSecurityStatus() === 'warning' ? 'Cluster Security: Review Needed' : 'Cluster Security: Action Required'">
+                    </h3>
+                    <p class="text-sm mt-1" :class="{
+                      'text-green-700': getSecurityStatus() === 'safe',
+                      'text-yellow-700': getSecurityStatus() === 'warning',
+                      'text-red-700': getSecurityStatus() === 'critical'
+                    }"
+                      x-text="getSecurityStatus() === 'safe' ? 'No critical security issues detected' : getSecurityStatus() === 'warning' ? 'Some alerts require attention' : 'Critical security alerts detected'">
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Alert Metrics -->
+            <div class="grid grid-cols-3 gap-6">
+              <div class="metric-card p-6 bg-red-50 border-red-200">
+                <div class="flex items-center justify-between">
+                  <div>
+                    <div class="text-sm font-semibold text-red-700 mb-2">Total Events</div>
+                    <div class="text-4xl font-bold text-red-900" x-text="dashboard?.securityMetrics?.totalEvents || 0">
+                    </div>
+                  </div>
+                  <div class="w-14 h-14 bg-red-200 rounded-xl flex items-center justify-center">
+                    <i class="fas fa-bell text-red-700 text-xl"></i>
+                  </div>
+                </div>
+              </div>
+              <div class="metric-card p-6 bg-orange-50 border-orange-200">
+                <div class="flex items-center justify-between">
+                  <div>
+                    <div class="text-sm font-semibold text-orange-700 mb-2">Last Hour</div>
+                    <div class="text-4xl font-bold text-orange-900"
+                      x-text="dashboard?.securityMetrics?.eventsLastHour || 0"></div>
+                  </div>
+                  <div class="w-14 h-14 bg-orange-200 rounded-xl flex items-center justify-center">
+                    <i class="fas fa-clock text-orange-700 text-xl"></i>
+                  </div>
+                </div>
+              </div>
+
+              <div class="metric-card p-6 bg-blue-50 border-blue-200">
+                <div class="flex items-center justify-between">
+                  <div>
+                    <div class="text-sm font-semibold text-blue-700 mb-2">Alert Types</div>
+                    <div class="text-4xl font-bold text-blue-900" x-text="dashboard?.securityMetrics?.alertTypes || 0">
+                    </div>
+                  </div>
+                  <div class="w-14 h-14 bg-blue-200 rounded-xl flex items-center justify-center">
+                    <i class="fas fa-list text-blue-700 text-xl"></i>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Priority Distribution -->
+            <section>
+              <h2 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
+                <i class="fas fa-chart-pie text-purple-600"></i>
+                Events by Priority
+              </h2>
+
+              <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <template
+                  x-for="[priority, count] in Object.entries(dashboard?.securityMetrics?.eventsByPriority || {})"
+                  :key="priority">
+                  <div class="metric-card p-6 flex flex-col items-center justify-center text-center group">
+                    <div
+                      class="w-16 h-16 rounded-2xl flex items-center justify-center mb-4 transition-transform group-hover:scale-110 shadow-sm"
+                      :class="{
+                        'bg-red-100 text-red-600': priority === 'CRITICAL' || priority === '4',
+                        'bg-orange-100 text-orange-600': priority === 'WARNING' || priority === '3',
+                        'bg-blue-100 text-blue-600': priority === 'INFO' || priority === '2' || priority === '1',
+                        'bg-gray-100 text-gray-600': !['CRITICAL', 'WARNING', 'INFO', '4', '3', '2', '1'].includes(priority)
+                      }">
+                      <i class="fas text-2xl" :class="{
+                        'fa-radiation': priority === 'CRITICAL' || priority === '4',
+                        'fa-exclamation-triangle': priority === 'WARNING' || priority === '3',
+                        'fa-info-circle': priority === 'INFO' || priority === '2' || priority === '1',
+                        'fa-shield-alt': !['CRITICAL', 'WARNING', 'INFO', '4', '3', '2', '1'].includes(priority)
+                      }"></i>
+                    </div>
+                    <div class="text-3xl font-bold mb-1" x-text="count"></div>
+                    <div class="text-[10px] font-bold uppercase tracking-widest text-gray-500"
+                      x-text="priority === '4' ? 'Critical' : priority === '3' ? 'Warning' : priority === '2' || priority === '1' ? 'Info' : priority">
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </section>
+
+            <!-- KUBESCAPE COMPLIANCE & VULNERABILITIES -->
+            <section x-show="dashboard?.kubescape">
+              <div class="flex items-center justify-between mb-6">
+                <h2 class="text-2xl font-bold text-gray-900 flex items-center gap-3">
+                  <i class="fas fa-microchip text-indigo-600"></i>
+                  Kubescape Security Scan
+                </h2>
+                <div class="flex items-center gap-2 text-xs font-bold text-gray-500 uppercase tracking-widest">
+                  <i class="fas fa-history"></i>
+                  Last Scan: <span x-text="dashboard?.kubescape?.lastScanTime || 'N/A'"></span>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+                <!-- Compliance Score Card -->
+                <div class="metric-card p-6 flex flex-col items-center justify-center text-center">
+                  <div class="relative w-32 h-32 mb-4">
+                    <svg class="w-full h-full" viewBox="0 0 36 36">
+                      <path class="text-gray-200" stroke-width="3" stroke="currentColor" fill="none"
+                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                      <path :class="{
+                              'text-red-500': (dashboard?.kubescape?.overallComplianceScore || 0) < 50,
+                              'text-yellow-500': (dashboard?.kubescape?.overallComplianceScore || 0) >= 50 && (dashboard?.kubescape?.overallComplianceScore || 0) < 80,
+                              'text-green-500': (dashboard?.kubescape?.overallComplianceScore || 0) >= 80
+                            }" stroke-width="3" stroke-linecap="round" stroke="currentColor" fill="none"
+                        :stroke-dasharray="`${dashboard?.kubescape?.overallComplianceScore || 0}, 100`"
+                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                    </svg>
+                    <div class="absolute inset-0 flex flex-col items-center justify-center">
+                      <span class="text-3xl font-black text-slate-900"
+                        x-text="Math.round(dashboard?.kubescape?.overallComplianceScore || 0) + '%'"></span>
+                    </div>
+                  </div>
+                  <div class="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Compliance Score</div>
+                </div>
+
+                <!-- Vulnerability Summary Card -->
+                <div class="metric-card p-6 lg:col-span-3">
+                  <div class="text-sm font-bold text-slate-500 uppercase tracking-widest mb-6">Vulnerability Exposure
+                  </div>
+                  <div class="grid grid-cols-4 gap-4">
+                    <div class="text-center p-4 bg-red-50 rounded-2xl border border-red-100">
+                      <div class="text-2xl font-black text-red-700" x-text="dashboard?.kubescape?.totalCritical || 0">
+                      </div>
+                      <div class="text-[9px] font-bold uppercase text-red-500 mt-1">Critical</div>
+                    </div>
+                    <div class="text-center p-4 bg-orange-50 rounded-2xl border border-orange-100">
+                      <div class="text-2xl font-black text-orange-700" x-text="dashboard?.kubescape?.totalHigh || 0">
+                      </div>
+                      <div class="text-[9px] font-bold uppercase text-orange-500 mt-1">High</div>
+                    </div>
+                    <div class="text-center p-4 bg-yellow-50 rounded-2xl border border-yellow-100">
+                      <div class="text-2xl font-black text-yellow-700" x-text="dashboard?.kubescape?.totalMedium || 0">
+                      </div>
+                      <div class="text-[9px] font-bold uppercase text-yellow-500 mt-1">Medium</div>
+                    </div>
+                    <div class="text-center p-4 bg-blue-50 rounded-2xl border border-blue-100">
+                      <div class="text-2xl font-black text-blue-700" x-text="dashboard?.kubescape?.totalLow || 0"></div>
+                      <div class="text-[9px] font-bold uppercase text-blue-500 mt-1">Low</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Top Vulnerable Workloads -->
+              <div class="metric-card overflow-hidden">
+                <div class="px-6 py-4 bg-gray-50 border-b border-gray-200">
+                  <h3 class="font-bold text-gray-900">Vulnerable Workloads</h3>
+                  <p class="text-xs text-gray-500 uppercase font-bold tracking-wider mt-1">Scanned by Kubescape</p>
+                </div>
+                <div class="overflow-x-auto custom-scrollbar" style="max-height: 400px;">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Workload</th>
+                        <th>Namespace</th>
+                        <th>Kind</th>
+                        <th class="text-center">Severity Distribution</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <template x-for="vuln in (dashboard?.kubescape?.vulnerabilities || [])" :key="vuln.workloadName">
+                        <tr>
+                          <td class="font-bold text-slate-800" x-text="vuln.workloadName"></td>
+                          <td>
+                            <span class="px-2 py-1 bg-slate-100 rounded text-xs font-bold text-slate-600"
+                              x-text="vuln.namespace"></span>
+                          </td>
+                          <td class="text-xs font-bold text-slate-500 uppercase tracking-wider"
+                            x-text="vuln.workloadKind"></td>
+                          <td class="text-center">
+                            <div class="flex items-center justify-center gap-1">
+                              <span x-show="vuln.criticalCount > 0"
+                                class="w-6 h-6 rounded bg-red-600 text-[10px] text-white flex items-center justify-center font-bold"
+                                x-text="vuln.criticalCount" title="Critical"></span>
+                              <span x-show="vuln.highCount > 0"
+                                class="w-6 h-6 rounded bg-orange-600 text-[10px] text-white flex items-center justify-center font-bold"
+                                x-text="vuln.highCount" title="High"></span>
+                              <span x-show="vuln.mediumCount > 0"
+                                class="w-6 h-6 rounded bg-yellow-500 text-[10px] text-white flex items-center justify-center font-bold"
+                                x-text="vuln.mediumCount" title="Medium"></span>
+                              <span x-show="vuln.lowCount > 0"
+                                class="w-6 h-6 rounded bg-blue-500 text-[10px] text-white flex items-center justify-center font-bold"
+                                x-text="vuln.lowCount" title="Low"></span>
+                              <span
+                                x-show="!vuln.criticalCount && !vuln.highCount && !vuln.mediumCount && !vuln.lowCount"
+                                class="text-xs text-green-600 font-bold">
+                                <i class="fas fa-check-circle"></i> Clean
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+            </section>
+
+
+            <!-- TRIVY SECURITY REPORT -->
+            <section x-show="dashboard?.trivy" x-cloak class="mt-12">
+              <div class="flex items-center justify-between mb-8">
+                <div>
+                  <h2 class="text-2xl font-bold text-gray-900 flex items-center gap-3">
+                    <i class="fas fa-shield-virus text-cyan-600"></i>
+                    Trivy Security Analysis
+                  </h2>
+                  <p class="text-sm text-gray-500 mt-1 font-medium">Deep application and configuration security scan</p>
+                </div>
+                <div class="flex items-center gap-4">
+                  <div
+                    class="flex items-center gap-2 text-xs font-bold text-gray-500 uppercase tracking-widest bg-gray-50 px-3 py-2 rounded-lg border border-gray-100">
+                    <i class="fas fa-images text-cyan-500"></i>
+                    <span x-text="dashboard?.trivy?.summary?.uniqueImagesScanned || 0"></span> Images
+                  </div>
+                  <div
+                    class="flex items-center gap-2 text-xs font-bold text-gray-500 uppercase tracking-widest bg-gray-50 px-3 py-2 rounded-lg border border-gray-100">
+                    <i class="fas fa-folder text-purple-500"></i>
+                    <span x-text="dashboard?.trivy?.summary?.namespacesCovered || 0"></span> Namespaces
+                  </div>
+                </div>
+              </div>
+
+              <!-- Top Metrics -->
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
+                <!-- Critical Vulns -->
+                <div
+                  class="metric-card p-6 border-l-4 border-red-500 bg-white shadow-sm hover:shadow-md transition-all">
+                  <div class="flex justify-between items-start mb-4">
+                    <div class="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center text-red-600">
+                      <i class="fas fa-biohazard text-xl"></i>
+                    </div>
+                    <span
+                      class="text-[10px] font-bold text-red-600 uppercase tracking-widest bg-red-50 px-2 py-1 rounded">Immediate
+                      Action</span>
+                  </div>
+                  <div class="text-3xl font-black text-gray-900" x-text="dashboard?.trivy?.summary?.totalCritical || 0">
+                  </div>
+                  <div class="text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">Critical Vulnerabilities
+                  </div>
+                </div>
+
+                <!-- High Vulns -->
+                <div
+                  class="metric-card p-6 border-l-4 border-orange-500 bg-white shadow-sm hover:shadow-md transition-all">
+                  <div class="flex justify-between items-start mb-4">
+                    <div class="w-10 h-10 rounded-xl bg-orange-50 flex items-center justify-center text-orange-600">
+                      <i class="fas fa-exclamation-circle text-xl"></i>
+                    </div>
+                    <span
+                      class="text-[10px] font-bold text-orange-600 uppercase tracking-widest bg-orange-50 px-2 py-1 rounded">High
+                      Priority</span>
+                  </div>
+                  <div class="text-3xl font-black text-gray-900" x-text="dashboard?.trivy?.summary?.totalHigh || 0">
+                  </div>
+                  <div class="text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">High Vulnerabilities</div>
+                </div>
+
+                <!-- Exposed Secrets -->
+                <div
+                  class="metric-card p-6 border-l-4 border-amber-500 bg-white shadow-sm hover:shadow-md transition-all">
+                  <div class="flex justify-between items-start mb-4">
+                    <div class="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center text-amber-600">
+                      <i class="fas fa-key text-xl"></i>
+                    </div>
+                    <span
+                      class="text-[10px] font-bold text-amber-600 uppercase tracking-widest bg-amber-50 px-2 py-1 rounded">Leak
+                      Risk</span>
+                  </div>
+                  <div class="text-3xl font-black text-gray-900"
+                    x-text="dashboard?.trivy?.summary?.totalExposedSecrets || 0"></div>
+                  <div class="text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">Exposed Secrets</div>
+                </div>
+
+                <!-- Config Failures -->
+                <div
+                  class="metric-card p-6 border-l-4 border-purple-500 bg-white shadow-sm hover:shadow-md transition-all">
+                  <div class="flex justify-between items-start mb-4">
+                    <div class="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center text-purple-600">
+                      <i class="fas fa-cog text-xl"></i>
+                    </div>
+                    <span
+                      class="text-[10px] font-bold text-purple-600 uppercase tracking-widest bg-purple-50 px-2 py-1 rounded">Misconfigured</span>
+                  </div>
+                  <div class="text-3xl font-black text-gray-900"
+                    x-text="dashboard?.trivy?.summary?.totalConfigAuditFailures || 0"></div>
+                  <div class="text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">Config Audit Failures</div>
+                </div>
+              </div>
+
+              <!-- Workload Table -->
+              <div class="metric-card overflow-hidden border border-gray-100 shadow-sm">
+                <div class="px-6 py-4 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
+                  <h3 class="font-bold text-gray-800 uppercase tracking-wider text-xs flex items-center gap-2">
+                    <i class="fas fa-list text-gray-400"></i>
+                    Workload Vulnerability Tracking
+                  </h3>
+                  <div class="flex items-center gap-2">
+                    <span class="flex h-2 w-2 relative">
+                      <span
+                        class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                      <span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                    </span>
+                    <div class="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                      Live: <span x-text="dashboard?.trivy?.workloads?.length || 0"></span> reports
+                    </div>
+                  </div>
+                </div>
+                <!-- FIXED: Increased max-height for better visibility -->
+                <div class="overflow-x-auto custom-scrollbar" style="max-height: 600px;">
+                  <table class="data-table">
+                    <thead class="bg-white sticky top-0 z-10">
+                      <tr>
+                        <th class="w-1/5">Workload</th>
+                        <th class="w-1/6">Namespace</th>
+                        <!-- FIXED: Added explicit width to image column -->
+                        <th class="w-1/4">Container Image</th>
+                        <th class="text-center w-1/6">Severity</th>
+                        <th class="text-right w-1/6">Last Scan</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-50">
+                      <template x-for="workload in (dashboard?.trivy?.workloads || [])"
+                        :key="workload.name + workload.image">
+                        <tr class="hover:bg-cyan-50/30 transition-colors group">
+                          <td class="align-top py-3">
+                            <div class="flex flex-col">
+                              <div class="flex items-center gap-2">
+                                <span class="font-bold text-slate-800 text-sm" x-text="workload.name"></span>
+                              </div>
+                              <span class="text-[9px] font-black text-gray-400 uppercase tracking-widest mt-0.5"
+                                x-text="workload.kind"></span>
+                            </div>
+                          </td>
+                          <td class="align-top py-3">
+                            <span
+                              class="px-2 py-0.5 bg-slate-100 rounded text-[10px] font-bold text-slate-600 border border-slate-200"
+                              x-text="workload.namespace"></span>
+                          </td>
+                          <td class="align-top py-3">
+                            <div class="flex flex-col max-w-[250px]">
+                              <span class="text-xs font-mono font-medium text-cyan-700 truncate" x-text="workload.image"
+                                :title="workload.image"></span>
+                              <span class="text-[10px] text-gray-400 font-mono mt-0.5 truncate" x-text="workload.tag"
+                                :title="workload.tag"></span>
+                            </div>
+                          </td>
+                          <td class="align-top py-3 text-center">
+                            <div class="flex flex-col gap-1 items-center">
+                              <div class="flex items-center gap-2">
+                                <div x-show="workload.critical > 0"
+                                  class="flex items-center gap-1.5 px-2 py-0.5 bg-red-100 text-red-700 rounded-full border border-red-200">
+                                  <span class="text-[10px] font-black" x-text="workload.critical"></span>
+                                  <span class="text-[8px] font-bold uppercase">Crit</span>
+                                </div>
+                                <div x-show="workload.high > 0"
+                                  class="flex items-center gap-1.5 px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full border border-orange-200">
+                                  <span class="text-[10px] font-black" x-text="workload.high"></span>
+                                  <span class="text-[8px] font-bold uppercase">High</span>
+                                </div>
+                              </div>
+                              <div class="flex items-center gap-2 mt-0.5"
+                                x-show="workload.medium > 0 || workload.low > 0">
+                                <span class="text-[9px] text-gray-500 font-medium">
+                                  <span x-text="workload.medium"></span> Med, <span x-text="workload.low"></span> Low
+                                </span>
+                              </div>
+                              <div
+                                x-show="workload.critical == 0 && workload.high == 0 && workload.medium == 0 && workload.low == 0"
+                                class="text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
+                                <i class="fas fa-check-circle text-[10px] mr-1"></i> <span
+                                  class="text-[9px] font-bold uppercase">Clean</span>
+                              </div>
+                            </div>
+                          </td>
+                          <td class="align-top py-3 text-right">
+                            <div class="flex flex-col items-end">
+                              <span class="text-[10px] font-bold text-gray-600"
+                                x-text="new Date(workload.lastScanTime).toLocaleDateString()"></span>
+                              <span class="text-[9px] text-gray-400"
+                                x-text="new Date(workload.lastScanTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})"></span>
+                            </div>
+                          </td>
+                        </tr>
+                      </template>
+
+                      <tr x-show="!dashboard?.trivy?.workloads?.length">
+                        <td colspan="5" class="text-center py-10 text-gray-400">
+                          <i class="fas fa-search text-3xl mb-2 opacity-20"></i>
+                          <p class="text-xs font-bold uppercase tracking-widest">No reports found in cluster</p>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+
+            <!-- Recent Security Alerts -->
+            <section>
+              <h2 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
+                <i class="fas fa-exclamation-triangle text-amber-600"></i>
+                Recent Security Alerts
+              </h2>
+
+              <div class="metric-card overflow-hidden">
+                <div class="overflow-x-auto custom-scrollbar" style="max-height: 600px;">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Priority</th>
+                        <th>Rule</th>
+                        <th>Pod</th>
+                        <th>Namespace</th>
+                        <th class="text-right">Count</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <template x-for="alert in getSortedAlertsByPriority()" :key="alert.rule + alert.pod">
+                        <tr :class="{
+                          'bg-red-50/30': alert.priority === 'CRITICAL' || alert.priority === '4',
+                          'bg-orange-50/30': alert.priority === 'WARNING' || alert.priority === '3'
+                        }">
+                          <td class="px-6 py-4">
+                            <span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-tighter"
+                              :class="{
+                              'bg-red-100 text-red-700': alert.priority === 'CRITICAL' || alert.priority === '4',
+                              'bg-orange-100 text-orange-700': alert.priority === 'WARNING' || alert.priority === '3',
+                              'bg-blue-100 text-blue-700': alert.priority === 'INFO' || alert.priority === '2' || alert.priority === '1'
+                            }">
+                              <i class="fas mr-1" :class="{
+                                'fa-radiation': alert.priority === 'CRITICAL' || alert.priority === '4',
+                                'fa-exclamation-triangle': alert.priority === 'WARNING' || alert.priority === '3',
+                                'fa-info-circle': alert.priority === 'INFO' || alert.priority === '2' || alert.priority === '1'
+                              }"></i>
+                              <span
+                                x-text="alert.priority === '4' ? 'Critical' : alert.priority === '3' ? 'Warning' : alert.priority === '2' || alert.priority === '1' ? 'Info' : alert.priority"></span>
+                            </span>
+                          </td>
+                          <td class="px-6 py-4 font-medium text-gray-900" x-text="alert.rule"></td>
+                          <td class="px-6 py-4 text-gray-600" x-text="alert.pod"></td>
+                          <td class="px-6 py-4 text-gray-600" x-text="alert.namespace"></td>
+                          <td class="px-6 py-4 text-right">
+                            <span class="font-bold text-gray-900" x-text="alert.count"></span>
+                          </td>
+                        </tr>
+                      </template>
+                      <tr x-show="!(dashboard?.securityMetrics?.alerts?.length)">
+                        <td colspan="5" class="text-center py-12 text-gray-500">
+                          <i class="fas fa-shield-check text-green-500 text-5xl mb-4"></i>
+                          <p class="font-semibold text-lg">No security alerts</p>
+                          <p class="text-sm">Your cluster security posture is healthy</p>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <!-- Error State -->
+          <div x-show="error" x-cloak class="metric-card p-12 text-center">
+            <i class="fas fa-exclamation-triangle text-red-500 text-6xl mb-4"></i>
+            <h3 class="text-2xl font-bold text-gray-900 mb-2">Failed to Load Dashboard</h3>
+            <p class="text-gray-600 mb-6" x-text="error"></p>
+            <button @click="refresh()"
+              class="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg font-semibold shadow-md hover:shadow-lg transition-all">
+              <i class="fas fa-redo-alt mr-2"></i>
+              Try Again
+            </button>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+
+
+    function karpenterSetup() {
+      return {
+        // State
+        showKarpenterModal: false,
+        karpenterStatus: null,
+        karpenterCheckingStatus: false,
+        karpenterError: null,
+        karpenterInstallingInProgress: false,
+        karpenterConfiguringInProgress: false,
+
+        // Config Data
+        karpenterConfig: {
+          useSpot: true,
+          instanceFamilies: ['t3'],
+          ttlSecondsAfterEmpty: 30,
+          ttlSecondsUntilExpired: 2592000,
+          consolidationEnabled: true,
+          nodePoolName: 'default-pool',
+          ec2NodeClassName: 'default'
+        },
+
+        // Methods
+        canInstallKarpenter() {
+          return this.karpenterStatus &&
+            this.karpenterStatus.oidcReady &&
+            this.karpenterStatus.cloudFormationReady &&
+            this.karpenterStatus.userHasPermission &&
+            !this.karpenterStatus.karpenterInstalled;
+        },
+
+        getKarpenterButtonTooltip() {
+          if (!this.karpenterStatus) return 'Click to check status';
+          if (this.karpenterStatus.karpenterInstalled) return 'Configure NodePools';
+          return 'Install Karpenter';
+        },
+
+        async checkKarpenterStatus() {
+          this.karpenterCheckingStatus = true;
+          this.karpenterError = null;
+          try {
+            const response = await fetch(
+              `/api/karpenter/status?accountId=${this.selectedAccountId}&clusterName=${this.clusterName}&region=${this.region}`
+            );
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            this.karpenterStatus = await response.json();
+          } catch (error) {
+            console.error('Status check failed:', error);
+            this.karpenterError = 'Failed to check status: ' + error.message;
+          } finally {
+            this.karpenterCheckingStatus = false;
+          }
+        },
+
+        async installKarpenter() {
+          this.karpenterInstallingInProgress = true;
+          this.karpenterError = null;
+          try {
+            const response = await fetch('/api/karpenter/install', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                accountId: this.selectedAccountId,
+                clusterName: this.clusterName,
+                region: this.region,
+                roleArn: `arn:aws:iam::${this.selectedAccountId}:role/KarpenterControllerRole-${this.clusterName}`
+              })
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              throw new Error(errorText || 'Installation failed');
+            }
+
+            await this.checkKarpenterStatus(); // Refresh status
+            alert('Karpenter installed successfully!');
+          } catch (error) {
+            this.karpenterError = 'Installation failed: ' + error.message;
+          } finally {
+            this.karpenterInstallingInProgress = false;
+          }
+        },
+
+        async saveKarpenterConfig() {
+          this.karpenterConfiguringInProgress = true;
+          this.karpenterError = null;
+          try {
+            const response = await fetch('/api/karpenter/configure', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                accountId: this.selectedAccountId,
+                clusterId: this.clusterName,
+                region: this.region,
+                ...this.karpenterConfig
+              })
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              throw new Error(errorText || 'Configuration failed');
+            }
+
+            alert('Configuration saved successfully!');
+            this.showKarpenterModal = false;
+          } catch (error) {
+            this.karpenterError = 'Configuration failed: ' + error.message;
+          } finally {
+            this.karpenterConfiguringInProgress = false;
+          }
+        }
+      };
+    }
+
+    function eksDashboard() {
+      return {
+        ...karpenterSetup(), // <--- Merge here
+
+        dashboard: null,
+        loading: true,
+        error: null,
+        activeTab: 'monitoring',
+        clusterName: '',
+        selectedAccountId: null,
+        region: '',
+        lastUpdateTimestamp: Date.now(),
+
+        init() {
+          const urlParams = new URLSearchParams(window.location.search);
+          this.clusterName = urlParams.get('name');
+          this.region = urlParams.get('region') || 'us-east-1';
+          this.clusterVersion = urlParams.get('version') || '1.33';
+          const storedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+          this.selectedAccountId = storedIds.length > 0 ? storedIds[0] : null;
+
+          if (!this.selectedAccountId || !this.clusterName) {
+            this.error = 'Missing required parameters: accountId or clusterName';
+            this.loading = false;
+            return;
+          }
+
+
+          this.fetchDashboard();
+
+          // Auto-refresh every 30 seconds
+          setInterval(() => {
+            if (!this.loading) {
+              this.fetchDashboard(true);
+            }
+          }, 30000);
+        },
+
+        async fetchDashboard(silent = false) {
+          if (!silent) this.loading = true;
+          this.error = null;
+
+          try {
+            const response = await fetch(
+              `/api/xamops/eks/${this.clusterName}/dashboard?accountId=${this.selectedAccountId}&region=${this.region}&version=${this.clusterVersion}`
+            );
+
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            this.dashboard = await response.json();
+            this.lastUpdateTimestamp = Date.now();
+            console.log('📊 Dashboard loaded:', this.dashboard);
+            console.log('🛡️ Kubescape data:', this.dashboard.kubescape);
+            if (!this.dashboard.kubescape) {
+              console.warn('⚠️ Kubescape is NULL in dashboard response!');
+            }
+          } catch (err) {
+            console.error('❌ Error fetching dashboard:', err);
+            this.error = err.message;
+          } finally {
+            this.loading = false;
+          }
+        },
+
+        refresh() {
+          this.fetchDashboard();
+        },
+
+        // Health determination logic
+        getClusterHealth() {
+          if (!this.dashboard) return 'healthy';
+
+          const cpu = this.dashboard.clusterOverview?.cpuUsagePercent || 0;
+          const memory = this.dashboard.clusterOverview?.memoryUsagePercent || 0;
+          const events = this.dashboard.securityMetrics?.eventsByPriority || {};
+          const criticalAlerts = events['CRITICAL'] || events['high'] || 0;
+
+          if (cpu >= 85 || memory >= 85 || criticalAlerts > 0) return 'at-risk';
+          if (cpu >= 70 || memory >= 70) return 'degraded';
+          return 'healthy';
+        },
+
+        getLastUpdateTime() {
+          const seconds = Math.floor((Date.now() - this.lastUpdateTimestamp) / 1000);
+          if (seconds < 60) return `${seconds}s ago`;
+          const minutes = Math.floor(seconds / 60);
+          if (minutes < 60) return `${minutes}m ago`;
+          return 'recently';
+        },
+
+        getCpuColor() {
+          const cpu = this.dashboard?.clusterOverview?.cpuUsagePercent || 0;
+          if (cpu >= 85) return '#dc2626';
+          if (cpu >= 70) return '#f59e0b';
+          return '#10b981';
+        },
+
+        getMemoryColor() {
+          const memory = this.dashboard?.clusterOverview?.memoryUsagePercent || 0;
+          if (memory >= 85) return '#dc2626';
+          if (memory >= 70) return '#f59e0b';
+          return '#10b981';
+        },
+
+        getCostEfficiency() {
+          const cpu = this.dashboard?.clusterOverview?.cpuUsagePercent || 0;
+          const memory = this.dashboard?.clusterOverview?.memoryUsagePercent || 0;
+          return Math.round((cpu + memory) / 2);
+        },
+
+        getIdleCostPercentage() {
+          const efficiency = this.getCostEfficiency();
+          return Math.max(0, 100 - efficiency);
+        },
+
+        getSortedNodesByCost() {
+          const costNodes = this.dashboard?.costMetrics?.nodeCosts || [];
+          const resourceNodes = this.dashboard?.resourceUtilization?.nodes || [];
+
+          // Create index for quick lookup
+          const resourceIndex = resourceNodes.reduce((acc, node) => {
+            acc[node.nodeName] = node;
+            return acc;
+          }, {});
+
+          return costNodes.map(node => ({
+            ...node,
+            // Merge cpuUsagePercent from resourceUtilization if available
+            cpuUsagePercent: node.cpuUsagePercent || resourceIndex[node.nodeName]?.cpuUsagePercent || 0
+          })).sort((a, b) => (b.hourlyRate || 0) - (a.hourlyRate || 0));
+        },
+
+        getSortedNodesByPressure() {
+          const nodes = this.dashboard?.resourceUtilization?.nodes || [];
+          return [...nodes].sort((a, b) => {
+            const pressureA = Math.max(a.cpuUsagePercent, a.memoryUsagePercent);
+            const pressureB = Math.max(b.cpuUsagePercent, b.memoryUsagePercent);
+            return pressureB - pressureA;
+          });
+        },
+
+        getPodsCountByPhase(phase) {
+          const pods = this.dashboard?.workloadHealth?.pods || [];
+          return pods.filter(p => p.phase === phase).length;
+        },
+
+        hasAnomalousContainers(pod) {
+          if (!pod.containers) return false;
+
+          return Object.values(pod.containers).some(c => {
+            return (c.cpuUsage > 100) || (c.memoryUsage > 500);
+          });
+        },
+
+        getSecurityStatus() {
+          let status = 'safe';
+
+          // Check Falco events
+          if (this.dashboard?.securityMetrics?.eventsByPriority) {
+            const events = this.dashboard.securityMetrics.eventsByPriority;
+            const critical = events['CRITICAL'] || events['4'] || events['high'] || 0;
+            const warning = events['WARNING'] || events['3'] || events['medium'] || 0;
+
+            if (critical > 0) status = 'critical';
+            else if (warning > 3) status = 'warning';
+          }
+
+          // Check Kubescape vulnerabilities
+          if (this.dashboard?.kubescape) {
+            const k = this.dashboard.kubescape;
+            if ((k.totalCritical || 0) > 0 || (k.totalHigh || 0) > 0) {
+              status = 'critical';
+            } else if (status === 'safe' && (k.totalMedium || 0) > 5) {
+              status = 'warning';
+            }
+          }
+
+          return status;
+        },
+
+        getSortedAlertsByPriority() {
+          const alerts = this.dashboard?.securityMetrics?.alerts || [];
+          const priorityOrder = { 'CRITICAL': 0, '4': 0, 'WARNING': 1, '3': 1, 'INFO': 2, '2': 2, '1': 2 };
+          return [...alerts].sort((a, b) => {
+            const pA = priorityOrder[a.priority] !== undefined ? priorityOrder[a.priority] : 99;
+            const pB = priorityOrder[b.priority] !== undefined ? priorityOrder[b.priority] : 99;
+            if (pA !== pB) return pA - pB;
+            return (b.count || 0) - (a.count || 0);
+          });
+        }
+      };
+    }
+  </script>
+
+
+  <!-- Karpenter Autoscaling Modal -->
+  <div x-show="showKarpenterModal" x-cloak class="fixed inset-0 z-50 overflow-y-auto"
+    @keydown.escape.window="showKarpenterModal = false">
+
+    <div class="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+      <div x-show="showKarpenterModal" x-transition:enter="ease-out duration-300" x-transition:enter-start="opacity-0"
+        x-transition:enter-end="opacity-100" x-transition:leave="ease-in duration-200"
+        x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+        class="fixed inset-0 transition-opacity bg-gray-900 bg-opacity-75 backdrop-blur-sm"
+        @click="showKarpenterModal = false"></div>
+
+      <span class="hidden sm:inline-block sm:align-middle sm:h-screen">&#8203;</span>
+
+      <div x-show="showKarpenterModal" x-transition:enter="ease-out duration-300"
+        x-transition:enter-start="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
+        x-transition:enter-end="opacity-100 translate-y-0 sm:scale-100" x-transition:leave="ease-in duration-200"
+        x-transition:leave-start="opacity-100 translate-y-0 sm:scale-100"
+        x-transition:leave-end="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
+        class="inline-block align-bottom bg-white rounded-2xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle sm:max-w-2xl sm:w-full border border-gray-100">
+
+        <div class="bg-gradient-to-r from-emerald-600 to-teal-600 px-6 py-5">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+              <div class="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
+                <i class="fas fa-rocket text-white text-xl"></i>
+              </div>
+              <div>
+                <h3 class="text-xl font-bold text-white">Karpenter Autoscaling</h3>
+                <p class="text-emerald-100 text-xs">High-performance Kubernetes provisioning</p>
+              </div>
+            </div>
+            <button @click="showKarpenterModal = false" class="text-white/80 hover:text-white transition-colors">
+              <i class="fas fa-times text-xl"></i>
+            </button>
+          </div>
+        </div>
+
+        <div class="px-8 py-6">
+          <div x-show="karpenterCheckingStatus" class="text-center py-12">
+            <div
+              class="inline-block animate-spin rounded-full h-10 w-10 border-4 border-emerald-100 border-t-emerald-600 mb-4">
+            </div>
+            <p class="text-gray-600 font-medium">Analyzing cluster prerequisites...</p>
+          </div>
+
+          <div x-show="!karpenterCheckingStatus && karpenterStatus" class="space-y-6">
+
+            <div class="space-y-3">
+              <div class="flex items-center justify-between p-4 rounded-xl border"
+                :class="karpenterStatus.oidcReady ? 'bg-emerald-50/50 border-emerald-100' : 'bg-red-50/50 border-red-100'">
+                <div class="flex items-center gap-3">
+                  <div class="w-8 h-8 rounded-full flex items-center justify-center"
+                    :class="karpenterStatus.oidcReady ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'">
+                    <i class="fas" :class="karpenterStatus.oidcReady ? 'fa-check' : 'fa-times'"></i>
+                  </div>
+                  <div>
+                    <h4 class="font-semibold text-gray-900">OIDC Provider</h4>
+                    <p class="text-xs text-gray-500"
+                      x-text="karpenterStatus.oidcReady ? 'Enabled on EKS cluster' : 'Must be enabled in AWS Console'">
+                    </p>
+                  </div>
+                </div>
+                <span x-show="!karpenterStatus.oidcReady"
+                  class="text-xs font-bold text-red-600 bg-red-100 px-2 py-1 rounded">ACTION REQUIRED</span>
+              </div>
+
+              <div class="flex items-center justify-between p-4 rounded-xl border"
+                :class="karpenterStatus.cloudFormationReady ? 'bg-emerald-50/50 border-emerald-100' : 'bg-amber-50/50 border-amber-100'">
+                <div class="flex items-center gap-3">
+                  <div class="w-8 h-8 rounded-full flex items-center justify-center"
+                    :class="karpenterStatus.cloudFormationReady ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'">
+                    <i class="fas" :class="karpenterStatus.cloudFormationReady ? 'fa-check' : 'fa-layer-group'"></i>
+                  </div>
+                  <div>
+                    <h4 class="font-semibold text-gray-900">IAM Roles</h4>
+                    <p class="text-xs text-gray-500"
+                      x-text="karpenterStatus.cloudFormationReady ? 'Roles configured via CloudFormation' : 'Waiting for CloudFormation stack'">
+                    </p>
+                  </div>
+                </div>
+                <a href="/spot-automation.html" x-show="!karpenterStatus.cloudFormationReady"
+                  class="text-xs font-bold text-amber-700 bg-amber-100 px-3 py-1.5 rounded hover:bg-amber-200 transition-colors">
+                  DEPLOY ROLES
+                </a>
+              </div>
+            </div>
+
+            <div class="p-4 rounded-lg text-sm font-medium text-center" :class="{
+                              'bg-blue-50 text-blue-700': canInstallKarpenter(),
+                              'bg-gray-50 text-gray-600': karpenterStatus.karpenterInstalled,
+                              'bg-red-50 text-red-700': !canInstallKarpenter() && !karpenterStatus.karpenterInstalled
+                          }" x-text="karpenterStatus.message">
+            </div>
+
+            <div x-show="canInstallKarpenter() && !karpenterStatus.karpenterInstalled"
+              class="pt-4 border-t border-gray-100">
+              <button @click="installKarpenter()" :disabled="karpenterInstallingInProgress"
+                class="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow-lg shadow-emerald-100 transition-all flex items-center justify-center gap-3 disabled:opacity-70 disabled:cursor-not-allowed">
+                <i class="fas" :class="karpenterInstallingInProgress ? 'fa-spinner fa-spin' : 'fa-download'"></i>
+                <span
+                  x-text="karpenterInstallingInProgress ? 'Deploying Karpenter...' : 'Install Karpenter Agent'"></span>
+              </button>
+            </div>
+
+            <div x-show="karpenterStatus.karpenterInstalled" class="pt-4 border-t border-gray-100">
+              <h4 class="text-sm font-bold text-gray-900 uppercase tracking-wider mb-4">NodePool Configuration</h4>
+
+              <div class="space-y-4">
+                <div class="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-200">
+                  <div>
+                    <div class="font-bold text-gray-900">Use Spot Instances</div>
+                    <div class="text-xs text-gray-500">Save up to 90% on compute costs</div>
+                  </div>
+                  <div class="relative inline-block w-12 align-middle select-none">
+                    <input type="checkbox" x-model="karpenterConfig.useSpot" id="toggle-spot"
+                      class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer transition-all duration-300"
+                      :class="karpenterConfig.useSpot ? 'right-0 border-emerald-500' : 'left-0 border-gray-300'" />
+                    <label for="toggle-spot"
+                      class="toggle-label block overflow-hidden h-6 rounded-full cursor-pointer transition-colors duration-300"
+                      :class="karpenterConfig.useSpot ? 'bg-emerald-500' : 'bg-gray-300'"></label>
+                  </div>
+                </div>
+
+                <div>
+                  <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Instance
+                    Family</label>
+                  <div
+                    class="p-3 bg-gray-100 text-gray-500 rounded-lg border border-gray-200 text-sm flex items-center justify-between cursor-not-allowed">
+                    <span>t3 (General Purpose)</span>
+                    <span class="text-xs bg-gray-200 px-2 py-1 rounded text-gray-600">Locked for POC</span>
+                  </div>
+                </div>
+
+                <div class="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-200">
+                  <div>
+                    <div class="font-bold text-gray-900">Aggressive Consolidation</div>
+                    <div class="text-xs text-gray-500">Automatically bin-pack pods to fewer nodes</div>
+                  </div>
+                  <div class="relative inline-block w-12 align-middle select-none">
+                    <input type="checkbox" x-model="karpenterConfig.consolidationEnabled" id="toggle-consolidation"
+                      class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer transition-all duration-300"
+                      :class="karpenterConfig.consolidationEnabled ? 'right-0 border-emerald-500' : 'left-0 border-gray-300'" />
+                    <label for="toggle-consolidation"
+                      class="toggle-label block overflow-hidden h-6 rounded-full cursor-pointer transition-colors duration-300"
+                      :class="karpenterConfig.consolidationEnabled ? 'bg-emerald-500' : 'bg-gray-300'"></label>
+                  </div>
+                </div>
+
+                <button @click="saveKarpenterConfig()" :disabled="karpenterConfiguringInProgress"
+                  class="w-full mt-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-70">
+                  <i class="fas" :class="karpenterConfiguringInProgress ? 'fa-spinner fa-spin' : 'fa-save'"></i>
+                  <span x-text="karpenterConfiguringInProgress ? 'Applying Config...' : 'Save Configuration'"></span>
+                </button>
+              </div>
+            </div>
+
+            <div x-show="karpenterError" class="p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
+              <i class="fas fa-exclamation-circle text-red-600 mt-0.5"></i>
+              <div class="text-sm text-red-700 font-medium" x-text="karpenterError"></div>
             </div>
           </div>
-        </section>
-
-        <script>
-          function eksDetails() {
-            return {
-              isLoading: true,
-              clusterName: "",
-              cluster: {},
-              activeTab: "nodes",
-              selectedAccountId: null,
-
-              nodes: [],
-              pods: [],
-              deployments: [],
-
-              // 🆕 NEW: Kubescape properties
-              kubescapeLoading: false,
-              kubescapeData: null,
-
-              // 🆕 NEW: Karpenter properties
-              karpenterLoading: false,
-              karpenterData: null,
-
-              alerts: [],
-              errorMessage: null,
-
-              cpuChart: null,
-              memoryChart: null,
-
-              init() {
-                const urlParams = new URLSearchParams(window.location.search);
-                this.clusterName = urlParams.get("name");
-
-                const storedIds = JSON.parse(
-                  sessionStorage.getItem("selectedAccountIds") || "[]"
-                );
-                if (storedIds.length > 0) this.selectedAccountId = storedIds[0];
-
-                this.fetchDetails();
-              },
-
-              // 🆕 NEW: Load Kubescape Data
-              async loadKubescapeData() {
-                if (this.kubescapeData) return; // Already loaded
-
-                this.kubescapeLoading = true;
-                try {
-                  const response = await fetch(
-                    `/api/xamops/k8s/security/kubescape?accountId=${this.selectedAccountId}&clusterName=${this.clusterName}`
-                  );
-
-                  if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                  }
-
-                  this.kubescapeData = await response.json();
-                  console.log('Kubescape data loaded:', this.kubescapeData);
-
-                } catch (error) {
-                  console.error('Failed to load Kubescape data:', error);
-                  this.kubescapeData = {
-                    overallComplianceScore: 0,
-                    vulnerabilities: [],
-                    totalCritical: 0,
-                    totalHigh: 0,
-                    totalMedium: 0,
-                    totalLow: 0,
-                    lastScanTime: 'Error loading data'
-                  };
-                } finally {
-                  this.kubescapeLoading = false;
-                }
-              },
-
-              // 🆕 NEW: Load Karpenter Data
-              async loadKarpenterData() {
-                if (this.karpenterData) return; // Already loaded
-
-                this.karpenterLoading = true;
-                try {
-                  const response = await fetch(
-                    `/api/xamops/k8s/security/karpenter?accountId=${this.selectedAccountId}&clusterName=${this.clusterName}`
-                  );
-
-                  if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                  }
-
-                  this.karpenterData = await response.json();
-                  console.log('Karpenter data loaded:', this.karpenterData);
-
-                } catch (error) {
-                  console.error('Failed to load Karpenter data:', error);
-                  this.karpenterData = {
-                    metrics: {},
-                    nodePools: [],
-                    nodeClaims: [],
-                    totalNodesCreated24h: 0,
-                    totalNodesTerminated24h: 0
-                  };
-                } finally {
-                  this.karpenterLoading = false;
-                }
-              },
-
-              async fetchDetails() {
-                this.isLoading = true;
-                this.errorMessage = null;
-
-                if (!this.selectedAccountId || !this.clusterName) {
-                  this.errorMessage = "Error: Account ID or Cluster Name is missing.";
-                  this.isLoading = false;
-                  return;
-                }
-
-                try {
-                  // 1. Fetch Cluster Details
-                  const detailsUrl = `/api/xamops/k8s/${this.clusterName}/details?accountId=${this.selectedAccountId}`;
-                  const clusterRes = await fetch(detailsUrl);
-                  if (clusterRes.ok) this.cluster = await clusterRes.json();
-
-                  // 2. Fetch Metrics
-                  const query = `?accountId=${this.selectedAccountId}&region=${this.cluster.region}`;
-                  const baseUrl = `/api/xamops/eks/${this.clusterName}`;
-
-                  const [nodesRes, podsRes, deploymentsRes, alertsRes] = await Promise.all([
-                    fetch(`${baseUrl}/nodes${query}`),
-                    fetch(`${baseUrl}/pods${query}`),
-                    fetch(`${baseUrl}/deployments${query}`),
-                    fetch(`${baseUrl}/security${query}`),
-                  ]);
-
-                  if (!nodesRes.ok) throw new Error(`Failed to fetch nodes`);
-
-                  this.nodes = await nodesRes.json();
-                  this.pods = podsRes.ok ? await podsRes.json() : [];
-                  this.deployments = deploymentsRes.ok ? await deploymentsRes.json() : [];
-                  this.alerts = alertsRes.ok ? await alertsRes.json() : [];
-
-                } catch (err) {
-                  console.error("Error fetching details:", err);
-                  this.errorMessage = `Failed to load data: ${err.message}`;
-                } finally {
-                  this.isLoading = false;
-                  this.$nextTick(() => {
-                    this.initCharts();
-                  });
-                }
-              },
-
-              initCharts() {
-                if (!this.nodes || this.nodes.length === 0) {
-                  console.warn("No nodes available to chart.");
-                  return;
-                }
-
-                const labels = this.nodes.map((n) => {
-                  const name = n.name || "Unknown";
-                  return name.replace(".compute.internal", "").replace(".ap-south-1", "");
-                });
-
-                const parsePercent = (val) => {
-                  if (val === null || val === undefined) return 0;
-                  return parseFloat(String(val).replace("%", "").trim()) || 0;
-                };
-
-                const cpuData = this.nodes.map((n) => parsePercent(n.cpuUsage));
-                const memoryData = this.nodes.map((n) => parsePercent(n.memUsage));
-
-                // ✅ MODERNIZED: Create animated gradient backgrounds
-                const createAnimatedGradient = (ctx, color1, color2) => {
-                  const gradient = ctx.createLinearGradient(0, 0, 400, 0);
-                  gradient.addColorStop(0, color1);
-                  gradient.addColorStop(1, color2);
-                  return gradient;
-                };
-
-                const cpuCanvas = document.getElementById("nodeCpuChart");
-                if (cpuCanvas) {
-                  const ctx = cpuCanvas.getContext("2d");
-                  if (this.cpuChart) this.cpuChart.destroy();
-
-                  this.cpuChart = new Chart(ctx, {
-                    type: "bar",
-                    data: {
-                      labels: labels,
-                      datasets: [{
-                        label: "CPU Usage (%)",
-                        data: cpuData,
-                        backgroundColor: createAnimatedGradient(ctx,
-                          "rgba(99, 102, 241, 0.8)",
-                          "rgba(124, 58, 237, 0.9)"
-                        ),
-                        borderColor: "rgba(99, 102, 241, 1)",
-                        borderWidth: 2,
-                        borderRadius: 8,
-                        barPercentage: 0.7,
-                        hoverBackgroundColor: createAnimatedGradient(ctx,
-                          "rgba(99, 102, 241, 1)",
-                          "rgba(124, 58, 237, 1)"
-                        ),
-                      }],
-                    },
-                    options: this.getModernChartOptions("CPU", cpuData),
-                  });
-                }
-
-                const memCanvas = document.getElementById("nodeMemoryChart");
-                if (memCanvas) {
-                  const ctx = memCanvas.getContext("2d");
-                  if (this.memoryChart) this.memoryChart.destroy();
-
-                  this.memoryChart = new Chart(ctx, {
-                    type: "bar",
-                    data: {
-                      labels: labels,
-                      datasets: [{
-                        label: "Memory Usage (%)",
-                        data: memoryData,
-                        backgroundColor: createAnimatedGradient(ctx,
-                          "rgba(16, 185, 129, 0.8)",
-                          "rgba(5, 150, 105, 0.9)"
-                        ),
-                        borderColor: "rgba(16, 185, 129, 1)",
-                        borderWidth: 2,
-                        borderRadius: 8,
-                        barPercentage: 0.7,
-                        hoverBackgroundColor: createAnimatedGradient(ctx,
-                          "rgba(16, 185, 129, 1)",
-                          "rgba(5, 150, 105, 1)"
-                        ),
-                      }],
-                    },
-                    options: this.getModernChartOptions("Memory", memoryData),
-                  });
-                }
-              },
-
-              getModernChartOptions(type, data) {
-                const maxValue = Math.max(...data, 100);
-
-                return {
-                  indexAxis: "y",
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  animation: {
-                    duration: 1000,
-                    easing: 'easeInOutQuart',
-                    onComplete: function (animation) {
-                      animation.chart.options.plugins.legend.display = false;
-                    }
-                  },
-                  plugins: {
-                    legend: {
-                      display: false
-                    },
-                    tooltip: {
-                      enabled: true,
-                      backgroundColor: "rgba(17, 24, 39, 0.95)",
-                      titleColor: "#fff",
-                      bodyColor: "#e5e7eb",
-                      padding: 16,
-                      cornerRadius: 12,
-                      displayColors: false,
-                      titleFont: {
-                        size: 13,
-                        weight: '600',
-                        family: "'Inter', sans-serif"
-                      },
-                      bodyFont: {
-                        size: 15,
-                        weight: '700',
-                        family: "'Inter', sans-serif"
-                      },
-                      callbacks: {
-                        title: function (context) {
-                          return context[0].label;
-                        },
-                        label: function (context) {
-                          return `${type}: ${context.parsed.x.toFixed(2)}%`;
-                        },
-                      },
-                      boxShadow: '0 10px 40px rgba(0, 0, 0, 0.3)',
-                    },
-                  },
-                  interaction: {
-                    mode: 'nearest',
-                    intersect: false,
-                  },
-                  scales: {
-                    x: {
-                      beginAtZero: true,
-                      max: 100,
-                      grid: {
-                        color: "rgba(0, 0, 0, 0.04)",
-                        drawBorder: false,
-                        lineWidth: 1,
-                      },
-                      ticks: {
-                        callback: (v) => v + "%",
-                        color: "#6b7280",
-                        font: {
-                          size: 11,
-                          family: "'Inter', sans-serif"
-                        }
-                      },
-                      border: {
-                        display: false
-                      }
-                    },
-                    y: {
-                      grid: {
-                        display: false,
-                        drawBorder: false
-                      },
-                      ticks: {
-                        color: "#374151",
-                        font: {
-                          size: 12,
-                          weight: '500',
-                          family: "'Inter', sans-serif"
-                        },
-                        padding: 8
-                      },
-                      border: {
-                        display: false
-                      }
-                    },
-                  },
-                };
-              }
-            };
-          }
-        </script>
+        </div>
       </div>
     </div>
   </div>

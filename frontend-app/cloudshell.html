@@ -13,6 +13,20 @@
   <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
 
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+    * {
+      font-family: 'Inter', sans-serif;
+    }
+
+    .glass-header {
+      background: rgba(17, 24, 39, 0.7);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+  </style>
 </head>
 
 <body class="bg-gray-900 text-white h-screen overflow-hidden">
@@ -24,14 +38,52 @@
 
       <main id="main-content" class="flex-1 flex flex-col min-h-0 relative bg-gray-900">
 
-        <div class="bg-gray-800 px-6 py-4 flex items-center justify-between shadow-lg z-10 shrink-0">
-          <h1 class="text-xl font-bold flex items-center gap-3">
-            <i class="fas fa-terminal text-green-500"></i>
-            Cloud Shell
-          </h1>
-          <div id="connection-status"
-            class="px-3 py-1 rounded text-xs font-medium bg-yellow-600 transition-colors duration-300">
-            Connecting...
+        <!-- Top Navigation Bar -->
+        <header
+          class="bg-[#232f3e] border-b border-gray-700 px-4 py-3 flex justify-between items-center shrink-0 z-20 shadow-md">
+          <div class="flex items-center gap-4">
+            <div class="flex items-center gap-3 text-white">
+              <i class="fas fa-terminal text-orange-500 text-lg"></i>
+              <h1 class="text-lg font-bold tracking-tight">CloudShell</h1>
+            </div>
+            <div class="h-6 w-px bg-gray-600 mx-2"></div>
+            <div class="flex items-center gap-2 text-gray-300 text-sm">
+              <span class="font-medium text-white"
+                x-text="selectedAccountDisplay ? selectedAccountDisplay.name : 'Unknown Account'"></span>
+              <span class="text-xs text-gray-500"
+                x-text="selectedAccountDisplay ? '(' + selectedAccountDisplay.id + ')' : ''"></span>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-4">
+            <div id="connection-status"
+              class="px-3 py-1 rounded text-xs font-semibold bg-gray-800 text-gray-400 border border-gray-600 flex items-center gap-2">
+              <div class="w-1.5 h-1.5 rounded-full bg-gray-500"></div>
+              <span>Initializing...</span>
+            </div>
+
+            <div class="flex gap-2">
+              <!-- <button onclick="term && term.clear()"
+                class="text-gray-400 hover:text-white hover:bg-gray-700 p-2 rounded transition-colors"
+                title="Clear Terminal">
+                <i class="fas fa-eraser"></i>
+              </button> -->
+              <button onclick="window.location.href='/dashboard.html'"
+                class="bg-gray-700 hover:bg-gray-600 text-white px-4 py-1.5 rounded text-sm font-medium transition-colors border border-gray-600 flex items-center gap-2">
+                <i class="fas fa-sign-out-alt text-xs"></i>
+                Exit
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <!-- Tab/Toolbar Area -->
+        <div class="bg-[#161b22] px-4 py-1 flex items-center border-b border-gray-800 shrink-0">
+          <div
+            class="flex items-center bg-[#0d1117] border-t border-l border-r border-orange-500 text-white px-4 py-2 text-sm font-medium rounded-t-md relative -mb-1.5 z-10">
+            <i class="fab fa-linux mr-2 text-gray-400"></i>
+            <span>bash</span>
+            <span class="ml-2 w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
           </div>
         </div>
 
@@ -101,7 +153,7 @@
                 }
                 if (term) {
                   term.focus();
-                  term.writeln(`\r\n\x1b[32mSuccessfully connected to instance.\x1b[0m\r\n`);
+                  // Removed automatic connection message for cleaner UI
                 }
               };
 
@@ -140,24 +192,36 @@
 
               term = new Terminal({
                 cursorBlink: true,
-                cursorStyle: "block",
-                fontSize: 14,
-                fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+                cursorStyle: "bar",
+                fontSize: 13,
+                lineHeight: 1.0, // Reduced from 1.2 to remove gaps
+                letterSpacing: 0, // Ensure no extra spacing
+                fontFamily: 'Menlo, Monaco, "Courier New", monospace', // Simplified stack for consistency
+                convertEol: true,
                 theme: {
-                  background: "#0d1117",
-                  foreground: "#c9d1d9",
-                  cursor: "#58a6ff",
-                  selection: "#58a6ff33",
-                  black: "#000000",
+                  background: "#0d1117", // GitHub/AWS Dark Tone
+                  foreground: "#e6edf3",
+                  cursor: "#2f81f7",
+                  selection: "#264f78",
+                  black: "#484f58",
                   red: "#ff7b72",
                   green: "#3fb950",
                   yellow: "#d29922",
                   blue: "#58a6ff",
                   magenta: "#bc8cff",
                   cyan: "#39c5cf",
-                  white: "#d0d7de"
+                  white: "#b1bac4",
+                  brightBlack: "#6e7681",
+                  brightRed: "#ffa198",
+                  brightGreen: "#56d364",
+                  brightYellow: "#e3b341",
+                  brightBlue: "#79c0ff",
+                  brightMagenta: "#d2a8ff",
+                  brightCyan: "#56d4dd",
+                  brightWhite: "#f0f6fc"
                 },
                 scrollback: 10000,
+                allowProposedApi: true
               });
 
               fitAddon = new FitAddon.FitAddon();
