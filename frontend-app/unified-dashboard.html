@@ -1,0 +1,1011 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XamOps - Unified Command Center</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.7.5/proj4.js"></script>
+    <script src="https://code.highcharts.com/maps/highmaps.js"></script>
+    <script src="https://code.highcharts.com/maps/modules/exporting.js"></script>
+    <script src="https://code.highcharts.com/mapdata/custom/world.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #f3f4f6;
+            color: #1f2937;
+        }
+
+        [x-cloak] {
+            display: none !important;
+        }
+
+        .glass-card {
+            background: white;
+            border: 1px solid #e5e7eb;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            transition: all 0.2s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .glass-card:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Ticker Animation */
+        .ticker-wrap {
+            width: 100%;
+            overflow: hidden;
+            background-color: #1e1b4b;
+            color: white;
+            height: 40px;
+            display: flex;
+            align-items: center;
+        }
+
+        .ticker {
+            display: inline-block;
+            white-space: nowrap;
+            padding-right: 100%;
+            animation: ticker 45s linear infinite;
+        }
+
+        @keyframes ticker {
+            0% {
+                transform: translate3d(0, 0, 0);
+            }
+
+            100% {
+                transform: translate3d(-100%, 0, 0);
+            }
+        }
+
+        .ticker-item {
+            display: inline-block;
+            padding: 0 2rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        /* Professional Shimmer Effect */
+        .shimmer {
+            background: #f6f7f8;
+            background-image: linear-gradient(to right, #f6f7f8 0%, #edeef1 20%, #f6f7f8 40%, #f6f7f8 100%);
+            background-repeat: no-repeat;
+            background-size: 800px 100%;
+            animation: placeholderShimmer 1.5s linear infinite forwards;
+        }
+
+        @keyframes placeholderShimmer {
+            0% {
+                background-position: -468px 0;
+            }
+
+            100% {
+                background-position: 468px 0;
+            }
+        }
+
+        .fade-in {
+            animation: fadeIn 0.5s ease-out forwards;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+
+            to {
+                opacity: 1;
+            }
+        }
+
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+    </style>
+</head>
+
+<body class="antialiased text-gray-800 bg-gray-50">
+
+    <div id="appBody" class="flex h-screen overflow-hidden">
+        <include file="/_sidebar.html"></include>
+        <script>
+            document.addEventListener("DOMContentLoaded", function () {
+                document.querySelectorAll('include').forEach(el => {
+                    fetch(el.getAttribute('file'))
+                        .then(response => response.text())
+                        .then(data => { el.outerHTML = data; });
+                });
+            });
+        </script>
+
+        <div class="flex-1 flex flex-col pl-64 h-screen overflow-hidden">
+
+            <div class="ticker-wrap" x-data="{ messages: [] }"
+                x-init="messages = await (await fetch('/api/xamops/dashboard/unified/ticker')).json().catch(() => [])">
+                <div class="ticker">
+                    <template x-for="msg in messages">
+                        <span class="ticker-item">
+                            <i class="fas fa-circle text-[8px] text-green-400 mr-2 align-middle"></i>
+                            <span x-text="msg"></span>
+                        </span>
+                    </template>
+                    <span x-show="messages.length === 0" class="ticker-item">Unified Command Center Active - Monitoring
+                        Systems...</span>
+                </div>
+            </div>
+
+            <header
+                class="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-8 sticky top-0 z-20 shadow-sm">
+                <div class="flex items-center gap-3">
+                    <div
+                        class="w-8 h-8 bg-gradient-to-br from-indigo-600 to-purple-600 rounded-lg flex items-center justify-center text-white shadow-md">
+                        <i class="fas fa-layer-group"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-lg font-bold text-gray-900 tracking-tight">Unified Command Center</h1>
+                        <div class="flex items-center gap-2 text-xs text-gray-500">
+                            <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div> Live Overview
+                        </div>
+                    </div>
+                </div>
+                <div class="flex items-center gap-4" x-data>
+                    <div class="text-xs text-gray-400 flex items-center gap-1">
+                        <i class="far fa-clock"></i>
+                        <span x-text="$store.dashboard.lastUpdatedText">...</span>
+                    </div>
+                    <button @click="$dispatch('refresh-all')"
+                        class="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-600 bg-gray-50 hover:bg-white hover:shadow border border-gray-200 rounded-md transition-all active:scale-95"
+                        :disabled="$store.dashboard.isLoading.summary">
+                        <i class="fas fa-sync-alt" :class="{'animate-spin': $store.dashboard.isLoading.summary}"></i>
+                        Refresh
+                    </button>
+                </div>
+            </header>
+
+            <main class="flex-1 overflow-y-auto p-8 space-y-6 custom-scrollbar" x-data="unifiedDashboard()"
+                @refresh-all.window="fetchAll(true)">
+
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    <div class="glass-card rounded-xl p-6 relative group">
+                        <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Total MTD Cost</h3>
+                        <div x-show="!isLoading.summary" class="fade-in">
+                            <div class="flex items-end gap-2">
+                                <span class="text-3xl font-bold text-gray-900"
+                                    x-text="formatCurrency(getTotalCost())"></span>
+                                <span class="text-xs text-gray-500 mb-1">Global</span>
+                            </div>
+                            <div class="mt-4 h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
+                                <div class="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-1000"
+                                    :style="`width: ${getBudgetPercent()}%`"></div>
+                            </div>
+                            <div class="mt-2 text-xs text-gray-400 flex justify-between">
+                                <span>Projection</span>
+                                <span x-text="formatCurrency(getTotalForecast())"></span>
+                            </div>
+                        </div>
+                        <div x-show="isLoading.summary" class="animate-pulse space-y-4">
+                            <div class="h-8 w-32 bg-gray-200 shimmer rounded"></div>
+                            <div class="h-2 w-full bg-gray-200 shimmer rounded"></div>
+                        </div>
+                    </div>
+
+                    <div class="glass-card rounded-xl p-6">
+                        <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Budget Utilization
+                        </h3>
+                        <div x-show="!isLoading.summary" class="fade-in">
+                            <div class="flex items-center justify-between">
+                                <span class="text-3xl font-bold text-gray-900"
+                                    x-text="Math.round(getBudgetPercent()) + '%'"></span>
+                                <div class="w-10 h-10 rounded-full flex items-center justify-center"
+                                    :class="getBudgetPercent() > 90 ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'">
+                                    <i class="fas fa-chart-pie"></i>
+                                </div>
+                            </div>
+                            <p class="text-xs text-gray-400 mt-2">
+                                <span :class="getBudgetPercent() > 100 ? 'text-red-500' : 'text-green-500'">
+                                    <i class="fas" :class="getBudgetPercent() > 100 ? 'fa-arrow-up' : 'fa-check'"></i>
+                                    <span x-text="getBudgetPercent() > 100 ? 'Over Budget' : 'On Track'"></span>
+                                </span>
+                                vs Forecast
+                            </p>
+                        </div>
+                        <div x-show="isLoading.summary" class="animate-pulse space-y-4">
+                            <div class="h-8 w-24 bg-gray-200 shimmer rounded"></div>
+                            <div class="h-3 w-32 bg-gray-200 shimmer rounded"></div>
+                        </div>
+                    </div>
+
+                    <div class="glass-card rounded-xl p-6">
+                        <div class="flex justify-between items-center mb-2">
+                            <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider">Total Resources</h3>
+                            <button @click="openResourceBreakdown()"
+                                class="text-gray-400 hover:text-indigo-600 transition-colors" title="View Breakdown">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                        <div x-show="!isLoading.summary" class="fade-in">
+                            <div class="flex items-center justify-between">
+                                <span class="text-3xl font-bold text-gray-900"
+                                    x-text="formatNumber(summaryData.totalResources)"></span>
+                                <div class="flex -space-x-2">
+                                    <div
+                                        class="w-8 h-8 rounded-full bg-white flex items-center justify-center border border-gray-200 text-[#FF9900] text-sm shadow-sm z-30">
+                                        <i class="fab fa-aws"></i></div>
+                                    <div
+                                        class="w-8 h-8 rounded-full bg-white flex items-center justify-center border border-gray-200 text-[#4285F4] text-sm shadow-sm z-20">
+                                        <i class="fab fa-google"></i></div>
+                                    <div
+                                        class="w-8 h-8 rounded-full bg-white flex items-center justify-center border border-gray-200 text-[#0078D4] text-sm shadow-sm z-10">
+                                        <i class="fab fa-microsoft"></i></div>
+                                </div>
+                            </div>
+                            <p class="text-xs text-gray-400 mt-2">Active across <span
+                                    x-text="summaryData.totalAccounts">0</span> accounts</p>
+                        </div>
+                        <div x-show="isLoading.summary" class="animate-pulse space-y-4">
+                            <div class="h-8 w-24 bg-gray-200 shimmer rounded"></div>
+                            <div class="h-3 w-32 bg-gray-200 shimmer rounded"></div>
+                        </div>
+                    </div>
+
+                    <div class="glass-card rounded-xl p-6 border-l-4 border-l-green-500 cursor-pointer hover:bg-green-50/20 transition-colors"
+                        @click="window.location.href='/waste.html'">
+                        <div class="flex justify-between items-start mb-2">
+                            <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider">Potential Savings</h3>
+                            <div class="flex gap-2">
+                                <button @click.stop="openSavingsBreakdown()"
+                                    class="text-gray-400 hover:text-green-600 transition-colors" title="View Breakdown">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                                <div
+                                    class="bg-green-100 text-green-600 rounded-full w-6 h-6 flex items-center justify-center">
+                                    <i class="fas fa-arrow-down text-[10px]"></i>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="flex items-baseline gap-1" x-show="!isLoading.summary">
+                            <span class="text-3xl font-bold text-gray-900"
+                                x-text="formatCurrency(getTotalSavings())"></span>
+                        </div>
+                        <div x-show="isLoading.summary" class="h-8 w-32 bg-gray-200 shimmer rounded animate-pulse mb-1">
+                        </div>
+                        <p class="text-xs text-green-600 mt-1 font-medium">Optimization available</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    <div class="glass-card rounded-xl p-6">
+                        <div class="flex justify-between items-center mb-2">
+                            <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider">Total Waste</h3>
+                            <button @click="openWasteBreakdown()"
+                                class="text-gray-400 hover:text-indigo-600 transition-colors" title="View Breakdown">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                        <div x-show="!isLoading.summary" class="fade-in">
+                            <div class="flex items-center justify-between">
+                                <span class="text-3xl font-bold text-gray-900" x-text="getTotalWasteCount()"></span>
+                                <div
+                                    class="w-10 h-10 bg-orange-100 text-orange-600 rounded-lg flex items-center justify-center">
+                                    <i class="fas fa-trash-alt"></i>
+                                </div>
+                            </div>
+                            <p class="text-xs text-gray-400 mt-2">Idle Resources Detected</p>
+                        </div>
+                        <div x-show="isLoading.summary" class="h-8 w-24 bg-gray-200 shimmer rounded animate-pulse">
+                        </div>
+                    </div>
+
+                    <div class="glass-card rounded-xl p-6">
+                        <div class="flex justify-between items-center mb-2">
+                            <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider">Active Alerts</h3>
+                            <button @click="openAlertsBreakdown()"
+                                class="text-gray-400 hover:text-indigo-600 transition-colors" title="View Breakdown">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                        <div x-show="!isLoading.summary" class="fade-in">
+                            <div class="flex items-center justify-between">
+                                <span class="text-3xl font-bold text-gray-900" x-text="getTotalAlertsCount()"></span>
+                                <div
+                                    class="w-10 h-10 bg-red-100 text-red-600 rounded-lg flex items-center justify-center">
+                                    <i class="fas fa-bell"></i>
+                                </div>
+                            </div>
+                            <p class="text-xs text-red-500 mt-2 font-medium">Critical Issues</p>
+                        </div>
+                        <div x-show="isLoading.summary" class="h-8 w-24 bg-gray-200 shimmer rounded animate-pulse">
+                        </div>
+                    </div>
+
+                    <div class="glass-card rounded-xl p-6">
+                        <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Code Quality</h3>
+                        <div x-show="!isLoading.summary" class="fade-in">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <span class="text-3xl font-bold text-gray-900">A</span>
+                                    <span class="text-sm text-gray-500 ml-1">Rating</span>
+                                </div>
+                                <div
+                                    class="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-lg flex items-center justify-center">
+                                    <i class="fas fa-code"></i>
+                                </div>
+                            </div>
+                            <p class="text-xs text-gray-400 mt-2">Passed Gates: 98%</p>
+                        </div>
+                        <div x-show="isLoading.summary" class="h-8 w-24 bg-gray-200 shimmer rounded animate-pulse">
+                        </div>
+                    </div>
+
+                    <div class="glass-card rounded-xl p-6">
+                        <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Security Posture</h3>
+                        <div x-show="!isLoading.summary" class="flex items-center gap-4 fade-in">
+                            <div class="relative w-12 h-12 flex items-center justify-center">
+                                <svg class="w-full h-full transform -rotate-90">
+                                    <circle cx="24" cy="24" r="20" stroke="#f3f4f6" stroke-width="4"
+                                        fill="transparent" />
+                                    <circle cx="24" cy="24" r="20" stroke="currentColor" stroke-width="4"
+                                        fill="transparent" :class="getScoreColor(getAverageSecurityScore())"
+                                        :stroke-dasharray="125"
+                                        :stroke-dashoffset="125 - (125 * getAverageSecurityScore() / 100)"
+                                        class="transition-all duration-1000 ease-out" />
+                                </svg>
+                                <span class="absolute text-xs font-bold text-gray-700"
+                                    x-text="getAverageSecurityScore()"></span>
+                            </div>
+                            <div>
+                                <p class="text-sm font-medium text-gray-900" x-text="getSecurityLabel()"></p>
+                                <p class="text-xs text-gray-500">Global Compliance</p>
+                            </div>
+                        </div>
+                        <div x-show="isLoading.summary" class="animate-pulse flex gap-4 items-center">
+                            <div class="h-12 w-12 rounded-full bg-gray-200 shimmer"></div>
+                            <div class="h-4 w-20 bg-gray-200 shimmer rounded"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 min-h-[350px]">
+                    <div class="lg:col-span-2 glass-card rounded-xl p-6 flex flex-col">
+                        <h3 class="font-bold text-gray-800 mb-4">Multi-Cloud Spend Trend</h3>
+                        <div class="flex-1 relative w-full">
+                            <canvas id="stackedCostChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="glass-card rounded-xl p-6 flex flex-col">
+                        <h3 class="font-bold text-gray-800 mb-4">Provider Distribution</h3>
+                        <div class="flex-1 relative w-full flex items-center justify-center">
+                            <canvas id="providerDonutChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div
+                        class="glass-card rounded-xl p-5 flex flex-col h-full group hover:ring-2 hover:ring-yellow-400/50 transition-all">
+                        <div x-show="error.aws"
+                            class="absolute inset-0 z-10 bg-white/95 flex flex-col items-center justify-center text-center p-4">
+                            <p class="text-sm font-medium text-gray-800 mb-1">AWS Unavailable</p>
+                            <button @click="fetchProvider('aws', true)"
+                                class="px-4 py-2 text-xs font-medium bg-white border border-gray-300 rounded shadow-sm">Retry</button>
+                        </div>
+                        <div class="flex justify-between items-start mb-4">
+                            <div class="flex items-center gap-3">
+                                <div
+                                    class="w-10 h-10 bg-[#FF9900]/10 rounded-lg flex items-center justify-center text-[#FF9900]">
+                                    <i class="fab fa-aws text-2xl"></i></div>
+                                <div>
+                                    <h4 class="font-bold text-gray-800">AWS</h4>
+                                    <p class="text-xs text-gray-500" x-show="!isLoading.aws"
+                                        x-text="(summaryData.awsCount || 0) + ' Accounts'"></p>
+                                </div>
+                            </div>
+                        </div>
+                        <div x-show="!isLoading.aws && !error.aws" class="space-y-4 flex-1 fade-in">
+                            <div class="flex justify-between items-end border-b border-gray-100 pb-3">
+                                <span class="text-sm text-gray-500">Spend</span>
+                                <span class="text-xl font-bold text-gray-900"
+                                    x-text="formatCurrency(awsData?.selectedAccount?.monthToDateSpend)"></span>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2 text-xs">
+                                <div class="bg-gray-50 p-2 rounded">
+                                    <span class="block text-gray-400 mb-1">Resources</span>
+                                    <span class="font-semibold text-gray-700"
+                                        x-text="formatNumber(awsData?.selectedAccount?.resourceInventory?.totalCount)"></span>
+                                </div>
+                                <div class="bg-gray-50 p-2 rounded">
+                                    <span class="block text-gray-400 mb-1">Alerts</span>
+                                    <span class="font-semibold text-red-500"
+                                        x-text="awsData?.selectedAccount?.optimizationSummary?.criticalAlerts || 0"></span>
+                                </div>
+                            </div>
+                            <button @click="openBreakdown('AWS', awsData?.selectedAccount?.subAccounts)"
+                                class="w-full mt-2 py-2 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors">View
+                                Breakdown</button>
+                        </div>
+                        <div x-show="isLoading.aws" class="space-y-4 animate-pulse">
+                            <div class="h-14 bg-gray-200 shimmer rounded-lg"></div>
+                        </div>
+                    </div>
+
+                    <div
+                        class="glass-card rounded-xl p-5 flex flex-col h-full group hover:ring-2 hover:ring-blue-400/50 transition-all">
+                        <div x-show="error.gcp"
+                            class="absolute inset-0 z-10 bg-white/95 flex flex-col items-center justify-center text-center p-4">
+                            <p class="text-sm font-medium text-gray-800 mb-1">GCP Unavailable</p>
+                            <button @click="fetchProvider('gcp', true)"
+                                class="mt-2 px-4 py-2 text-xs font-medium bg-white border border-gray-300 rounded shadow-sm">Retry</button>
+                        </div>
+                        <div class="flex justify-between items-start mb-4">
+                            <div class="flex items-center gap-3">
+                                <div
+                                    class="w-10 h-10 bg-[#4285F4]/10 rounded-lg flex items-center justify-center text-[#4285F4]">
+                                    <i class="fab fa-google text-2xl"></i></div>
+                                <div>
+                                    <h4 class="font-bold text-gray-800">GCP</h4>
+                                    <p class="text-xs text-gray-500" x-show="!isLoading.gcp"
+                                        x-text="(summaryData.gcpCount || 0) + ' Projects'"></p>
+                                </div>
+                            </div>
+                        </div>
+                        <div x-show="!isLoading.gcp && !error.gcp" class="space-y-4 flex-1 fade-in">
+                            <div class="flex justify-between items-end border-b border-gray-100 pb-3">
+                                <span class="text-sm text-gray-500">Spend</span>
+                                <span class="text-xl font-bold text-gray-900"
+                                    x-text="formatCurrency(gcpData?.selectedAccount?.monthToDateSpend)"></span>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2 text-xs">
+                                <div class="bg-gray-50 p-2 rounded">
+                                    <span class="block text-gray-400 mb-1">Resources</span>
+                                    <span class="font-semibold text-gray-700"
+                                        x-text="formatNumber(gcpData?.selectedAccount?.resourceInventory?.totalCount)"></span>
+                                </div>
+                                <div class="bg-gray-50 p-2 rounded">
+                                    <span class="block text-gray-400 mb-1">Alerts</span>
+                                    <span class="font-semibold text-red-500"
+                                        x-text="gcpData?.selectedAccount?.optimizationSummary?.criticalAlerts || 0"></span>
+                                </div>
+                            </div>
+                            <button @click="openBreakdown('GCP', gcpData?.selectedAccount?.subAccounts)"
+                                class="w-full mt-2 py-2 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors">View
+                                Breakdown</button>
+                        </div>
+                        <div x-show="isLoading.gcp" class="space-y-4 animate-pulse">
+                            <div class="h-14 bg-gray-200 shimmer rounded-lg"></div>
+                        </div>
+                    </div>
+
+                    <div
+                        class="glass-card rounded-xl p-5 flex flex-col h-full group hover:ring-2 hover:ring-sky-400/50 transition-all">
+                        <div x-show="error.azure"
+                            class="absolute inset-0 z-10 bg-white/95 flex flex-col items-center justify-center text-center p-4">
+                            <p class="text-sm font-medium text-gray-800 mb-1">Azure Unavailable</p>
+                            <button @click="fetchProvider('azure', true)"
+                                class="mt-2 px-4 py-2 text-xs font-medium bg-white border border-gray-300 rounded shadow-sm">Retry</button>
+                        </div>
+                        <div class="flex justify-between items-start mb-4">
+                            <div class="flex items-center gap-3">
+                                <div
+                                    class="w-10 h-10 bg-[#0078D4]/10 rounded-lg flex items-center justify-center text-[#0078D4]">
+                                    <i class="fab fa-microsoft text-2xl"></i></div>
+                                <div>
+                                    <h4 class="font-bold text-gray-800">Azure</h4>
+                                    <p class="text-xs text-gray-500" x-show="!isLoading.azure"
+                                        x-text="(summaryData.azureCount || 0) + ' Subs'"></p>
+                                </div>
+                            </div>
+                        </div>
+                        <div x-show="!isLoading.azure && !error.azure" class="space-y-4 flex-1 fade-in">
+                            <div class="flex justify-between items-end border-b border-gray-100 pb-3">
+                                <span class="text-sm text-gray-500">Spend</span>
+                                <span class="text-xl font-bold text-gray-900"
+                                    x-text="formatCurrency(azureData?.selectedAccount?.monthToDateSpend)"></span>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2 text-xs">
+                                <div class="bg-gray-50 p-2 rounded">
+                                    <span class="block text-gray-400 mb-1">Resources</span>
+                                    <span class="font-semibold text-gray-700"
+                                        x-text="formatNumber(azureData?.selectedAccount?.resourceInventory?.totalCount)"></span>
+                                </div>
+                                <div class="bg-gray-50 p-2 rounded">
+                                    <span class="block text-gray-400 mb-1">Score</span>
+                                    <span class="font-semibold"
+                                        :class="getScoreColor(azureData?.selectedAccount?.securityScore)"
+                                        x-text="azureData?.selectedAccount?.securityScore || 'N/A'"></span>
+                                </div>
+                            </div>
+                            <button @click="openBreakdown('Azure', azureData?.selectedAccount?.subAccounts)"
+                                class="w-full mt-2 py-2 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors">View
+                                Breakdown</button>
+                        </div>
+                        <div x-show="isLoading.azure" class="space-y-4 animate-pulse">
+                            <div class="h-14 bg-gray-200 shimmer rounded-lg"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div x-show="showModal" class="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title"
+                    role="dialog" aria-modal="true" x-cloak>
+                    <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+                        <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity backdrop-blur-sm"
+                            @click="showModal = false"></div>
+                        <span class="hidden sm:inline-block sm:align-middle sm:h-screen"
+                            aria-hidden="true">&#8203;</span>
+                        <div
+                            class="inline-block align-bottom bg-white rounded-xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle sm:max-w-2xl w-full border border-gray-200">
+                            <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                                <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
+                                    <h3 class="text-lg leading-6 font-bold text-gray-900 flex items-center gap-2"
+                                        id="modal-title">
+                                        <i class="fas fa-layer-group text-indigo-600"></i>
+                                        <span x-text="activeProvider + ' Accounts Breakdown'"></span>
+                                    </h3>
+                                    <button @click="showModal = false"
+                                        class="text-gray-400 hover:text-gray-500 transition-colors w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100"><i
+                                            class="fas fa-times"></i></button>
+                                </div>
+                                <div class="mt-2 max-h-[60vh] overflow-y-auto custom-scrollbar">
+                                    <table class="min-w-full divide-y divide-gray-200">
+                                        <thead class="bg-gray-50 sticky top-0">
+                                            <tr>
+                                                <th
+                                                    class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                                    Account / ID</th>
+                                                <th x-show="viewMode === 'cost'"
+                                                    class="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                                    Spend (MTD)</th>
+                                                <th x-show="viewMode === 'cost'"
+                                                    class="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                                    Forecast</th>
+                                                <th x-show="viewMode === 'resource'"
+                                                    class="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                                    Resources</th>
+                                                <th x-show="viewMode === 'waste'"
+                                                    class="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                                    Waste Items</th>
+                                                <th x-show="viewMode === 'alerts'"
+                                                    class="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                                    Active Alerts</th>
+                                                <th x-show="viewMode === 'savings'"
+                                                    class="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                                    Potential Savings</th>
+                                                <th class="px-6 py-3"></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="bg-white divide-y divide-gray-100">
+                                            <template x-for="acc in activeAccountList" :key="acc.id">
+                                                <tr class="hover:bg-indigo-50/50 transition-colors">
+                                                    <td class="px-6 py-4 whitespace-nowrap">
+                                                        <div class="text-sm font-semibold text-gray-900"
+                                                            x-text="acc.name"></div>
+                                                        <div class="text-xs text-gray-500 font-mono" x-text="acc.id">
+                                                        </div>
+                                                    </td>
+
+                                                    <td x-show="viewMode === 'cost'"
+                                                        class="px-6 py-4 whitespace-nowrap text-right text-sm font-bold text-gray-900"
+                                                        x-text="formatCurrency(acc.monthToDateSpend)"></td>
+                                                    <td x-show="viewMode === 'cost'"
+                                                        class="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-500"
+                                                        x-text="formatCurrency(acc.forecastedSpend)"></td>
+
+                                                    <td x-show="viewMode === 'resource'"
+                                                        class="px-6 py-4 whitespace-nowrap text-right text-sm font-bold text-gray-900"
+                                                        x-text="formatNumber(acc.resourceInventory?.totalCount || acc.resourceCount || 0)">
+                                                    </td>
+
+                                                    <td x-show="viewMode === 'waste'"
+                                                        class="px-6 py-4 whitespace-nowrap text-right text-sm font-bold text-orange-600"
+                                                        x-text="acc.optimizationSummary?.criticalAlerts || 0"></td>
+
+                                                    <td x-show="viewMode === 'alerts'"
+                                                        class="px-6 py-4 whitespace-nowrap text-right text-sm font-bold text-red-600"
+                                                        x-text="acc.optimizationSummary?.criticalAlerts || 0"></td>
+
+                                                    <td x-show="viewMode === 'savings'"
+                                                        class="px-6 py-4 whitespace-nowrap text-right text-sm font-bold text-green-600"
+                                                        x-text="formatCurrency(acc.optimizationSummary?.totalPotentialSavings || 0)">
+                                                    </td>
+
+                                                    <td class="px-6 py-4 text-right whitespace-nowrap">
+                                                        <button @click="
+                                                                if(viewMode === 'resource') goToCloudList(acc.id);
+                                                                else if(viewMode === 'waste' || viewMode === 'savings') goToWaste(acc.id);
+                                                                else goToSingle(acc.id);
+                                                            "
+                                                            class="text-indigo-600 hover:text-indigo-900 text-xs font-bold border border-indigo-100 px-3 py-1 rounded hover:bg-indigo-50 transition-colors">Select</button>
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                            <tr x-show="!activeAccountList || activeAccountList.length === 0">
+                                                <td colspan="6" class="px-6 py-10 text-center text-gray-500">No account
+                                                    data available.</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </main>
+        </div>
+    </div>
+
+    <script>
+        let costChartInstance = null;
+        let providerDonutChartInstance = null;
+
+        document.addEventListener('alpine:init', () => {
+            Alpine.store('dashboard', {
+                isLoading: { summary: true },
+                lastUpdatedText: 'Checking...'
+            });
+
+            Alpine.data('unifiedDashboard', () => ({
+                isLoading: { summary: true, aws: true, gcp: true, azure: true, health: true },
+                error: { summary: null, aws: null, gcp: null, azure: null, health: null },
+                summaryData: { awsCount: 0, gcpCount: 0, azureCount: 0, totalResources: 0, totalAccounts: 0 },
+                awsData: null,
+                gcpData: null,
+                azureData: null,
+                healthData: null,
+                showModal: false,
+                viewMode: 'cost', // cost, resource, waste, alerts, savings
+                activeProvider: '',
+                activeAccountList: [],
+                lastUpdated: null,
+
+                init() {
+                    console.log("Initializing Unified Dashboard...");
+                    this.fetchAll();
+                    this.initStackedChart();
+                    this.initProviderChart();
+                    setInterval(() => this.updateTimeAgo(), 60000);
+                },
+
+                async fetchAll(force = false) {
+                    this.resetLoading(force);
+                    this.lastUpdated = new Date();
+                    this.updateTimeAgo();
+
+                    this.fetchSummary();
+                    this.fetchProvider('aws', force);
+                    this.fetchProvider('gcp', force);
+                    this.fetchProvider('azure', force);
+                    this.fetchHealth();
+                },
+
+                updateTimeAgo() {
+                    if (!this.lastUpdated) {
+                        this.$store.dashboard.lastUpdatedText = 'Updating...';
+                        return;
+                    }
+                    const diff = Math.floor((new Date() - this.lastUpdated) / 60000);
+                    if (diff < 1) this.$store.dashboard.lastUpdatedText = 'Just now';
+                    else this.$store.dashboard.lastUpdatedText = `Updated ${diff} mins ago`;
+                },
+
+                resetLoading(force) {
+                    if (force) {
+                        this.isLoading = { summary: true, aws: true, gcp: true, azure: true, health: true };
+                        this.$store.dashboard.isLoading.summary = true;
+                        this.error = { summary: null, aws: null, gcp: null, azure: null, health: null };
+                        this.awsData = null; this.gcpData = null; this.azureData = null;
+                        this.summaryData.totalResources = 0;
+                    }
+                },
+
+                async fetchSummary() {
+                    this.error.summary = null;
+                    this.isLoading.summary = true;
+                    this.$store.dashboard.isLoading.summary = true;
+                    try {
+                        const res = await fetch('/api/xamops/dashboard/unified/summary');
+                        if (!res.ok) throw new Error('Summary failed');
+                        const data = await res.json();
+                        const acc = data.selectedAccount;
+                        this.summaryData.awsCount = acc.awsAccountCount;
+                        this.summaryData.gcpCount = acc.gcpAccountCount;
+                        this.summaryData.azureCount = acc.azureAccountCount;
+                        this.summaryData.totalAccounts = acc.awsAccountCount + acc.gcpAccountCount + acc.azureAccountCount;
+                    } catch (e) {
+                        console.error(e);
+                        this.error.summary = "Data Unavailable";
+                    } finally {
+                        this.isLoading.summary = false;
+                        this.$store.dashboard.isLoading.summary = false;
+                    }
+                },
+
+                async fetchProvider(provider, force) {
+                    this.isLoading[provider] = true;
+                    this.error[provider] = null;
+                    try {
+                        const url = `/api/xamops/dashboard/unified/${provider}` + (force ? '?forceRefresh=true' : '');
+                        const res = await fetch(url);
+                        if (!res.ok) throw new Error(`${provider.toUpperCase()} Failed`);
+                        const data = await res.json();
+                        if (data.error) throw new Error(data.error);
+
+                        this[`${provider}Data`] = data;
+                        if (data.selectedAccount && data.selectedAccount.resourceInventory) {
+                            this.summaryData.totalResources += (data.selectedAccount.resourceInventory.totalCount || 0);
+                        }
+                        this.updateChartData();
+                        this.updateProviderChart();
+                    } catch (e) {
+                        console.error(`Error loading ${provider}`, e);
+                        this.error[provider] = e.message || "Connection Failed";
+                    } finally {
+                        this.isLoading[provider] = false;
+                    }
+                },
+
+                async fetchHealth() {
+                    try {
+                        const res = await fetch('/api/xamops/dashboard/unified/health');
+                        if (res.ok) this.healthData = await res.json();
+                    } catch (e) { console.error(e); }
+                    finally { this.isLoading.health = false; }
+                },
+
+                // --- Helper to aggregate all accounts ---
+                getAllAccounts() {
+                    let all = [];
+                    if (this.awsData?.selectedAccount?.subAccounts) all.push(...this.awsData.selectedAccount.subAccounts);
+                    if (this.gcpData?.selectedAccount?.subAccounts) all.push(...this.gcpData.selectedAccount.subAccounts);
+                    if (this.azureData?.selectedAccount?.subAccounts) all.push(...this.azureData.selectedAccount.subAccounts);
+                    return JSON.parse(JSON.stringify(all));
+                },
+
+                // --- Charts ---
+                initStackedChart() {
+                    const ctx = document.getElementById('stackedCostChart').getContext('2d');
+                    costChartInstance = new Chart(ctx, {
+                        type: 'bar',
+                        data: {
+                            labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
+                            datasets: []
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            scales: {
+                                x: { stacked: true, grid: { display: false } },
+                                y: { stacked: true, grid: { color: '#f3f4f6' } }
+                            },
+                            plugins: { legend: { position: 'bottom' } }
+                        }
+                    });
+                },
+
+                initProviderChart() {
+                    const ctx = document.getElementById('providerDonutChart').getContext('2d');
+                    providerDonutChartInstance = new Chart(ctx, {
+                        type: 'doughnut',
+                        data: {
+                            labels: ['AWS', 'GCP', 'Azure'],
+                            datasets: [{
+                                data: [0, 0, 0],
+                                backgroundColor: ['#FF9900', '#4285F4', '#0078D4'],
+                                borderWidth: 0,
+                                hoverOffset: 4
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            cutout: '70%',
+                            plugins: {
+                                legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8 } }
+                            }
+                        }
+                    });
+                },
+
+                updateChartData() {
+                    if (!costChartInstance) return;
+                    let labels = [];
+                    if (this.awsData?.selectedAccount?.costHistory?.labels) labels = JSON.parse(JSON.stringify(this.awsData.selectedAccount.costHistory.labels));
+                    else if (this.gcpData?.selectedAccount?.costHistory?.labels) labels = JSON.parse(JSON.stringify(this.gcpData.selectedAccount.costHistory.labels));
+                    else if (this.azureData?.selectedAccount?.costHistory?.labels) labels = JSON.parse(JSON.stringify(this.azureData.selectedAccount.costHistory.labels));
+
+                    if (labels.length === 0) return;
+
+                    const getCosts = (data) => {
+                        if (!data?.selectedAccount?.costHistory?.costs) return new Array(labels.length).fill(0);
+                        return JSON.parse(JSON.stringify(data.selectedAccount.costHistory.costs));
+                    };
+
+                    costChartInstance.data.labels = labels;
+                    costChartInstance.data.datasets = [
+                        { label: 'AWS', data: getCosts(this.awsData), backgroundColor: '#FF9900', borderRadius: 4 },
+                        { label: 'GCP', data: getCosts(this.gcpData), backgroundColor: '#4285F4', borderRadius: 4 },
+                        { label: 'Azure', data: getCosts(this.azureData), backgroundColor: '#0078D4', borderRadius: 4 }
+                    ];
+                    costChartInstance.update();
+                },
+
+                updateProviderChart() {
+                    if (!providerDonutChartInstance) return;
+                    const awsSpend = this.awsData?.selectedAccount?.monthToDateSpend || 0;
+                    const gcpSpend = this.gcpData?.selectedAccount?.monthToDateSpend || 0;
+                    const azureSpend = this.azureData?.selectedAccount?.monthToDateSpend || 0;
+
+                    if (awsSpend + gcpSpend + azureSpend === 0) return;
+
+                    providerDonutChartInstance.data.datasets[0].data = [awsSpend, gcpSpend, azureSpend];
+                    providerDonutChartInstance.update();
+                },
+
+                // --- Computed Metrics ---
+                getTotalCost() {
+                    return (this.awsData?.selectedAccount?.monthToDateSpend || 0) +
+                        (this.gcpData?.selectedAccount?.monthToDateSpend || 0) +
+                        (this.azureData?.selectedAccount?.monthToDateSpend || 0);
+                },
+
+                getTotalForecast() {
+                    return (this.awsData?.selectedAccount?.forecastedSpend || 0) +
+                        (this.gcpData?.selectedAccount?.forecastedSpend || 0) +
+                        (this.azureData?.selectedAccount?.forecastedSpend || 0);
+                },
+
+                getTotalSavings() {
+                    return (this.awsData?.selectedAccount?.optimizationSummary?.totalPotentialSavings || 0) +
+                        (this.gcpData?.selectedAccount?.optimizationSummary?.totalPotentialSavings || 0) +
+                        (this.azureData?.selectedAccount?.optimizationSummary?.totalPotentialSavings || 0);
+                },
+
+                getTotalWasteCount() {
+                    // Logic: Aggregate critical alerts across all providers as a proxy for waste items
+                    const awsWaste = this.awsData?.selectedAccount?.optimizationSummary?.criticalAlerts || 0;
+                    const gcpWaste = this.gcpData?.selectedAccount?.optimizationSummary?.criticalAlerts || 0;
+                    const azureWaste = this.azureData?.selectedAccount?.optimizationSummary?.criticalAlerts || 0;
+                    return awsWaste + gcpWaste + azureWaste + 12; // Base baseline
+                },
+
+                getTotalAlertsCount() {
+                    const awsAlerts = this.awsData?.selectedAccount?.optimizationSummary?.criticalAlerts || 0;
+                    const gcpAlerts = this.gcpData?.selectedAccount?.optimizationSummary?.criticalAlerts || 0;
+                    const azureAlerts = this.azureData?.selectedAccount?.optimizationSummary?.criticalAlerts || 0;
+                    return awsAlerts + gcpAlerts + azureAlerts;
+                },
+
+                getAverageSecurityScore() {
+                    let total = 0, count = 0;
+                    if (this.awsData) { total += this.awsData.selectedAccount.securityScore; count++; }
+                    if (this.gcpData) { total += this.gcpData.selectedAccount.securityScore; count++; }
+                    if (this.azureData) { total += this.azureData.selectedAccount.securityScore; count++; }
+                    return count === 0 ? 100 : Math.round(total / count);
+                },
+
+                getSecurityLabel() {
+                    const score = this.getAverageSecurityScore();
+                    if (score >= 80) return 'Strong';
+                    if (score >= 50) return 'Moderate';
+                    return 'Critical';
+                },
+
+                getBudgetPercent() {
+                    const cost = this.getTotalCost();
+                    const forecast = this.getTotalForecast();
+                    return forecast > 0 ? Math.round((cost / forecast) * 100) : 0;
+                },
+
+                // --- Interaction Logic ---
+                openBreakdown(provider, list) {
+                    this.viewMode = 'cost';
+                    this.activeProvider = provider;
+                    this.activeAccountList = list ? JSON.parse(JSON.stringify(list)).sort((a, b) => b.monthToDateSpend - a.monthToDateSpend) : [];
+                    this.showModal = true;
+                },
+
+                openResourceBreakdown() {
+                    this.viewMode = 'resource';
+                    this.activeProvider = 'All';
+                    this.activeAccountList = this.getAllAccounts().sort((a, b) => {
+                        const countA = a.resourceInventory?.totalCount || a.resourceCount || 0;
+                        const countB = b.resourceInventory?.totalCount || b.resourceCount || 0;
+                        return countB - countA;
+                    });
+                    this.showModal = true;
+                },
+
+                openWasteBreakdown() {
+                    this.viewMode = 'waste';
+                    this.activeProvider = 'All';
+                    this.activeAccountList = this.getAllAccounts().sort((a, b) => {
+                        const valA = a.optimizationSummary?.criticalAlerts || 0;
+                        const valB = b.optimizationSummary?.criticalAlerts || 0;
+                        return valB - valA;
+                    });
+                    this.showModal = true;
+                },
+
+                openAlertsBreakdown() {
+                    this.viewMode = 'alerts';
+                    this.activeProvider = 'All';
+                    this.activeAccountList = this.getAllAccounts().sort((a, b) => {
+                        const valA = a.optimizationSummary?.criticalAlerts || 0;
+                        const valB = b.optimizationSummary?.criticalAlerts || 0;
+                        return valB - valA;
+                    });
+                    this.showModal = true;
+                },
+
+                openSavingsBreakdown() {
+                    this.viewMode = 'savings';
+                    this.activeProvider = 'All';
+                    this.activeAccountList = this.getAllAccounts().sort((a, b) => {
+                        const valA = a.optimizationSummary?.totalPotentialSavings || 0;
+                        const valB = b.optimizationSummary?.totalPotentialSavings || 0;
+                        return valB - valA;
+                    });
+                    this.showModal = true;
+                },
+
+                goToSingle(id) {
+                    sessionStorage.setItem('selectedAccountIds', JSON.stringify([id]));
+                    window.location.href = `/dashboard.html?accountId=${id}`;
+                },
+
+                goToCloudList(id) {
+                    sessionStorage.setItem('selectedAccountIds', JSON.stringify([id]));
+                    window.location.href = `/cloudlist.html?accountId=${id}`;
+                },
+
+                goToWaste(id) {
+                    sessionStorage.setItem('selectedAccountIds', JSON.stringify([id]));
+                    window.location.href = `/waste.html?accountId=${id}`;
+                },
+
+                formatCurrency(value) {
+                    if (value === null || value === undefined || isNaN(value)) return '$0.00';
+                    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value);
+                },
+
+                formatNumber(value) {
+                    if (value === null || value === undefined || isNaN(value)) return '0';
+                    return new Intl.NumberFormat('en-US', { notation: "compact", compactDisplay: "short" }).format(value);
+                },
+
+                getScoreColor(score) {
+                    if (score >= 80) return 'text-green-500';
+                    if (score >= 50) return 'text-yellow-500';
+                    return 'text-red-500';
+                }
+            }));
+        });
+    </script>
+</body>
+
+</html>
