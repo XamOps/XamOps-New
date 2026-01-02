@@ -18,7 +18,7 @@ public class K8sClientFactory {
      */
     public KubernetesClient createFromKubeconfig(String kubeconfigYaml) {
         try {
-            logger.info("Creating Kubernetes client from kubeconfig");
+            logger.info("🔗 Creating Kubernetes client from kubeconfig");
 
             // Parse kubeconfig YAML
             Config config = Config.fromKubeconfig(kubeconfigYaml);
@@ -33,9 +33,10 @@ public class K8sClientFactory {
                     .withConfig(config)
                     .build();
 
-            // Test connection
-            String version = client.getKubernetesVersion().getGitVersion();
-            logger.info("✅ Successfully connected to Kubernetes cluster, version: {}", version);
+            // ✅ REMOVED: client.getKubernetesVersion() call
+            // This was causing Jackson deserialization error with emulationMajor field
+            // We don't need version info for Kubescape data fetching
+            logger.info("✅ Kubernetes client created successfully (version check skipped)");
 
             return client;
 
@@ -50,7 +51,7 @@ public class K8sClientFactory {
      */
     public KubernetesClient createFromComponents(String apiServer, String caCertData, String token) {
         try {
-            logger.info("Creating Kubernetes client for API server: {}", apiServer);
+            logger.info("🔗 Creating Kubernetes client for API server: {}", apiServer);
 
             Config config = new ConfigBuilder()
                     .withMasterUrl(apiServer)
@@ -63,9 +64,10 @@ public class K8sClientFactory {
                     .withConfig(config)
                     .build();
 
-            // Test connection
-            String version = client.getKubernetesVersion().getGitVersion();
-            logger.info("✅ Successfully connected to Kubernetes cluster, version: {}", version);
+            // ✅ REMOVED: client.getKubernetesVersion() call
+            // This was causing Jackson deserialization error with emulationMajor field
+            // We don't need version info for Kubescape data fetching
+            logger.info("✅ Kubernetes client created successfully (version check skipped)");
 
             return client;
 
