@@ -37,6 +37,7 @@ public class User {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "client_id", nullable = false)
     @JsonIgnore
+    @lombok.ToString.Exclude
     private Client client;
 
     public User(String username, String password, Client client) {
@@ -45,6 +46,7 @@ public class User {
         this.client = client;
         this.role = "USER"; // Default role
     }
+
     @Column(nullable = true)
     private String email;
 

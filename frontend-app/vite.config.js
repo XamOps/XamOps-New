@@ -105,6 +105,7 @@ export default defineConfig({
       // Feature specific endpoints
       '/api/ai-advisor': { target: authTarget, changeOrigin: true, secure: false },
       '/api/cicd': { target: authTarget, changeOrigin: true, secure: false },
+      '/api/karpenter': { target: authTarget, changeOrigin: true, secure: false },
 
       // --- 6. WEBSOCKETS ---
       // Explicit proxy for the renamed /terminal endpoint

@@ -1,7 +1,7 @@
-package com.xammer.cloud.dto.k8s; // ⚠️ MUST have this package declaration
+package com.xammer.cloud.dto.k8s;
 
-import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 public class KubescapeDashboard {
     private Double overallComplianceScore;
