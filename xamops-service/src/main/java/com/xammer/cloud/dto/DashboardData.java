@@ -172,6 +172,7 @@ public class DashboardData {
     private SystemHealthSummary systemHealth;
 
     // Unified Dashboard Fields
+    private int totalAccounts; // <--- ADDED THIS FIELD TO FIX THE ERROR
     private int awsAccountCount;
     private int gcpAccountCount;
     private int azureAccountCount;
@@ -372,10 +373,6 @@ public class DashboardData {
     private int criticalAlerts;
     private String status;
   }
-
-  // In xamops-service/src/main/java/com/xammer/cloud/dto/DashboardData.java
-
-  // In xamops-service/src/main/java/com/xammer/cloud/dto/DashboardData.java
 
   @Data
   @NoArgsConstructor

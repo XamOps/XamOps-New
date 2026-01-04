@@ -192,6 +192,26 @@
             <main class="flex-1 overflow-y-auto p-8 space-y-6 custom-scrollbar" x-data="unifiedDashboard()"
                 @refresh-all.window="fetchAll(true)">
 
+                <div x-show="!isLoading.summary && summaryData.totalAccounts === 0" x-cloak
+                    class="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r shadow-sm mb-6">
+                    <div class="flex">
+                        <div class="flex-shrink-0">
+                            <i class="fas fa-info-circle text-blue-500 text-xl"></i>
+                        </div>
+                        <div class="ml-3">
+                            <h3 class="text-sm font-medium text-blue-800">No Cloud Accounts Connected</h3>
+                            <div class="mt-2 text-sm text-blue-700">
+                                <p>It looks like you don't have any cloud accounts connected yet. The dashboard will
+                                    remain empty until you add one.</p>
+                                <p class="mt-2">
+                                    <a href="/account-manager.html" class="font-bold underline hover:text-blue-900">Go
+                                        to Account Manager &rarr;</a>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
                     <div class="glass-card rounded-xl p-6 relative group">
                         <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Total MTD Cost</h3>
@@ -257,13 +277,16 @@
                                 <div class="flex -space-x-2">
                                     <div
                                         class="w-8 h-8 rounded-full bg-white flex items-center justify-center border border-gray-200 text-[#FF9900] text-sm shadow-sm z-30">
-                                        <i class="fab fa-aws"></i></div>
+                                        <i class="fab fa-aws"></i>
+                                    </div>
                                     <div
                                         class="w-8 h-8 rounded-full bg-white flex items-center justify-center border border-gray-200 text-[#4285F4] text-sm shadow-sm z-20">
-                                        <i class="fab fa-google"></i></div>
+                                        <i class="fab fa-google"></i>
+                                    </div>
                                     <div
                                         class="w-8 h-8 rounded-full bg-white flex items-center justify-center border border-gray-200 text-[#0078D4] text-sm shadow-sm z-10">
-                                        <i class="fab fa-microsoft"></i></div>
+                                        <i class="fab fa-microsoft"></i>
+                                    </div>
                                 </div>
                             </div>
                             <p class="text-xs text-gray-400 mt-2">Active across <span
@@ -420,7 +443,8 @@
                             <div class="flex items-center gap-3">
                                 <div
                                     class="w-10 h-10 bg-[#FF9900]/10 rounded-lg flex items-center justify-center text-[#FF9900]">
-                                    <i class="fab fa-aws text-2xl"></i></div>
+                                    <i class="fab fa-aws text-2xl"></i>
+                                </div>
                                 <div>
                                     <h4 class="font-bold text-gray-800">AWS</h4>
                                     <p class="text-xs text-gray-500" x-show="!isLoading.aws"
@@ -467,7 +491,8 @@
                             <div class="flex items-center gap-3">
                                 <div
                                     class="w-10 h-10 bg-[#4285F4]/10 rounded-lg flex items-center justify-center text-[#4285F4]">
-                                    <i class="fab fa-google text-2xl"></i></div>
+                                    <i class="fab fa-google text-2xl"></i>
+                                </div>
                                 <div>
                                     <h4 class="font-bold text-gray-800">GCP</h4>
                                     <p class="text-xs text-gray-500" x-show="!isLoading.gcp"
@@ -514,7 +539,8 @@
                             <div class="flex items-center gap-3">
                                 <div
                                     class="w-10 h-10 bg-[#0078D4]/10 rounded-lg flex items-center justify-center text-[#0078D4]">
-                                    <i class="fab fa-microsoft text-2xl"></i></div>
+                                    <i class="fab fa-microsoft text-2xl"></i>
+                                </div>
                                 <div>
                                     <h4 class="font-bold text-gray-800">Azure</h4>
                                     <p class="text-xs text-gray-500" x-show="!isLoading.azure"
@@ -689,7 +715,14 @@
                     this.fetchAll();
                     this.initStackedChart();
                     this.initProviderChart();
+                    this.initProviderChart();
                     setInterval(() => this.updateTimeAgo(), 60000);
+
+                    // Auto-Refresh Logic (Every 60 seconds)
+                    setInterval(() => {
+                        console.log("Auto-refreshing dashboard data...");
+                        this.fetchAll(false); // background fetch (not force)
+                    }, 60000);
                 },
 
                 async fetchAll(force = false) {
