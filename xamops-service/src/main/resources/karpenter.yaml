@@ -1,0 +1,237 @@
+# File: karpenter.yaml
+# Location: src/main/resources/k8s/karpenter.yaml
+#
+# ⚠️ CREATE FOLDER: src/main/resources/k8s/
+# ⚠️ This is a TEMPLATE - placeholders will be replaced by KarpenterService
+
+---
+# Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{NAMESPACE}}
+
+---
+# ServiceAccount with IAM role annotation (IRSA)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: karpenter
+  namespace: {{NAMESPACE}}
+  annotations:
+    eks.amazonaws.com/role-arn: {{KARPENTER_ROLE_ARN}}
+
+---
+# ClusterRole for Karpenter
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: karpenter
+rules:
+  # Read/write Pod resources
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+      - watch
+      - patch
+      - delete
+  # Read Node resources
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - get
+      - list
+      - watch
+      - patch
+      - delete
+  # Read/write Karpenter CRDs
+  - apiGroups:
+      - karpenter.sh
+    resources:
+      - nodepools
+      - nodeclaims
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  # Read/write AWS Karpenter CRDs
+  - apiGroups:
+      - karpenter.k8s.aws
+    resources:
+      - ec2nodeclasses
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  # Read endpoints (for webhook)
+  - apiGroups:
+      - ""
+    resources:
+      - endpoints
+    verbs:
+      - get
+      - list
+      - watch
+
+---
+# ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: karpenter
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: karpenter
+subjects:
+  - kind: ServiceAccount
+    name: karpenter
+    namespace: {{NAMESPACE}}
+
+---
+# Karpenter Service (for webhook)
+apiVersion: v1
+kind: Service
+metadata:
+  name: karpenter
+  namespace: {{NAMESPACE}}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8443
+      targetPort: 8443
+      protocol: TCP
+      name: webhook
+  selector:
+    app.kubernetes.io/name: karpenter
+
+---
+# Karpenter Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: karpenter
+  namespace: {{NAMESPACE}}
+  labels:
+    app.kubernetes.io/name: karpenter
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: karpenter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: karpenter
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+    spec:
+      serviceAccountName: karpenter
+      containers:
+        - name: controller
+          image: public.ecr.aws/karpenter/controller:v0.33.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: CLUSTER_NAME
+              value: {{CLUSTER_NAME}}
+            - name: AWS_ACCOUNT_ID
+              value: {{ACCOUNT_ID}}
+          ports:
+            - name: http-metrics
+              containerPort: 8080
+              protocol: TCP
+            - name: http-webhook
+              containerPort: 8443
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http-metrics
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http-metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: config
+              mountPath: /etc/karpenter/config
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: karpenter-global-settings
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app.kubernetes.io/name
+                      operator: In
+                      values:
+                        - karpenter
+                topologyKey: kubernetes.io/hostname
+      tolerations:
+        - key: karpenter.sh/capacity-type
+          operator: Equal
+          value: spot
+          effect: NoSchedule
+
+---
+# ConfigMap with Karpenter settings
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: karpenter-global-settings
+  namespace: {{NAMESPACE}}
+data:
+  # Batching parameters
+  batchMaxDuration: 1s
+  batchIdleDuration: 1s
+  # Webhook settings
+  webhookPort: "8443"
+  # Feature gates
+  driftEnabled: "true"
+  deprovisioning.consolidationPolicy: "WhenUnderutilized"
