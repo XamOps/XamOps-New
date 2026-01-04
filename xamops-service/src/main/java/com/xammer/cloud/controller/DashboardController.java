@@ -158,6 +158,45 @@ public class DashboardController {
         }
     }
 
+    // ============================================================================================
+    // PHASE 4: GRANULAR STANDARD DASHBOARD ENDPOINTS
+    // ============================================================================================
+
+    @GetMapping("/dashboard/granular/kpi")
+    public ResponseEntity<?> getGranularKpi(@RequestParam String accountId,
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        return ResponseEntity.ok(dashboardDataService.getGranularKpi(accountId, forceRefresh, userDetails));
+    }
+
+    @GetMapping("/dashboard/granular/inventory")
+    public ResponseEntity<?> getGranularInventory(@RequestParam String accountId,
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        return ResponseEntity.ok(dashboardDataService.getGranularInventory(accountId, forceRefresh, userDetails));
+    }
+
+    @GetMapping("/dashboard/granular/cost")
+    public ResponseEntity<?> getGranularCost(@RequestParam String accountId,
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        return ResponseEntity.ok(dashboardDataService.getGranularCost(accountId, forceRefresh, userDetails));
+    }
+
+    @GetMapping("/dashboard/granular/optimization")
+    public ResponseEntity<?> getGranularOptimization(@RequestParam String accountId,
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        return ResponseEntity.ok(dashboardDataService.getGranularOptimization(accountId, forceRefresh, userDetails));
+    }
+
+    @GetMapping("/dashboard/granular/map")
+    public ResponseEntity<?> getGranularMap(@RequestParam String accountId,
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        return ResponseEntity.ok(dashboardDataService.getGranularMap(accountId, forceRefresh, userDetails));
+    }
+
     /**
      * Helper to create a consistent error JSON response.
      * Uses DashboardData DTO which already has an 'error' field.
