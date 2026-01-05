@@ -20,3 +20,6 @@ frontend-app/node_modules/
 kubeconfig*
 *.kubeconfig
 .kube/
+logs/
+*.log
+*.gz
