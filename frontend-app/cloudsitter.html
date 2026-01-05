@@ -100,23 +100,10 @@
                         <span class="hover:text-indigo-600 cursor-pointer"
                             @click="currentView = 'dashboard'">Overview</span>
                         <span x-show="currentView === 'createPolicy'"> <i class="fas fa-chevron-right text-xs mx-1"></i>
-                            New Policy</span>
+                            <span x-text="editMode ? 'Edit Policy' : 'New Policy'"></span>
+                        </span>
                     </nav>
                 </div>
-            </div>
-
-            <div class="flex items-center gap-3">
-                <div class="text-right mr-2">
-                    <div class="text-xs text-gray-500 uppercase font-bold">Account</div>
-                    <div class="text-sm font-semibold text-indigo-600" x-text="accountId || 'No Account Selected'">
-                    </div>
-                </div>
-                <button class="p-2 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100">
-                    <i class="far fa-bell"></i>
-                </button>
-                <div
-                    class="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-sm">
-                    OT</div>
             </div>
         </header>
 
@@ -134,14 +121,14 @@
                                 class="rounded text-indigo-600 focus:ring-indigo-500">
                             <span class="text-sm font-medium"><i class="fab fa-aws mr-1"></i> EC2 Instances</span>
                         </label>
-                        <label
-                            class="flex items-center gap-2 px-3 py-1.5 border rounded-lg cursor-not-allowed bg-gray-50 text-gray-400 opacity-60">
-                            <input type="checkbox" disabled class="rounded">
-                            <span class="text-sm"><i class="fas fa-database mr-1"></i> RDS (Coming Soon)</span>
-                        </label>
                     </div>
 
                     <div class="flex gap-3">
+                        <button @click="showManagePoliciesModal = true"
+                            class="text-gray-600 hover:text-indigo-600 hover:bg-gray-50 px-4 py-2 rounded-lg text-sm font-medium transition-all border border-gray-300 flex items-center gap-2">
+                            <i class="fas fa-cog"></i> Manage Policies
+                        </button>
+
                         <div class="relative">
                             <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
                             <input type="text" x-model="searchQuery" placeholder="Search name or ID..."
@@ -253,9 +240,9 @@
                         <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-3">
                             <div
                                 class="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600">
-                                <i class="fas fa-calendar-plus"></i>
+                                <i class="fas" :class="editMode ? 'fa-edit' : 'fa-calendar-plus'"></i>
                             </div>
-                            Create New Policy
+                            <span x-text="editMode ? 'Edit Policy' : 'Create New Policy'"></span>
                         </h2>
                     </div>
 
@@ -365,12 +352,15 @@
                     <div class="flex items-center justify-between pt-6 border-t border-gray-100">
                         <div class="flex items-center gap-2 text-gray-500 text-sm"></div>
                         <div class="flex gap-4">
-                            <button @click="currentView = 'dashboard'"
+                            <button @click="closeCreatePolicy()"
                                 class="px-6 py-2.5 text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 font-medium transition-colors">Cancel</button>
                             <button @click="savePolicy()"
                                 class="px-8 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-bold shadow-lg shadow-indigo-200 transition-all transform hover:-translate-y-0.5"
                                 :disabled="isSaving">
-                                <span x-show="!isSaving"><i class="fas fa-save mr-2"></i> Save Policy</span>
+                                <span x-show="!isSaving">
+                                    <i class="fas" :class="editMode ? 'fa-check' : 'fa-save'"></i>
+                                    <span x-text="editMode ? 'Update Policy' : 'Save Policy'"></span>
+                                </span>
                                 <span x-show="isSaving"><i class="fas fa-spinner fa-spin mr-2"></i> Saving...</span>
                             </button>
                         </div>
@@ -415,7 +405,7 @@
                             </div>
                         </div>
                         <div class="mt-2 text-right">
-                            <a href="#" @click.prevent="showAssignModal = false; openCreatePolicy()"
+                            <a href="#" @click.prevent="openCreatePolicyFromAssign()"
                                 class="text-xs text-indigo-600 font-semibold hover:underline">+ Create new policy</a>
                         </div>
                     </div>
@@ -424,6 +414,60 @@
                         <button @click="submitAssignment()"
                             class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-indigo-200 transition-all transform hover:-translate-y-0.5">Confirm
                             Assignment</button>
+                    </div>
+                </div>
+            </div>
+
+            <div x-show="showManagePoliciesModal"
+                class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-50 flex items-center justify-center transition-opacity"
+                x-transition.opacity x-cloak>
+                <div class="bg-white rounded-2xl shadow-2xl p-8 w-[600px] max-h-[80vh] flex flex-col transform transition-all scale-100"
+                    @click.outside="showManagePoliciesModal = false">
+
+                    <div class="flex justify-between items-center mb-6 border-b pb-4">
+                        <h3 class="text-xl font-bold text-gray-800">Manage Policies</h3>
+                        <button @click="showManagePoliciesModal = false"
+                            class="text-gray-400 hover:text-gray-600 transition-colors"><i
+                                class="fas fa-times text-lg"></i></button>
+                    </div>
+
+                    <div class="overflow-y-auto flex-1">
+                        <template x-if="policies.length === 0">
+                            <div class="text-center py-8 text-gray-500">No policies created yet.</div>
+                        </template>
+
+                        <div class="space-y-3">
+                            <template x-for="p in policies" :key="p.id">
+                                <div
+                                    class="flex justify-between items-center p-4 border rounded-lg hover:bg-gray-50 transition-colors group">
+                                    <div>
+                                        <div class="font-bold text-gray-800" x-text="p.name"></div>
+                                        <div class="text-xs text-gray-500 flex gap-2">
+                                            <span x-text="p.timeZone"></span>
+                                            <span x-show="p.notificationsEnabled" class="text-green-600">• Notifications
+                                                On</span>
+                                        </div>
+                                    </div>
+                                    <div class="flex gap-2">
+                                        <button @click="editPolicy(p)"
+                                            class="text-gray-400 hover:text-indigo-600 p-2 rounded-full hover:bg-indigo-50 transition-colors"
+                                            title="Edit">
+                                            <i class="fas fa-pencil-alt"></i>
+                                        </button>
+                                        <button @click="deletePolicy(p.id)"
+                                            class="text-gray-400 hover:text-red-600 p-2 rounded-full hover:bg-red-50 transition-colors"
+                                            title="Delete">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+
+                    <div class="mt-6 pt-4 border-t text-right">
+                        <button @click="showManagePoliciesModal = false"
+                            class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition-colors">Close</button>
                     </div>
                 </div>
             </div>
@@ -443,14 +487,20 @@
                 policies: [],
                 assignments: {},
 
-                policyForm: { name: '', type: 'SCHEDULE', timezone: 'Asia/Kolkata', notificationsEnabled: true },
+                // Policy Form & State
+                policyForm: { id: null, name: '', type: 'SCHEDULE', timezone: 'Asia/Kolkata', notificationsEnabled: true },
                 days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
                 policyGrid: [],
+                editMode: false,
                 isDragging: false,
                 dragState: true,
+
+                // Modals
                 showAssignModal: false,
+                showManagePoliciesModal: false,
                 assignTarget: null,
                 selectedPolicyId: '',
+                isCreatingFromAssign: false, // Flag to return to assign modal after create
 
                 async init() {
                     console.log("Cloudsitter initializing...");
@@ -483,7 +533,6 @@
                     console.log("Loading data for account:", this.accountId);
 
                     try {
-                        // Parallel Fetch
                         const [resResponse, polResponse, assignResponse] = await Promise.all([
                             fetch(`/api/xamops/cloudlist/all?accountId=${this.accountId}&size=100`),
                             fetch('/api/xamops/cloudsitter/policies'),
@@ -538,9 +587,24 @@
                 },
 
                 openCreatePolicy() {
-                    this.policyForm.name = '';
+                    this.policyForm = { id: null, name: '', type: 'SCHEDULE', timezone: 'Asia/Kolkata', notificationsEnabled: true };
                     this.resetGrid();
+                    this.editMode = false;
                     this.currentView = 'createPolicy';
+                },
+
+                openCreatePolicyFromAssign() {
+                    this.isCreatingFromAssign = true;
+                    this.showAssignModal = false;
+                    this.openCreatePolicy();
+                },
+
+                closeCreatePolicy() {
+                    this.currentView = 'dashboard';
+                    if (this.isCreatingFromAssign) {
+                        this.showAssignModal = true;
+                        this.isCreatingFromAssign = false;
+                    }
                 },
 
                 startDrag() { this.isDragging = true; },
@@ -569,6 +633,32 @@
                     return JSON.stringify(scheduleMap);
                 },
 
+                loadGridFromJson(jsonString) {
+                    try {
+                        const scheduleMap = JSON.parse(jsonString);
+                        this.resetGrid(); // Start fresh
+
+                        this.days.forEach((day, dIndex) => {
+                            const upperDay = day.toUpperCase();
+                            if (scheduleMap[upperDay]) {
+                                const activeHours = scheduleMap[upperDay];
+                                // Set only these hours to true, others remain false? 
+                                // Wait, resetGrid sets ALL to true. 
+                                // So we should set ALL to FALSE first if we want strict mapping?
+                                // Usually schedules define "Active" hours.
+                                // Let's set row to false first
+                                this.policyGrid[dIndex].fill(false);
+                                activeHours.forEach(hour => {
+                                    if (hour >= 0 && hour < 24) this.policyGrid[dIndex][hour] = true;
+                                });
+                            }
+                        });
+                    } catch (e) {
+                        console.error("Error parsing schedule JSON", e);
+                        this.resetGrid();
+                    }
+                },
+
                 async savePolicy() {
                     if (!this.policyForm.name) {
                         alert("Please enter a policy name.");
@@ -585,16 +675,37 @@
                     };
 
                     try {
-                        const res = await fetch('/api/xamops/cloudsitter/policies', {
-                            method: 'POST',
+                        let url = '/api/xamops/cloudsitter/policies';
+                        let method = 'POST';
+
+                        if (this.editMode && this.policyForm.id) {
+                            url += '/' + this.policyForm.id;
+                            method = 'PUT';
+                        }
+
+                        const res = await fetch(url, {
+                            method: method,
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(payload)
                         });
 
                         if (res.ok) {
+                            const savedPolicy = await res.json();
+
+                            // Refresh policy list
                             const polResponse = await fetch('/api/xamops/cloudsitter/policies');
                             this.policies = await polResponse.json();
+
                             this.currentView = 'dashboard';
+                            this.showManagePoliciesModal = false;
+
+                            // If we came from Assign Modal, auto-select this new policy
+                            if (this.isCreatingFromAssign) {
+                                this.selectedPolicyId = savedPolicy.id; // Auto-select
+                                this.showAssignModal = true;
+                                this.isCreatingFromAssign = false;
+                            }
+
                         } else {
                             alert("Failed to save policy.");
                         }
@@ -603,6 +714,39 @@
                         alert("Error saving policy.");
                     } finally {
                         this.isSaving = false;
+                    }
+                },
+
+                editPolicy(policy) {
+                    this.policyForm = {
+                        id: policy.id,
+                        name: policy.name,
+                        type: policy.type,
+                        timezone: policy.timeZone,
+                        notificationsEnabled: policy.notificationsEnabled
+                    };
+                    this.loadGridFromJson(policy.scheduleJson);
+                    this.editMode = true;
+                    this.showManagePoliciesModal = false;
+                    this.currentView = 'createPolicy';
+                },
+
+                async deletePolicy(id) {
+                    if (!confirm("Are you sure you want to delete this policy? Any instances using it will be unassigned.")) return;
+
+                    try {
+                        const res = await fetch(`/api/xamops/cloudsitter/policies/${id}`, { method: 'DELETE' });
+                        if (res.ok) {
+                            // Remove from local list
+                            this.policies = this.policies.filter(p => p.id !== id);
+                            // Refresh dashboard data as assignments might have changed
+                            this.loadData();
+                        } else {
+                            alert("Failed to delete policy");
+                        }
+                    } catch (e) {
+                        console.error(e);
+                        alert("Error deleting policy");
                     }
                 },
 

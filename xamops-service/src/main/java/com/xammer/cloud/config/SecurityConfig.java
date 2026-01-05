@@ -80,8 +80,8 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("/api/autospotting/**"),
                                 new AntPathRequestMatcher("/api/devops-scripts/**"),
                                 new AntPathRequestMatcher("/spot-automation.html"),
+                                new AntPathRequestMatcher("/cloudsitter.html"),
                                 new AntPathRequestMatcher("actions-history.html"),
-
                                 new AntPathRequestMatcher("/api/ai/**"))
                         .permitAll()
                         .anyRequest().authenticated())

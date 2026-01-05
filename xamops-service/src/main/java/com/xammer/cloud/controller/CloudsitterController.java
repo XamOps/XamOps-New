@@ -21,22 +21,36 @@ public class CloudsitterController {
         this.cloudsitterService = cloudsitterService;
     }
 
-    // --- NEW: Get all available policies ---
     @GetMapping("/policies")
     public ResponseEntity<List<CloudsitterPolicy>> getAllPolicies() {
         return ResponseEntity.ok(cloudsitterService.getAllPolicies());
     }
 
-    // --- NEW: Get assignments for specific account ---
     @GetMapping("/assignments")
     public ResponseEntity<Map<String, CloudsitterAssignmentDto>> getAssignments(@RequestParam String accountId) {
         return ResponseEntity.ok(cloudsitterService.getAssignmentsForAccount(accountId));
     }
 
+    // ✅ UPDATED: Returns created policy
     @PostMapping("/policies")
-    public ResponseEntity<?> createPolicy(@RequestBody CloudsitterPolicyDto dto) {
-        cloudsitterService.createPolicy(dto);
-        return ResponseEntity.ok().build();
+    public ResponseEntity<CloudsitterPolicy> createPolicy(@RequestBody CloudsitterPolicyDto dto) {
+        CloudsitterPolicy created = cloudsitterService.createPolicy(dto);
+        return ResponseEntity.ok(created);
+    }
+
+    // ✅ NEW: Update policy
+    @PutMapping("/policies/{id}")
+    public ResponseEntity<CloudsitterPolicy> updatePolicy(@PathVariable Long id,
+            @RequestBody CloudsitterPolicyDto dto) {
+        CloudsitterPolicy updated = cloudsitterService.updatePolicy(id, dto);
+        return ResponseEntity.ok(updated);
+    }
+
+    // ✅ NEW: Delete policy
+    @DeleteMapping("/policies/{id}")
+    public ResponseEntity<Void> deletePolicy(@PathVariable Long id) {
+        cloudsitterService.deletePolicy(id);
+        return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/assign")
