@@ -174,6 +174,8 @@ export default defineConfig({
         'admin_tickets': resolve(__dirname, 'billops/admin_tickets.html'),
         'billing': resolve(__dirname, 'billops/billing.html'),
         'tickets': resolve(__dirname, 'billops/tickets.html'),
+        'admin_agreements': resolve(__dirname, 'billops/admin_agreements.html'),
+        'agreements': resolve(__dirname, 'billops/agreements.html'),
         'ticket_detail': resolve(__dirname, 'billops/ticket_detail.html'),
         'credits': resolve(__dirname, 'billops/credits.html'),
         'invoices': resolve(__dirname, 'billops/invoices.html'),

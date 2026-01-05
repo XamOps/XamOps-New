@@ -12,7 +12,7 @@ import com.xammer.cloud.repository.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Lazy; // ✅ ADDED IMPORT
+import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -39,7 +39,6 @@ public class CloudsitterService {
     private final TenantService tenantService;
     private final AwsPricingService pricingService;
 
-    // ✅ FIXED: Added @Lazy to break the circular dependency
     @Autowired
     @Lazy
     private CloudsitterService self;
@@ -179,8 +178,9 @@ public class CloudsitterService {
         }
     }
 
+    // ✅ UPDATED: Returns the created policy object
     @Transactional
-    public void createPolicy(CloudsitterPolicyDto dto) {
+    public CloudsitterPolicy createPolicy(CloudsitterPolicyDto dto) {
         CloudsitterPolicy policy = new CloudsitterPolicy();
         policy.setName(dto.getName());
         policy.setType(dto.getType());
@@ -188,7 +188,42 @@ public class CloudsitterService {
         policy.setScheduleJson(dto.getScheduleConfig());
         policy.setNotificationsEnabled(dto.isNotificationsEnabled());
         policy.setNotificationEmail(dto.getNotificationEmail());
-        policyRepo.save(policy);
+        return policyRepo.save(policy);
+    }
+
+    // ✅ NEW: Update existing policy
+    @Transactional
+    public CloudsitterPolicy updatePolicy(Long id, CloudsitterPolicyDto dto) {
+        CloudsitterPolicy policy = policyRepo.findById(id)
+                .orElseThrow(() -> new RuntimeException("Policy not found: " + id));
+
+        policy.setName(dto.getName());
+        policy.setTimeZone(dto.getTimeZone());
+        policy.setScheduleJson(dto.getScheduleConfig());
+        policy.setNotificationsEnabled(dto.isNotificationsEnabled());
+        policy.setNotificationEmail(dto.getNotificationEmail());
+
+        return policyRepo.save(policy);
+    }
+
+    // ✅ NEW: Delete policy (and remove from assignments)
+    @Transactional
+    public void deletePolicy(Long id) {
+        CloudsitterPolicy policy = policyRepo.findById(id)
+                .orElseThrow(() -> new RuntimeException("Policy not found: " + id));
+
+        // Set assignments to null (remove policy) before deleting
+        // Or you could delete the assignment entirely. Setting policy to null usually
+        // implies "No Policy"
+        List<CloudsitterAssignment> assignments = assignmentRepo.findAll(); // Optimization: Create findByPolicyId in
+                                                                            // repo
+        for (CloudsitterAssignment assignment : assignments) {
+            if (assignment.getPolicy() != null && assignment.getPolicy().getId().equals(id)) {
+                assignmentRepo.delete(assignment);
+            }
+        }
+
+        policyRepo.delete(policy);
     }
 
     @Transactional
@@ -211,8 +246,9 @@ public class CloudsitterService {
         }
     }
 
-    // --- SCHEDULING ENGINE (MULTI-TENANT AWARE) ---
+    // --- SCHEDULING ENGINE ---
 
+    // (Existing scheduling logic remains unchanged)
     @Scheduled(cron = "0 0/10 * * * *")
     public void enforcePolicies() {
         long startTime = System.currentTimeMillis();
@@ -233,10 +269,7 @@ public class CloudsitterService {
 
                 try {
                     logger.info("CloudSitter: Processing tenant: {} ({})", tenant.getCompanyName(), tenantId);
-
-                    // Call Transactional method via SELF proxy with @Lazy
                     int[] results = self.enforcePoliciesForCurrentTenant();
-
                     totalAssignmentsProcessed += results[0];
                     totalActionsPerformed += results[1];
                     logger.info("CloudSitter: Tenant {} complete - {} assignments checked, {} actions performed",
@@ -247,14 +280,10 @@ public class CloudsitterService {
                     TenantContext.clear();
                 }
             }
-
             long duration = System.currentTimeMillis() - startTime;
             logger.info("========================================");
             logger.info("CloudSitter: Enforcement cycle complete in {}ms", duration);
-            logger.info("CloudSitter: Summary - {} assignments processed, {} actions performed",
-                    totalAssignmentsProcessed, totalActionsPerformed);
             logger.info("========================================");
-
         } catch (Exception e) {
             logger.error("CloudSitter: Fatal error during enforcement cycle", e);
         }
@@ -282,7 +311,6 @@ public class CloudsitterService {
                         assignment.getResourceId(), e);
             }
         }
-
         return new int[] { assignmentsProcessed, actionsPerformed };
     }
 
