@@ -181,6 +181,8 @@ export default defineConfig({
         'marketplace-purchases': resolve(__dirname, 'billops/marketplace-purchases.html'),
         'thirdparty-tools': resolve(__dirname, 'billops/thirdparty-tools.html'),
         'workspace-licenses': resolve(__dirname, 'billops/workspace-licenses.html'),
+        'unified-dashboard': resolve(__dirname, 'unified-dashboard.html'),
+        'cloudsitter.html': resolve(__dirname, 'cloudsitter.html'),
 
         // GCP subdir files
         'gcp_cloudlist': resolve(__dirname, 'gcp_cloudlist.html'),
