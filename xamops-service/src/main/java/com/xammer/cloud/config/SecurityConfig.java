@@ -5,7 +5,6 @@ import com.xammer.cloud.security.CustomLogoutSuccessHandler;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
-// --- IMPORT ADDED FOR METHOD SECURITY ---
 import org.springframework.security.config.annotation.method.configuration.EnableGlobalMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -27,7 +26,6 @@ import static org.springframework.security.config.Customizer.withDefaults;
 
 @Configuration
 @EnableWebSecurity(debug = false)
-// --- ANNOTATION ADDED: Enables @PreAuthorize support ---
 @EnableGlobalMethodSecurity(prePostEnabled = true)
 public class SecurityConfig {
 
@@ -63,8 +61,8 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("/webjars/**"),
                                 new AntPathRequestMatcher("/gcp_*.html"),
                                 new AntPathRequestMatcher("/azure_dashboard.html"),
-                                new AntPathRequestMatcher("/ws/**"), // Existing STOMP endpoint
-                                new AntPathRequestMatcher("/terminal"), // ✅ NEW: CloudShell endpoint
+                                new AntPathRequestMatcher("/ws/**"),
+                                new AntPathRequestMatcher("/terminal"),
                                 new AntPathRequestMatcher("/azure_*.html"),
                                 new AntPathRequestMatcher("/cloudlist.html"),
                                 new AntPathRequestMatcher("/api/ai/**"),
@@ -73,6 +71,7 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("/api/cicd/**"),
                                 new AntPathRequestMatcher("/cloudk8s.html"),
                                 new AntPathRequestMatcher("/eks-details.html"),
+                                new AntPathRequestMatcher("/api/xamops/eks/**"),
                                 new AntPathRequestMatcher("/api/xamops/k8s/**"),
                                 new AntPathRequestMatcher("/api/karpenter/**"),
                                 new AntPathRequestMatcher("/sonarqube.html"),
@@ -80,8 +79,8 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("/api/autospotting/**"),
                                 new AntPathRequestMatcher("/api/devops-scripts/**"),
                                 new AntPathRequestMatcher("/spot-automation.html"),
-                                new AntPathRequestMatcher("/cloudsitter.html"),
                                 new AntPathRequestMatcher("actions-history.html"),
+                                new AntPathRequestMatcher("/cloudsitter.html"),
                                 new AntPathRequestMatcher("/api/ai/**"))
                         .permitAll()
                         .anyRequest().authenticated())
@@ -99,25 +98,21 @@ public class SecurityConfig {
         return http.build();
     }
 
-    // === FIX: ALLOW PRODUCTION ORIGIN ===
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        // FIX APPLIED: Added the production HTTPS domain.
         configuration.setAllowedOrigins(Arrays.asList(
                 "http://localhost:5173",
                 "https://live.xamops.com",
                 "https://uat.xamops.com"));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("*"));
-        // This is necessary for Spring Security to handle cookies (JSESSIONID)
         configuration.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;
     }
-    // === END OF FIX ===
 
     @Bean
     public CommonsRequestLoggingFilter requestLoggingFilter() {
@@ -134,9 +129,6 @@ public class SecurityConfig {
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
     }
-
-    // ✅ REMOVED: userDetailsService bean (use CustomUserDetailsService @Service
-    // instead)
 
     @Bean
     public HttpFirewall allowSemicolonHttpFirewall() {
