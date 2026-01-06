@@ -21,8 +21,6 @@ const cookieRewrite = (proxyRes, req) => {
   }
 };
 
-
-
 export default defineConfig({
   plugins: [
     htmlInclude(),
@@ -47,6 +45,12 @@ export default defineConfig({
         configure: (proxy, options) => {
           proxy.on('proxyRes', cookieRewrite);
         }
+      },
+      // ✅ ADDED: Bridge for Password Reset Feature
+      '/api/auth': {
+        target: authTarget,
+        changeOrigin: true,
+        secure: false,
       },
 
       // --- 2. USER PROFILE (Fixes Sidebar Visibility) ---

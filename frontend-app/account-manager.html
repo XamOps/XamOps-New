@@ -1376,6 +1376,99 @@ enforcement: DENY
             </main>
         </div>
     </div>
+
+<div id="billopsDisclaimerModal" class="fixed inset-0 bg-gray-900 bg-opacity-70 z-[9999] hidden items-center justify-center backdrop-blur-sm transition-opacity duration-300">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-0 border border-gray-200 transform scale-95 transition-transform duration-300 overflow-hidden">
+            
+            <div class="bg-gradient-to-r from-blue-600 to-purple-600 p-6 text-center">
+                <div class="mx-auto flex items-center justify-center h-14 w-14 rounded-full bg-white/20 backdrop-blur-md mb-3 border border-white/30">
+                    <i class="fas fa-shield-alt text-2xl text-white"></i>
+                </div>
+                <h3 class="text-xl font-bold text-white tracking-tight">BillOps Disclaimer</h3>
+                <p class="text-blue-100 text-xs mt-1 uppercase tracking-wider font-semibold">Important Notice</p>
+            </div>
+
+            <div class="p-6 space-y-4 max-h-[60vh] overflow-y-auto bg-gray-50">
+                <div class="text-sm text-gray-700 space-y-4 leading-relaxed">
+                    <p class="font-bold text-gray-900">Please read before using the dashboard:</p>
+                    <div class="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r-lg">
+                        <p class="text-blue-800 text-xs font-semibold"><i class="fas fa-info-circle mr-1"></i> Estimates Only</p>
+                        <p class="mt-1">Cost data and savings recommendations are operational estimates.</p>
+                    </div>
+                    <ul class="space-y-3 pl-2">
+                        <li class="flex items-start"><i class="fas fa-check text-green-500 mt-1 mr-2.5 text-xs"></i><span>Data may reflect processing delays from cloud providers.</span></li>
+                        <li class="flex items-start"><i class="fas fa-check text-green-500 mt-1 mr-2.5 text-xs"></i><span>Forecasts rely on historical trends and may not predict future usage perfectly.</span></li>
+                        <li class="flex items-start"><i class="fas fa-check text-green-500 mt-1 mr-2.5 text-xs"></i><span>Verify critical figures in the official cloud console before budgeting.</span></li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="p-5 border-t border-gray-100 bg-white">
+                <button id="acceptBillopsDisclaimer" class="w-full py-3 px-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-bold rounded-xl shadow-lg transition-all text-sm">
+                    I Understand & Agree
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', async () => {
+        // --- CONFIGURATION ---
+        const USER_PROFILE_API = '/api/xamops/user/profile'; 
+        
+        try {
+            // 1. Fetch User Profile FIRST (to get the unique username)
+            const res = await fetch(USER_PROFILE_API, { 
+                method: 'GET', 
+                headers: { 'Content-Type': 'application/json' } 
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                const username = data.username; // Get unique username
+                const userRoles = data.roles || [];
+                
+                // 2. Create a User-Specific Key
+                // This ensures User A accepting doesn't hide it for User B
+                const USER_STORAGE_KEY = `billops_disclaimer_accepted_${username}`;
+
+                // 3. Check Local Storage for THIS user
+                if (localStorage.getItem(USER_STORAGE_KEY) === 'true') {
+                    console.log(`Disclaimer already accepted for user: ${username}`);
+                    return; 
+                }
+
+                // 4. Check Role (Contains "billops"?)
+                const isBillOpsUser = userRoles.some(role => 
+                    role.toLowerCase().includes('billops')
+                );
+
+                if (isBillOpsUser) {
+                    const modal = document.getElementById('billopsDisclaimerModal');
+                    const btn = document.getElementById('acceptBillopsDisclaimer');
+                    
+                    // Show Modal
+                    modal.classList.remove('hidden');
+                    modal.classList.add('flex');
+                    
+                    // Handle Accept
+                    // Use { once: true } to prevent multiple clicks
+                    btn.addEventListener('click', () => {
+                        console.log(`User ${username} accepted the disclaimer.`);
+                        modal.classList.add('hidden');
+                        modal.classList.remove('flex');
+                        
+                        // Save flag specifically for THIS user
+                        localStorage.setItem(USER_STORAGE_KEY, 'true');
+                    }, { once: true });
+                }
+            }
+        } catch (err) {
+            console.error('Disclaimer check failed:', err);
+        }
+    });
+    </script>
+
 </body>
 
 </html>
