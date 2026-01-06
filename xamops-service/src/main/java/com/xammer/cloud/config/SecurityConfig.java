@@ -33,7 +33,7 @@ public class SecurityConfig {
     private final CustomLogoutSuccessHandler logoutSuccessHandler;
 
     public SecurityConfig(CustomAuthenticationSuccessHandler authenticationSuccessHandler,
-            CustomLogoutSuccessHandler logoutSuccessHandler) {
+                          CustomLogoutSuccessHandler logoutSuccessHandler) {
         this.authenticationSuccessHandler = authenticationSuccessHandler;
         this.logoutSuccessHandler = logoutSuccessHandler;
     }
@@ -41,6 +41,7 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
+<<<<<<< HEAD
                 .cors(withDefaults())
                 .csrf(csrf -> csrf.disable())
                 .exceptionHandling(exceptions -> exceptions
@@ -94,6 +95,65 @@ public class SecurityConfig {
                         .invalidateHttpSession(true)
                         .deleteCookies("JSESSIONID")
                         .permitAll());
+=======
+            .cors(withDefaults())
+            .csrf(csrf -> csrf.disable())
+            .exceptionHandling(exceptions -> exceptions
+                .defaultAuthenticationEntryPointFor(
+                    new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
+                    new AntPathRequestMatcher("/api/**")))
+            .authorizeHttpRequests((requests) -> requests
+                // ✅ FIX: Allow Password Reset APIs Publicly
+                .requestMatchers(new AntPathRequestMatcher("/api/auth/**")).permitAll()
+
+                // Other public endpoints
+                .requestMatchers(new AntPathRequestMatcher("/api/xamops/cloudguard/grafana-ingest", "POST"))
+                    .permitAll()
+                .requestMatchers(
+                    // public pages & static resources
+                    new AntPathRequestMatcher("/"),
+                    new AntPathRequestMatcher("/index.html"),
+                    new AntPathRequestMatcher("/login"),
+                    new AntPathRequestMatcher("/css/**"),
+                    new AntPathRequestMatcher("/js/**"),
+                    new AntPathRequestMatcher("/images/**"),
+                    new AntPathRequestMatcher("/icons/**"),
+                    new AntPathRequestMatcher("/webjars/**"),
+                    new AntPathRequestMatcher("/gcp_*.html"),
+                    new AntPathRequestMatcher("/azure_dashboard.html"),
+                    new AntPathRequestMatcher("/ws/**"),
+                    new AntPathRequestMatcher("/terminal"),
+                    new AntPathRequestMatcher("/azure_*.html"),
+                    new AntPathRequestMatcher("/cloudlist.html"),
+                    new AntPathRequestMatcher("/cloudk8s.html"),
+                    new AntPathRequestMatcher("/eks-details.html"),
+                    new AntPathRequestMatcher("/sonarqube.html"),
+                    new AntPathRequestMatcher("/user-manager.html"),
+                    new AntPathRequestMatcher("/spot-automation.html"),
+                    new AntPathRequestMatcher("actions-history.html"),
+                    // public APIs
+                    new AntPathRequestMatcher("/api/ai/**"),
+                    new AntPathRequestMatcher("/api/cicd/github/runs"),
+                    new AntPathRequestMatcher("/api/cicd/config/**"),
+                    new AntPathRequestMatcher("/api/cicd/**"),
+                    new AntPathRequestMatcher("/api/xamops/k8s/**"),
+                    new AntPathRequestMatcher("/api/autospotting/**"),
+                    new AntPathRequestMatcher("/api/devops-scripts/**"),
+                    new AntPathRequestMatcher("/api/aws/**")
+                )
+                .permitAll()
+                .anyRequest().authenticated())
+            .formLogin((form) -> form
+                .loginPage("/login")
+                .successHandler(authenticationSuccessHandler)
+                .permitAll())
+            .logout((logout) -> logout
+                .logoutUrl("/logout")
+                .logoutSuccessHandler(logoutSuccessHandler)
+                .invalidateHttpSession(true)
+                .deleteCookies("JSESSIONID")
+                .permitAll());
+>>>>>>> my-custom-features
 
         return http.build();
     }
@@ -102,9 +162,10 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(Arrays.asList(
-                "http://localhost:5173",
-                "https://live.xamops.com",
-                "https://uat.xamops.com"));
+            "http://localhost:5173",
+            "https://live.xamops.com",
+            "https://uat.xamops.com"
+        ));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("*"));
         configuration.setAllowCredentials(true);

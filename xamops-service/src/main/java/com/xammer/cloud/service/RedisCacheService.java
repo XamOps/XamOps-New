@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+import java.util.concurrent.TimeUnit;
 
 import java.io.IOException;
 import java.util.Optional;
@@ -71,4 +72,24 @@ public class RedisCacheService {
             logger.warn("--- CACHE EVICTION SKIPPED: KEY '{}' NOT FOUND ---", key);
         }
     }
+
+// --- ✅ ADD THESE NEW METHODS AT THE BOTTOM ---
+
+    public void saveOtp(String username, String otp) {
+        // Stores OTP for exactly 5 minutes (300 seconds)
+        String key = "OTP:" + username;
+        redisTemplate.opsForValue().set(key, otp, 300, TimeUnit.SECONDS);
+    }
+
+    public String getOtp(String username) {
+        String key = "OTP:" + username;
+        Object otp = redisTemplate.opsForValue().get(key);
+        return otp != null ? otp.toString() : null;
+    }
+    
+    public void deleteOtp(String username) {
+        String key = "OTP:" + username;
+        redisTemplate.delete(key);
+    }
+    
 }
