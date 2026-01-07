@@ -6,7 +6,6 @@ import com.xammer.cloud.dto.DetailedCostDto; // <-- NEW IMPORT
 import com.xammer.cloud.dto.gcp.GcpCostDto;
 import com.xammer.cloud.service.RedisCacheService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -24,10 +23,8 @@ public class GcpCostService {
 
     private final GcpClientProvider gcpClientProvider;
     private final RedisCacheService redisCacheService;
+    private final com.xammer.cloud.repository.CloudAccountRepository cloudAccountRepository;
     private final ExecutorService executor = Executors.newCachedThreadPool();
-
-    @Value("${gcp.billing.export-table-name:}")
-    private String billingExportTableName;
 
     // Cache key prefixes
     private static final String COST_BY_TAG_CACHE_PREFIX = "gcp:cost-by-tag:";
@@ -40,20 +37,28 @@ public class GcpCostService {
     // --- NEW CACHE KEY ---
     private static final String COST_BY_SERVICE_REGION_CACHE_PREFIX = "gcp:cost-by-service-region:";
 
-
-    public GcpCostService(GcpClientProvider gcpClientProvider, RedisCacheService redisCacheService) {
+    public GcpCostService(GcpClientProvider gcpClientProvider,
+            RedisCacheService redisCacheService,
+            com.xammer.cloud.repository.CloudAccountRepository cloudAccountRepository) {
         this.gcpClientProvider = gcpClientProvider;
         this.redisCacheService = redisCacheService;
+        this.cloudAccountRepository = cloudAccountRepository;
+    }
+
+    // Helper method to look up CloudAccount by GCP project ID
+    private Optional<com.xammer.cloud.domain.CloudAccount> getAccount(String gcpProjectId) {
+        return cloudAccountRepository.findByGcpProjectId(gcpProjectId);
     }
 
     // --- NEW METHOD FOR DETAILED REPORTING ---
-    public List<DetailedCostDto> getCostBreakdownByServiceAndRegionSync(String gcpProjectId, LocalDate startDate, LocalDate endDate) {
+    public List<DetailedCostDto> getCostBreakdownByServiceAndRegionSync(String gcpProjectId, LocalDate startDate,
+            LocalDate endDate) {
         String cacheKey = COST_BY_SERVICE_REGION_CACHE_PREFIX + gcpProjectId + ":" + startDate + ":" + endDate;
 
         Optional<List<DetailedCostDto>> cached = redisCacheService.get(
                 cacheKey,
-                new TypeReference<List<DetailedCostDto>>() {}
-        );
+                new TypeReference<List<DetailedCostDto>>() {
+                });
 
         if (cached.isPresent()) {
             log.info("✅ Returning cached cost by service/region for project {}", gcpProjectId);
@@ -62,12 +67,20 @@ public class GcpCostService {
 
         log.info("🔍 Fetching cost by service/region for project {} from {} to {}", gcpProjectId, startDate, endDate);
 
+        Optional<com.xammer.cloud.domain.CloudAccount> accountOpt = getAccount(gcpProjectId);
+        if (accountOpt.isEmpty()) {
+            log.error("CloudAccount not found for project ID: {}", gcpProjectId);
+            return Collections.emptyList();
+        }
+
         Optional<BigQuery> bqOpt = gcpClientProvider.getBigQueryClient(gcpProjectId);
-        if (bqOpt.isEmpty()) return Collections.emptyList();
+        if (bqOpt.isEmpty())
+            return Collections.emptyList();
 
         BigQuery bigquery = bqOpt.get();
-        Optional<String> tableNameOpt = getBillingTableName(bigquery, gcpProjectId);
-        if (tableNameOpt.isEmpty()) return Collections.emptyList();
+        Optional<String> tableNameOpt = getBillingTableName(bigquery, accountOpt.get());
+        if (tableNameOpt.isEmpty())
+            return Collections.emptyList();
 
         String query = String.format(
                 "SELECT " +
@@ -81,8 +94,7 @@ public class GcpCostService {
                         "ORDER BY total_cost DESC",
                 tableNameOpt.get(),
                 startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
-                endDate.format(DateTimeFormatter.ISO_LOCAL_DATE)
-        );
+                endDate.format(DateTimeFormatter.ISO_LOCAL_DATE));
 
         try {
             log.info("Executing BigQuery query for project {}: {}", gcpProjectId, query);
@@ -93,17 +105,18 @@ public class GcpCostService {
                             row.get("region").isNull() ? "Global" : row.get("region").getStringValue(),
                             row.get("total_cost").getDoubleValue()))
                     .collect(Collectors.toList());
-            
+
             redisCacheService.put(cacheKey, resultList, 60 * 6); // Cache for 6 hours
             return resultList;
         } catch (Exception e) {
-            log.error("BigQuery query failed for cost by service/region on project {}: {}", gcpProjectId, e.getMessage(), e);
-            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            log.error("BigQuery query failed for cost by service/region on project {}: {}", gcpProjectId,
+                    e.getMessage(), e);
+            if (e instanceof InterruptedException)
+                Thread.currentThread().interrupt();
             return Collections.emptyList();
         }
     }
     // --- END OF NEW METHOD ---
-
 
     // ===== COST BY TAG =====
 
@@ -116,8 +129,8 @@ public class GcpCostService {
 
         Optional<List<GcpCostDto>> cached = redisCacheService.get(
                 cacheKey,
-                new TypeReference<List<GcpCostDto>>() {}
-        );
+                new TypeReference<List<GcpCostDto>>() {
+                });
 
         if (cached.isPresent()) {
             log.info("✅ Returning cached cost by tag for project {} / tag {}", gcpProjectId, tagKey);
@@ -126,12 +139,20 @@ public class GcpCostService {
 
         log.info("🔍 Fetching cost by tag for project {} / tag {}", gcpProjectId, tagKey);
 
+        Optional<com.xammer.cloud.domain.CloudAccount> accountOpt = getAccount(gcpProjectId);
+        if (accountOpt.isEmpty()) {
+            log.error("CloudAccount not found for project ID: {}", gcpProjectId);
+            return Collections.emptyList();
+        }
+
         Optional<BigQuery> bqOpt = gcpClientProvider.getBigQueryClient(gcpProjectId);
-        if (bqOpt.isEmpty()) return Collections.emptyList();
+        if (bqOpt.isEmpty())
+            return Collections.emptyList();
 
         BigQuery bigquery = bqOpt.get();
-        Optional<String> tableNameOpt = getBillingTableName(bigquery, gcpProjectId);
-        if (tableNameOpt.isEmpty()) return Collections.emptyList();
+        Optional<String> tableNameOpt = getBillingTableName(bigquery, accountOpt.get());
+        if (tableNameOpt.isEmpty())
+            return Collections.emptyList();
 
         LocalDate today = LocalDate.now();
         LocalDate startDate = today.withDayOfMonth(1);
@@ -142,8 +163,7 @@ public class GcpCostService {
                         "GROUP BY 1 ORDER BY total_cost DESC",
                 tableNameOpt.get(), tagKey,
                 startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
-                today.format(DateTimeFormatter.ISO_LOCAL_DATE)
-        );
+                today.format(DateTimeFormatter.ISO_LOCAL_DATE));
 
         List<GcpCostDto> result = executeQuery(bigquery, query, gcpProjectId);
         redisCacheService.put(cacheKey, result, 10);
@@ -167,12 +187,20 @@ public class GcpCostService {
 
         log.info("🔍 Fetching MTD spend for project {}", gcpProjectId);
 
+        Optional<com.xammer.cloud.domain.CloudAccount> accountOpt = getAccount(gcpProjectId);
+        if (accountOpt.isEmpty()) {
+            log.error("CloudAccount not found for project ID: {}", gcpProjectId);
+            return 0.0;
+        }
+
         Optional<BigQuery> bqOpt = gcpClientProvider.getBigQueryClient(gcpProjectId);
-        if (bqOpt.isEmpty()) return 0.0;
+        if (bqOpt.isEmpty())
+            return 0.0;
 
         BigQuery bigquery = bqOpt.get();
-        Optional<String> tableNameOpt = getBillingTableName(bigquery, gcpProjectId);
-        if (tableNameOpt.isEmpty()) return 0.0;
+        Optional<String> tableNameOpt = getBillingTableName(bigquery, accountOpt.get());
+        if (tableNameOpt.isEmpty())
+            return 0.0;
 
         LocalDate today = LocalDate.now();
         LocalDate startDate = today.withDayOfMonth(1);
@@ -180,8 +208,7 @@ public class GcpCostService {
                 "SELECT SUM(cost) as total_cost FROM `%s` WHERE DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s'",
                 tableNameOpt.get(),
                 startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
-                today.format(DateTimeFormatter.ISO_LOCAL_DATE)
-        );
+                today.format(DateTimeFormatter.ISO_LOCAL_DATE));
 
         try {
             TableResult results = bigquery.query(QueryJobConfiguration.newBuilder(query).build());
@@ -191,7 +218,8 @@ public class GcpCostService {
             return result;
         } catch (Exception e) {
             log.error("BigQuery query failed for MTD spend on project {}: {}", gcpProjectId, e.getMessage(), e);
-            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            if (e instanceof InterruptedException)
+                Thread.currentThread().interrupt();
             return 0.0;
         }
     }
@@ -207,8 +235,8 @@ public class GcpCostService {
 
         Optional<List<GcpCostDto>> cached = redisCacheService.get(
                 cacheKey,
-                new TypeReference<List<GcpCostDto>>() {}
-        );
+                new TypeReference<List<GcpCostDto>>() {
+                });
 
         if (cached.isPresent()) {
             log.info("✅ Returning cached billing summary for project {}", gcpProjectId);
@@ -217,13 +245,21 @@ public class GcpCostService {
 
         log.info("🔍 Fetching billing summary for project {}", gcpProjectId);
 
+        Optional<com.xammer.cloud.domain.CloudAccount> accountOpt = getAccount(gcpProjectId);
+        if (accountOpt.isEmpty()) {
+            log.error("CloudAccount not found for project ID: {}", gcpProjectId);
+            return Collections.emptyList();
+        }
+
         Optional<BigQuery> bqOpt = gcpClientProvider.getBigQueryClient(gcpProjectId);
-        if (bqOpt.isEmpty()) return Collections.emptyList();
+        if (bqOpt.isEmpty())
+            return Collections.emptyList();
 
         LocalDate endDate = LocalDate.now();
         LocalDate startDate = endDate.withDayOfMonth(1);
 
-        List<GcpCostDto> result = queryCostData(bqOpt.get(), gcpProjectId, "service.description", startDate, endDate);
+        List<GcpCostDto> result = queryCostData(bqOpt.get(), accountOpt.get(), "service.description", startDate,
+                endDate);
         redisCacheService.put(cacheKey, result, 10);
         return result;
     }
@@ -239,8 +275,8 @@ public class GcpCostService {
 
         Optional<List<GcpCostDto>> cached = redisCacheService.get(
                 cacheKey,
-                new TypeReference<List<GcpCostDto>>() {}
-        );
+                new TypeReference<List<GcpCostDto>>() {
+                });
 
         if (cached.isPresent()) {
             log.info("✅ Returning cached historical costs for project {}", gcpProjectId);
@@ -249,23 +285,32 @@ public class GcpCostService {
 
         log.info("🔍 Fetching historical costs for project {}", gcpProjectId);
 
+        Optional<com.xammer.cloud.domain.CloudAccount> accountOpt = getAccount(gcpProjectId);
+        if (accountOpt.isEmpty()) {
+            log.error("CloudAccount not found for project ID: {}", gcpProjectId);
+            return Collections.emptyList();
+        }
+
         Optional<BigQuery> bqOpt = gcpClientProvider.getBigQueryClient(gcpProjectId);
-        if (bqOpt.isEmpty()) return Collections.emptyList();
+        if (bqOpt.isEmpty())
+            return Collections.emptyList();
 
         BigQuery bigquery = bqOpt.get();
-        Optional<String> tableNameOpt = getBillingTableName(bigquery, gcpProjectId);
-        if (tableNameOpt.isEmpty()) return Collections.emptyList();
+        Optional<String> tableNameOpt = getBillingTableName(bigquery, accountOpt.get());
+        if (tableNameOpt.isEmpty())
+            return Collections.emptyList();
 
         LocalDate today = LocalDate.now();
         String endDate = today.format(DateTimeFormatter.ISO_LOCAL_DATE);
         String startDate = today.minusMonths(6).withDayOfMonth(1).format(DateTimeFormatter.ISO_LOCAL_DATE);
 
         String query = String.format(
-                "WITH MonthlyCosts AS (SELECT FORMAT_DATE('%%%%Y-%%%%m', usage_start_time) as name, SUM(cost) as total_cost FROM `%s` WHERE DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' GROUP BY 1), " +
-                        "MonthlyCostsWithLag AS (SELECT name, total_cost, LAG(total_cost, 1, 0) OVER (ORDER BY name) as prev_month_cost FROM MonthlyCosts) " +
+                "WITH MonthlyCosts AS (SELECT FORMAT_DATE('%%%%Y-%%%%m', usage_start_time) as name, SUM(cost) as total_cost FROM `%s` WHERE DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' GROUP BY 1), "
+                        +
+                        "MonthlyCostsWithLag AS (SELECT name, total_cost, LAG(total_cost, 1, 0) OVER (ORDER BY name) as prev_month_cost FROM MonthlyCosts) "
+                        +
                         "SELECT name, total_cost, (total_cost > prev_month_cost * 1.2 AND prev_month_cost > 10) as is_anomaly FROM MonthlyCostsWithLag ORDER BY name",
-                tableNameOpt.get(), startDate, endDate
-        );
+                tableNameOpt.get(), startDate, endDate);
 
         List<GcpCostDto> result = executeQuery(bigquery, query, gcpProjectId);
         redisCacheService.put(cacheKey, result, 10);
@@ -283,8 +328,8 @@ public class GcpCostService {
 
         Optional<List<GcpCostDto>> cached = redisCacheService.get(
                 cacheKey,
-                new TypeReference<List<GcpCostDto>>() {}
-        );
+                new TypeReference<List<GcpCostDto>>() {
+                });
 
         if (cached.isPresent()) {
             log.info("✅ Returning cached cost by region for project {}", gcpProjectId);
@@ -293,21 +338,30 @@ public class GcpCostService {
 
         log.info("🔍 Fetching cost by region for project {}", gcpProjectId);
 
+        Optional<com.xammer.cloud.domain.CloudAccount> accountOpt = getAccount(gcpProjectId);
+        if (accountOpt.isEmpty()) {
+            log.error("CloudAccount not found for project ID: {}", gcpProjectId);
+            return Collections.emptyList();
+        }
+
         Optional<BigQuery> bqOpt = gcpClientProvider.getBigQueryClient(gcpProjectId);
-        if (bqOpt.isEmpty()) return Collections.emptyList();
+        if (bqOpt.isEmpty())
+            return Collections.emptyList();
 
         LocalDate endDate = LocalDate.now();
         LocalDate startDate = endDate.withDayOfMonth(1);
 
-        List<GcpCostDto> result = queryCostData(bqOpt.get(), gcpProjectId, "location.region", startDate, endDate);
+        List<GcpCostDto> result = queryCostData(bqOpt.get(), accountOpt.get(), "location.region", startDate, endDate);
         redisCacheService.put(cacheKey, result, 10);
         return result;
     }
 
     // ===== DAILY COSTS FOR FORECAST =====
 
-    public CompletableFuture<List<Map<String, Object>>> getDailyCostsForForecast(String gcpProjectId, String serviceName, int days) {
-        return CompletableFuture.supplyAsync(() -> getDailyCostsForForecastSync(gcpProjectId, serviceName, days), executor);
+    public CompletableFuture<List<Map<String, Object>>> getDailyCostsForForecast(String gcpProjectId,
+            String serviceName, int days) {
+        return CompletableFuture.supplyAsync(() -> getDailyCostsForForecastSync(gcpProjectId, serviceName, days),
+                executor);
     }
 
     public List<Map<String, Object>> getDailyCostsForForecastSync(String gcpProjectId, String serviceName, int days) {
@@ -315,8 +369,8 @@ public class GcpCostService {
 
         Optional<List<Map<String, Object>>> cached = redisCacheService.get(
                 cacheKey,
-                new TypeReference<List<Map<String, Object>>>() {}
-        );
+                new TypeReference<List<Map<String, Object>>>() {
+                });
 
         if (cached.isPresent()) {
             log.info("✅ Returning cached daily costs forecast for project {}", gcpProjectId);
@@ -325,12 +379,20 @@ public class GcpCostService {
 
         log.info("🔍 Fetching daily costs forecast for project {}", gcpProjectId);
 
+        Optional<com.xammer.cloud.domain.CloudAccount> accountOpt = getAccount(gcpProjectId);
+        if (accountOpt.isEmpty()) {
+            log.error("CloudAccount not found for project ID: {}", gcpProjectId);
+            return Collections.emptyList();
+        }
+
         Optional<BigQuery> bqOpt = gcpClientProvider.getBigQueryClient(gcpProjectId);
-        if (bqOpt.isEmpty()) return Collections.emptyList();
+        if (bqOpt.isEmpty())
+            return Collections.emptyList();
 
         BigQuery bigquery = bqOpt.get();
-        Optional<String> tableNameOpt = getBillingTableName(bigquery, gcpProjectId);
-        if (tableNameOpt.isEmpty()) return Collections.emptyList();
+        Optional<String> tableNameOpt = getBillingTableName(bigquery, accountOpt.get());
+        if (tableNameOpt.isEmpty())
+            return Collections.emptyList();
 
         LocalDate endDate = LocalDate.now();
         LocalDate startDate = endDate.minusDays(days);
@@ -344,13 +406,13 @@ public class GcpCostService {
                 tableNameOpt.get(),
                 startDate.toString(),
                 endDate.toString(),
-                serviceFilter
-        );
+                serviceFilter);
 
         try {
             TableResult results = bigquery.query(QueryJobConfiguration.newBuilder(query).build());
             List<Map<String, Object>> result = StreamSupport.stream(results.iterateAll().spliterator(), false)
-                    .map(row -> Map.<String, Object>of("date", row.get("date").getStringValue(), "cost", row.get("cost").getDoubleValue()))
+                    .map(row -> Map.<String, Object>of("date", row.get("date").getStringValue(), "cost",
+                            row.get("cost").getDoubleValue()))
                     .collect(Collectors.toList());
             redisCacheService.put(cacheKey, result, 10);
             return result;
@@ -374,8 +436,8 @@ public class GcpCostService {
 
         Optional<List<GcpCostDto>> cached = redisCacheService.get(
                 cacheKey,
-                new TypeReference<List<GcpCostDto>>() {}
-        );
+                new TypeReference<List<GcpCostDto>>() {
+                });
 
         if (cached.isPresent()) {
             log.info("✅ Returning cached cost breakdown for project {} / groupBy {}", gcpProjectId, groupBy);
@@ -384,8 +446,15 @@ public class GcpCostService {
 
         log.info("🔍 Fetching cost breakdown for project {} / groupBy {}", gcpProjectId, groupBy);
 
+        Optional<com.xammer.cloud.domain.CloudAccount> accountOpt = getAccount(gcpProjectId);
+        if (accountOpt.isEmpty()) {
+            log.error("CloudAccount not found for project ID: {}", gcpProjectId);
+            return Collections.emptyList();
+        }
+
         Optional<BigQuery> bqOpt = gcpClientProvider.getBigQueryClient(gcpProjectId);
-        if (bqOpt.isEmpty()) return Collections.emptyList();
+        if (bqOpt.isEmpty())
+            return Collections.emptyList();
 
         String dimension = "service.description";
         if ("REGION".equalsIgnoreCase(groupBy)) {
@@ -397,7 +466,7 @@ public class GcpCostService {
         LocalDate endDate = LocalDate.now();
         LocalDate startDate = endDate.withDayOfMonth(1);
 
-        List<GcpCostDto> result = queryCostData(bqOpt.get(), gcpProjectId, dimension, startDate, endDate);
+        List<GcpCostDto> result = queryCostData(bqOpt.get(), accountOpt.get(), dimension, startDate, endDate);
         redisCacheService.put(cacheKey, result, 10);
         return result;
     }
@@ -425,15 +494,18 @@ public class GcpCostService {
         });
     }
 
-    private List<GcpCostDto> queryCostData(BigQuery bigquery, String gcpProjectId, String dimension, LocalDate startDate, LocalDate endDate) {
-        Optional<String> tableNameOpt = getBillingTableName(bigquery, gcpProjectId);
-        if (tableNameOpt.isEmpty()) return Collections.emptyList();
+    private List<GcpCostDto> queryCostData(BigQuery bigquery, com.xammer.cloud.domain.CloudAccount account,
+            String dimension,
+            LocalDate startDate, LocalDate endDate) {
+        Optional<String> tableNameOpt = getBillingTableName(bigquery, account);
+        if (tableNameOpt.isEmpty())
+            return Collections.emptyList();
 
         String query = String.format(
                 "SELECT COALESCE(%s, 'Uncategorized') as name, SUM(cost) as total_cost, false as is_anomaly FROM `%s` WHERE DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' GROUP BY 1 HAVING total_cost > 0 ORDER BY total_cost DESC",
-                dimension, tableNameOpt.get(), startDate.format(DateTimeFormatter.ISO_LOCAL_DATE), endDate.format(DateTimeFormatter.ISO_LOCAL_DATE)
-        );
-        return executeQuery(bigquery, query, gcpProjectId);
+                dimension, tableNameOpt.get(), startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
+                endDate.format(DateTimeFormatter.ISO_LOCAL_DATE));
+        return executeQuery(bigquery, query, account.getGcpProjectId());
     }
 
     private List<GcpCostDto> executeQuery(BigQuery bigquery, String query, String gcpProjectId) {
@@ -448,33 +520,43 @@ public class GcpCostService {
                     .collect(Collectors.toList());
         } catch (Exception e) {
             log.error("BigQuery query failed for project {}: {}", gcpProjectId, e.getMessage(), e);
-            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            if (e instanceof InterruptedException)
+                Thread.currentThread().interrupt();
             return Collections.emptyList();
         }
     }
 
-    private Optional<String> getBillingTableName(BigQuery bigquery, String gcpProjectId) {
-        if (billingExportTableName != null && !billingExportTableName.isBlank())
-            return Optional.of(billingExportTableName);
+    private Optional<String> getBillingTableName(BigQuery bigquery, com.xammer.cloud.domain.CloudAccount account) {
+        // Priority 1: Use account-specific billing export table if configured
+        if (account.getBillingExportTable() != null && !account.getBillingExportTable().isBlank()) {
+            log.info("✅ Using billing export table from account configuration: {}", account.getBillingExportTable());
+            return Optional.of(account.getBillingExportTable());
+        }
 
+        // Priority 2: Auto-discover billing table
+        log.info("⚠️ No billing export table configured for account {}, attempting auto-discovery",
+                account.getGcpProjectId());
         try {
-            for (Dataset dataset : bigquery.listDatasets(gcpProjectId).iterateAll()) {
+            for (Dataset dataset : bigquery.listDatasets(account.getGcpProjectId()).iterateAll()) {
                 for (Table table : bigquery.listTables(dataset.getDatasetId()).iterateAll()) {
                     if (table.getTableId().getTable().startsWith("gcp_billing_export_v1")) {
                         String fullName = String.format("%s.%s.%s",
                                 table.getTableId().getProject(),
                                 table.getTableId().getDataset(),
                                 table.getTableId().getTable());
-                        log.info("Dynamically found billing table: {}", fullName);
+                        log.info("✅ Dynamically found billing table: {}", fullName);
                         return Optional.of(fullName);
                     }
                 }
             }
         } catch (Exception e) {
-            log.error("Failed to discover BigQuery billing table for project {}: {}", gcpProjectId, e.getMessage());
+            log.error("Failed to discover BigQuery billing table for project {}: {}", account.getGcpProjectId(),
+                    e.getMessage());
         }
 
-        log.warn("Could not find a GCP billing export table for project {}. Please configure gcp.billing.export-table-name.", gcpProjectId);
+        log.warn(
+                "❌ Could not find a GCP billing export table for project {}. Please configure billingExportTable in the account settings.",
+                account.getGcpProjectId());
         return Optional.empty();
     }
 

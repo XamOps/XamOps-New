@@ -8,8 +8,10 @@ import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.ResourceDto;
 import com.xammer.cloud.dto.ServicePaginatedResponse;
+import com.xammer.cloud.dto.gcp.GcpResourceDto;
 import com.xammer.cloud.repository.CachedDataRepository; // Imported
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.service.gcp.GcpDataService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -137,16 +139,20 @@ public class CloudListService {
     @Autowired
     private ObjectMapper objectMapper;
 
+    private final GcpDataService gcpDataService;
+
     @Autowired
     public CloudListService(
             CloudAccountRepository cloudAccountRepository,
             AwsClientProvider awsClientProvider,
             CachedDataRepository cachedDataRepository,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            GcpDataService gcpDataService) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.cachedDataRepository = cachedDataRepository;
         this.objectMapper = objectMapper;
+        this.gcpDataService = gcpDataService;
         this.configuredRegion = System.getenv().getOrDefault("AWS_REGION", "us-east-1");
         loadRegionCoordinates();
     }
@@ -350,6 +356,34 @@ public class CloudListService {
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
+        }
+
+        // ✅ HANDLE GCP ACCOUNTS
+        if ("GCP".equalsIgnoreCase(account.getProvider())) {
+            String projectId = account.getGcpProjectId();
+            if (projectId == null)
+                projectId = account.getAccountName(); // Fallback
+
+            logger.info("Fetching all resources for GCP project {}...", projectId);
+
+            return gcpDataService.getAllResources(projectId, forceRefresh)
+                    .thenApply(gcpResources -> {
+                        List<ResourceDto> resources = gcpResources.stream()
+                                .map(r -> new ResourceDto(
+                                        r.getId(),
+                                        r.getName(),
+                                        r.getType(),
+                                        r.getLocation(),
+                                        r.getStatus(),
+                                        null, // Created time not always available in GcpResourceDto
+                                        r.getTags() != null ? r.getTags() : Collections.emptyMap()))
+                                .collect(Collectors.toList());
+
+                        logger.debug("Fetched {} resources for GCP project {}", resources.size(),
+                                account.getGcpProjectId());
+                        redisCache.put(cacheKey, resources, 10);
+                        return resources;
+                    });
         }
 
         return getRegionStatusForAccount(account, forceRefresh).thenCompose(activeRegions -> {

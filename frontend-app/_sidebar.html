@@ -605,7 +605,8 @@
                     currentPath.includes('reservation') || 
                     currentPath.includes('azure-finops') ||
                     currentPath.includes('cloudsitter') ||
-                    currentPath.includes('spot-automation');
+                    currentPath.includes('spot-automation') ||
+                    currentPath.includes('scheduled-capacities');
         }
         if (path === '/cloudk8s') {
             return currentPath.includes('cloudk8s');
@@ -668,7 +669,8 @@
                 '/aiops.html',
                 '/dataops.html',
                 '/complianceops.html',
-                '/spot-automation.html'
+                '/spot-automation.html',
+                '/scheduled-capacities.html'
             ];
             
             const shouldExclude = gcpExcludedPages.some(page => basePath.includes(page));
@@ -935,10 +937,21 @@
                             class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-green-600">
                             Cloudsitter
                         </a>
+                        <a :href="getLink('/gcp-cloudsitter.html')" x-show="selectedAccountDisplay.provider === 'GCP'"
+                            :class="{'text-green-600 font-bold bg-green-50': isActive('/gcp-cloudsitter.html')}"
+                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-green-600">
+                            Cloudsitter
+                        </a>
                         <a :href="getLink('/spot-automation.html')" x-show="selectedAccountDisplay.provider === 'AWS'"
                             :class="{'text-green-600 font-bold bg-green-50': isActive('/spot-automation.html')}"
                             class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-green-600">Spot
                             Automation</a>
+                        <a :href="getLink('/scheduled-capacities.html')"
+                            x-show="selectedAccountDisplay.provider === 'AWS'"
+                            :class="{'text-green-600 font-bold bg-green-50': isActive('/scheduled-capacities.html')}"
+                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-green-600">
+                            Scheduled Capacities
+                        </a>
                     </div>
                 </div>
             </div>

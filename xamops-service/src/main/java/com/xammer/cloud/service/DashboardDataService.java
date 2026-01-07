@@ -124,7 +124,7 @@ public class DashboardDataService {
      * finishes.
      * This prevents overlap if a run takes longer than 5 minutes.
      */
-    @Scheduled(fixedDelay = 300000) // 5 minutes delay after completion
+    @Scheduled(fixedDelay = 72000000) // 5 minutes delay after completion
     public void runBackgroundAggregation() {
         logger.info("⚡ [Async-Aggregator] Starting global dashboard aggregation...");
         long totalStart = System.currentTimeMillis();
@@ -241,7 +241,22 @@ public class DashboardDataService {
             }
 
             try {
-                String accountId = String.valueOf(account.getId());
+                String accountId;
+                if ("AWS".equalsIgnoreCase(account.getProvider())) {
+                    accountId = account.getAwsAccountId();
+                } else if ("GCP".equalsIgnoreCase(account.getProvider())) {
+                    accountId = account.getGcpProjectId();
+                } else if ("Azure".equalsIgnoreCase(account.getProvider())) {
+                    accountId = account.getAzureSubscriptionId();
+                } else {
+                    continue; // Skip unsupported providers
+                }
+
+                if (accountId == null) {
+                    logger.warn("Skipping account {} (ID: {}) due to missing provider ID", account.getAccountName(),
+                            account.getId());
+                    continue;
+                }
                 logger.debug("Pre-caching granular data for account: {}", accountId);
 
                 // Pre-cache all granular endpoints in parallel

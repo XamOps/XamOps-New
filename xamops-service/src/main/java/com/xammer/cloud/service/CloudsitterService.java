@@ -2,6 +2,9 @@ package com.xammer.cloud.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.cloud.compute.v1.Instance;
+import com.google.cloud.compute.v1.InstancesClient;
+import com.google.cloud.compute.v1.Operation;
 import com.xammer.cloud.config.multitenancy.TenantContext;
 import com.xammer.cloud.domain.*;
 import com.xammer.cloud.dto.CloudsitterAssignmentDto;
@@ -9,6 +12,8 @@ import com.xammer.cloud.dto.CloudsitterAssignmentRequest;
 import com.xammer.cloud.dto.CloudsitterPolicyDto;
 import com.xammer.cloud.dto.TenantDto;
 import com.xammer.cloud.repository.*;
+import com.xammer.cloud.service.gcp.GcpClientProvider;
+import com.xammer.cloud.service.gcp.GcpPricingService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,6 +30,9 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 @Service
@@ -37,7 +45,11 @@ public class CloudsitterService {
     private final CloudAccountRepository accountRepo;
     private final ObjectMapper objectMapper;
     private final TenantService tenantService;
-    private final AwsPricingService pricingService;
+    private final AwsPricingService awsPricingService;
+
+    // GCP Services
+    private final GcpClientProvider gcpClientProvider;
+    private final GcpPricingService gcpPricingService;
 
     @Autowired
     @Lazy
@@ -49,14 +61,18 @@ public class CloudsitterService {
             CloudAccountRepository accountRepo,
             ObjectMapper objectMapper,
             TenantService tenantService,
-            AwsPricingService pricingService) {
+            AwsPricingService awsPricingService,
+            GcpClientProvider gcpClientProvider,
+            GcpPricingService gcpPricingService) {
         this.policyRepo = policyRepo;
         this.assignmentRepo = assignmentRepo;
         this.awsClientProvider = awsClientProvider;
         this.accountRepo = accountRepo;
         this.objectMapper = objectMapper;
         this.tenantService = tenantService;
-        this.pricingService = pricingService;
+        this.awsPricingService = awsPricingService;
+        this.gcpClientProvider = gcpClientProvider;
+        this.gcpPricingService = gcpPricingService;
     }
 
     // --- METHODS FOR UI ---
@@ -74,29 +90,42 @@ public class CloudsitterService {
                 .filter(a -> a.getAccountId().equals(accountId) && a.isActive())
                 .collect(Collectors.toList());
 
-        Map<String, String> instanceTypes = fetchInstanceTypes(accountId, assignments);
+        // Find the account to determine provider
+        CloudAccount account = findAccount(accountId);
+
+        Map<String, String> instanceTypes;
+
+        if (account != null && "GCP".equalsIgnoreCase(account.getProvider())) {
+            instanceTypes = fetchGcpInstanceTypes(account, assignments);
+        } else {
+            instanceTypes = fetchAwsInstanceTypes(account, assignments);
+        }
 
         return assignments.stream()
                 .collect(Collectors.toMap(
                         CloudsitterAssignment::getResourceId,
-                        a -> convertToDto(a, instanceTypes.getOrDefault(a.getResourceId(), "t3.micro")),
+                        a -> convertToDto(a, instanceTypes.getOrDefault(a.getResourceId(), "unknown"), account),
                         (existing, replacement) -> existing));
     }
 
-    private Map<String, String> fetchInstanceTypes(String accountId, List<CloudsitterAssignment> assignments) {
+    // ✅ FIXED: Correctly handling List vs Optional return types
+    private CloudAccount findAccount(String accountId) {
+        // Try AWS ID first (findByAwsAccountId returns List)
+        List<CloudAccount> awsAccounts = accountRepo.findByAwsAccountId(accountId);
+        if (!awsAccounts.isEmpty()) {
+            return awsAccounts.get(0);
+        }
+
+        // Try GCP Project ID (findByGcpProjectId returns Optional)
+        return accountRepo.findByGcpProjectId(accountId).orElse(null);
+    }
+
+    private Map<String, String> fetchAwsInstanceTypes(CloudAccount account, List<CloudsitterAssignment> assignments) {
         Map<String, String> types = new java.util.HashMap<>();
-        if (assignments.isEmpty())
+        if (assignments.isEmpty() || account == null)
             return types;
 
         try {
-            CloudAccount account = accountRepo.findByAwsAccountId(accountId)
-                    .stream().findFirst().orElse(null);
-
-            if (account == null) {
-                logger.warn("Account {} not found, cannot fetch instance types", accountId);
-                return types;
-            }
-
             Map<String, List<CloudsitterAssignment>> byRegion = assignments.stream()
                     .collect(Collectors.groupingBy(CloudsitterAssignment::getRegion));
 
@@ -115,22 +144,57 @@ public class CloudsitterService {
                     DescribeInstancesResponse response = ec2.describeInstances(request);
 
                     for (Reservation reservation : response.reservations()) {
-                        for (Instance instance : reservation.instances()) {
+                        for (software.amazon.awssdk.services.ec2.model.Instance instance : reservation.instances()) {
                             types.put(instance.instanceId(), instance.instanceType().toString());
                         }
                     }
                 } catch (Exception e) {
-                    logger.warn("Failed to fetch instance details for region {}: {}", region, e.getMessage());
+                    logger.warn("Failed to fetch AWS instance details for region {}: {}", region, e.getMessage());
                 }
             }
         } catch (Exception e) {
-            logger.error("Error fetching instance types for account {}", accountId, e);
+            logger.error("Error fetching AWS instance types for account {}", account.getAwsAccountId(), e);
         }
-
         return types;
     }
 
-    private CloudsitterAssignmentDto convertToDto(CloudsitterAssignment assignment, String instanceType) {
+    private Map<String, String> fetchGcpInstanceTypes(CloudAccount account, List<CloudsitterAssignment> assignments) {
+        Map<String, String> types = new java.util.HashMap<>();
+        if (assignments.isEmpty() || account == null)
+            return types;
+
+        // Group by Zone (GCP Assignment 'region' field usually stores zone like
+        // 'us-central1-a')
+        Map<String, List<CloudsitterAssignment>> byZone = assignments.stream()
+                .collect(Collectors.groupingBy(CloudsitterAssignment::getRegion));
+
+        try {
+            var clientOpt = gcpClientProvider.getInstancesClient(account.getGcpProjectId());
+            if (clientOpt.isEmpty())
+                return types;
+
+            try (InstancesClient client = clientOpt.get()) {
+                for (Map.Entry<String, List<CloudsitterAssignment>> entry : byZone.entrySet()) {
+                    String zone = entry.getKey();
+                    for (CloudsitterAssignment assignment : entry.getValue()) {
+                        try {
+                            Instance instance = client.get(account.getGcpProjectId(), zone, assignment.getResourceId());
+                            // Machine type is a URL, we simplify it
+                            types.put(assignment.getResourceId(), instance.getMachineType());
+                        } catch (Exception e) {
+                            logger.warn("Failed to fetch GCP instance {} in zone {}", assignment.getResourceId(), zone);
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.error("Error fetching GCP instance types for project {}", account.getGcpProjectId(), e);
+        }
+        return types;
+    }
+
+    private CloudsitterAssignmentDto convertToDto(CloudsitterAssignment assignment, String instanceType,
+            CloudAccount account) {
         CloudsitterAssignmentDto dto = new CloudsitterAssignmentDto();
         dto.setId(assignment.getId());
         dto.setResourceId(assignment.getResourceId());
@@ -138,19 +202,30 @@ public class CloudsitterService {
         dto.setRegion(assignment.getRegion());
         dto.setPolicy(assignment.getPolicy());
         dto.setActive(assignment.isActive());
-        dto.setInstanceType(instanceType);
 
-        double savings = calculateMonthlySavings(assignment.getPolicy(), instanceType, assignment.getRegion());
+        // Clean up GCP machine type URL if needed
+        String cleanType = instanceType;
+        if (cleanType.contains("/")) {
+            cleanType = cleanType.substring(cleanType.lastIndexOf("/") + 1);
+        }
+        dto.setInstanceType(cleanType);
+
+        double savings = calculateMonthlySavings(assignment.getPolicy(), cleanType, assignment.getRegion(), account);
         dto.setMonthlySavings(savings);
 
         return dto;
     }
 
-    private double calculateMonthlySavings(CloudsitterPolicy policy, String instanceType, String region) {
+    private double calculateMonthlySavings(CloudsitterPolicy policy, String instanceType, String region,
+            CloudAccount account) {
         try {
             int stoppedHoursPerMonth = calculateStoppedHoursPerMonth(policy);
-            double savings = pricingService.calculateMonthlySavings(instanceType, region, stoppedHoursPerMonth);
-            return Math.round(savings * 100.0) / 100.0;
+
+            if (account != null && "GCP".equalsIgnoreCase(account.getProvider())) {
+                return gcpPricingService.calculateMonthlySavings(instanceType, region, stoppedHoursPerMonth);
+            } else {
+                return awsPricingService.calculateMonthlySavings(instanceType, region, stoppedHoursPerMonth);
+            }
         } catch (Exception e) {
             logger.error("Failed to calculate savings for policy {}", policy.getId(), e);
             return 0.0;
@@ -178,7 +253,6 @@ public class CloudsitterService {
         }
     }
 
-    // ✅ UPDATED: Returns the created policy object
     @Transactional
     public CloudsitterPolicy createPolicy(CloudsitterPolicyDto dto) {
         CloudsitterPolicy policy = new CloudsitterPolicy();
@@ -191,7 +265,6 @@ public class CloudsitterService {
         return policyRepo.save(policy);
     }
 
-    // ✅ NEW: Update existing policy
     @Transactional
     public CloudsitterPolicy updatePolicy(Long id, CloudsitterPolicyDto dto) {
         CloudsitterPolicy policy = policyRepo.findById(id)
@@ -206,23 +279,17 @@ public class CloudsitterService {
         return policyRepo.save(policy);
     }
 
-    // ✅ NEW: Delete policy (and remove from assignments)
     @Transactional
     public void deletePolicy(Long id) {
         CloudsitterPolicy policy = policyRepo.findById(id)
                 .orElseThrow(() -> new RuntimeException("Policy not found: " + id));
 
-        // Set assignments to null (remove policy) before deleting
-        // Or you could delete the assignment entirely. Setting policy to null usually
-        // implies "No Policy"
-        List<CloudsitterAssignment> assignments = assignmentRepo.findAll(); // Optimization: Create findByPolicyId in
-                                                                            // repo
+        List<CloudsitterAssignment> assignments = assignmentRepo.findAll();
         for (CloudsitterAssignment assignment : assignments) {
             if (assignment.getPolicy() != null && assignment.getPolicy().getId().equals(id)) {
                 assignmentRepo.delete(assignment);
             }
         }
-
         policyRepo.delete(policy);
     }
 
@@ -237,7 +304,7 @@ public class CloudsitterService {
 
             assignment.setResourceId(instanceId);
             assignment.setAccountId(request.getAccountId());
-            assignment.setRegion(request.getRegion());
+            assignment.setRegion(request.getRegion()); // For GCP, this should be the ZONE
             assignment.setPolicy(policy);
             assignment.setActive(true);
 
@@ -248,7 +315,6 @@ public class CloudsitterService {
 
     // --- SCHEDULING ENGINE ---
 
-    // (Existing scheduling logic remains unchanged)
     @Scheduled(cron = "0 0/10 * * * *")
     public void enforcePolicies() {
         long startTime = System.currentTimeMillis();
@@ -280,10 +346,14 @@ public class CloudsitterService {
                     TenantContext.clear();
                 }
             }
+
             long duration = System.currentTimeMillis() - startTime;
             logger.info("========================================");
             logger.info("CloudSitter: Enforcement cycle complete in {}ms", duration);
+            logger.info("CloudSitter: Summary - {} assignments processed, {} actions performed",
+                    totalAssignmentsProcessed, totalActionsPerformed);
             logger.info("========================================");
+
         } catch (Exception e) {
             logger.error("CloudSitter: Fatal error during enforcement cycle", e);
         }
@@ -311,6 +381,7 @@ public class CloudsitterService {
                         assignment.getResourceId(), e);
             }
         }
+
         return new int[] { assignmentsProcessed, actionsPerformed };
     }
 
@@ -320,10 +391,15 @@ public class CloudsitterService {
 
         logger.debug("CloudSitter: Checking instance {} with policy '{}'", instanceId, policy.getName());
 
-        CloudAccount account = accountRepo.findByAwsAccountId(assignment.getAccountId())
-                .stream()
-                .findFirst()
-                .orElseThrow(() -> new RuntimeException("Account not found: " + assignment.getAccountId()));
+        CloudAccount account = findAccount(assignment.getAccountId());
+
+        if (account == null) {
+            logger.error("Account not found for assignment: {}", assignment.getAccountId());
+            return false;
+        }
+
+        // Determine if this is AWS or GCP
+        boolean isGcp = "GCP".equalsIgnoreCase(account.getProvider());
 
         ZoneId timezone;
         try {
@@ -342,57 +418,91 @@ public class CloudsitterService {
         logger.debug("CloudSitter: Instance {} should be: {}",
                 instanceId, shouldBeRunning ? "RUNNING" : "STOPPED");
 
-        Ec2Client ec2 = awsClientProvider.getEc2Client(account, assignment.getRegion());
-        Instance instance = describeInstance(ec2, instanceId);
-        String currentState = instance.state().nameAsString();
-
-        logger.debug("CloudSitter: Instance {} current state: {}", instanceId, currentState);
-
-        if (shouldBeRunning && "stopped".equals(currentState)) {
-            logger.info("⚡ CloudSitter: STARTING instance {} (Policy: '{}', Timezone: {})",
-                    instanceId, policy.getName(), timezone);
-            logger.info("   Reason: Schedule indicates instance should be running at hour {}", now.getHour());
-
-            try {
-                ec2.startInstances(r -> r.instanceIds(instanceId));
-                logger.info("✅ CloudSitter: Successfully initiated START for instance {}", instanceId);
-                return true;
-            } catch (Exception e) {
-                logger.error("❌ CloudSitter: Failed to start instance {}", instanceId, e);
-                throw e;
-            }
-
-        } else if (!shouldBeRunning && "running".equals(currentState)) {
-            logger.info("🛑 CloudSitter: STOPPING instance {} (Policy: '{}', Timezone: {})",
-                    instanceId, policy.getName(), timezone);
-            logger.info("   Reason: Schedule indicates instance should be stopped at hour {}", now.getHour());
-
-            boolean hibernationConfigured = instance.hibernationOptions() != null
-                    && instance.hibernationOptions().configured();
-
-            StopInstancesRequest.Builder stopReq = StopInstancesRequest.builder().instanceIds(instanceId);
-
-            if (hibernationConfigured) {
-                stopReq.hibernate(true);
-                logger.info("   Using HIBERNATION for instance {}", instanceId);
-            } else {
-                logger.info("   Using STOP for instance {}", instanceId);
-            }
-
-            try {
-                ec2.stopInstances(stopReq.build());
-                logger.info("✅ CloudSitter: Successfully initiated {} for instance {}",
-                        hibernationConfigured ? "HIBERNATION" : "STOP", instanceId);
-                return true;
-            } catch (Exception e) {
-                logger.error("❌ CloudSitter: Failed to stop instance {}", instanceId, e);
-                throw e;
-            }
+        if (isGcp) {
+            return processGcpAssignment(account, assignment, shouldBeRunning, instanceId, policy, timezone);
         } else {
-            logger.debug("CloudSitter: No action needed for instance {} (current: {}, desired: {})",
-                    instanceId, currentState, shouldBeRunning ? "running" : "stopped");
-            return false;
+            return processAwsAssignment(account, assignment, shouldBeRunning, instanceId, policy, timezone);
         }
+    }
+
+    // --- AWS LOGIC ---
+    private boolean processAwsAssignment(CloudAccount account, CloudsitterAssignment assignment,
+            boolean shouldBeRunning,
+            String instanceId, CloudsitterPolicy policy, ZoneId timezone) {
+        try {
+            Ec2Client ec2 = awsClientProvider.getEc2Client(account, assignment.getRegion());
+            software.amazon.awssdk.services.ec2.model.Instance instance = describeAwsInstance(ec2, instanceId);
+            String currentState = instance.state().nameAsString();
+
+            logger.debug("CloudSitter (AWS): Instance {} current state: {}", instanceId, currentState);
+
+            if (shouldBeRunning && "stopped".equals(currentState)) {
+                logger.info("⚡ CloudSitter: STARTING AWS instance {} (Policy: '{}', Timezone: {})",
+                        instanceId, policy.getName(), timezone);
+                ec2.startInstances(r -> r.instanceIds(instanceId));
+                return true;
+            } else if (!shouldBeRunning && "running".equals(currentState)) {
+                logger.info("🛑 CloudSitter: STOPPING AWS instance {} (Policy: '{}', Timezone: {})",
+                        instanceId, policy.getName(), timezone);
+
+                boolean hibernationConfigured = instance.hibernationOptions() != null
+                        && instance.hibernationOptions().configured();
+                StopInstancesRequest.Builder stopReq = StopInstancesRequest.builder().instanceIds(instanceId);
+
+                if (hibernationConfigured) {
+                    stopReq.hibernate(true);
+                    logger.info("   Using HIBERNATION for instance {}", instanceId);
+                }
+                ec2.stopInstances(stopReq.build());
+                return true;
+            }
+        } catch (Exception e) {
+            logger.error("Error processing AWS assignment for {}", instanceId, e);
+            throw e;
+        }
+        return false;
+    }
+
+    // --- GCP LOGIC ---
+    private boolean processGcpAssignment(CloudAccount account, CloudsitterAssignment assignment,
+            boolean shouldBeRunning,
+            String instanceId, CloudsitterPolicy policy, ZoneId timezone) {
+        String projectId = account.getGcpProjectId();
+        String zone = assignment.getRegion(); // Assignment 'region' field holds Zone for GCP
+
+        try {
+            var clientOpt = gcpClientProvider.getInstancesClient(projectId);
+            if (clientOpt.isEmpty()) {
+                logger.error("Could not create GCP InstancesClient for project {}", projectId);
+                return false;
+            }
+
+            try (InstancesClient client = clientOpt.get()) {
+                Instance instance = client.get(projectId, zone, instanceId);
+                String status = instance.getStatus(); // PROVISIONING, STAGING, RUNNING, STOPPING, SUSPENDING,
+                                                      // SUSPENDED, REPAIRING, and TERMINATED.
+
+                logger.debug("CloudSitter (GCP): Instance {} in zone {} status: {}", instanceId, zone, status);
+
+                if (shouldBeRunning && ("TERMINATED".equals(status) || "STOPPED".equals(status))) {
+                    logger.info("⚡ CloudSitter: STARTING GCP instance {} (Policy: '{}', Timezone: {})",
+                            instanceId, policy.getName(), timezone);
+                    Operation op = client.startAsync(projectId, zone, instanceId).get(60, TimeUnit.SECONDS);
+                    logger.info("   GCP Start Operation: {}", op.getStatus());
+                    return true;
+
+                } else if (!shouldBeRunning && "RUNNING".equals(status)) {
+                    logger.info("🛑 CloudSitter: STOPPING GCP instance {} (Policy: '{}', Timezone: {})",
+                            instanceId, policy.getName(), timezone);
+                    Operation op = client.stopAsync(projectId, zone, instanceId).get(60, TimeUnit.SECONDS);
+                    logger.info("   GCP Stop Operation: {}", op.getStatus());
+                    return true;
+                }
+            }
+        } catch (Exception e) {
+            logger.error("Error processing GCP assignment for {} in zone {}", instanceId, zone, e);
+        }
+        return false;
     }
 
     private boolean checkScheduleState(CloudsitterPolicy policy, ZonedDateTime now) {
@@ -411,23 +521,17 @@ public class CloudsitterService {
             if (schedule.containsKey(currentDay)) {
                 List<Integer> activeHours = schedule.get(currentDay);
                 boolean isActive = activeHours.contains(currentHour);
-                logger.debug("CloudSitter: Day {} has {} active hours, hour {} is {}",
-                        currentDay, activeHours.size(), currentHour,
-                        isActive ? "ACTIVE" : "INACTIVE");
                 return isActive;
-            } else {
-                logger.debug("CloudSitter: Day {} not in schedule, defaulting to STOPPED", currentDay);
             }
         } catch (IOException | IllegalArgumentException e) {
             logger.error("CloudSitter: Failed to parse schedule JSON for policy {}, defaulting to RUNNING",
                     policy.getId(), e);
             return true;
         }
-
         return false;
     }
 
-    private Instance describeInstance(Ec2Client ec2, String instanceId) {
+    private software.amazon.awssdk.services.ec2.model.Instance describeAwsInstance(Ec2Client ec2, String instanceId) {
         return ec2.describeInstances(r -> r.instanceIds(instanceId))
                 .reservations().get(0).instances().get(0);
     }

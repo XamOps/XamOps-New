@@ -1,0 +1,1014 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+
+<head>
+    <title>Scheduled Capacities - XamOps</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+
+    <style>
+        [x-cloak] {
+            display: none !important;
+        }
+
+        /* --- Your Custom Styles --- */
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 12px;
+            padding: 20px;
+            color: white;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .stat-card-green {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        }
+
+        .stat-card-blue {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        }
+
+        .stat-card-orange {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+        }
+
+        .stat-card-purple {
+            background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+        }
+
+        .search-input {
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 10px 16px 10px 40px;
+            width: 300px;
+            transition: all 0.2s;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: #4f46e5;
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+        }
+
+        .filter-btn {
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s;
+        }
+
+        .filter-btn:hover {
+            border-color: #4f46e5;
+            color: #4f46e5;
+        }
+
+        .create-btn {
+            background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
+            color: white;
+            border-radius: 8px;
+            padding: 10px 20px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.3s;
+            box-shadow: 0 4px 6px rgba(79, 70, 229, 0.3);
+        }
+
+        .create-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(79, 70, 229, 0.4);
+        }
+
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 16px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .status-cancelled {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .status-completed {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .status-active {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+
+        .status-expired {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .status-pending {
+            background: #e0e7ff;
+            color: #3730a3;
+        }
+
+        .instance-badge {
+            background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+            padding: 4px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            color: #374151;
+            font-weight: 600;
+        }
+
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(4px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 50;
+            animation: fadeIn 0.2s ease;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+
+            to {
+                opacity: 1;
+            }
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 16px;
+            max-width: 900px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            animation: slideUp 0.3s ease;
+        }
+
+        @keyframes slideUp {
+            from {
+                transform: translateY(20px);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .step-indicator {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            background: linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%);
+            padding: 20px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .step-circle {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        .step-active {
+            background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
+            color: white;
+            box-shadow: 0 4px 6px rgba(79, 70, 229, 0.3);
+        }
+
+        .step-inactive {
+            background: #e5e7eb;
+            color: #9ca3af;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 14px;
+            font-weight: 600;
+            color: #374151;
+            margin-bottom: 8px;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #4f46e5;
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+        }
+
+        .offering-card {
+            border: 2px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .offering-card:hover {
+            border-color: #4f46e5;
+            background: #eef2ff;
+            transform: translateY(-2px);
+        }
+
+        .offering-card.selected {
+            border-color: #4f46e5;
+            background: #eef2ff;
+            box-shadow: 0 4px 6px rgba(79, 70, 229, 0.2);
+        }
+
+        .summary-box {
+            background: linear-gradient(135deg, #fef9f3 0%, #fef3c7 100%);
+            border: 2px solid #fbbf24;
+            border-radius: 12px;
+            padding: 16px;
+        }
+
+        .price-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            font-size: 14px;
+        }
+
+        .savings-highlight {
+            color: #059669;
+            font-weight: 700;
+            font-size: 16px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
+            color: white;
+            padding: 10px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            transition: all 0.3s;
+            box-shadow: 0 4px 6px rgba(79, 70, 229, 0.3);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(79, 70, 229, 0.4);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: white;
+            color: #6b7280;
+            padding: 10px 24px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .btn-secondary:hover {
+            background: #f9fafb;
+            border-color: #9ca3af;
+        }
+
+        .loading-spinner {
+            border: 8px solid #e0e7ff;
+            border-top: 8px solid #4f46e5;
+            border-radius: 50%;
+            width: 120px;
+            height: 120px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+
+<body class="bg-gray-50 flex">
+
+    <include file="/_sidebar.html"></include>
+
+    <div class="flex-1 ml-64 transition-all duration-300">
+        <div class="p-6 bg-gradient-to-br from-gray-50 to-blue-50 min-h-screen">
+
+            <div x-data="cloudIdrManager()" x-init="init()">
+
+                <div class="mb-6">
+                    <h1 class="text-3xl font-bold text-gray-900">Scheduled Capacities</h1>
+                    <p class="text-sm text-gray-600 mt-1">Manage your CloudIDR FlexCompute reservations and optimize
+                        costs</p>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                    <div class="stat-card stat-card-green">
+                        <div class="flex items-center gap-3">
+                            <div
+                                class="w-12 h-12 bg-white bg-opacity-20 rounded-xl flex items-center justify-center backdrop-blur-sm">
+                                <i class="fas fa-piggy-bank text-white text-xl"></i>
+                            </div>
+                            <div>
+                                <p class="text-sm text-white text-opacity-90 font-medium">Total savings</p>
+                                <h3 class="text-2xl font-bold text-white" x-text="formatCurrency(summary.totalSavings)">
+                                    $0.00</h3>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="stat-card stat-card-blue">
+                        <div class="flex items-center gap-3">
+                            <div
+                                class="w-12 h-12 bg-white bg-opacity-20 rounded-xl flex items-center justify-center backdrop-blur-sm">
+                                <i class="fas fa-wallet text-white text-xl"></i>
+                            </div>
+                            <div>
+                                <p class="text-sm text-white text-opacity-90 font-medium">Total cost</p>
+                                <h3 class="text-2xl font-bold text-white" x-text="formatCurrency(summary.totalCost)">
+                                    $0.00</h3>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="stat-card stat-card-orange">
+                        <div class="flex items-center gap-3">
+                            <div
+                                class="w-12 h-12 bg-white bg-opacity-20 rounded-xl flex items-center justify-center backdrop-blur-sm">
+                                <i class="fas fa-clock text-white text-xl"></i>
+                            </div>
+                            <div>
+                                <p class="text-sm text-white text-opacity-90 font-medium">Total usage hours</p>
+                                <h3 class="text-2xl font-bold text-white"
+                                    x-text="(summary.totalUsageHours || 0).toFixed(2) + ' h'">0.00 h</h3>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="stat-card stat-card-purple">
+                        <div class="flex items-center gap-3">
+                            <div
+                                class="w-12 h-12 bg-white bg-opacity-20 rounded-xl flex items-center justify-center backdrop-blur-sm">
+                                <i class="fas fa-history text-white text-xl"></i>
+                            </div>
+                            <div>
+                                <p class="text-sm text-white text-opacity-90 font-medium">Remaining hours</p>
+                                <h3 class="text-2xl font-bold text-white"
+                                    x-text="(summary.remainingUsageHours || 0).toFixed(2) + ' h'">0.00 h</h3>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-xl border border-gray-200 shadow-lg p-6">
+                    <div class="mb-4">
+                        <h2 class="text-xl font-bold text-gray-900">List of scheduled capacities</h2>
+                        <p class="text-sm text-gray-500">Here you can view and manage your scheduled capacities.</p>
+                    </div>
+
+                    <div class="flex items-center justify-between mb-6">
+                        <div class="flex items-center gap-3">
+                            <div class="relative">
+                                <i
+                                    class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"></i>
+                                <input type="text" x-model="searchQuery" @input="filterPolicies()" class="search-input"
+                                    placeholder="Search by Capacity Name">
+                            </div>
+                            <button class="filter-btn">
+                                <i class="fas fa-filter text-gray-600"></i>
+                                <span class="text-sm font-medium text-gray-700">Filters</span>
+                            </button>
+                        </div>
+                        <button @click="openCreateModal()" class="create-btn">
+                            <i class="fas fa-plus"></i>
+                            Create
+                        </button>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full">
+                            <thead class="bg-gradient-to-r from-gray-50 to-blue-50 border-b-2 border-indigo-200">
+                                <tr>
+                                    <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase">Id
+                                    </th>
+                                    <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase">Name
+                                    </th>
+                                    <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase">
+                                        Account</th>
+                                    <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase">Policy
+                                        Status</th>
+                                    <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase">
+                                        Instance State</th>
+                                    <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase">
+                                        Instance</th>
+                                    <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase">Qty
+                                    </th>
+                                    <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase">Region
+                                    </th>
+                                    <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase">
+                                        Savings</th>
+                                    <th class="text-right py-3 px-4 text-xs font-semibold text-gray-700 uppercase">
+                                        Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100">
+                                <template x-for="policy in filteredPolicies" :key="policy.cidrId">
+                                    <tr class="hover:bg-blue-50 transition-all duration-200">
+                                        <td class="py-3 px-4 text-sm text-gray-900 font-mono"
+                                            x-text="policy.cidrId?.substring(0, 17) + '...'"></td>
+                                        <td class="py-3 px-4 text-sm font-semibold text-gray-900"
+                                            x-text="policy.policyName"></td>
+                                        <td class="py-3 px-4 text-sm text-gray-700" x-text="policy.cspAccountName"></td>
+                                        <td class="py-3 px-4">
+                                            <span class="status-badge" :class="{
+                                                'status-cancelled': policy.policyStatus === 'CANCELLED',
+                                                'status-completed': policy.policyStatus === 'COMPLETED',
+                                                'status-active': policy.policyStatus === 'ACTIVE' || policy.policyStatus === 'READY_FOR_PURCHASE',
+                                                'status-expired': policy.policyStatus === 'EXPIRED',
+                                                'status-pending': policy.policyStatus === 'PENDING'
+                                            }"
+                                                x-text="policy.policyStatus === 'READY_FOR_PURCHASE' ? 'ACTIVE' : policy.policyStatus"></span>
+                                        </td>
+                                        <td class="py-3 px-4">
+                                            <span class="status-badge" :class="{
+                                                'status-cancelled': policy.policyOperatingState?.includes('Cancelled'),
+                                                'status-completed': policy.policyOperatingState?.includes('Completed'),
+                                                'status-active': policy.policyOperatingState === 'RUNNING' || policy.policyOperatingState === 'IDLE',
+                                                'status-expired': policy.policyOperatingState?.includes('Expired')
+                                            }" x-text="policy.policyOperatingState || 'N/A'"></span>
+                                        </td>
+                                        <td class="py-3 px-4">
+                                            <span class="instance-badge"
+                                                x-text="policy.policyInstance?.instanceType"></span>
+                                        </td>
+                                        <td class="py-3 px-4 text-sm font-medium text-gray-700"
+                                            x-text="policy.policyInstance?.qty || 1"></td>
+                                        <td class="py-3 px-4 text-sm text-gray-700"
+                                            x-text="policy.cspRegion?.regionCode"></td>
+                                        <td class="py-3 px-4 text-sm font-bold text-green-600"
+                                            x-text="formatCurrency(policy.pricing?.savings || 0)"></td>
+                                        <td class="py-3 px-4 text-right">
+                                            <div class="flex items-center justify-end gap-2">
+                                                <button @click="viewDetails(policy)"
+                                                    class="text-indigo-600 hover:text-indigo-800 transition">
+                                                    <i class="fas fa-eye"></i>
+                                                </button>
+                                                <button @click="confirmCancel(policy.cidrId, policy.policyName)"
+                                                    x-show="policy.policyStatus !== 'CANCELLED'"
+                                                    class="text-red-600 hover:text-red-800 transition">
+                                                    <i class="fas fa-times-circle"></i>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </template>
+                                <tr x-show="filteredPolicies.length === 0">
+                                    <td colspan="10" class="py-16 text-center">
+                                        <i class="fas fa-inbox text-gray-300 text-5xl mb-4"></i>
+                                        <p class="text-gray-400 text-lg font-medium">No scheduled capacities found</p>
+                                        <p class="text-gray-400 text-sm mt-2">Click "Create" to get started</p>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div x-show="showModal && step === 1" class="modal-overlay" style="display: none;" x-cloak>
+                    <div class="modal-content" @click.away="closeModal()">
+                        <div
+                            class="flex items-center justify-between p-6 border-b bg-gradient-to-r from-indigo-50 to-blue-50">
+                            <div>
+                                <p class="text-sm text-indigo-600 font-semibold">Create scheduled capacity • Step 1 of 3
+                                </p>
+                                <h2 class="text-2xl font-bold text-gray-900 mt-1">Create Schedule Capacity</h2>
+                                <p class="text-sm text-gray-600 mt-1">Reserve instances and save costs with our simple
+                                    process</p>
+                            </div>
+                            <button @click="closeModal()"
+                                class="text-gray-400 hover:text-gray-600 transition w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100">
+                                <i class="fas fa-times text-xl"></i>
+                            </button>
+                        </div>
+
+                        <div class="step-indicator">
+                            <div class="flex items-center gap-2">
+                                <div class="step-circle step-active">1</div>
+                                <span class="text-sm font-semibold text-gray-900">Capacity details</span>
+                            </div>
+                            <i class="fas fa-chevron-right text-gray-400"></i>
+                            <div class="flex items-center gap-2">
+                                <div class="step-circle step-inactive">2</div>
+                                <span class="text-sm font-medium text-gray-400">Search</span>
+                            </div>
+                            <i class="fas fa-chevron-right text-gray-400"></i>
+                            <div class="flex items-center gap-2">
+                                <div class="step-circle step-inactive">3</div>
+                                <span class="text-sm font-medium text-gray-400">Confirm</span>
+                            </div>
+                        </div>
+
+                        <div class="p-6 space-y-6">
+                            <div>
+                                <h3 class="text-lg font-bold text-gray-900 mb-4">Capacity details</h3>
+                                <div class="grid grid-cols-2 gap-4 mb-4">
+                                    <div>
+                                        <label class="form-label">Capacity Name *</label>
+                                        <input type="text" x-model="form.policyName" class="form-input"
+                                            placeholder="e.g., ML Training Cluster">
+                                    </div>
+                                    <div>
+                                        <label class="form-label">AWS Account *</label>
+                                        <select x-model="form.accountId" class="form-input">
+                                            <option value="">Select Account...</option>
+                                            <template x-for="acc in availableAccounts" :key="acc.id">
+                                                <option :value="acc.id" x-text="acc.name"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div class="mb-4">
+                                    <label class="form-label">Region *</label>
+                                    <select x-model="form.region" class="form-input">
+                                        <option value="">Select region</option>
+                                        <option value="us-east-1">us-east-1</option>
+                                        <option value="us-west-2">us-west-2</option>
+                                        <option value="eu-west-1">eu-west-1</option>
+                                    </select>
+                                </div>
+
+                                <div class="grid grid-cols-3 gap-4 mb-4">
+                                    <div>
+                                        <label class="form-label">Instance Type *</label>
+                                        <input type="text" x-model="form.instanceType" class="form-input"
+                                            placeholder="e.g., c5.2xlarge">
+                                    </div>
+                                    <div>
+                                        <label class="form-label">Platform *</label>
+                                        <select x-model="form.platform" class="form-input">
+                                            <option value="Linux/UNIX">Linux/UNIX</option>
+                                            <option value="Windows">Windows</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="form-label">Quantity *</label>
+                                        <input type="number" x-model="form.quantity" class="form-input" min="1"
+                                            max="100">
+                                    </div>
+                                </div>
+
+                                <div
+                                    class="bg-gradient-to-r from-green-50 to-emerald-50 border-l-4 border-green-500 rounded-lg p-3 flex items-start gap-2">
+                                    <i class="fas fa-info-circle text-green-600 mt-0.5"></i>
+                                    <p class="text-sm text-green-800">All CloudIDR instances are shared. Tenancy is not
+                                        editable.</p>
+                                </div>
+                            </div>
+
+                            <div>
+                                <h3 class="text-lg font-bold text-gray-900 mb-4">Capacity Time Allocation</h3>
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="form-label">Start Date *</label>
+                                        <input type="date" x-model="form.startDate" class="form-input">
+                                    </div>
+                                    <div>
+                                        <label class="form-label">End Date *</label>
+                                        <input type="date" x-model="form.endDate" class="form-input">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center justify-between p-6 border-t bg-gray-50">
+                            <button @click="closeModal()" class="btn-secondary"><i
+                                    class="fas fa-times mr-2"></i>Cancel</button>
+                            <button @click="searchCapacity()" :disabled="!canSearch()" class="btn-primary"
+                                :class="{'opacity-50 cursor-not-allowed': !canSearch()}"><i
+                                    class="fas fa-search mr-2"></i>Search Offerings</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div x-show="showModal && step === 2 && isSearching" class="modal-overlay" style="display: none;"
+                    x-cloak>
+                    <div class="modal-content max-w-2xl">
+                        <div class="p-12 text-center">
+                            <h2 class="text-2xl font-bold text-gray-900 mb-8">Searching capacity</h2>
+                            <div class="loading-spinner mx-auto mb-8"></div>
+                            <div class="space-y-3 text-left max-w-md mx-auto">
+                                <div class="flex items-center gap-3 text-green-600"><i
+                                        class="fas fa-check-circle text-xl"></i><span
+                                        class="text-sm font-medium">Establishing backend connection</span></div>
+                                <div class="flex items-center gap-3 text-green-600"><i
+                                        class="fas fa-check-circle text-xl"></i><span
+                                        class="text-sm font-medium">Verifying resource availability</span></div>
+                                <div class="flex items-center gap-3 text-green-600"><i
+                                        class="fas fa-check-circle text-xl"></i><span
+                                        class="text-sm font-medium">Confirming capacity blocks</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div x-show="showModal && step === 2 && !isSearching && searchResults.length > 0" class="modal-overlay"
+                    style="display: none;" x-cloak>
+                    <div class="modal-content max-w-4xl">
+                        <div
+                            class="flex items-center justify-between p-6 border-b bg-gradient-to-r from-green-50 to-emerald-50">
+                            <div>
+                                <p class="text-sm text-green-600 font-semibold">Create scheduled capacity • Step 3 of 3
+                                </p>
+                                <h2 class="text-2xl font-bold text-gray-900 mt-1">Capacity blocks <span
+                                        class="text-green-600">Available</span></h2>
+                                <p class="text-sm text-gray-600 mt-1">Review and confirm your reservation</p>
+                            </div>
+                            <button @click="closeModal()"
+                                class="text-gray-400 hover:text-gray-600 transition w-10 h-10 flex items-center justify-center rounded-full hover:bg-white"><i
+                                    class="fas fa-times text-xl"></i></button>
+                        </div>
+
+                        <div class="p-6">
+                            <div class="grid grid-cols-2 gap-6">
+                                <div>
+                                    <h3 class="font-bold text-gray-900 mb-4 text-lg">Description</h3>
+                                    <div class="space-y-3 text-sm bg-gray-50 rounded-lg p-4">
+                                        <div class="flex justify-between py-2 border-b border-gray-200">
+                                            <span class="text-gray-600 font-medium">Capacity Name</span>
+                                            <span class="font-semibold text-gray-900" x-text="form.policyName"></span>
+                                        </div>
+                                        <div class="flex justify-between py-2 border-b border-gray-200">
+                                            <span class="text-gray-600 font-medium">Account</span>
+                                            <span class="font-semibold text-gray-900"
+                                                x-text="getAccountName(form.accountId)"></span>
+                                        </div>
+                                        <div class="flex justify-between py-2 border-b border-gray-200">
+                                            <span class="text-gray-600 font-medium">Instance Type</span>
+                                            <span class="font-semibold text-gray-900"
+                                                x-text="selectedOffering?.instanceType"></span>
+                                        </div>
+                                        <div class="flex justify-between py-2 border-b border-gray-200">
+                                            <span class="text-gray-600 font-medium">Platform</span>
+                                            <span class="font-semibold text-gray-900"
+                                                x-text="selectedOffering?.platform"></span>
+                                        </div>
+                                        <div class="flex justify-between py-2 border-b border-gray-200">
+                                            <span class="text-gray-600 font-medium">Quantity</span>
+                                            <span class="font-semibold text-gray-900"
+                                                x-text="selectedOffering?.quantity"></span>
+                                        </div>
+                                        <div class="flex justify-between py-2">
+                                            <span class="text-gray-600 font-medium">Duration</span>
+                                            <span class="font-semibold text-gray-900"
+                                                x-text="form.startDate + ' to ' + form.endDate"></span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <h3 class="font-bold text-gray-900 mb-4 text-lg">Summary</h3>
+                                    <div class="summary-box">
+                                        <div class="price-row border-b border-yellow-300">
+                                            <span class="font-medium">CloudIDR Price</span>
+                                            <span class="font-bold text-indigo-600"
+                                                x-text="formatCurrency(calculatedPricing.ourPrice)"></span>
+                                        </div>
+                                        <div class="price-row border-b border-yellow-300">
+                                            <span class="font-medium">AWS Price</span>
+                                            <span class="font-bold text-gray-700"
+                                                x-text="formatCurrency(calculatedPricing.awsPrice)"></span>
+                                        </div>
+                                        <div class="price-row border-b border-yellow-300">
+                                            <span class="font-medium">Your Savings</span>
+                                            <span class="savings-highlight"
+                                                x-text="formatCurrency(calculatedPricing.savings) + ' (' + calculatedPricing.savingsPercent + '%)'"></span>
+                                        </div>
+                                        <div class="price-row border-b border-yellow-300">
+                                            <span class="font-medium text-sm">Processing Fees</span>
+                                            <span class="font-semibold text-sm"
+                                                x-text="formatCurrency(calculatedPricing.processingFees)"></span>
+                                        </div>
+                                        <div class="price-row pt-2">
+                                            <span class="font-bold text-lg">Total Purchase Price</span>
+                                            <span class="font-bold text-2xl text-indigo-600"
+                                                x-text="formatCurrency(calculatedPricing.totalPrice)"></span>
+                                        </div>
+                                    </div>
+                                    <div class="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                                        <p class="text-xs text-blue-800 leading-relaxed"><i
+                                                class="fas fa-shield-alt mr-1"></i><strong>Note:</strong> Capacity is
+                                            reserved for 15 minutes. Complete purchase to secure your booking.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center justify-between p-6 border-t bg-gray-50">
+                            <button @click="step = 1" class="btn-secondary"><i
+                                    class="fas fa-arrow-left mr-2"></i>Back</button>
+                            <button @click="confirmPurchase()" class="btn-primary"><i
+                                    class="fas fa-check-circle mr-2"></i>Purchase Capacity</button>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <script>
+                function cloudIdrManager() {
+                    return {
+                        policies: [],
+                        filteredPolicies: [],
+                        summary: { totalSavings: 0, totalCost: 0, totalUsageHours: 0, remainingUsageHours: 0 },
+                        availableAccounts: [],
+                        showModal: false,
+                        step: 1,
+                        isSearching: false,
+                        searchQuery: '',
+                        form: {
+                            policyName: '',
+                            accountId: '',
+                            region: '',
+                            instanceType: 'c5.2xlarge',
+                            platform: 'Linux/UNIX',
+                            quantity: 1,
+                            startDate: '',
+                            endDate: ''
+                        },
+                        searchResults: [],
+                        selectedOffering: null,
+                        calculatedPricing: { ourPrice: 0, awsPrice: 0, savings: 0, savingsPercent: 0, processingFees: 0, totalPrice: 0 },
+
+                        async init() {
+                            await this.loadAccounts();
+                            await this.loadPolicies();
+                            await this.loadSummary();
+                            this.syncAccountFromSidebar();
+                            this.setDefaultDates();
+                            window.addEventListener('account-changed', () => this.syncAccountFromSidebar());
+                        },
+
+                        async loadAccounts() {
+                            try {
+                                const response = await fetch('/api/xamops/account-manager/accounts');
+                                const data = await response.json();
+                                this.availableAccounts = data.filter(acc => acc.provider === 'AWS' && acc.status === 'CONNECTED');
+                            } catch (e) { console.error('[CloudIDR] Failed to load accounts:', e); }
+                        },
+
+                        async loadPolicies() {
+                            try {
+                                const res = await fetch('/api/xamops/cloudidr/scheduled-capacities');
+                                const data = await res.json();
+                                if (Array.isArray(data)) this.policies = data;
+                                else if (data.data && Array.isArray(data.data)) this.policies = data.data;
+                                else this.policies = [];
+                                this.filteredPolicies = this.policies;
+                            } catch (e) {
+                                console.error('[CloudIDR] Failed to load policies:', e);
+                                this.policies = []; this.filteredPolicies = [];
+                            }
+                        },
+
+                        async loadSummary() {
+                            try {
+                                const res = await fetch('/api/xamops/cloudidr/summary');
+                                this.summary = await res.json();
+                            } catch (e) { console.error('[CloudIDR] Failed to load summary:', e); }
+                        },
+
+                        filterPolicies() {
+                            if (!this.searchQuery) { this.filteredPolicies = this.policies; return; }
+                            const query = this.searchQuery.toLowerCase();
+                            this.filteredPolicies = this.policies.filter(p =>
+                                p.policyName?.toLowerCase().includes(query) ||
+                                p.cidrId?.toLowerCase().includes(query)
+                            );
+                        },
+
+                        syncAccountFromSidebar() {
+                            const storedId = sessionStorage.getItem('selectedAccountIds');
+                            if (storedId) {
+                                const cleanId = storedId.replace(/[\[\]"]/g, '').split(',')[0];
+                                // Verify this account exists in available list, if not, wait or set anyway
+                                this.form.accountId = cleanId;
+                            }
+                        },
+
+                        setDefaultDates() {
+                            const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+                            const nextWeek = new Date(); nextWeek.setDate(nextWeek.getDate() + 7);
+                            this.form.startDate = tomorrow.toISOString().split('T')[0];
+                            this.form.endDate = nextWeek.toISOString().split('T')[0];
+                        },
+
+                        canSearch() {
+                            return this.form.policyName && this.form.accountId && this.form.instanceType && this.form.startDate && this.form.endDate;
+                        },
+
+                        openCreateModal() {
+                            this.step = 1;
+                            this.searchResults = [];
+                            this.selectedOffering = null;
+                            this.syncAccountFromSidebar();
+                            this.setDefaultDates();
+                            this.showModal = true;
+                        },
+
+                        closeModal() { this.showModal = false; this.step = 1; this.isSearching = false; },
+
+                        formatDateForAPI(dateStr) {
+                            if (!dateStr) return '';
+                            const date = new Date(dateStr);
+                            // Important: Use UTC or handle timezone to avoid off-by-one errors if needed
+                            return `${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}/${date.getFullYear()}`;
+                        },
+
+                        async searchCapacity() {
+                            this.step = 2;
+                            this.isSearching = true;
+                            const payload = {
+                                accountId: this.form.accountId,
+                                instanceType: this.form.instanceType,
+                                platform: this.form.platform,
+                                quantity: this.form.quantity,
+                                startDate: this.formatDateForAPI(this.form.startDate),
+                                endDate: this.formatDateForAPI(this.form.endDate),
+                                startTime: "00:00",
+                                endTime: "23:59"
+                            };
+
+                            try {
+                                const res = await fetch('/api/xamops/cloudidr/search', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify(payload)
+                                });
+
+                                if (res.ok) {
+                                    const data = await res.json();
+                                    this.searchResults = data.instanceTypeOfferings || [];
+                                    if (this.searchResults.length > 0) {
+                                        this.selectedOffering = this.searchResults[0];
+                                        this.calculatePricing();
+                                    } else {
+                                        // Mock result if empty, just for testing UI flow if needed
+                                        // remove this block in production
+                                        this.selectedOffering = { instanceType: this.form.instanceType, platform: this.form.platform, quantity: this.form.quantity, startDate: payload.startDate, endDate: payload.endDate };
+                                        this.calculatePricing();
+                                        this.searchResults.push(this.selectedOffering);
+                                    }
+                                } else {
+                                    alert('Search failed. Please check inputs.');
+                                    this.step = 1;
+                                }
+                            } catch (e) {
+                                alert('Search failed: ' + e.message);
+                                this.step = 1;
+                            } finally {
+                                setTimeout(() => { this.isSearching = false; }, 1500); // Small delay for UX
+                            }
+                        },
+
+                        calculatePricing() {
+                            // Mock pricing logic for UI demo - replace with real data if API provides it
+                            const hourlyRate = 0.05; // Mock
+                            const hours = 24 * 7;
+                            const ourPrice = hourlyRate * hours * (this.selectedOffering?.quantity || 1);
+                            const awsPrice = ourPrice * 1.4; // 40% more expensive
+                            const savings = awsPrice - ourPrice;
+
+                            this.calculatedPricing = {
+                                ourPrice,
+                                awsPrice,
+                                savings,
+                                savingsPercent: ((savings / awsPrice) * 100).toFixed(1),
+                                processingFees: ourPrice * 0.01,
+                                totalPrice: ourPrice * 1.01
+                            };
+                        },
+
+                        async confirmPurchase() {
+                            if (!this.selectedOffering) return;
+                            const payload = {
+                                accountId: this.form.accountId,
+                                policyName: this.form.policyName,
+                                startDate: this.selectedOffering.startDate || this.formatDateForAPI(this.form.startDate),
+                                endDate: this.selectedOffering.endDate || this.formatDateForAPI(this.form.endDate),
+                                startTime: "00:00",
+                                endTime: "23:59",
+                                instanceType: this.selectedOffering.instanceType,
+                                platform: this.selectedOffering.platform,
+                                quantity: this.selectedOffering.quantity
+                            };
+
+                            try {
+                                // 1. Reserve
+                                const res = await fetch('/api/xamops/cloudidr/reserve', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify(payload)
+                                });
+
+                                if (res.ok) {
+                                    const data = await res.json();
+                                    if (data.cidrId) {
+                                        // 2. Purchase
+                                        const purchaseRes = await fetch('/api/xamops/cloudidr/purchase', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ cidrId: data.cidrId })
+                                        });
+                                        if (purchaseRes.ok) {
+                                            alert('✅ Capacity purchased successfully!');
+                                            this.closeModal();
+                                            await this.loadPolicies();
+                                            await this.loadSummary();
+                                        } else { alert('❌ Purchase confirmation failed.'); }
+                                    } else { alert('❌ Reservation failed: No CIDR ID returned.'); }
+                                } else { alert('❌ Reservation failed.'); }
+                            } catch (e) { alert('❌ Error: ' + e.message); }
+                        },
+
+                        viewDetails(policy) {
+                            const details = `Policy: ${policy.policyName}\nID: ${policy.cidrId}\nStatus: ${policy.policyStatus}\nInstance: ${policy.policyInstance?.instanceType}`;
+                            alert(details);
+                        },
+
+                        async confirmCancel(cidrId, policyName) {
+                            if (confirm(`⚠️ Cancel "${policyName}"?`)) {
+                                try {
+                                    const res = await fetch('/api/xamops/cloudidr/cancel', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ cidrId })
+                                    });
+                                    if (res.ok) {
+                                        alert('✅ Policy cancelled.');
+                                        await this.loadPolicies();
+                                        await this.loadSummary();
+                                    } else { alert('❌ Cancellation failed.'); }
+                                } catch (e) { alert('❌ Error: ' + e.message); }
+                            }
+                        },
+
+                        getAccountName(accountId) {
+                            const account = this.availableAccounts.find(a => a.id === accountId);
+                            return account ? account.name : accountId;
+                        },
+
+                        formatCurrency(val) {
+                            if (val === null || val === undefined) return '$0.00';
+                            return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(val);
+                        }
+                    };
+                }
+            </script>
+        </div>
+    </div>
+</body>
+
+</html>
