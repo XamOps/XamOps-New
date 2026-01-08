@@ -1,10 +1,12 @@
 package com.xammer.cloud.config.multitenancy;
 
 import com.zaxxer.hikari.HikariDataSource;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
+import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
@@ -71,13 +73,32 @@ public class MultiTenantDataSourceConfig {
      */
     @Bean
     @Primary
-    public DataSource dataSource() {
+    public DataSource dataSource(@Autowired Environment env) {
         DataSource masterDs = createMasterDataSource();
         JdbcTemplate jdbcTemplate = new JdbcTemplate(masterDs);
 
         // Load active tenants from the config table
         List<Map<String, Object>> tenantRows = jdbcTemplate
                 .queryForList("SELECT * FROM tenant_config WHERE active = true");
+
+        // Filter based on active profile
+        String[] activeProfiles = env.getActiveProfiles();
+        String activeProfile = activeProfiles.length > 0 ? activeProfiles[0] : "local"; // Default to local
+
+        String targetTenantId = null;
+        if ("local".equalsIgnoreCase(activeProfile)) {
+            targetTenantId = "customer1";
+        } else if ("uat".equalsIgnoreCase(activeProfile)) {
+            targetTenantId = "customer2";
+        } else if ("prod".equalsIgnoreCase(activeProfile)) {
+            targetTenantId = "customer3";
+        }
+
+        // Apply filter if a target tenant is determined
+        if (targetTenantId != null) {
+            final String filterId = targetTenantId;
+            tenantRows.removeIf(row -> !filterId.equalsIgnoreCase((String) row.get("tenant_id")));
+        }
 
         Map<Object, Object> targetDataSources = new HashMap<>();
 
