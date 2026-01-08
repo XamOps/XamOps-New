@@ -12,7 +12,6 @@
             display: none !important;
         }
 
-        /* --- Your Custom Styles --- */
         .stat-card {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             border-radius: 12px;
@@ -233,24 +232,59 @@
             box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
         }
 
-        .offering-card {
+        .instance-card {
             border: 2px solid #e5e7eb;
             border-radius: 12px;
             padding: 16px;
             cursor: pointer;
             transition: all 0.2s;
+            background: white;
         }
 
-        .offering-card:hover {
-            border-color: #4f46e5;
-            background: #eef2ff;
+        .instance-card:hover {
+            border-color: #a78bfa;
+            background: #faf5ff;
             transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(139, 92, 246, 0.15);
         }
 
-        .offering-card.selected {
-            border-color: #4f46e5;
-            background: #eef2ff;
-            box-shadow: 0 4px 6px rgba(79, 70, 229, 0.2);
+        .instance-card.selected {
+            border-color: #7c3aed;
+            background: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%);
+            box-shadow: 0 4px 12px rgba(124, 58, 237, 0.25);
+        }
+
+        .instance-card-radio {
+            width: 20px;
+            height: 20px;
+            border: 2px solid #d1d5db;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .instance-card.selected .instance-card-radio {
+            border-color: #7c3aed;
+            background: #7c3aed;
+        }
+
+        .instance-card.selected .instance-card-radio::after {
+            content: '';
+            width: 8px;
+            height: 8px;
+            background: white;
+            border-radius: 50%;
+        }
+
+        .savings-badge {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 700;
         }
 
         .summary-box {
@@ -283,7 +317,7 @@
             box-shadow: 0 4px 6px rgba(79, 70, 229, 0.3);
         }
 
-        .btn-primary:hover {
+        .btn-primary:hover:not(:disabled) {
             transform: translateY(-2px);
             box-shadow: 0 6px 12px rgba(79, 70, 229, 0.4);
         }
@@ -338,12 +372,14 @@
 
             <div x-data="cloudIdrManager()" x-init="init()">
 
+                <!-- Header -->
                 <div class="mb-6">
                     <h1 class="text-3xl font-bold text-gray-900">Scheduled Capacities</h1>
                     <p class="text-sm text-gray-600 mt-1">Manage your CloudIDR FlexCompute reservations and optimize
                         costs</p>
                 </div>
 
+                <!-- Stats Cards -->
                 <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                     <div class="stat-card stat-card-green">
                         <div class="flex items-center gap-3">
@@ -402,6 +438,7 @@
                     </div>
                 </div>
 
+                <!-- List Table -->
                 <div class="bg-white rounded-xl border border-gray-200 shadow-lg p-6">
                     <div class="mb-4">
                         <h2 class="text-xl font-bold text-gray-900">List of scheduled capacities</h2>
@@ -431,26 +468,26 @@
                         <table class="w-full">
                             <thead class="bg-gradient-to-r from-gray-50 to-blue-50 border-b-2 border-indigo-200">
                                 <tr>
-                                    <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase">Id
+                                    <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase">ID
                                     </th>
-                                    <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase">Name
-                                    </th>
-                                    <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase">
-                                        Account</th>
-                                    <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase">Policy
-                                        Status</th>
-                                    <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase">
-                                        Instance State</th>
-                                    <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase">
-                                        Instance</th>
-                                    <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase">Qty
-                                    </th>
-                                    <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase">Region
+                                    <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase">NAME
                                     </th>
                                     <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase">
-                                        Savings</th>
+                                        ACCOUNT</th>
+                                    <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase">POLICY
+                                        STATUS</th>
+                                    <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase">
+                                        INSTANCE STATE</th>
+                                    <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase">
+                                        INSTANCE</th>
+                                    <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase">QTY
+                                    </th>
+                                    <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase">REGION
+                                    </th>
+                                    <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase">
+                                        SAVINGS</th>
                                     <th class="text-right py-3 px-4 text-xs font-semibold text-gray-700 uppercase">
-                                        Actions</th>
+                                        ACTIONS</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-gray-100">
@@ -473,10 +510,10 @@
                                         </td>
                                         <td class="py-3 px-4">
                                             <span class="status-badge" :class="{
-                                                'status-cancelled': policy.policyOperatingState?.includes('Cancelled'),
-                                                'status-completed': policy.policyOperatingState?.includes('Completed'),
+                                                'status-cancelled': policy.policyOperatingState?.includes('CANCELLED'),
+                                                'status-completed': policy.policyOperatingState?.includes('COMPLETED'),
                                                 'status-active': policy.policyOperatingState === 'RUNNING' || policy.policyOperatingState === 'IDLE',
-                                                'status-expired': policy.policyOperatingState?.includes('Expired')
+                                                'status-expired': policy.policyOperatingState?.includes('EXPIRED')
                                             }" x-text="policy.policyOperatingState || 'N/A'"></span>
                                         </td>
                                         <td class="py-3 px-4">
@@ -516,6 +553,7 @@
                     </div>
                 </div>
 
+                <!-- STEP 1: Capacity Details Modal (WITH INSTANCE SELECTION) -->
                 <div x-show="showModal && step === 1" class="modal-overlay" style="display: none;" x-cloak>
                     <div class="modal-content" @click.away="closeModal()">
                         <div
@@ -551,6 +589,7 @@
                         </div>
 
                         <div class="p-6 space-y-6">
+                            <!-- Capacity Details -->
                             <div>
                                 <h3 class="text-lg font-bold text-gray-900 mb-4">Capacity details</h3>
                                 <div class="grid grid-cols-2 gap-4 mb-4">
@@ -562,7 +601,7 @@
                                     <div>
                                         <label class="form-label">AWS Account *</label>
                                         <select x-model="form.accountId" class="form-input">
-                                            <option value="">Select Account...</option>
+                                            <option value="">XAMMER</option>
                                             <template x-for="acc in availableAccounts" :key="acc.id">
                                                 <option :value="acc.id" x-text="acc.name"></option>
                                             </template>
@@ -571,35 +610,100 @@
                                 </div>
 
                                 <div class="mb-4">
-                                    <label class="form-label">Region *</label>
+                                    <label class="form-label">Regions Linked to Your CSP Account *</label>
                                     <select x-model="form.region" class="form-input">
                                         <option value="">Select region</option>
-                                        <option value="us-east-1">us-east-1</option>
-                                        <option value="us-west-2">us-west-2</option>
-                                        <option value="eu-west-1">eu-west-1</option>
+                                        <option value="us-west-2/usw2-az1">us-west-2/usw2-az1</option>
+                                        <option value="us-east-1/use1-az1">us-east-1/use1-az1</option>
+                                        <option value="ap-south-1/aps1-az1">ap-south-1/aps1-az1</option>
                                     </select>
                                 </div>
 
-                                <div class="grid grid-cols-3 gap-4 mb-4">
-                                    <div>
-                                        <label class="form-label">Instance Type *</label>
-                                        <input type="text" x-model="form.instanceType" class="form-input"
-                                            placeholder="e.g., c5.2xlarge">
+                                <!-- Instance Type Selection -->
+                                <div class="mb-4">
+                                    <label class="form-label">Instance Type *</label>
+                                    <div class="relative">
+                                        <input type="text" x-model="form.instanceType"
+                                            @click="showInstanceDropdown = !showInstanceDropdown"
+                                            class="form-input cursor-pointer" placeholder="Select instance type"
+                                            readonly>
+                                        <i
+                                            class="fas fa-chevron-down absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400"></i>
                                     </div>
-                                    <div>
-                                        <label class="form-label">Platform *</label>
-                                        <select x-model="form.platform" class="form-input">
-                                            <option value="Linux/UNIX">Linux/UNIX</option>
-                                            <option value="Windows">Windows</option>
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label class="form-label">Quantity *</label>
-                                        <input type="number" x-model="form.quantity" class="form-input" min="1"
-                                            max="100">
+
+                                    <!-- Instance Type Dropdown -->
+                                    <div x-show="showInstanceDropdown" @click.away="showInstanceDropdown = false"
+                                        class="absolute z-50 mt-2 w-[calc(50%-1rem)] bg-white border border-gray-200 rounded-lg shadow-xl max-h-96 overflow-y-auto"
+                                        x-cloak>
+                                        <template x-for="(instance, idx) in availableInstances" :key="idx">
+                                            <div class="instance-card m-2"
+                                                :class="{ 'selected': form.instanceType === instance.instanceType }"
+                                                @click="selectInstance(instance)">
+                                                <div class="flex items-start justify-between">
+                                                    <div class="flex items-start gap-3 flex-1">
+                                                        <div class="instance-card-radio mt-1"></div>
+                                                        <div class="flex-1">
+                                                            <h3 class="text-base font-bold text-gray-900 mb-2"
+                                                                x-text="instance.instanceType"></h3>
+
+                                                            <div class="grid grid-cols-2 gap-x-4 gap-y-1 mb-2 text-xs">
+                                                                <div class="flex justify-between">
+                                                                    <span class="text-gray-600">vCPU:</span>
+                                                                    <span class="font-semibold"
+                                                                        x-text="instance.vcpu"></span>
+                                                                </div>
+                                                                <div class="flex justify-between">
+                                                                    <span class="text-gray-600">Cloudidr cost per
+                                                                        hour:</span>
+                                                                    <span class="font-semibold text-indigo-600"
+                                                                        x-text="formatCurrency(instance.cloudidrPrice)"></span>
+                                                                </div>
+                                                                <div class="flex justify-between">
+                                                                    <span class="text-gray-600">Memory:</span>
+                                                                    <span class="font-semibold"
+                                                                        x-text="instance.memory + ' GB'"></span>
+                                                                </div>
+                                                                <div class="flex justify-between">
+                                                                    <span class="text-gray-600">AWS cost per
+                                                                        hour:</span>
+                                                                    <span class="font-semibold"
+                                                                        x-text="formatCurrency(instance.awsPrice)"></span>
+                                                                </div>
+                                                            </div>
+
+                                                            <div
+                                                                class="flex items-center justify-between pt-2 border-t border-gray-200">
+                                                                <span class="text-xs text-gray-600">Our savings:</span>
+                                                                <span class="savings-badge text-xs"
+                                                                    x-text="instance.savingsPercent + ' %'"></span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </template>
                                     </div>
                                 </div>
 
+                                <!-- Platform (Fixed) and Quantity -->
+                                <div class="grid grid-cols-2 gap-4 mb-4">
+                                    <div>
+                                        <label class="form-label">Platform *</label>
+                                        <div
+                                            class="form-input bg-gray-100 flex items-center justify-between cursor-not-allowed">
+                                            <span class="text-gray-900 font-medium">Linux/UNIX</span>
+                                            <span
+                                                class="text-xs text-gray-500 bg-gray-200 px-2 py-1 rounded">Fixed</span>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label class="form-label">Total Capacity *</label>
+                                        <input type="number" x-model="form.quantity" class="form-input" min="1"
+                                            placeholder="Enter a number">
+                                    </div>
+                                </div>
+
+                                <!-- Tenancy Info -->
                                 <div
                                     class="bg-gradient-to-r from-green-50 to-emerald-50 border-l-4 border-green-500 rounded-lg p-3 flex items-start gap-2">
                                     <i class="fas fa-info-circle text-green-600 mt-0.5"></i>
@@ -608,31 +712,68 @@
                                 </div>
                             </div>
 
+                            <!-- Capacity Time Allocation -->
                             <div>
                                 <h3 class="text-lg font-bold text-gray-900 mb-4">Capacity Time Allocation</h3>
+
+                                <!-- Timezone -->
+                                <div class="mb-4">
+                                    <label class="form-label">Time Zone</label>
+                                    <select x-model="form.timezone" class="form-input">
+                                        <option value="America/New_York">Eastern Time (UTC-5)</option>
+                                        <option value="America/Chicago">Central Time (UTC-6)</option>
+                                        <option value="America/Denver">Mountain Time (UTC-7)</option>
+                                        <option value="America/Phoenix">Arizona Time (UTC-7)</option>
+                                        <option value="America/Los_Angeles">Pacific Time (UTC-8)</option>
+                                        <option value="America/Anchorage">Alaska Time (UTC-9)</option>
+                                        <option value="Pacific/Honolulu">Hawaii-Aleutian Time (UTC-10)</option>
+                                        <option value="Pacific/Honolulu">Hawaii Time (UTC-10)</option>
+                                    </select>
+                                    <p class="text-xs text-green-600 mt-1"><i class="fas fa-check-circle"></i> Default
+                                        time zone set to PST (UTC-8)</p>
+                                </div>
+
+                                <!-- Date/Time Pickers -->
                                 <div class="grid grid-cols-2 gap-4">
                                     <div>
                                         <label class="form-label">Start Date *</label>
-                                        <input type="date" x-model="form.startDate" class="form-input">
+                                        <input type="datetime-local" x-model="form.startDateTime" class="form-input">
                                     </div>
                                     <div>
                                         <label class="form-label">End Date *</label>
-                                        <input type="date" x-model="form.endDate" class="form-input">
+                                        <input type="datetime-local" x-model="form.endDateTime" class="form-input">
                                     </div>
+                                </div>
+                            </div>
+
+                            <!-- Enable Auto-renewal -->
+                            <div>
+                                <h3 class="text-lg font-bold text-gray-900 mb-2">Enable Auto-renewal</h3>
+                                <div>
+                                    <label class="form-label">Auto-renewal enabled
+                                        <i class="fas fa-info-circle text-gray-400 cursor-help"
+                                            title="Determines whether the scheduled capacity should be automatically renewed when it reaches the end date. When enabled, the system will extend the end date based on the specified renewal duration."></i>
+                                    </label>
+                                    <select x-model="form.autoRenewal" class="form-input">
+                                        <option value="No">No</option>
+                                        <option value="Yes">Yes</option>
+                                    </select>
                                 </div>
                             </div>
                         </div>
 
                         <div class="flex items-center justify-between p-6 border-t bg-gray-50">
-                            <button @click="closeModal()" class="btn-secondary"><i
-                                    class="fas fa-times mr-2"></i>Cancel</button>
-                            <button @click="searchCapacity()" :disabled="!canSearch()" class="btn-primary"
-                                :class="{'opacity-50 cursor-not-allowed': !canSearch()}"><i
-                                    class="fas fa-search mr-2"></i>Search Offerings</button>
+                            <button @click="closeModal()" class="btn-secondary">
+                                <i class="fas fa-times mr-2"></i>Cancel
+                            </button>
+                            <button @click="searchCapacity()" :disabled="!canSearch()" class="btn-primary">
+                                <i class="fas fa-search mr-2"></i>Search Offerings
+                            </button>
                         </div>
                     </div>
                 </div>
 
+                <!-- STEP 2: Searching Loading -->
                 <div x-show="showModal && step === 2 && isSearching" class="modal-overlay" style="display: none;"
                     x-cloak>
                     <div class="modal-content max-w-2xl">
@@ -640,39 +781,45 @@
                             <h2 class="text-2xl font-bold text-gray-900 mb-8">Searching capacity</h2>
                             <div class="loading-spinner mx-auto mb-8"></div>
                             <div class="space-y-3 text-left max-w-md mx-auto">
-                                <div class="flex items-center gap-3 text-green-600"><i
-                                        class="fas fa-check-circle text-xl"></i><span
-                                        class="text-sm font-medium">Establishing backend connection</span></div>
-                                <div class="flex items-center gap-3 text-green-600"><i
-                                        class="fas fa-check-circle text-xl"></i><span
-                                        class="text-sm font-medium">Verifying resource availability</span></div>
-                                <div class="flex items-center gap-3 text-green-600"><i
-                                        class="fas fa-check-circle text-xl"></i><span
-                                        class="text-sm font-medium">Confirming capacity blocks</span></div>
+                                <div class="flex items-center gap-3 text-green-600">
+                                    <i class="fas fa-check-circle text-xl"></i>
+                                    <span class="text-sm font-medium">Establishing backend connection</span>
+                                </div>
+                                <div class="flex items-center gap-3 text-green-600">
+                                    <i class="fas fa-check-circle text-xl"></i>
+                                    <span class="text-sm font-medium">Verifying resource availability</span>
+                                </div>
+                                <div class="flex items-center gap-3 text-green-600">
+                                    <i class="fas fa-check-circle text-xl"></i>
+                                    <span class="text-sm font-medium">Confirming capacity blocks</span>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <div x-show="showModal && step === 2 && !isSearching && searchResults.length > 0" class="modal-overlay"
-                    style="display: none;" x-cloak>
+                <!-- STEP 2: Confirmation (Directly after search) -->
+                <div x-show="showModal && step === 2 && !isSearching" class="modal-overlay" style="display: none;"
+                    x-cloak>
                     <div class="modal-content max-w-4xl">
                         <div
                             class="flex items-center justify-between p-6 border-b bg-gradient-to-r from-green-50 to-emerald-50">
                             <div>
-                                <p class="text-sm text-green-600 font-semibold">Create scheduled capacity • Step 3 of 3
+                                <p class="text-sm text-green-600 font-semibold">Create scheduled capacity • Step 2 of 2
                                 </p>
                                 <h2 class="text-2xl font-bold text-gray-900 mt-1">Capacity blocks <span
                                         class="text-green-600">Available</span></h2>
                                 <p class="text-sm text-gray-600 mt-1">Review and confirm your reservation</p>
                             </div>
                             <button @click="closeModal()"
-                                class="text-gray-400 hover:text-gray-600 transition w-10 h-10 flex items-center justify-center rounded-full hover:bg-white"><i
-                                    class="fas fa-times text-xl"></i></button>
+                                class="text-gray-400 hover:text-gray-600 transition w-10 h-10 flex items-center justify-center rounded-full hover:bg-white">
+                                <i class="fas fa-times text-xl"></i>
+                            </button>
                         </div>
 
                         <div class="p-6">
                             <div class="grid grid-cols-2 gap-6">
+                                <!-- Description -->
                                 <div>
                                     <h3 class="font-bold text-gray-900 mb-4 text-lg">Description</h3>
                                     <div class="space-y-3 text-sm bg-gray-50 rounded-lg p-4">
@@ -687,27 +834,25 @@
                                         </div>
                                         <div class="flex justify-between py-2 border-b border-gray-200">
                                             <span class="text-gray-600 font-medium">Instance Type</span>
-                                            <span class="font-semibold text-gray-900"
-                                                x-text="selectedOffering?.instanceType"></span>
+                                            <span class="font-semibold text-gray-900" x-text="form.instanceType"></span>
                                         </div>
                                         <div class="flex justify-between py-2 border-b border-gray-200">
                                             <span class="text-gray-600 font-medium">Platform</span>
-                                            <span class="font-semibold text-gray-900"
-                                                x-text="selectedOffering?.platform"></span>
+                                            <span class="font-semibold text-gray-900">Linux/UNIX</span>
                                         </div>
                                         <div class="flex justify-between py-2 border-b border-gray-200">
                                             <span class="text-gray-600 font-medium">Quantity</span>
-                                            <span class="font-semibold text-gray-900"
-                                                x-text="selectedOffering?.quantity"></span>
+                                            <span class="font-semibold text-gray-900" x-text="form.quantity"></span>
                                         </div>
                                         <div class="flex justify-between py-2">
                                             <span class="text-gray-600 font-medium">Duration</span>
                                             <span class="font-semibold text-gray-900"
-                                                x-text="form.startDate + ' to ' + form.endDate"></span>
+                                                x-text="formatDateTime(form.startDateTime) + ' to ' + formatDateTime(form.endDateTime)"></span>
                                         </div>
                                     </div>
                                 </div>
 
+                                <!-- Summary -->
                                 <div>
                                     <h3 class="font-bold text-gray-900 mb-4 text-lg">Summary</h3>
                                     <div class="summary-box">
@@ -738,19 +883,24 @@
                                         </div>
                                     </div>
                                     <div class="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                                        <p class="text-xs text-blue-800 leading-relaxed"><i
-                                                class="fas fa-shield-alt mr-1"></i><strong>Note:</strong> Capacity is
-                                            reserved for 15 minutes. Complete purchase to secure your booking.</p>
+                                        <p class="text-xs text-blue-800 leading-relaxed">
+                                            <i class="fas fa-shield-alt mr-1"></i>
+                                            <strong>Note:</strong> Capacity is reserved for 15 minutes. Complete
+                                            purchase
+                                            to secure your booking.
+                                        </p>
                                     </div>
                                 </div>
                             </div>
                         </div>
 
                         <div class="flex items-center justify-between p-6 border-t bg-gray-50">
-                            <button @click="step = 1" class="btn-secondary"><i
-                                    class="fas fa-arrow-left mr-2"></i>Back</button>
-                            <button @click="confirmPurchase()" class="btn-primary"><i
-                                    class="fas fa-check-circle mr-2"></i>Purchase Capacity</button>
+                            <button @click="step = 1" class="btn-secondary">
+                                <i class="fas fa-arrow-left mr-2"></i>Back
+                            </button>
+                            <button @click="confirmPurchase()" class="btn-primary">
+                                <i class="fas fa-check-circle mr-2"></i>Purchase Capacity
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -765,6 +915,7 @@
                         summary: { totalSavings: 0, totalCost: 0, totalUsageHours: 0, remainingUsageHours: 0 },
                         availableAccounts: [],
                         showModal: false,
+                        showInstanceDropdown: false,
                         step: 1,
                         isSearching: false,
                         searchQuery: '',
@@ -772,15 +923,34 @@
                             policyName: '',
                             accountId: '',
                             region: '',
-                            instanceType: 'c5.2xlarge',
+                            instanceType: '',
                             platform: 'Linux/UNIX',
                             quantity: 1,
-                            startDate: '',
-                            endDate: ''
+                            startDateTime: '',
+                            endDateTime: '',
+                            timezone: 'America/Los_Angeles',
+                            autoRenewal: 'No'
                         },
-                        searchResults: [],
+                        availableInstances: [
+                            { instanceType: 'c5.large', vcpu: 2, memory: 4, cloudidrPrice: 0.059, awsPrice: 0.085, savingsPercent: 30 },
+                            { instanceType: 'c5.xlarge', vcpu: 4, memory: 8, cloudidrPrice: 0.119, awsPrice: 0.170, savingsPercent: 30 },
+                            { instanceType: 'c5.2xlarge', vcpu: 8, memory: 16, cloudidrPrice: 0.221, awsPrice: 0.340, savingsPercent: 35 },
+                            { instanceType: 'c5.4xlarge', vcpu: 16, memory: 32, cloudidrPrice: 0.408, awsPrice: 0.680, savingsPercent: 40 },
+                            { instanceType: 'm6i.large', vcpu: 2, memory: 8, cloudidrPrice: 0.067, awsPrice: 0.096, savingsPercent: 30 },
+                            { instanceType: 'm6i.xlarge', vcpu: 4, memory: 16, cloudidrPrice: 0.134, awsPrice: 0.192, savingsPercent: 30 },
+                            { instanceType: 'm6i.2xlarge', vcpu: 8, memory: 32, cloudidrPrice: 0.250, awsPrice: 0.384, savingsPercent: 35 },
+                            { instanceType: 'm6i.4xlarge', vcpu: 16, memory: 64, cloudidrPrice: 0.461, awsPrice: 0.768, savingsPercent: 40 },
+                            { instanceType: 'g5.24xlarge', vcpu: 96, memory: 384, cloudidrPrice: 5.701, awsPrice: 8.144, savingsPercent: 30 }
+                        ],
                         selectedOffering: null,
-                        calculatedPricing: { ourPrice: 0, awsPrice: 0, savings: 0, savingsPercent: 0, processingFees: 0, totalPrice: 0 },
+                        calculatedPricing: {
+                            ourPrice: 0,
+                            awsPrice: 0,
+                            savings: 0,
+                            savingsPercent: 0,
+                            processingFees: 0,
+                            totalPrice: 0
+                        },
 
                         async init() {
                             await this.loadAccounts();
@@ -796,7 +966,9 @@
                                 const response = await fetch('/api/xamops/account-manager/accounts');
                                 const data = await response.json();
                                 this.availableAccounts = data.filter(acc => acc.provider === 'AWS' && acc.status === 'CONNECTED');
-                            } catch (e) { console.error('[CloudIDR] Failed to load accounts:', e); }
+                            } catch (e) {
+                                console.error('[CloudIDR] Failed to load accounts:', e);
+                            }
                         },
 
                         async loadPolicies() {
@@ -809,7 +981,8 @@
                                 this.filteredPolicies = this.policies;
                             } catch (e) {
                                 console.error('[CloudIDR] Failed to load policies:', e);
-                                this.policies = []; this.filteredPolicies = [];
+                                this.policies = [];
+                                this.filteredPolicies = [];
                             }
                         },
 
@@ -817,11 +990,16 @@
                             try {
                                 const res = await fetch('/api/xamops/cloudidr/summary');
                                 this.summary = await res.json();
-                            } catch (e) { console.error('[CloudIDR] Failed to load summary:', e); }
+                            } catch (e) {
+                                console.error('[CloudIDR] Failed to load summary:', e);
+                            }
                         },
 
                         filterPolicies() {
-                            if (!this.searchQuery) { this.filteredPolicies = this.policies; return; }
+                            if (!this.searchQuery) {
+                                this.filteredPolicies = this.policies;
+                                return;
+                            }
                             const query = this.searchQuery.toLowerCase();
                             this.filteredPolicies = this.policies.filter(p =>
                                 p.policyName?.toLowerCase().includes(query) ||
@@ -833,92 +1011,107 @@
                             const storedId = sessionStorage.getItem('selectedAccountIds');
                             if (storedId) {
                                 const cleanId = storedId.replace(/[\[\]"]/g, '').split(',')[0];
-                                // Verify this account exists in available list, if not, wait or set anyway
                                 this.form.accountId = cleanId;
                             }
                         },
 
                         setDefaultDates() {
-                            const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
-                            const nextWeek = new Date(); nextWeek.setDate(nextWeek.getDate() + 7);
-                            this.form.startDate = tomorrow.toISOString().split('T')[0];
-                            this.form.endDate = nextWeek.toISOString().split('T')[0];
+                            const now = new Date();
+                            const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+                            const nextWeek = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+                            this.form.startDateTime = this.formatDateTimeLocal(tomorrow);
+                            this.form.endDateTime = this.formatDateTimeLocal(nextWeek);
+                        },
+
+                        formatDateTimeLocal(date) {
+                            const year = date.getFullYear();
+                            const month = String(date.getMonth() + 1).padStart(2, '0');
+                            const day = String(date.getDate()).padStart(2, '0');
+                            const hours = String(date.getHours()).padStart(2, '0');
+                            const minutes = String(date.getMinutes()).padStart(2, '0');
+                            return `${year}-${month}-${day}T${hours}:${minutes}`;
+                        },
+
+                        formatDateTime(dateTimeStr) {
+                            if (!dateTimeStr) return '';
+                            const date = new Date(dateTimeStr);
+                            return date.toLocaleString('en-US', {
+                                month: '2-digit',
+                                day: '2-digit',
+                                year: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                            });
+                        },
+
+                        selectInstance(instance) {
+                            this.form.instanceType = instance.instanceType;
+                            this.selectedOffering = instance;
+                            this.showInstanceDropdown = false;
                         },
 
                         canSearch() {
-                            return this.form.policyName && this.form.accountId && this.form.instanceType && this.form.startDate && this.form.endDate;
+                            return this.form.policyName &&
+                                this.form.accountId &&
+                                this.form.instanceType &&
+                                this.form.startDateTime &&
+                                this.form.endDateTime;
                         },
 
                         openCreateModal() {
                             this.step = 1;
-                            this.searchResults = [];
                             this.selectedOffering = null;
                             this.syncAccountFromSidebar();
                             this.setDefaultDates();
                             this.showModal = true;
                         },
 
-                        closeModal() { this.showModal = false; this.step = 1; this.isSearching = false; },
+                        closeModal() {
+                            this.showModal = false;
+                            this.step = 1;
+                            this.isSearching = false;
+                            this.showInstanceDropdown = false;
+                        },
 
-                        formatDateForAPI(dateStr) {
-                            if (!dateStr) return '';
-                            const date = new Date(dateStr);
-                            // Important: Use UTC or handle timezone to avoid off-by-one errors if needed
+                        formatDateForAPI(dateTimeStr) {
+                            if (!dateTimeStr) return '';
+                            const date = new Date(dateTimeStr);
                             return `${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}/${date.getFullYear()}`;
                         },
 
+                        formatTimeForAPI(dateTimeStr) {
+                            if (!dateTimeStr) return '00:00';
+                            const date = new Date(dateTimeStr);
+                            return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+                        },
+
                         async searchCapacity() {
+                            if (!this.selectedOffering) {
+                                alert('Please select an instance type');
+                                return;
+                            }
+
                             this.step = 2;
                             this.isSearching = true;
-                            const payload = {
-                                accountId: this.form.accountId,
-                                instanceType: this.form.instanceType,
-                                platform: this.form.platform,
-                                quantity: this.form.quantity,
-                                startDate: this.formatDateForAPI(this.form.startDate),
-                                endDate: this.formatDateForAPI(this.form.endDate),
-                                startTime: "00:00",
-                                endTime: "23:59"
-                            };
 
-                            try {
-                                const res = await fetch('/api/xamops/cloudidr/search', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify(payload)
-                                });
+                            this.calculatePricing();
 
-                                if (res.ok) {
-                                    const data = await res.json();
-                                    this.searchResults = data.instanceTypeOfferings || [];
-                                    if (this.searchResults.length > 0) {
-                                        this.selectedOffering = this.searchResults[0];
-                                        this.calculatePricing();
-                                    } else {
-                                        // Mock result if empty, just for testing UI flow if needed
-                                        // remove this block in production
-                                        this.selectedOffering = { instanceType: this.form.instanceType, platform: this.form.platform, quantity: this.form.quantity, startDate: payload.startDate, endDate: payload.endDate };
-                                        this.calculatePricing();
-                                        this.searchResults.push(this.selectedOffering);
-                                    }
-                                } else {
-                                    alert('Search failed. Please check inputs.');
-                                    this.step = 1;
-                                }
-                            } catch (e) {
-                                alert('Search failed: ' + e.message);
-                                this.step = 1;
-                            } finally {
-                                setTimeout(() => { this.isSearching = false; }, 1500); // Small delay for UX
-                            }
+                            setTimeout(() => {
+                                this.isSearching = false;
+                            }, 1500);
                         },
 
                         calculatePricing() {
-                            // Mock pricing logic for UI demo - replace with real data if API provides it
-                            const hourlyRate = 0.05; // Mock
-                            const hours = 24 * 7;
-                            const ourPrice = hourlyRate * hours * (this.selectedOffering?.quantity || 1);
-                            const awsPrice = ourPrice * 1.4; // 40% more expensive
+                            const start = new Date(this.form.startDateTime);
+                            const end = new Date(this.form.endDateTime);
+                            const hours = Math.abs(end - start) / 36e5;
+
+                            const hourlyRate = this.selectedOffering?.cloudidrPrice || 0.059;
+                            const awsHourlyRate = this.selectedOffering?.awsPrice || 0.085;
+
+                            const ourPrice = hourlyRate * hours * this.form.quantity;
+                            const awsPrice = awsHourlyRate * hours * this.form.quantity;
                             const savings = awsPrice - ourPrice;
 
                             this.calculatedPricing = {
@@ -933,20 +1126,21 @@
 
                         async confirmPurchase() {
                             if (!this.selectedOffering) return;
+
                             const payload = {
                                 accountId: this.form.accountId,
                                 policyName: this.form.policyName,
-                                startDate: this.selectedOffering.startDate || this.formatDateForAPI(this.form.startDate),
-                                endDate: this.selectedOffering.endDate || this.formatDateForAPI(this.form.endDate),
-                                startTime: "00:00",
-                                endTime: "23:59",
-                                instanceType: this.selectedOffering.instanceType,
-                                platform: this.selectedOffering.platform,
-                                quantity: this.selectedOffering.quantity
+                                startDate: this.formatDateForAPI(this.form.startDateTime),
+                                endDate: this.formatDateForAPI(this.form.endDateTime),
+                                startTime: this.formatTimeForAPI(this.form.startDateTime),
+                                endTime: this.formatTimeForAPI(this.form.endDateTime),
+                                instanceType: this.form.instanceType,
+                                platform: 'Linux/UNIX',
+                                quantity: this.form.quantity,
+                                region: this.form.region
                             };
 
                             try {
-                                // 1. Reserve
                                 const res = await fetch('/api/xamops/cloudidr/reserve', {
                                     method: 'POST',
                                     headers: { 'Content-Type': 'application/json' },
@@ -956,21 +1150,29 @@
                                 if (res.ok) {
                                     const data = await res.json();
                                     if (data.cidrId) {
-                                        // 2. Purchase
                                         const purchaseRes = await fetch('/api/xamops/cloudidr/purchase', {
                                             method: 'POST',
                                             headers: { 'Content-Type': 'application/json' },
                                             body: JSON.stringify({ cidrId: data.cidrId })
                                         });
+
                                         if (purchaseRes.ok) {
                                             alert('✅ Capacity purchased successfully!');
                                             this.closeModal();
                                             await this.loadPolicies();
                                             await this.loadSummary();
-                                        } else { alert('❌ Purchase confirmation failed.'); }
-                                    } else { alert('❌ Reservation failed: No CIDR ID returned.'); }
-                                } else { alert('❌ Reservation failed.'); }
-                            } catch (e) { alert('❌ Error: ' + e.message); }
+                                        } else {
+                                            alert('❌ Purchase confirmation failed.');
+                                        }
+                                    } else {
+                                        alert('❌ Reservation failed: No CIDR ID returned.');
+                                    }
+                                } else {
+                                    alert('❌ Reservation failed.');
+                                }
+                            } catch (e) {
+                                alert('❌ Error: ' + e.message);
+                            }
                         },
 
                         viewDetails(policy) {
@@ -986,23 +1188,33 @@
                                         headers: { 'Content-Type': 'application/json' },
                                         body: JSON.stringify({ cidrId })
                                     });
+
                                     if (res.ok) {
                                         alert('✅ Policy cancelled.');
                                         await this.loadPolicies();
                                         await this.loadSummary();
-                                    } else { alert('❌ Cancellation failed.'); }
-                                } catch (e) { alert('❌ Error: ' + e.message); }
+                                    } else {
+                                        alert('❌ Cancellation failed.');
+                                    }
+                                } catch (e) {
+                                    alert('❌ Error: ' + e.message);
+                                }
                             }
                         },
 
                         getAccountName(accountId) {
                             const account = this.availableAccounts.find(a => a.id === accountId);
-                            return account ? account.name : accountId;
+                            return account ? account.name : 'XAMMER';
                         },
 
                         formatCurrency(val) {
                             if (val === null || val === undefined) return '$0.00';
-                            return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(val);
+                            return new Intl.NumberFormat('en-US', {
+                                style: 'currency',
+                                currency: 'USD',
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 3
+                            }).format(val);
                         }
                     };
                 }

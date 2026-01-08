@@ -17,6 +17,7 @@ public class CloudAccount {
     @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "cloud_account_seq_gen")
     @SequenceGenerator(name = "cloud_account_seq_gen", sequenceName = "cloud_account_id_seq", allocationSize = 1)
     private Long id;
+
     @Column(nullable = false)
     private String accountName;
 
@@ -94,14 +95,30 @@ public class CloudAccount {
     @Column(name = "last_sync")
     private Instant lastSync;
 
-    // Also, add the getter and setter for this new field
-    public String getGrafanaIp() {
-        return grafanaIp;
-    }
+    // ==================== CLOUDIDR INTEGRATION FIELDS ====================
 
-    public void setGrafanaIp(String grafanaIp) {
-        this.grafanaIp = grafanaIp;
-    }
+    @Column(name = "cf_stack_id")
+    private String cfStackId;
+
+    @Column(name = "cf_stack_status")
+    private String cfStackStatus;
+
+    @Column(name = "cloudidr_csp_account_id")
+    private String cloudidrCspAccountId;
+
+    @Column(name = "cloudidr_role_arn")
+    private String cloudidrRoleArn;
+
+    @Column(name = "cloudidr_status")
+    private String cloudidrStatus = "NOT_LINKED"; // NOT_LINKED, LINKING, LINKED, FAILED
+
+    @Column(name = "cloudidr_linked_at")
+    private Instant cloudidrLinkedAt;
+
+    @Column(name = "default_region")
+    private String defaultRegion = "us-east-1";
+
+    // ==================== CONSTRUCTORS ====================
 
     public CloudAccount(String accountName, String externalId, String accessType, Client client) {
         this.accountName = accountName;
@@ -110,8 +127,11 @@ public class CloudAccount {
         this.client = client;
     }
 
-    // ✅ ADD THIS METHOD
-    // This helper method returns the correct account ID based on the provider.
+    // ==================== HELPER METHODS ====================
+
+    /**
+     * Returns the correct account ID based on the provider
+     */
     public String getProviderAccountId() {
         switch (this.provider) {
             case "AWS":
@@ -125,4 +145,49 @@ public class CloudAccount {
         }
     }
 
+    /**
+     * Check if CloudIDR is linked for this account
+     */
+    public boolean isCloudIdrLinked() {
+        return "LINKED".equals(this.cloudidrStatus) &&
+                this.cloudidrCspAccountId != null &&
+                !this.cloudidrCspAccountId.isEmpty();
+    }
+
+    /**
+     * Check if CloudFormation stack is deployed
+     */
+    public boolean isCloudFormationDeployed() {
+        return this.cfStackId != null &&
+                !this.cfStackId.isEmpty() &&
+                "CREATE_COMPLETE".equals(this.cfStackStatus);
+    }
+
+    /**
+     * Get CloudIDR integration status summary
+     */
+    public String getCloudIdrIntegrationStatus() {
+        if (isCloudIdrLinked()) {
+            return "LINKED";
+        } else if (isCloudFormationDeployed()) {
+            return "STACK_DEPLOYED";
+        } else if (this.cfStackStatus != null && this.cfStackStatus.contains("IN_PROGRESS")) {
+            return "DEPLOYING";
+        } else if (this.cfStackStatus != null && this.cfStackStatus.contains("FAILED")) {
+            return "DEPLOYMENT_FAILED";
+        } else {
+            return "NOT_CONFIGURED";
+        }
+    }
+
+    // ==================== LEGACY GETTERS/SETTERS ====================
+    // (Keep for backward compatibility if needed)
+
+    public String getGrafanaIp() {
+        return grafanaIp;
+    }
+
+    public void setGrafanaIp(String grafanaIp) {
+        this.grafanaIp = grafanaIp;
+    }
 }

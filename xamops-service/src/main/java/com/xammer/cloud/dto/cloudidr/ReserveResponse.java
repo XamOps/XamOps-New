@@ -11,19 +11,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class ReserveResponse {
     private String cidrId;
+    private String policyName;
     private String status;
     private String message;
-    private String reservationId;
-    private Long expiresAt;
-    private PricingInfo pricing;
-
-    @Data
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class PricingInfo {
-        private Double totalCost;
-        private Double awsPrice;
-        private Double savings;
-        private Double savingsPercentage;
-    }
 }

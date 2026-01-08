@@ -54,6 +54,7 @@ import software.amazon.awssdk.services.rds.RdsClient;
 import software.amazon.awssdk.services.route53.Route53Client;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.sagemaker.SageMakerClient;
+import software.amazon.awssdk.services.savingsplans.SavingsplansClient;
 import software.amazon.awssdk.services.securityhub.SecurityHubClient;
 import software.amazon.awssdk.services.servicequotas.ServiceQuotasClient;
 import software.amazon.awssdk.services.sfn.SfnClient;
@@ -67,7 +68,6 @@ import software.amazon.awssdk.services.sts.model.AssumeRoleRequest;
 import software.amazon.awssdk.services.sts.model.AssumeRoleResponse;
 import software.amazon.awssdk.services.textract.TextractClient;
 import software.amazon.awssdk.services.wafv2.Wafv2Client;
-import software.amazon.awssdk.services.savingsplans.SavingsplansClient;
 
 @Service
 public class AwsClientProvider {
@@ -359,7 +359,8 @@ public class AwsClientProvider {
     }
 
     public CognitoIdentityProviderClient getCognitoIdentityProviderClient(CloudAccount account, String region) {
-        return getClient(CognitoIdentityProviderClient.class, CognitoIdentityProviderClient.builder(), account, region);
+        return getClient(CognitoIdentityProviderClient.class, CognitoIdentityProviderClient.builder(), account,
+                region);
     }
 
     public Wafv2Client getWafv2Client(CloudAccount account, String region) {
@@ -447,5 +448,72 @@ public class AwsClientProvider {
                 .credentialsProvider(getCredentialsProvider(account))
                 .region(Region.of(region))
                 .build();
+    }
+
+    // ==================== CLOUDIDR INTEGRATION ====================
+
+    /**
+     * Creates a CloudFormation client for CloudIDR stack deployment
+     * 
+     * @param account CloudAccount with credentials
+     * @param region  AWS region
+     * @return CloudFormationClient configured for the account and region
+     */
+    public CloudFormationClient getCloudFormationClient(CloudAccount account, String region) {
+        return getClient(CloudFormationClient.class, CloudFormationClient.builder(), account, region);
+    }
+
+    /**
+     * Creates a CloudFormation client using AWS account ID (for CloudIDR
+     * integration)
+     * This method fetches the CloudAccount from repository and creates the client
+     * 
+     * @param awsAccountId AWS Account ID
+     * @param region       AWS region
+     * @return CloudFormationClient configured for the account
+     */
+    public CloudFormationClient createCloudFormationClient(String awsAccountId, String region) {
+        logger.info("Creating CloudFormation client for account {} in region {}", awsAccountId, region);
+
+        try {
+            // You'll need to inject CloudAccountRepository to fetch the account
+            // For now, assuming the account is passed or fetched elsewhere
+            // This is a simplified version - you may need to adjust based on your
+            // architecture
+
+            // Option 1: If you have access to repository
+            // CloudAccount account =
+            // cloudAccountRepository.findByAwsAccountId(awsAccountId)
+            // .stream().findFirst()
+            // .orElseThrow(() -> new RuntimeException("Account not found: " +
+            // awsAccountId));
+            // return getCloudFormationClient(account, region);
+
+            // Option 2: Simplified approach - assume role directly by account ID
+            String roleArn = String.format("arn:aws:iam::%s:role/XamOpsReadOnlyRole-local", awsAccountId);
+            String roleSessionName = "xamops-cloudformation-" + awsAccountId;
+
+            logger.debug("Assuming role {} for CloudFormation access", roleArn);
+
+            AwsCredentialsProvider credentialsProvider = StsAssumeRoleCredentialsProvider.builder()
+                    .stsClient(stsClient)
+                    .refreshRequest(req -> req
+                            .roleArn(roleArn)
+                            .externalId(awsAccountId)
+                            .roleSessionName(roleSessionName))
+                    .build();
+
+            CloudFormationClient client = CloudFormationClient.builder()
+                    .credentialsProvider(credentialsProvider)
+                    .region(Region.of(region))
+                    .build();
+
+            logger.info("Successfully created CloudFormation client for account {}", awsAccountId);
+            return client;
+
+        } catch (Exception e) {
+            logger.error("Failed to create CloudFormation client for account {}: {}", awsAccountId, e.getMessage(), e);
+            throw new RuntimeException("Failed to create CloudFormation client: " + e.getMessage(), e);
+        }
     }
 }
