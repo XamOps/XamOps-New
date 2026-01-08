@@ -91,16 +91,40 @@ public class CloudAccount {
     @Column(name = "grafana_ip")
     private String grafanaIp;
 
+    @Column(name = "grafana_dashboard_uid")
+    private String grafanaDashboardUid;
+
+    @Column(name = "grafana_dashboard_slug")
+    private String grafanaDashboardSlug;
+
     @Column(name = "last_sync")
     private Instant lastSync;
 
-    // Also, add the getter and setter for this new field
+    // Getter and setter for grafanaIp
     public String getGrafanaIp() {
         return grafanaIp;
     }
 
     public void setGrafanaIp(String grafanaIp) {
         this.grafanaIp = grafanaIp;
+    }
+
+    // Getter and setter for grafanaDashboardUid
+    public String getGrafanaDashboardUid() {
+        return grafanaDashboardUid;
+    }
+
+    public void setGrafanaDashboardUid(String grafanaDashboardUid) {
+        this.grafanaDashboardUid = grafanaDashboardUid;
+    }
+
+    // Getter and setter for grafanaDashboardSlug
+    public String getGrafanaDashboardSlug() {
+        return grafanaDashboardSlug;
+    }
+
+    public void setGrafanaDashboardSlug(String grafanaDashboardSlug) {
+        this.grafanaDashboardSlug = grafanaDashboardSlug;
     }
 
     public CloudAccount(String accountName, String externalId, String accessType, Client client) {
@@ -110,7 +134,6 @@ public class CloudAccount {
         this.client = client;
     }
 
-    // ✅ ADD THIS METHOD
     // This helper method returns the correct account ID based on the provider.
     public String getProviderAccountId() {
         switch (this.provider) {

@@ -218,6 +218,8 @@ public class AccountManagerController {
                 account.getExternalId(),
                 account.getProvider());
         dto.setGrafanaIp(account.getGrafanaIp());
+        dto.setGrafanaDashboardUid(account.getGrafanaDashboardUid());
+        dto.setGrafanaDashboardSlug(account.getGrafanaDashboardSlug());
         return dto;
     }
 
