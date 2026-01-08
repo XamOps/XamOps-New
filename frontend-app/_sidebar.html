@@ -470,9 +470,12 @@
                 case 'AWS': default: targetPage = '/dashboard.html'; break;
             }
 
-            // Exception: Allow CloudShell to stay on page (supports soft nav)
+            // Exception: Allow CloudShell and Cloudlist to stay on page (supports soft nav)
             if (window.location.pathname === '/cloudshell.html') {
                 targetPage = '/cloudshell.html';
+            } else if (window.location.pathname === '/cloudlist.html' || window.location.pathname === '/gcp_cloudlist.html') {
+                // Keep cloudlist page as is, will use soft nav
+                targetPage = window.location.pathname;
             }
         }
         console.log('[Sidebar] Target Page:', targetPage);
@@ -596,6 +599,9 @@
         if (path === '/billops/billing.html') {
             return currentPath === '/billops/billing.html' || currentPath === '/billops/gcp-billing.html' || currentPath === '/billops/azure-billing.html';
         }
+        if (path === '/cloudlist.html') {
+            return currentPath === '/cloudlist.html' || currentPath === '/gcp_cloudlist.html';
+        }
         
         if (path === '/finops') {
              return currentPath.includes('finops') || 
@@ -676,7 +682,7 @@
             if (provider === 'GCP' && !shouldExclude) {
                 if (basePath === '/reservation.html') finalPath = '/gcp_reservations.html';
                 else if (basePath === '/cloudk8s.html') finalPath = '/gcp_cloudk8s.html';
-                else if (['/dashboard.html', '/finops.html', '/cost.html', '/waste.html', '/rightsizing.html', '/security.html', '/performance.html', '/alerts.html'].includes(basePath)) {
+                else if (['/dashboard.html', '/finops.html', '/cost.html', '/waste.html', '/rightsizing.html', '/security.html', '/performance.html', '/alerts.html', '/cloudlist.html'].includes(basePath)) {
                     finalPath = basePath.replace('.html', '').replace('/', '/gcp_') + '.html';
                 } else {
                     finalPath = basePath;
@@ -712,7 +718,7 @@
 }">
 
     <div class="flex-shrink-0 flex items-center justify-center h-16 border-b bg-white">
-        <a href="/dashboard.html"><img src="/icons/xlogo.png" alt="XamOps Logo" class="h-40 w-100"></a>
+        <a href="/unified-dashboard.html"><img src="/icons/xlogo.png" alt="XamOps Logo" class="h-40 w-100"></a>
     </div>
 
     <div class="p-4 border-b bg-gradient-to-r from-gray-50 to-white flex-shrink-0">
@@ -883,14 +889,14 @@
 
     <nav class="flex-1 px-3 py-4 space-y-2 text-sm overflow-y-auto sidebar-scroll">
         <div x-show="hasAnyRole(['ROLE_XAMOPS', 'ROLE_ADMIN', 'ROLE_SUPER_ADMIN'])" x-cloak>
-            <div class="sidebar-section" :class="{'active': isActive('/unified-dashboard.html')}">
+            <!-- <div class="sidebar-section" :class="{'active': isActive('/unified-dashboard.html')}">
                 <a href="/unified-dashboard.html"
                     class="nav-item flex items-center gap-3 rounded-xl px-4 py-3 font-semibold"
                     :class="isActive('/unified-dashboard.html') ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg' : 'text-gray-600 hover:bg-indigo-50'">
                     <i class="fas fa-layer-group fa-fw w-5 text-center"></i>
                     <span>Unified Dashboard</span>
                 </a>
-            </div>
+            </div> -->
 
             <div class="sidebar-section" :class="{'active': isActive('/dashboard.html')}">
                 <a :href="getLink('/dashboard.html')"
@@ -1012,6 +1018,15 @@
                             class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-red-600">ComplianceOps</a>
                     </div>
                 </div>
+            </div>
+
+            <div class="sidebar-section" :class="{'active': isActive('/cloudlist.html')}">
+                <a :href="getLink('/cloudlist.html')"
+                    class="nav-item flex items-center gap-3 rounded-xl px-4 py-3 font-semibold"
+                    :class="isActive('/cloudlist.html') ? 'bg-gradient-to-r from-blue-500 to-cyan-600 text-white shadow-lg' : 'text-gray-600 hover:bg-blue-50'">
+                    <i class="fas fa-list fa-fw w-5 text-center"></i>
+                    <span>Cloudlist</span>
+                </a>
             </div>
         </div>
     </nav>
@@ -1255,14 +1270,14 @@
                 </div>
             </div>
             <script>
-                document.addEventListener('DOMContentLoaded', () => {
+                function initSoftNavigation() {
                     // Intercept clicks on the sidebar navigation
                     document.addEventListener('click', async (e) => {
                         const link = e.target.closest('a');
 
                         // --- Validation Guards ---
                         if (!link ||
-                            (!link.closest('.sidebar-section') && !link.classList.contains('nav-item')) ||
+                            (!link.closest('.sidebar-section') && !link.classList.contains('nav-item') && !link.classList.contains('soft-nav-link')) ||
                             !link.href ||
                             (link.href.startsWith('http') && !link.href.includes(window.location.origin)) ||
                             link.getAttribute('href') === '#') {
@@ -1401,17 +1416,30 @@
 
                         // Add active class to clicked item (Logic simplified for example)
                         // You might need to check your getLink logic to match exact HREFs
-                        const activeLinks = document.querySelectorAll(`a[href="${targetHref}"]`);
-                        activeLinks.forEach(link => {
-                            const section = link.closest('.sidebar-section');
-                            if (section) section.classList.add('active');
+                        // You might need to check your getLink logic to match exact HREFs
+                        // Use a broader check but only modify explicit sidebar items
+                        // We use the pathname to match active state, ignoring query params for sidebar highlighting if desired
+                        const currentPath = new URL(targetHref, window.location.origin).pathname;
 
-                            // Re-apply the specific active classes based on your design
-                            link.classList.remove('text-gray-600', 'hover:bg-indigo-50');
-                            link.classList.add('bg-gradient-to-r', 'from-indigo-500', 'to-purple-600', 'text-white', 'shadow-lg');
+                        document.querySelectorAll('.sidebar-section a, a.nav-item').forEach(link => {
+                            if (link.pathname === currentPath || link.href === targetHref) {
+                                const section = link.closest('.sidebar-section');
+                                if (section) section.classList.add('active');
+
+                                // Re-apply the specific active classes based on your design
+                                link.classList.remove('text-gray-600', 'hover:bg-indigo-50');
+                                link.classList.add('bg-gradient-to-r', 'from-indigo-500', 'to-purple-600', 'text-white', 'shadow-lg');
+                            }
                         });
                     }
-                });
+                }
+
+                // Run immediately if loaded dynamically, or wait for DOM
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', initSoftNavigation);
+                } else {
+                    initSoftNavigation();
+                }
                 // Standard navigation is now used instead of soft-navigation interception
                 // to ensure reliable page loads and script constraints.
             </script>
