@@ -189,6 +189,7 @@ export default defineConfig({
         'workspace-licenses': resolve(__dirname, 'billops/workspace-licenses.html'),
         'unified-dashboard': resolve(__dirname, 'unified-dashboard.html'),
         'cloudsitter.html': resolve(__dirname, 'cloudsitter.html'),
+        'calculator.html': resolve(__dirname, 'calculator.html'),
 
         // GCP subdir files
         'gcp_cloudlist': resolve(__dirname, 'gcp_cloudlist.html'),
