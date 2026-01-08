@@ -82,9 +82,8 @@
 
 <body class="bg-gray-50 text-gray-800 font-sans" x-data="cloudsitterApp()">
 
-    <div id="sidebar-container" class="fixed inset-y-0 left-0 w-64 z-30">
-        <div x-html="(await (await fetch('/_sidebar.html')).text())"></div>
-    </div>
+    <include file="/_sidebar.html"></include>
+
 
     <div class="ml-64 min-h-screen flex flex-col transition-all duration-300">
 
