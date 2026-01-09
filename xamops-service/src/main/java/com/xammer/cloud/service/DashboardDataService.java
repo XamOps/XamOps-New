@@ -81,6 +81,9 @@ public class DashboardDataService {
 
     private final JobExecutionHistoryRepository jobExecutionHistoryRepository;
 
+    // ADDED: Environment-aware configuration
+    private final com.xammer.cloud.config.SchedulingEnvironmentConfig envConfig;
+
     @Autowired
     public DashboardDataService(
             CloudAccountRepository cloudAccountRepository,
@@ -99,7 +102,8 @@ public class DashboardDataService {
             @Lazy SonarQubeService sonarQubeService,
             UserRepository userRepository,
             JobExecutionHistoryRepository jobExecutionHistoryRepository,
-            @Qualifier("masterDataSource") DataSource masterDataSource) {
+            @Qualifier("masterDataSource") DataSource masterDataSource,
+            com.xammer.cloud.config.SchedulingEnvironmentConfig envConfig) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.gcpDataService = gcpDataService;
@@ -117,6 +121,7 @@ public class DashboardDataService {
         this.userRepository = userRepository;
         this.jobExecutionHistoryRepository = jobExecutionHistoryRepository;
         this.masterJdbcTemplate = new JdbcTemplate(masterDataSource);
+        this.envConfig = envConfig;
     }
 
     // ============================================================================================
@@ -124,13 +129,12 @@ public class DashboardDataService {
     // ============================================================================================
 
     /**
-     * Runs every 5 minutes to pre-calculate dashboard data for all tenants.
-     * Uses fixedDelay to ensure the next run waits 5 minutes AFTER the previous one
-     * finishes.
-     * This prevents overlap if a run takes longer than 5 minutes.
-     * initialDelay = 0 means it runs IMMEDIATELY on application startup.
+     * OPTIMIZED: Runs once daily to pre-calculate dashboard data for the current tenant only.
+     * Changed from every 6 hours to daily at 1:00 AM to reduce AWS API costs.
+     * Uses cron schedule instead of fixedDelay to ensure predictable execution time.
+     * No immediate execution on startup - waits until scheduled time.
      */
-    @Scheduled(fixedDelay = 300000, initialDelay = 0) // Run immediately, then every 5 mins after completion
+    @Scheduled(cron = "0 0 1 * * ?") // Daily at 1:00 AM
     public void runBackgroundAggregation() {
         logger.info("⚡ [Async-Aggregator] Starting global dashboard aggregation...");
         long totalStart = System.currentTimeMillis();
@@ -200,12 +204,37 @@ public class DashboardDataService {
                 (System.currentTimeMillis() - totalStart));
     }
 
+    /**
+     * Fetch active tenants - ENVIRONMENT AWARE
+     * Only returns the tenant associated with the current environment
+     */
     private List<String> fetchActiveTenants() {
         try {
-            return masterJdbcTemplate.queryForList("SELECT tenant_id FROM tenant_config WHERE active = true",
-                    String.class);
+            if (!envConfig.isSchedulingEnabled()) {
+                logger.info("⚠️ Scheduling is disabled in this environment");
+                return Collections.emptyList();
+            }
+
+            String currentTenant = envConfig.getCurrentTenantId();
+            logger.info("🔒 Environment filter: Only processing tenant '{}' (environment: {})",
+                       currentTenant, envConfig.getActiveProfile());
+
+            // Only return the current environment's tenant
+            List<String> tenants = masterJdbcTemplate.queryForList(
+                "SELECT tenant_id FROM tenant_config WHERE active = true AND tenant_id = ?",
+                String.class,
+                currentTenant
+            );
+
+            if (tenants.isEmpty()) {
+                logger.warn("⚠️ No active tenant found for tenant_id: {}", currentTenant);
+            } else {
+                logger.info("✅ Found tenant '{}' for background aggregation", currentTenant);
+            }
+
+            return tenants;
         } catch (Exception e) {
-            logger.error("Failed to fetch tenants from Master DB", e);
+            logger.error("❌ Failed to fetch tenants from Master DB", e);
             return Collections.emptyList();
         }
     }

@@ -42,6 +42,9 @@ public class ProactiveCacheRefreshService {
     private final JobExecutionHistoryRepository jobExecutionHistoryRepository;
     private final JdbcTemplate masterJdbcTemplate;
 
+    // ADDED: Environment-aware configuration
+    private final com.xammer.cloud.config.SchedulingEnvironmentConfig envConfig;
+
     @Autowired
     public ProactiveCacheRefreshService(
             CloudAccountRepository cloudAccountRepository,
@@ -55,7 +58,8 @@ public class ProactiveCacheRefreshService {
             ReservationService reservationService,
             OptimizationService optimizationService,
             JobExecutionHistoryRepository jobExecutionHistoryRepository,
-            @Qualifier("masterDataSource") DataSource masterDataSource) {
+            @Qualifier("masterDataSource") DataSource masterDataSource,
+            com.xammer.cloud.config.SchedulingEnvironmentConfig envConfig) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.cacheManager = cacheManager;
         this.cloudListService = cloudListService;
@@ -68,17 +72,46 @@ public class ProactiveCacheRefreshService {
         this.optimizationService = optimizationService;
         this.jobExecutionHistoryRepository = jobExecutionHistoryRepository;
         this.masterJdbcTemplate = new JdbcTemplate(masterDataSource);
+        this.envConfig = envConfig;
+
+        // Log configuration on startup
+        envConfig.logConfiguration();
     }
 
     /**
-     * Helper to fetch active tenants from Master DB
+     * Helper to fetch active tenants from Master DB - ENVIRONMENT AWARE
+     * Only returns the tenant associated with the current environment:
+     * - local -> customer1
+     * - uat -> customer2
+     * - prod -> customer3
      */
     private List<String> fetchActiveTenants() {
         try {
-            return masterJdbcTemplate.queryForList("SELECT tenant_id FROM tenant_config WHERE active = true",
-                    String.class);
+            if (!envConfig.isSchedulingEnabled()) {
+                logger.info("⚠️ Scheduling is disabled in this environment");
+                return Collections.emptyList();
+            }
+
+            String currentTenant = envConfig.getCurrentTenantId();
+            logger.info("🔒 Environment filter active: Only processing tenant '{}' (environment: {})",
+                       currentTenant, envConfig.getActiveProfile());
+
+            // Only return the current environment's tenant
+            List<String> tenants = masterJdbcTemplate.queryForList(
+                "SELECT tenant_id FROM tenant_config WHERE active = true AND tenant_id = ?",
+                String.class,
+                currentTenant
+            );
+
+            if (tenants.isEmpty()) {
+                logger.warn("⚠️ No active tenant found for tenant_id: {}", currentTenant);
+            } else {
+                logger.info("✅ Found tenant '{}' for processing", currentTenant);
+            }
+
+            return tenants;
         } catch (Exception e) {
-            logger.error("Failed to fetch tenants from Master DB", e);
+            logger.error("❌ Failed to fetch tenants from Master DB", e);
             return Collections.emptyList();
         }
     }
@@ -281,8 +314,9 @@ public class ProactiveCacheRefreshService {
 
     // ===================================================================================
     // 3:30 AM -> Optimization (Waste & Rightsizing)
+    // OPTIMIZED: Changed from daily to Mon/Wed/Fri to reduce costs
     // ===================================================================================
-    @Scheduled(cron = "0 30 3 * * ?")
+    @Scheduled(cron = "0 30 3 * * MON,WED,FRI")
     public void refreshOptimization() {
         logger.info("--- [3:30 AM] Starting Optimization Refresh (Waste & Rightsizing) ---");
         List<String> tenants = fetchActiveTenants();
@@ -335,8 +369,9 @@ public class ProactiveCacheRefreshService {
 
     // ===================================================================================
     // 4:00 AM -> Reservations (Can be slow)
+    // OPTIMIZED: Changed from daily to weekly (Sundays) to reduce costs
     // ===================================================================================
-    @Scheduled(cron = "0 0 4 * * ?")
+    @Scheduled(cron = "0 0 4 * * SUN")
     public void refreshReservations() {
         logger.info("--- [4:00 AM] Starting Reservation Refresh ---");
         List<String> tenants = fetchActiveTenants();
