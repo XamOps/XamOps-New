@@ -1356,13 +1356,20 @@
                                 }
                             }
 
-                            // --- FIX 2: Execute Body Scripts (Definitions) BEFORE Swap ---
-                            // This ensures 'dashboardApp' is defined when Alpine initializes the new HTML
+                            // 5. Swap HTML FIRST (so Alpine can find the DOM elements)
+                            if (currentMain) {
+                                currentMain.replaceWith(newMain);
+                            }
+
+                            // 6. Wait a tick for DOM to settle
+                            await new Promise(resolve => setTimeout(resolve, 10));
+
+                            // 7. Execute Body Scripts AFTER swap (so Alpine data definitions run with DOM present)
                             const scripts = doc.body.querySelectorAll('script');
 
-                            scripts.forEach(oldScript => {
+                            for (const oldScript of scripts) {
                                 // Skip if it's an external script we already have
-                                if (oldScript.src && loadedScripts.has(oldScript.src)) return;
+                                if (oldScript.src && loadedScripts.has(oldScript.src)) continue;
 
                                 const newScript = document.createElement('script');
                                 newScript.classList.add('dynamic-page-script');
@@ -1375,22 +1382,42 @@
                                     newScript.appendChild(document.createTextNode(oldScript.innerHTML));
                                 }
 
-                                document.body.appendChild(newScript);
+                                // For Alpine.init scripts, wait for them to execute
+                                const needsWait = oldScript.innerHTML &&
+                                    (oldScript.innerHTML.includes('alpine:init') ||
+                                     oldScript.innerHTML.includes('Alpine.data') ||
+                                     oldScript.innerHTML.includes('Alpine.store'));
+
+                                if (needsWait) {
+                                    await new Promise((resolve) => {
+                                        newScript.onload = resolve;
+                                        newScript.onerror = resolve;
+                                        // For inline scripts, resolve after a tick
+                                        if (!oldScript.src) {
+                                            document.body.appendChild(newScript);
+                                            setTimeout(resolve, 50);
+                                        } else {
+                                            document.body.appendChild(newScript);
+                                        }
+                                    });
+                                } else {
+                                    document.body.appendChild(newScript);
+                                }
 
                                 if (oldScript.src) loadedScripts.add(oldScript.src);
-                            });
-
-                            // 5. Swap HTML (Triggers Alpine Auto-Init for new nodes which now find dashboardApp defined)
-                            if (currentMain) {
-                                currentMain.replaceWith(newMain);
                             }
 
-                            // 7. Update URL
+                            // 8. Force Alpine to re-scan and initialize new elements
+                            if (window.Alpine) {
+                                // Alpine 3.x automatically initializes new DOM elements
+                                // But we need to ensure it processes the new main-content
+                                await new Promise(resolve => setTimeout(resolve, 100));
+                            }
+
+                            // 9. Update URL
                             window.history.pushState({}, '', url);
 
-                            // 8. Re-init Alpine.js - REMOVED (Auto-init handles this)
-
-                            // 9. Update Sidebar Visual State
+                            // 10. Update Sidebar Visual State
                             updateSidebarActiveState(link.getAttribute('href'));
 
                         } catch (error) {
