@@ -942,7 +942,7 @@
                     </div>
                 </div>
                 <script>
-                    function dashboardApp() {
+                    window.dashboardApp = function () {
                         return {
                             loadingState: {
                                 global: false,
@@ -1063,11 +1063,9 @@
 
                                 this.initializeDashboardLayout();
 
-                                // Wait for Alpine to be fully initialized before loading data
-                                this.$nextTick(() => {
-                                    console.log('[Dashboard] Alpine ready, loading dashboard data...');
-                                    this.loadDashboardData(false);
-                                });
+                                // Load data immediately since Alpine is calling init()
+                                console.log('[Dashboard] Initializing, loading dashboard data...');
+                                this.loadDashboardData(false);
                             },
 
                             async apiFetch(url, options = {}) {

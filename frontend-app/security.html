@@ -540,12 +540,12 @@
                                     }
                                 }
 
-                                // Wait for Alpine to be fully initialized before loading data
-                                this.$nextTick(() => {
+                                // Wait longer to ensure Alpine has fully reinitialized and bound all elements
+                                setTimeout(() => {
                                     console.log('[Security] Alpine ready, loading findings...');
                                     this.loadFindings(false);
                                     this.startPolling();
-                                });
+                                }, 250); // Increased delay to allow Alpine reinitialization to complete
                             },
 
                             startPolling() {

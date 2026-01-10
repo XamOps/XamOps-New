@@ -392,12 +392,12 @@
 
                                 if (this.selectedAccountId) {
 
-                                    // Wait for Alpine to be fully initialized before loading data
-                                    this.$nextTick(() => {
+                                    // Wait longer to ensure Alpine has fully reinitialized and bound all elements
+                                    setTimeout(() => {
                                         console.log('[Cost] Alpine ready, loading cost data...');
                                         this.loadCostData();
                                         this.loadForecast();
-                                    });
+                                    }, 250); // Increased delay to allow Alpine reinitialization to complete
 
                                 }
 
