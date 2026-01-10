@@ -701,10 +701,7 @@ helm upgrade --install otel-agent open-telemetry/opentelemetry-collector --names
                                     return;
                                 }
 
-                                // Wait longer to ensure Alpine has fully reinitialized and bound all elements
-                                setTimeout(() => {
-                                    this.fetchClusters(false);
-                                }, 250); // Increased delay to allow Alpine reinitialization to complete
+                                this.fetchClusters(false);
                             },
 
                             cleanup() {

@@ -620,12 +620,9 @@
                                     this.newSchedule.cloudAccountId = selectedAccountIds[0];
                                 }
 
-                                // Wait longer to ensure Alpine has fully reinitialized and bound all elements
-                                setTimeout(() => {
-                                    console.log('[FinOps] Alpine ready, loading report data...');
-                                    this.loadReport(false);
-                                    this.loadSchedules();
-                                }, 250); // Increased delay to allow Alpine reinitialization to complete
+                                console.log('[FinOps] Alpine ready, loading report data...');
+                                this.loadReport(false);
+                                this.loadSchedules();
                                 // this.connectWebSocket();
                             },
 

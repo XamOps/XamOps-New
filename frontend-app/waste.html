@@ -35,8 +35,13 @@
                         --glass-border: rgba(229, 231, 235, 0.8);
                     }
 
-                    .rotate-90 { transform: rotate(90deg); }
-                    .transition-all { transition: all 0.3s ease-in-out; }
+                    .rotate-90 {
+                        transform: rotate(90deg);
+                    }
+
+                    .transition-all {
+                        transition: all 0.3s ease-in-out;
+                    }
 
                     .header-gradient {
                         background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%);
@@ -57,7 +62,10 @@
                     .kpi-card::before {
                         content: '';
                         position: absolute;
-                        top: 0; left: 0; right: 0; height: 4px;
+                        top: 0;
+                        left: 0;
+                        right: 0;
+                        height: 4px;
                         background: var(--error-gradient);
                         transform: scaleX(0);
                         transition: transform 0.3s ease;
@@ -68,7 +76,9 @@
                         box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
                     }
 
-                    .kpi-card:hover::before { transform: scaleX(1); }
+                    .kpi-card:hover::before {
+                        transform: scaleX(1);
+                    }
 
                     .btn-primary {
                         background: var(--primary-gradient);
@@ -133,25 +143,40 @@
                     .resource-row::before {
                         content: '';
                         position: absolute;
-                        left: 0; top: 0; bottom: 0; width: 4px;
+                        left: 0;
+                        top: 0;
+                        bottom: 0;
+                        width: 4px;
                         background: var(--error-gradient);
                         transform: scaleY(0);
                         transition: transform 0.2s ease;
                     }
 
-                    .resource-row:hover::before { transform: scaleY(1); }
+                    .resource-row:hover::before {
+                        transform: scaleY(1);
+                    }
 
-                    .fade-in { animation: fadeIn 0.5s ease-in-out; }
+                    .fade-in {
+                        animation: fadeIn 0.5s ease-in-out;
+                    }
 
                     @keyframes fadeIn {
-                        from { opacity: 0; transform: translateY(20px); }
-                        to { opacity: 1; transform: translateY(0); }
+                        from {
+                            opacity: 0;
+                            transform: translateY(20px);
+                        }
+
+                        to {
+                            opacity: 1;
+                            transform: translateY(0);
+                        }
                     }
                 </style>
 
                 <header class="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-10">
                     <div class="flex items-center space-x-4">
-                        <div class="w-12 h-12 bg-gradient-to-br from-red-500 to-pink-600 rounded-xl flex items-center justify-center">
+                        <div
+                            class="w-12 h-12 bg-gradient-to-br from-red-500 to-pink-600 rounded-xl flex items-center justify-center">
                             <i class="fas fa-recycle text-white text-xl"></i>
                         </div>
                         <div>
@@ -214,7 +239,8 @@
 
                         <div x-show="!isLoading && groupedFilteredResources.length === 0" x-cloak
                             class="text-center py-20 px-8 rounded-2xl bg-white/80">
-                            <div class="w-24 h-24 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                            <div
+                                class="w-24 h-24 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6">
                                 <i class="fas fa-leaf text-white text-3xl"></i>
                             </div>
                             <h3 class="text-2xl font-bold text-gray-800 mb-2">No Waste Found!</h3>
@@ -311,8 +337,8 @@
                             savingsChart: null,
                             selectedAccountId: null,
                             // FIX: Added persistent state for expanded groups
-                            expandedGroups: [], 
-                            
+                            expandedGroups: [],
+
                             allPossibleCategories: [
                                 'All', 'EBS Volume', 'Snapshot', 'AMI', 'Elastic IP',
                                 'RDS Instance', 'Load Balancer', 'Security Group', 'EC2 Instance',
@@ -331,14 +357,11 @@
                                     }
                                 }
 
-                                // Wait longer to ensure Alpine has fully reinitialized and bound all elements
-                                setTimeout(() => {
-                                    if (this.selectedAccountId) {
-                                        this.loadWastedResources(false);
-                                    } else {
-                                        this.isLoading = false;
-                                    }
-                                }, 250); // Increased delay to allow Alpine reinitialization to complete
+                                if (this.selectedAccountId) {
+                                    this.loadWastedResources(false);
+                                } else {
+                                    this.isLoading = false;
+                                }
 
                                 this.$watch('filteredResources', () => {
                                     this.renderSavingsChart();
@@ -408,7 +431,7 @@
                             renderSavingsChart() {
                                 const ctx = document.getElementById('savingsChart');
                                 if (!ctx) return;
-                                
+
                                 if (!Array.isArray(this.filteredResources)) return;
 
                                 const savingsByCategory = this.filteredResources.reduce((acc, resource) => {
@@ -468,11 +491,11 @@
                                 const groups = this.wastedResources.reduce((acc, res) => {
                                     const key = res.resourceType || 'Other';
                                     if (!acc[key]) {
-                                        acc[key] = { 
-                                            serviceType: key, 
-                                            resources: [], 
+                                        acc[key] = {
+                                            serviceType: key,
+                                            resources: [],
                                             // FIX: Read from persistent state instead of always false
-                                            open: this.expandedGroups.includes(key) 
+                                            open: this.expandedGroups.includes(key)
                                         };
                                     }
                                     if (typeof res.detailsOpen === 'undefined') res.detailsOpen = false;

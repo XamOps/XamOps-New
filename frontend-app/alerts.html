@@ -739,12 +739,9 @@
               selectedService: "All",
 
               init() {
-                // Wait longer to ensure Alpine has fully reinitialized and bound all elements
-                setTimeout(() => {
-                  console.log('[Alerts] Initializing Alpine component...');
-                  this.loadAlerts(false);
-                  this.fetchGrafanaAlerts();
-                }, 250); // Increased delay to allow Alpine reinitialization to complete
+                console.log('[Alerts] Initializing Alpine component...');
+                this.loadAlerts(false);
+                this.fetchGrafanaAlerts();
 
                 // ✅ FIX 1: Listen for account-changed events (sidebar navigation)
                 window.addEventListener('account-changed', (event) => {

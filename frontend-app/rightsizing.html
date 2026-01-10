@@ -740,12 +740,9 @@
                             init() {
                                 console.log('🚀 Initializing Rightsizing page...');
 
-                                // Wait longer to ensure Alpine has fully reinitialized and bound all elements
-                                setTimeout(() => {
-                                    console.log('[Rightsizing] Alpine ready, loading recommendations...');
-                                    this.loadRecommendations(false);
-                                    this.loadXamOpsRecommendations(false);
-                                }, 250); // Increased delay to allow Alpine reinitialization to complete
+                                console.log('[Rightsizing] Alpine initialized, loading recommendations...');
+                                this.loadRecommendations(false);
+                                this.loadXamOpsRecommendations(false);
                             },
 
                             loadXamOpsRecommendations(forceRefresh = false) {
