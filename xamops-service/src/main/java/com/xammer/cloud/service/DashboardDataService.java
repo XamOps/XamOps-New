@@ -60,6 +60,10 @@ public class DashboardDataService {
     private static final String SNAPSHOT_KEY_GCP = "UNIFIED_DASHBOARD_GCP";
     private static final String SNAPSHOT_KEY_AZURE = "UNIFIED_DASHBOARD_AZURE";
 
+    // Currency Conversion Rate: INR to USD
+    // GCP billing in India is in INR, we convert to USD for unified display
+    private static final double INR_TO_USD_RATE = 0.012; // Approximately 1 INR = 0.012 USD (83 INR = 1 USD)
+
     private final CloudAccountRepository cloudAccountRepository;
     private final AwsClientProvider awsClientProvider;
     private final GcpDataService gcpDataService;
@@ -911,12 +915,17 @@ public class DashboardDataService {
             GcpDashboardData data = dataList.get(i);
             CloudAccount acc = accounts.get(i);
 
-            totalMTD += data.getMonthToDateSpend();
-            totalForecast += data.getForecastedSpend();
-            totalLastMonth += data.getLastMonthSpend();
+            // Convert GCP costs from INR to USD
+            double mtdUsd = data.getMonthToDateSpend() * INR_TO_USD_RATE;
+            double forecastUsd = data.getForecastedSpend() * INR_TO_USD_RATE;
+            double lastMonthUsd = data.getLastMonthSpend() * INR_TO_USD_RATE;
+
+            totalMTD += mtdUsd;
+            totalForecast += forecastUsd;
+            totalLastMonth += lastMonthUsd;
 
             DashboardData.Account subAcc = new DashboardData.Account(acc.getGcpProjectId(), acc.getAccountName(),
-                    data.getMonthToDateSpend(), data.getForecastedSpend());
+                    mtdUsd, forecastUsd);
             subAcc.setResourceInventory(data.getResourceInventory());
             subAcc.setOptimizationSummary(data.getOptimizationSummary());
             subAcc.setSecurityScore(data.getSecurityScore());
@@ -962,13 +971,17 @@ public class DashboardDataService {
 
             if (data.getCostHistory() != null) {
                 for (GcpCostDto cost : data.getCostHistory()) {
-                    costHistoryMap.merge(cost.getName(), cost.getAmount(), Double::sum);
+                    // Convert cost history from INR to USD
+                    double costUsd = cost.getAmount() * INR_TO_USD_RATE;
+                    costHistoryMap.merge(cost.getName(), costUsd, Double::sum);
                 }
             }
 
             if (data.getBillingSummary() != null) {
                 for (GcpCostDto bill : data.getBillingSummary()) {
-                    billingSummaryMap.merge(bill.getName(), bill.getAmount(), Double::sum);
+                    // Convert billing summary from INR to USD
+                    double billUsd = bill.getAmount() * INR_TO_USD_RATE;
+                    billingSummaryMap.merge(bill.getName(), billUsd, Double::sum);
                 }
             }
         }
