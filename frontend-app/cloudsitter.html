@@ -94,7 +94,10 @@
                     <i class="fas fa-arrow-left"></i>
                 </a>
                 <div>
-                    <h1 class="text-2xl font-bold text-gray-900">Cloudsitter</h1>
+                    <div class="flex items-center gap-3">
+                        <h1 class="text-2xl font-bold text-gray-900">Cloudsitter</h1>
+                        <span class="text-xs font-medium text-gray-500 bg-gray-100 px-2.5 py-1 rounded-full">EC2 Scheduling</span>
+                    </div>
                     <nav class="flex text-sm text-gray-500 mt-1 items-center gap-2">
                         <span class="hover:text-indigo-600 cursor-pointer"
                             @click="currentView = 'dashboard'">Overview</span>
@@ -123,6 +126,11 @@
                     </div>
 
                     <div class="flex gap-3">
+                        <button @click="loadData(true)" :disabled="isLoading"
+                            class="text-gray-600 hover:text-indigo-600 hover:bg-gray-50 px-4 py-2 rounded-lg text-sm font-medium transition-all border border-gray-300 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                            <i class="fas fa-sync-alt" :class="{'animate-spin': isLoading}"></i> Refresh
+                        </button>
+
                         <button @click="showManagePoliciesModal = true"
                             class="text-gray-600 hover:text-indigo-600 hover:bg-gray-50 px-4 py-2 rounded-lg text-sm font-medium transition-all border border-gray-300 flex items-center gap-2">
                             <i class="fas fa-cog"></i> Manage Policies
@@ -526,40 +534,79 @@
                     });
                 },
 
-                async loadData() {
+                async loadData(forceRefresh = false) {
                     if (!this.accountId) return;
                     this.isLoading = true;
                     console.log("Loading data for account:", this.accountId);
 
                     try {
-                        const [resResponse, polResponse, assignResponse] = await Promise.all([
-                            fetch(`/api/xamops/cloudlist/all?accountId=${this.accountId}&size=100`),
+                        // Cache key for EC2 instances
+                        const cacheKey = `cloudlist-ec2-${this.accountId}`;
+                        const cacheTimestampKey = `cloudlist-ec2-timestamp-${this.accountId}`;
+                        const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+                        let ec2Instances = [];
+
+                        // Check cache first (unless force refresh)
+                        if (!forceRefresh) {
+                            const cachedData = sessionStorage.getItem(cacheKey);
+                            const cachedTimestamp = sessionStorage.getItem(cacheTimestampKey);
+
+                            if (cachedData && cachedTimestamp) {
+                                const age = Date.now() - parseInt(cachedTimestamp);
+                                if (age < CACHE_DURATION) {
+                                    console.log('✅ Using cached EC2 data from CloudList (age: ' + Math.round(age / 1000) + 's)');
+                                    ec2Instances = JSON.parse(cachedData);
+                                }
+                            }
+                        }
+
+                        // Fetch fresh data if cache miss or force refresh
+                        const fetchPromises = [];
+
+                        if (ec2Instances.length === 0 || forceRefresh) {
+                            console.log('🔄 Fetching fresh EC2 data from CloudList API');
+                            fetchPromises.push(
+                                fetch(`/api/xamops/cloudlist/all?accountId=${this.accountId}&size=100`)
+                                    .then(async (resResponse) => {
+                                        if (resResponse.ok) {
+                                            const resData = await resResponse.json();
+                                            const allResources = resData.content || resData;
+                                            ec2Instances = allResources.filter(r => r.type === 'EC2 Instance');
+
+                                            // Cache the EC2 instances
+                                            sessionStorage.setItem(cacheKey, JSON.stringify(ec2Instances));
+                                            sessionStorage.setItem(cacheTimestampKey, Date.now().toString());
+                                        }
+                                    })
+                            );
+                        }
+
+                        fetchPromises.push(
                             fetch('/api/xamops/cloudsitter/policies'),
                             fetch(`/api/xamops/cloudsitter/assignments?accountId=${this.accountId}`)
-                        ]);
+                        );
 
-                        if (resResponse.ok) {
-                            const resData = await resResponse.json();
-                            const allResources = resData.content || resData;
-                            const ec2Instances = allResources.filter(r => r.type === 'EC2 Instance');
+                        const results = await Promise.all(fetchPromises);
+                        const polResponse = fetchPromises.length === 3 ? results[1] : results[0];
+                        const assignResponse = fetchPromises.length === 3 ? results[2] : results[1];
 
-                            if (assignResponse.ok) {
-                                this.assignments = await assignResponse.json();
-                            }
-
-                            this.resources = ec2Instances.map(r => {
-                                const assignment = this.assignments[r.id];
-                                return {
-                                    id: r.id,
-                                    name: r.name,
-                                    region: r.region,
-                                    type: r.details?.['Type'] || 't3.micro',
-                                    state: r.state || 'unknown',
-                                    policyName: assignment ? assignment.policy.name : null,
-                                    savings: assignment ? (assignment.monthlySavings || 0) : 0
-                                };
-                            });
+                        if (assignResponse.ok) {
+                            this.assignments = await assignResponse.json();
                         }
+
+                        this.resources = ec2Instances.map(r => {
+                            const assignment = this.assignments[r.id];
+                            return {
+                                id: r.id,
+                                name: r.name,
+                                region: r.region,
+                                type: r.details?.['Type'] || 't3.micro',
+                                state: r.state || 'unknown',
+                                policyName: assignment ? assignment.policy.name : null,
+                                savings: assignment ? (assignment.monthlySavings || 0) : 0
+                            };
+                        });
 
                         if (polResponse.ok) {
                             this.policies = await polResponse.json();

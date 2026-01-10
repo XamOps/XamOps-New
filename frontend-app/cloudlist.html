@@ -608,6 +608,34 @@
                         // Recalculate total resources based on all loaded groups
                         this.totalResources = this.allGroups.reduce((acc, group) => acc + group.resources.length, 0);
 
+                        // Cache EC2 instances for CloudSitter to use
+                        if (!isPaginatedLoad) {
+                            // On initial load, cache all EC2 instances
+                            const ec2Group = this.allGroups.find(g => g.serviceType === 'EC2 Instance');
+                            if (ec2Group && ec2Group.resources.length > 0) {
+                                const cacheKey = `cloudlist-ec2-${this.selectedAccountId}`;
+                                const cacheTimestampKey = `cloudlist-ec2-timestamp-${this.selectedAccountId}`;
+                                sessionStorage.setItem(cacheKey, JSON.stringify(ec2Group.resources));
+                                sessionStorage.setItem(cacheTimestampKey, Date.now().toString());
+                                console.log(`✅ Cached ${ec2Group.resources.length} EC2 instances for CloudSitter`);
+                            }
+                        } else {
+                            // On paginated load, update cache if EC2 instances are in this page
+                            const ec2Group = newServiceGroups.find(g => g.serviceType === 'EC2 Instance');
+                            if (ec2Group && ec2Group.resources.length > 0) {
+                                const cacheKey = `cloudlist-ec2-${this.selectedAccountId}`;
+                                const cacheTimestampKey = `cloudlist-ec2-timestamp-${this.selectedAccountId}`;
+
+                                // Get all EC2 instances from allGroups
+                                const allEc2s = this.allGroups
+                                    .filter(g => g.serviceType === 'EC2 Instance')
+                                    .flatMap(g => g.resources);
+
+                                sessionStorage.setItem(cacheKey, JSON.stringify(allEc2s));
+                                sessionStorage.setItem(cacheTimestampKey, Date.now().toString());
+                                console.log(`✅ Updated cache with ${allEc2s.length} EC2 instances for CloudSitter`);
+                            }
+                        }
 
                         this.setReadyState(`Updated: ${new Date().toLocaleTimeString()}`, 'green');
                         this.render();
