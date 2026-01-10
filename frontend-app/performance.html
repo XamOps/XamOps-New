@@ -506,8 +506,11 @@
                                     }
                                 }
 
-                                this.loadInsights(false);
-                                this.loadSummary(false);
+                                // Wait longer to ensure Alpine has fully reinitialized and bound all elements
+                                setTimeout(() => {
+                                    this.loadInsights(false);
+                                    this.loadSummary(false);
+                                }, 250); // Increased delay to allow Alpine reinitialization to complete
                             },
 
                             loadInsights(forceRefresh = false) {

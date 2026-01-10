@@ -131,6 +131,7 @@
     </style>
     <!-- Usability Improvements -->
     <link rel="stylesheet" href="/src/usability-improvements.css">
+    <script type="module" src="/src/main.js"></script>
     <script type="module" src="/src/usability-utils.js"></script>
 </head>
 
@@ -312,7 +313,7 @@
                                             <i class="fab fa-aws"></i>
                                         </div>
                                         <div
-                                            class="w-8 h-8 rounded-full bg-white flex items-center justify-center border border-gray-200 text-[#4285F4] text-sm shadow-sm z-20">
+                                            class="w-8 h-8 rounded-full bg-white flex items-center justify-center border border-gray-200 text-[#34A853] text-sm shadow-sm z-20">
                                             <i class="fab fa-google"></i>
                                         </div>
                                         <div
@@ -519,7 +520,7 @@
                         </div>
 
                         <div
-                            class="glass-card rounded-xl p-5 flex flex-col h-full group hover:ring-2 hover:ring-blue-400/50 transition-all">
+                            class="glass-card rounded-xl p-5 flex flex-col h-full group hover:ring-2 hover:ring-green-400/50 transition-all">
                             <div x-show="error.gcp"
                                 class="absolute inset-0 z-10 bg-white/95 flex flex-col items-center justify-center text-center p-4">
                                 <p class="text-sm font-medium text-gray-800 mb-1">GCP Unavailable</p>
@@ -529,7 +530,7 @@
                             <div class="flex justify-between items-start mb-4">
                                 <div class="flex items-center gap-3">
                                     <div
-                                        class="w-10 h-10 bg-[#4285F4]/10 rounded-lg flex items-center justify-center text-[#4285F4]">
+                                        class="w-10 h-10 bg-[#34A853]/10 rounded-lg flex items-center justify-center text-[#34A853]">
                                         <i class="fab fa-google text-2xl"></i>
                                     </div>
                                     <div>
@@ -757,16 +758,20 @@
 
                 init() {
                     console.log("Initializing Unified Dashboard...");
-                    this.fetchAll();
-                    this.initStackedChart();
-                    this.initProviderChart();
-                    this.initProviderChart();
+
+                    // Wait longer to ensure Alpine has fully reinitialized and bound all elements
+                    setTimeout(() => {
+                        this.fetchAll(false); // Initial fetch uses cached data
+                        this.initStackedChart();
+                        this.initProviderChart();
+                    }, 250); // Increased delay to allow Alpine reinitialization to complete
+
                     setInterval(() => this.updateTimeAgo(), 60000);
 
                     // Auto-Refresh Logic (Every 60 seconds)
                     setInterval(() => {
                         console.log("Auto-refreshing dashboard data...");
-                        this.fetchAll(false); // background fetch (not force)
+                        this.fetchAll(false); // Use cached data for auto-refresh
                     }, 60000);
                 },
 
@@ -775,7 +780,7 @@
                     this.lastUpdated = new Date();
                     this.updateTimeAgo();
 
-                    this.fetchSummary();
+                    this.fetchSummary(force);
                     this.fetchProvider('aws', force);
                     this.fetchProvider('gcp', force);
                     this.fetchProvider('azure', force);
@@ -802,12 +807,13 @@
                     }
                 },
 
-                async fetchSummary() {
+                async fetchSummary(force = false) {
                     this.error.summary = null;
                     this.isLoading.summary = true;
                     this.$store.dashboard.isLoading.summary = true;
                     try {
-                        const res = await fetch('/api/xamops/dashboard/unified/summary');
+                        const url = '/api/xamops/dashboard/unified/summary' + (force ? '?forceRefresh=true' : '');
+                        const res = await fetch(url);
                         if (!res.ok) throw new Error('Summary failed');
                         const data = await res.json();
                         const acc = data.selectedAccount;
@@ -900,7 +906,7 @@
                             labels: ['AWS', 'GCP', 'Azure'],
                             datasets: [{
                                 data: [0, 0, 0],
-                                backgroundColor: ['#FF9900', '#4285F4', '#0078D4'],
+                                backgroundColor: ['#FF9900', '#34A853', '#0078D4'],
                                 borderWidth: 0,
                                 hoverOffset: 4
                             }]
@@ -932,7 +938,7 @@
                     costChartInstance.data.labels = labels;
                     costChartInstance.data.datasets = [
                         { label: 'AWS', data: getCosts(this.awsData), backgroundColor: '#FF9900', borderRadius: 4 },
-                        { label: 'GCP', data: getCosts(this.gcpData), backgroundColor: '#4285F4', borderRadius: 4 },
+                        { label: 'GCP', data: getCosts(this.gcpData), backgroundColor: '#34A853', borderRadius: 4 },
                         { label: 'Azure', data: getCosts(this.azureData), backgroundColor: '#0078D4', borderRadius: 4 }
                     ];
                     costChartInstance.update();

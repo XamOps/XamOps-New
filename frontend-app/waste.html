@@ -331,11 +331,14 @@
                                     }
                                 }
 
-                                if (this.selectedAccountId) {
-                                    this.loadWastedResources(false);
-                                } else {
-                                    this.isLoading = false;
-                                }
+                                // Wait longer to ensure Alpine has fully reinitialized and bound all elements
+                                setTimeout(() => {
+                                    if (this.selectedAccountId) {
+                                        this.loadWastedResources(false);
+                                    } else {
+                                        this.isLoading = false;
+                                    }
+                                }, 250); // Increased delay to allow Alpine reinitialization to complete
 
                                 this.$watch('filteredResources', () => {
                                     this.renderSavingsChart();

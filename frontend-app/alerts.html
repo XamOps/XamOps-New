@@ -11,6 +11,10 @@
   <link rel="apple-touch-icon" href="/icons/XamOps.png" />
   <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
   <script type="module" src="/src/main.js"></script>
+
+  <!-- XamOps UI/UX Fixes -->
+  <link rel="stylesheet" href="/common-fixes.css" />
+  <script src="/common-fixes.js" defer></script>
 </head>
 
 <body class="bg-gray-50">
@@ -147,12 +151,36 @@
             backdrop-filter: blur(10px);
             border: 1px solid var(--glass-border);
             transition: all 0.3s ease;
+            position: relative;
+            z-index: 10;
+            cursor: pointer;
+            -webkit-appearance: menulist;
+            -moz-appearance: menulist;
+            appearance: auto;
+            min-width: 200px;
+          }
+
+          .form-select:hover {
+            border-color: #667eea;
+            background: rgba(255, 255, 255, 1);
           }
 
           .form-select:focus {
             background: rgba(255, 255, 255, 1);
             border-color: #667eea;
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            outline: none;
+          }
+
+          .form-select option {
+            background: white;
+            color: #374151;
+            padding: 8px 12px;
+          }
+
+          .form-select option:hover,
+          .form-select option:focus {
+            background: #f3f4f6;
           }
 
           .progress-bar {
@@ -711,11 +739,50 @@
               selectedService: "All",
 
               init() {
-                // Wait for Alpine to be fully initialized before loading data
-                this.$nextTick(() => {
-                  console.log('[Alerts] Alpine ready, loading alerts...');
+                // Wait longer to ensure Alpine has fully reinitialized and bound all elements
+                setTimeout(() => {
+                  console.log('[Alerts] Initializing Alpine component...');
                   this.loadAlerts(false);
                   this.fetchGrafanaAlerts();
+                }, 250); // Increased delay to allow Alpine reinitialization to complete
+
+                // ✅ FIX 1: Listen for account-changed events (sidebar navigation)
+                window.addEventListener('account-changed', (event) => {
+                  console.log('[Alerts] Account changed event detected:', event.detail);
+                  this.$nextTick(() => {
+                    this.loadAlerts(true); // Force refresh on account change
+                  });
+                });
+
+                // ✅ FIX 2: Listen for multi-account selection changes
+                window.addEventListener('multi-account-selection-changed', (event) => {
+                  console.log('[Alerts] Multi-account selection changed:', event.detail);
+                  this.$nextTick(() => {
+                    this.loadAlerts(true);
+                  });
+                });
+
+                // ✅ FIX 3: Handle browser back/forward buttons (popstate)
+                window.addEventListener('popstate', () => {
+                  if (window.location.pathname.includes('alerts.html')) {
+                    console.log('[Alerts] Popstate detected on alerts page, reloading...');
+                    this.$nextTick(() => {
+                      this.loadAlerts(false); // Use cache first on back/forward
+                    });
+                  }
+                });
+
+                // ✅ FIX 4: Detect when page becomes visible (handles tab switching)
+                document.addEventListener('visibilitychange', () => {
+                  if (!document.hidden && window.location.pathname.includes('alerts.html')) {
+                    console.log('[Alerts] Page became visible, checking if reload needed...');
+                    const lastLoaded = sessionStorage.getItem('alerts_last_loaded');
+                    const now = Date.now();
+                    // Only reload if it's been more than 5 seconds since last load
+                    if (!lastLoaded || (now - parseInt(lastLoaded)) > 5000) {
+                      this.loadAlerts(false);
+                    }
+                  }
                 });
               },
 
@@ -725,21 +792,25 @@
                 );
                 const selectedAccountId =
                   selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
+
                 if (!selectedAccountId) {
                   this.isLoading = false;
-                  console.warn("No account selected. Cannot fetch alert data.");
+                  console.warn("[Alerts] No account selected. Cannot fetch alert data.");
                   return;
                 }
 
                 const cacheKey = `alertsData-${selectedAccountId}`;
                 const cachedData = sessionStorage.getItem(cacheKey);
 
+                // Use cached data if available and not forcing refresh
                 if (cachedData && !forceRefresh) {
+                  console.log('[Alerts] Loading from cache...');
                   this.processAlerts(JSON.parse(cachedData));
                   this.isLoading = false;
                   return;
                 }
 
+                // Show loading state only on first load
                 if (!cachedData) {
                   this.isLoading = true;
                 }
@@ -748,6 +819,8 @@
                   this.isRefreshing = true;
                   sessionStorage.removeItem(cacheKey);
                 }
+
+                console.log(`[Alerts] Fetching alerts for account: ${selectedAccountId}, forceRefresh: ${forceRefresh}`);
 
                 fetch(
                   `/api/xamops/cloudguard/alerts?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`
@@ -785,14 +858,15 @@
                       })
                       .filter(Boolean);
 
-                    sessionStorage.setItem(
-                      cacheKey,
-                      JSON.stringify(processedAlerts)
-                    );
+                    // Cache the data
+                    sessionStorage.setItem(cacheKey, JSON.stringify(processedAlerts));
+                    sessionStorage.setItem('alerts_last_loaded', Date.now().toString());
+
                     this.processAlerts(processedAlerts);
+                    console.log(`[Alerts] Successfully loaded ${processedAlerts.length} alerts`);
                   })
                   .catch((err) => {
-                    console.error("Failed to load alert data", err);
+                    console.error("[Alerts] Failed to load alert data:", err);
                     this.alerts = [];
                   })
                   .finally(() => {
@@ -895,8 +969,9 @@
                   const res = await fetch("/api/xamops/cloudguard/grafana-alerts");
                   if (!res.ok) throw new Error("Failed to fetch Grafana alerts");
                   this.grafanaAlerts = await res.json();
+                  console.log(`[Alerts] Loaded ${this.grafanaAlerts.length} Grafana alerts`);
                 } catch (e) {
-                  console.error("Error fetching Grafana alerts:", e);
+                  console.error("[Alerts] Error fetching Grafana alerts:", e);
                   this.grafanaAlerts = [];
                 } finally {
                   this.loadingGrafana = false;
