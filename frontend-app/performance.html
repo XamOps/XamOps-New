@@ -496,7 +496,7 @@
                             toastType: 'success',
 
                             init() {
-                                const urlParams = new URLSearchParams(window.location.search);
+                                const urlParams = new URLSearchParams(globalThis.location.search);
                                 this.selectedAccountId = urlParams.get('accountIds');
 
                                 if (!this.selectedAccountId) {
@@ -506,11 +506,8 @@
                                     }
                                 }
 
-                                // Wait longer to ensure Alpine has fully reinitialized and bound all elements
-                                setTimeout(() => {
-                                    this.loadInsights(false);
-                                    this.loadSummary(false);
-                                }, 250); // Increased delay to allow Alpine reinitialization to complete
+                                this.loadInsights(false);
+                                this.loadSummary(false);
                             },
 
                             loadInsights(forceRefresh = false) {
@@ -679,15 +676,15 @@
                                 const headers = ["ID", "Insight", "Description", "Severity", "Category", "Account", "Quantity", "Resource Type", "Resource ID", "Recommendation", "Documentation URL", "Potential Savings", "Region", "Created Date"];
                                 const rows = this.filteredInsights.map(insight => [
                                     `"${insight.id || ''}"`,
-                                    `"${(insight.insight || '').replace(/"/g, '""')}"`,
-                                    `"${(insight.description || '').replace(/"/g, '""')}"`,
+                                    `"${(insight.insight || '').replaceAll(/"/g, '""')}"`,
+                                    `"${(insight.description || '').replaceAll(/"/g, '""')}"`,
                                     `"${insight.severity || ''}"`,
                                     `"${insight.category || ''}"`,
                                     `"${insight.account || ''}"`,
                                     `"${insight.quantity || ''}"`,
                                     `"${insight.resourceType || ''}"`,
                                     `"${insight.resourceId || ''}"`,
-                                    `"${(insight.recommendation || '').replace(/"/g, '""')}"`,
+                                    `"${(insight.recommendation || '').replaceAll(/"/g, '""')}"`,
                                     `"${insight.documentationUrl || ''}"`,
                                     `"${insight.potentialSavings || 0}"`,
                                     `"${insight.region || ''}"`,
@@ -698,13 +695,13 @@
                                     + headers.join(",") + "\n"
                                     + rows.map(e => e.join(",")).join("\n");
 
-                                var encodedUri = encodeURI(csvContent);
+                                const encodedUri = encodeURI(csvContent);
                                 var link = document.createElement("a");
                                 link.setAttribute("href", encodedUri);
                                 link.setAttribute("download", "performance_insights.csv");
                                 document.body.appendChild(link);
                                 link.click();
-                                document.body.removeChild(link);
+                                link.remove();
                                 this.isExporting = false;
                                 this.showToastMessage('Report exported successfully');
                             }

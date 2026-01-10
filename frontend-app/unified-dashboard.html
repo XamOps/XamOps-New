@@ -759,12 +759,9 @@
                 init() {
                     console.log("Initializing Unified Dashboard...");
 
-                    // Wait longer to ensure Alpine has fully reinitialized and bound all elements
-                    setTimeout(() => {
-                        this.fetchAll(false); // Initial fetch uses cached data
-                        this.initStackedChart();
-                        this.initProviderChart();
-                    }, 250); // Increased delay to allow Alpine reinitialization to complete
+                    this.fetchAll(false); // Initial fetch uses cached data
+                    this.initStackedChart();
+                    this.initProviderChart();
 
                     setInterval(() => this.updateTimeAgo(), 60000);
 
@@ -880,6 +877,20 @@
                 // --- Charts ---
                 initStackedChart() {
                     const ctx = document.getElementById('stackedCostChart').getContext('2d');
+
+                    // Create gradients
+                    const awsGradient = ctx.createLinearGradient(0, 0, 0, 400);
+                    awsGradient.addColorStop(0, 'rgba(255, 153, 0, 0.8)');
+                    awsGradient.addColorStop(1, 'rgba(255, 153, 0, 0.4)');
+
+                    const gcpGradient = ctx.createLinearGradient(0, 0, 0, 400);
+                    gcpGradient.addColorStop(0, 'rgba(52, 168, 83, 0.8)');
+                    gcpGradient.addColorStop(1, 'rgba(52, 168, 83, 0.4)');
+
+                    const azureGradient = ctx.createLinearGradient(0, 0, 0, 400);
+                    azureGradient.addColorStop(0, 'rgba(0, 120, 212, 0.8)');
+                    azureGradient.addColorStop(1, 'rgba(0, 120, 212, 0.4)');
+
                     costChartInstance = new Chart(ctx, {
                         type: 'bar',
                         data: {
@@ -889,35 +900,212 @@
                         options: {
                             responsive: true,
                             maintainAspectRatio: false,
-                            scales: {
-                                x: { stacked: true, grid: { display: false } },
-                                y: { stacked: true, grid: { color: '#f3f4f6' } }
+                            interaction: {
+                                mode: 'index',
+                                intersect: false,
                             },
-                            plugins: { legend: { position: 'bottom' } }
+                            animation: {
+                                duration: 1500,
+                                easing: 'easeInOutQuart',
+                                delay: (context) => {
+                                    let delay = 0;
+                                    if (context.type === 'data' && context.mode === 'default') {
+                                        delay = context.dataIndex * 100;
+                                    }
+                                    return delay;
+                                }
+                            },
+                            scales: {
+                                x: {
+                                    stacked: true,
+                                    grid: {
+                                        display: false
+                                    },
+                                    ticks: {
+                                        font: {
+                                            size: 12,
+                                            weight: '600'
+                                        },
+                                        color: '#6B7280'
+                                    }
+                                },
+                                y: {
+                                    stacked: true,
+                                    grid: {
+                                        color: '#F3F4F6',
+                                        drawBorder: false
+                                    },
+                                    ticks: {
+                                        font: {
+                                            size: 12
+                                        },
+                                        color: '#6B7280',
+                                        callback: function (value) {
+                                            return '$' + value.toLocaleString();
+                                        }
+                                    }
+                                }
+                            },
+                            plugins: {
+                                legend: {
+                                    position: 'bottom',
+                                    labels: {
+                                        usePointStyle: true,
+                                        pointStyle: 'circle',
+                                        padding: 15,
+                                        font: {
+                                            size: 13,
+                                            weight: '600'
+                                        },
+                                        color: '#374151'
+                                    }
+                                },
+                                tooltip: {
+                                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                                    padding: 12,
+                                    titleFont: {
+                                        size: 14,
+                                        weight: 'bold'
+                                    },
+                                    bodyFont: {
+                                        size: 13
+                                    },
+                                    borderColor: 'rgba(255, 255, 255, 0.1)',
+                                    borderWidth: 1,
+                                    callbacks: {
+                                        label: function (context) {
+                                            let label = context.dataset.label || '';
+                                            if (label) {
+                                                label += ': ';
+                                            }
+                                            label += '$' + context.parsed.y.toLocaleString();
+                                            return label;
+                                        }
+                                    }
+                                }
+                            }
                         }
                     });
+
+                    // Store gradients for later use
+                    this.chartGradients = { awsGradient, gcpGradient, azureGradient };
                 },
 
                 initProviderChart() {
                     const ctx = document.getElementById('providerDonutChart').getContext('2d');
+
                     providerDonutChartInstance = new Chart(ctx, {
                         type: 'doughnut',
                         data: {
                             labels: ['AWS', 'GCP', 'Azure'],
                             datasets: [{
                                 data: [0, 0, 0],
-                                backgroundColor: ['#FF9900', '#34A853', '#0078D4'],
-                                borderWidth: 0,
-                                hoverOffset: 4
+                                backgroundColor: [
+                                    'rgba(255, 153, 0, 0.85)',
+                                    'rgba(52, 168, 83, 0.85)',
+                                    'rgba(0, 120, 212, 0.85)'
+                                ],
+                                borderColor: ['#fff', '#fff', '#fff'],
+                                borderWidth: 3,
+                                hoverOffset: 15,
+                                hoverBorderWidth: 4
                             }]
                         },
                         options: {
                             responsive: true,
-                            cutout: '70%',
+                            maintainAspectRatio: true,
+                            cutout: '75%',
+                            animation: {
+                                animateRotate: true,
+                                animateScale: true,
+                                duration: 1500,
+                                easing: 'easeInOutQuart'
+                            },
                             plugins: {
-                                legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8 } }
+                                legend: {
+                                    position: 'bottom',
+                                    labels: {
+                                        usePointStyle: true,
+                                        pointStyle: 'circle',
+                                        padding: 15,
+                                        font: {
+                                            size: 13,
+                                            weight: '600'
+                                        },
+                                        color: '#374151',
+                                        generateLabels: function (chart) {
+                                            const data = chart.data;
+                                            if (data.labels.length && data.datasets.length) {
+                                                return data.labels.map((label, i) => {
+                                                    const value = data.datasets[0].data[i];
+                                                    const total = data.datasets[0].data.reduce((a, b) => a + b, 0);
+                                                    const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                                                    return {
+                                                        text: `${label} (${percentage}%)`,
+                                                        fillStyle: data.datasets[0].backgroundColor[i],
+                                                        hidden: false,
+                                                        index: i
+                                                    };
+                                                });
+                                            }
+                                            return [];
+                                        }
+                                    }
+                                },
+                                tooltip: {
+                                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                                    padding: 12,
+                                    titleFont: {
+                                        size: 14,
+                                        weight: 'bold'
+                                    },
+                                    bodyFont: {
+                                        size: 13
+                                    },
+                                    borderColor: 'rgba(255, 255, 255, 0.1)',
+                                    borderWidth: 1,
+                                    callbacks: {
+                                        label: function (context) {
+                                            const label = context.label || '';
+                                            const value = context.parsed;
+                                            const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                            const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                                            return `${label}: $${value.toLocaleString()} (${percentage}%)`;
+                                        }
+                                    }
+                                }
                             }
-                        }
+                        },
+                        plugins: [{
+                            id: 'centerText',
+                            beforeDraw: function (chart) {
+                                const width = chart.width;
+                                const height = chart.height;
+                                const ctx = chart.ctx;
+                                ctx.restore();
+
+                                const total = chart.data.datasets[0].data.reduce((a, b) => a + b, 0);
+                                const fontSize = (height / 114).toFixed(2);
+                                ctx.font = `bold ${fontSize}em Inter, sans-serif`;
+                                ctx.fillStyle = '#1F2937';
+                                ctx.textBaseline = 'middle';
+
+                                const text = '$' + total.toLocaleString();
+                                const textX = Math.round((width - ctx.measureText(text).width) / 2);
+                                const textY = height / 2 - 10;
+
+                                ctx.fillText(text, textX, textY);
+
+                                ctx.font = `${fontSize * 0.4}em Inter, sans-serif`;
+                                ctx.fillStyle = '#6B7280';
+                                const subText = 'Total Spend';
+                                const subTextX = Math.round((width - ctx.measureText(subText).width) / 2);
+                                const subTextY = height / 2 + 20;
+
+                                ctx.fillText(subText, subTextX, subTextY);
+                                ctx.save();
+                            }
+                        }]
                     });
                 },
 
@@ -937,11 +1125,29 @@
 
                     costChartInstance.data.labels = labels;
                     costChartInstance.data.datasets = [
-                        { label: 'AWS', data: getCosts(this.awsData), backgroundColor: '#FF9900', borderRadius: 4 },
-                        { label: 'GCP', data: getCosts(this.gcpData), backgroundColor: '#34A853', borderRadius: 4 },
-                        { label: 'Azure', data: getCosts(this.azureData), backgroundColor: '#0078D4', borderRadius: 4 }
+                        {
+                            label: 'AWS',
+                            data: getCosts(this.awsData),
+                            backgroundColor: this.chartGradients?.awsGradient || 'rgba(255, 153, 0, 0.8)',
+                            borderRadius: 8,
+                            borderSkipped: false
+                        },
+                        {
+                            label: 'GCP',
+                            data: getCosts(this.gcpData),
+                            backgroundColor: this.chartGradients?.gcpGradient || 'rgba(52, 168, 83, 0.8)',
+                            borderRadius: 8,
+                            borderSkipped: false
+                        },
+                        {
+                            label: 'Azure',
+                            data: getCosts(this.azureData),
+                            backgroundColor: this.chartGradients?.azureGradient || 'rgba(0, 120, 212, 0.8)',
+                            borderRadius: 8,
+                            borderSkipped: false
+                        }
                     ];
-                    costChartInstance.update();
+                    costChartInstance.update('none'); // Update without animation for data refresh
                 },
 
                 updateProviderChart() {

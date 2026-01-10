@@ -437,11 +437,8 @@
 
                     this.setupEventListeners();
 
-                    // Wait longer to ensure Alpine has fully reinitialized and bound all elements
-                    setTimeout(() => {
-                        this.connectWebSocket();
-                        this.loadInitialResources();
-                    }, 250); // Increased delay to allow Alpine reinitialization to complete
+                    this.connectWebSocket();
+                    this.loadInitialResources();
                 },
 
                 connectWebSocket() {

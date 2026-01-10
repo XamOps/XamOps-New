@@ -530,7 +530,7 @@
                             pollInterval: null,
 
                             init() {
-                                const urlParams = new URLSearchParams(window.location.search);
+                                const urlParams = new URLSearchParams(globalThis.location.search);
                                 this.selectedAccountId = urlParams.get('accountIds');
 
                                 if (!this.selectedAccountId) {
@@ -540,12 +540,9 @@
                                     }
                                 }
 
-                                // Wait longer to ensure Alpine has fully reinitialized and bound all elements
-                                setTimeout(() => {
-                                    console.log('[Security] Alpine ready, loading findings...');
-                                    this.loadFindings(false);
-                                    this.startPolling();
-                                }, 250); // Increased delay to allow Alpine reinitialization to complete
+                                console.log('[Security] Alpine ready, loading findings...');
+                                this.loadFindings(false);
+                                this.startPolling();
                             },
 
                             startPolling() {
@@ -669,7 +666,7 @@
                                     `"${finding.region || ''}"`,
                                     `"${finding.category || ''}"`,
                                     `"${finding.severity || ''}"`,
-                                    `"${(finding.description || '').replace(/"/g, '""')}"`,
+                                    `"${(finding.description || '').replaceAll(/"/g, '""')}"`,
                                     `"${finding.complianceFramework || ''}"`,
                                     `"${finding.controlId || ''}"`
                                 ]);
@@ -682,7 +679,7 @@
                                 link.setAttribute("download", "security_findings_export.csv");
                                 document.body.appendChild(link);
                                 link.click();
-                                document.body.removeChild(link);
+                                link.remove();
                                 this.isExporting = false;
                             },
 
