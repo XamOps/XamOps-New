@@ -4,8 +4,12 @@ import './style.css';
 // Import and initialize Alpine.js
 import Alpine from 'alpinejs';
 
-// Make Alpine available globally
+// Import Chart.js and register all components
+import Chart from 'chart.js/auto';
+
+// Make Alpine and Chart available globally
 window.Alpine = Alpine;
+window.Chart = Chart;
 
 // STEP 3: Global Dependency Handling
 // Initialize Alpine.js and handle page navigation

@@ -574,6 +574,13 @@
     },
 
     get selectedAccountDisplay() {
+        // Check if we're on unified dashboard
+        const isUnifiedDashboard = window.location.pathname.includes('unified-dashboard');
+
+        if (isUnifiedDashboard) {
+            return { name: 'Unified', id: 'Multi-Cloud View', provider: 'Unified' };
+        }
+
         if (this.selectedAccountIds.length === 0) {
             return { name: 'Select Accounts', id: this.accounts.length === 0 && !this.isLoading ? 'No accounts connected' : 'No account selected' };
         }
@@ -581,7 +588,7 @@
             const account = this.accounts.find(a => a.id === this.selectedAccountIds[0]);
             return { name: account?.name || 'Loading...', id: account?.id || '', provider: account?.provider || 'AWS' };
         }
-        
+
         // Multi-Account Display
         const firstAccount = this.accounts.find(a => a.id === this.selectedAccountIds[0]);
         const provider = firstAccount ? firstAccount.provider : 'AWS';
@@ -605,6 +612,7 @@
         switch(provider) {
             case 'GCP': return '/icons/gcp-icon.png';
             case 'Azure': return '/icons/azure-icon.png';
+            case 'Unified': return '/icons/xlogo.png';
             case 'AWS': default: return '/icons/default-icon.png';
         }
     },
@@ -782,16 +790,16 @@
                 <div class="flex items-center min-w-0">
                     <div class="relative flex-shrink-0">
                         <div class="w-10 h-10 account-avatar rounded-full flex items-center justify-center text-white font-bold text-sm mr-3"
-                            x-show="selectedAccountIds.length === 0" x-text="'X'"></div>
+                            x-show="selectedAccountIds.length === 0 && selectedAccountDisplay.provider !== 'Unified'" x-text="'X'"></div>
                         <div class="w-10 h-10 account-avatar rounded-full flex items-center justify-center text-white font-bold text-lg mr-3"
-                            x-show="selectedAccountIds.length > 1" x-text="selectedAccountIds.length"></div>
+                            x-show="selectedAccountIds.length > 1 && selectedAccountDisplay.provider !== 'Unified'" x-text="selectedAccountIds.length"></div>
                         <img :src="getProviderIcon(selectedAccountDisplay.provider)"
-                            class="w-10 h-10 rounded-full mr-3 object-cover" x-show="selectedAccountIds.length === 1">
-                        <div class="connection-indicator" x-show="selectedAccountIds.length > 0"></div>
+                            class="w-10 h-10 rounded-full mr-3 object-cover" x-show="selectedAccountIds.length === 1 || selectedAccountDisplay.provider === 'Unified'">
+                        <div class="connection-indicator" x-show="selectedAccountIds.length > 0 || selectedAccountDisplay.provider === 'Unified'"></div>
                     </div>
                     <div class="flex-1 min-w-0">
                         <div class="flex items-center space-x-2">
-                            <span class="account-status" x-show="selectedAccountIds.length > 0"></span>
+                            <span class="account-status" x-show="selectedAccountIds.length > 0 || selectedAccountDisplay.provider === 'Unified'"></span>
                             <span class="text-sm font-semibold text-gray-800 truncate"
                                 x-text="selectedAccountDisplay.name"></span>
                         </div>
