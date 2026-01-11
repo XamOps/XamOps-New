@@ -220,6 +220,20 @@
                 <main class="flex-1 overflow-y-auto p-8 space-y-6 custom-scrollbar" x-data="unifiedDashboard()"
                     @refresh-all.window="fetchAll(true)">
 
+                    <!-- Development Warning -->
+                    <div class="bg-amber-50 border-l-4 border-amber-500 p-3 rounded-r shadow-sm">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <i class="fas fa-exclamation-triangle text-amber-500"></i>
+                            </div>
+                            <div class="ml-3">
+                                <p class="text-xs text-amber-800">
+                                    <span class="font-semibold">Under Development:</span> This feature is currently being developed. Data may be inaccurate or incomplete.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
                     <div x-show="!isLoading.summary && summaryData.totalAccounts === 0" x-cloak
                         class="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r shadow-sm mb-6">
                         <div class="flex">
@@ -1085,7 +1099,7 @@
                                 ctx.restore();
 
                                 const total = chart.data.datasets[0].data.reduce((a, b) => a + b, 0);
-                                const fontSize = (height / 114).toFixed(2);
+                                const fontSize = (height / 180).toFixed(2);
                                 ctx.font = `bold ${fontSize}em Inter, sans-serif`;
                                 ctx.fillStyle = '#1F2937';
                                 ctx.textBaseline = 'middle';
