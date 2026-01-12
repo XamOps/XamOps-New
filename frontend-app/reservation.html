@@ -9,11 +9,12 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
     <link rel="apple-touch-icon" href="/icons/XamOps.png">
-    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script
         src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
     <script type="module" src="/src/main.js"></script>
+    <!-- Usability Improvements -->
+    <link rel="stylesheet" href="/src/usability-improvements.css">
+    <script type="module" src="/src/usability-utils.js"></script>
 </head>
 
 <body class="bg-gray-50">
@@ -555,7 +556,7 @@
 
                             init() {
                                 // Logic to get account ID
-                                const urlParams = new URLSearchParams(window.location.search);
+                                const urlParams = new URLSearchParams(globalThis.location.search);
                                 this.selectedAccountId = urlParams.get('accountIds');
 
                                 if (!this.selectedAccountId) {
@@ -572,7 +573,7 @@
                             formatDate(dateString) {
                                 if (!dateString) return 'N/A';
                                 const date = new Date(dateString);
-                                return isNaN(date.getTime()) ? dateString : date.toLocaleDateString();
+                                return Number.isNaN(date.getTime()) ? dateString : date.toLocaleDateString();
                             },
 
                             // Correct Logic: Expiring soon = Future Date AND < 60 days
@@ -599,9 +600,9 @@
                             formatCurrency(val, isHourly = true) {
                                 if (!val) return 'N/A';
                                 // Remove all slashes and text chars to leave just the number
-                                let numStr = String(val).replace(/[^0-9.]/g, '');
-                                const num = parseFloat(numStr);
-                                if (isNaN(num)) return val;
+                                let numStr = String(val).replaceAll(/[^0-9.]/g, '');
+                                const num = Number.parseFloat(numStr);
+                                if (Number.isNaN(num)) return val;
 
                                 // if hourly and very small, show 4 decimals, else 2
                                 const decimals = (isHourly && num < 1) ? 4 : 2;

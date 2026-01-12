@@ -9,7 +9,6 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
   <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png" />
   <link rel="apple-touch-icon" href="/icons/XamOps.png" />
-  <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
   <script type="module" src="/src/main.js"></script>
 </head>
 
@@ -60,16 +59,39 @@
             border: 1px solid rgba(229, 231, 235, 0.8);
           }
 
+          /* Scrollbar styling for code blocks and modal */
+          ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+          }
+
+          ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 4px;
+          }
+
+          ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+          }
+
+          ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+          }
+
           .code-block {
             background: #1e293b;
             color: #e2e8f0;
-            padding: 1rem;
+            padding: 1.25rem;
             border-radius: 0.5rem;
-            font-family: "Courier New", Courier, monospace;
-            white-space: pre-wrap;
-            word-break: break-all;
-            max-height: 40vh;
-            overflow-y: auto;
+            font-family: "Menlo", "Monaco", "Courier New", monospace;
+            font-size: 0.85rem;
+            line-height: 1.5;
+            white-space: pre;
+            overflow-x: auto;
+            border: 1px solid #334155;
+            margin-top: 0.5rem;
+            margin-bottom: 1rem;
           }
 
           .placeholder-highlight {
@@ -78,6 +100,51 @@
             padding: 2px 4px;
             border-radius: 3px;
             font-weight: 600;
+          }
+
+          /* Guide specific styles */
+          .guide-h2 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #1f2937;
+            margin-top: 2rem;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid #e5e7eb;
+          }
+
+          .guide-h3 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #374151;
+            margin-top: 1.5rem;
+            margin-bottom: 0.75rem;
+          }
+
+          .guide-text {
+            color: #4b5563;
+            line-height: 1.6;
+            margin-bottom: 1rem;
+          }
+
+          .guide-list {
+            list-style-type: disc;
+            padding-left: 1.5rem;
+            margin-bottom: 1rem;
+            color: #4b5563;
+          }
+
+          .guide-list li {
+            margin-bottom: 0.25rem;
+          }
+
+          .inline-code {
+            background-color: #f3f4f6;
+            color: #ef4444;
+            padding: 0.1rem 0.3rem;
+            border-radius: 0.25rem;
+            font-family: monospace;
+            font-size: 0.9em;
           }
         </style>
 
@@ -114,38 +181,786 @@
 
         <div x-show="isHelpModalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div @click="isHelpModalOpen = false" class="modal-overlay fixed inset-0"></div>
-          <div class="modal-content rounded-2xl p-8 w-full max-w-4xl mx-auto max-h-[90vh] overflow-y-auto fade-in"
+          <div class="modal-content rounded-2xl p-0 w-full max-w-5xl mx-auto h-[85vh] flex flex-col fade-in"
             @click.stop>
-            <div class="flex items-center justify-between pb-4 border-b">
-              <h3 class="font-bold text-xl text-gray-800">
-                Setup Instructions for AWS Monitoring
-              </h3>
-              <button @click="isHelpModalOpen = false" class="text-gray-400 hover:text-gray-600 text-2xl">
+
+            <div class="flex items-center justify-between p-6 border-b bg-gray-50 rounded-t-2xl">
+              <div>
+                <h3 class="font-bold text-xl text-gray-800">
+                  <i class="fab fa-aws text-orange-500 mr-2"></i>
+                  Grafana Monitoring Setup Guide
+                </h3>
+                <p class="text-sm text-gray-500 mt-1">Complete Terraform & SSL Configuration</p>
+              </div>
+              <button @click="isHelpModalOpen = false"
+                class="text-gray-400 hover:text-gray-600 text-2xl w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-200 transition-colors">
                 &times;
               </button>
             </div>
-            <div class="space-y-6 mt-6 text-sm text-gray-700">
-              <div>
-                <h4 class="font-semibold text-lg text-gray-800">
-                  Part A: Create the Required IAM Role
-                </h4>
-                <ol class="list-decimal list-inside mt-2 space-y-1">
-                  <li>Navigate to the IAM service...</li>
-                </ol>
-                <div class="code-block mt-2 text-xs">
-                  <pre><code>{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Sid": "AllowResourceCreation",
-            "Effect": "Allow",
-            "Action": [ "ec2:*" ],
-            "Resource": "*"
-        }
-    ]
-}</code></pre>
+
+            <div class="p-8 overflow-y-auto flex-1">
+
+
+              <div class="mb-8">
+                <p class="guide-text">
+                  This guide will help you set up a complete monitoring infrastructure with Grafana, Prometheus, Loki,
+                  and SSL-secured domains using Terraform on AWS.
+                </p>
+              </div>
+
+              <h2 class="guide-h2">Prerequisites</h2>
+              <ul class="guide-list">
+                <li><strong>AWS Account</strong> - An active Amazon Web Services account</li>
+                <li><strong>AWS CLI</strong> - Installed and configured with your credentials</li>
+                <li><strong>Terraform</strong> - Version 1.0 or higher installed</li>
+                <li><strong>Domain Name</strong> - A registered domain that you can configure DNS records for</li>
+                <li><strong>SSH Key Pair</strong> - An existing EC2 Key Pair in your AWS region</li>
+              </ul>
+
+              <h2 class="guide-h2">Step 1: Create Project Structure</h2>
+              <p class="guide-text">Create a new directory for your project and the necessary file structure:</p>
+              <div class="code-block">mkdir grafana-monitoring-terraform
+                cd grafana-monitoring-terraform
+
+                # Create empty files
+                touch main.tf variables.tf outputs.tf user_data.sh</div>
+
+              <h2 class="guide-h2">Step 2: Create Configuration Files</h2>
+
+              <h3 class="guide-h3">2.1 variables.tf</h3>
+              <p class="guide-text">
+                Define your environment variables.
+                <span class="bg-yellow-100 text-yellow-800 text-xs font-bold px-2 py-1 rounded">ACTION REQUIRED</span>
+                Replace the default values with your own details.
+              </p>
+              <div class="code-block">variable "aws_region" {
+                description = "AWS region to deploy resources"
+                type = string
+                default = "ap-south-1"
+                }
+
+                variable "key_name" {
+                description = "Name of your existing EC2 Key Pair"
+                type = string
+                default = "your-key-pair-name"
+                }
+
+                variable "instance_type" {
+                description = "EC2 instance type for monitoring server"
+                type = string
+                default = "t2.medium"
+                }
+
+                variable "monitoring_server_name" {
+                description = "Name tag for the monitoring server"
+                type = string
+                default = "Grafana-Monitoring-Server"
+                }
+
+                variable "uat_domain" {
+                description = "UAT environment domain (e.g., grafana.uat.example.com)"
+                type = string
+                default = "grafana.uat.example.com"
+                }
+
+                variable "live_domain" {
+                description = "Production environment domain (e.g., grafana.live.example.com)"
+                type = string
+                default = "grafana.live.example.com"
+                }
+
+                variable "ssl_email" {
+                description = "Email for Let's Encrypt SSL certificate notifications"
+                type = string
+                default = "admin@example.com"
+                }</div>
+
+              <h3 class="guide-h3">2.2 main.tf</h3>
+              <p class="guide-text">This file defines the VPC, Security Groups, and EC2 instance resources.</p>
+              <div class="code-block">terraform {
+                required_version = "&gt;= 1.0"
+                required_providers {
+                aws = {
+                source = "hashicorp/aws"
+                version = "~&gt; 5.0"
+                }
+                }
+                }
+
+                provider "aws" {
+                region = var.aws_region
+                }
+
+                # Get the latest Ubuntu 22.04 AMI
+                data "aws_ami" "ubuntu" {
+                most_recent = true
+                owners = ["099720109477"] # Canonical
+
+                filter {
+                name = "name"
+                values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
+                }
+
+                filter {
+                name = "virtualization-type"
+                values = ["hvm"]
+                }
+                }
+
+                # VPC Configuration
+                resource "aws_vpc" "main" {
+                cidr_block = "10.20.0.0/16"
+                enable_dns_hostnames = true
+                enable_dns_support = true
+
+                tags = {
+                Name = "Monitoring-VPC"
+                }
+                }
+
+                # Internet Gateway
+                resource "aws_internet_gateway" "main" {
+                vpc_id = aws_vpc.main.id
+
+                tags = {
+                Name = "Monitoring-IGW"
+                }
+                }
+
+                # Public Subnet
+                resource "aws_subnet" "public" {
+                vpc_id = aws_vpc.main.id
+                cidr_block = "10.20.1.0/24"
+                availability_zone = "${var.aws_region}a"
+                map_public_ip_on_launch = true
+
+                tags = {
+                Name = "Monitoring-Public-Subnet"
+                }
+                }
+
+                # Route Table
+                resource "aws_route_table" "public" {
+                vpc_id = aws_vpc.main.id
+
+                route {
+                cidr_block = "0.0.0.0/0"
+                gateway_id = aws_internet_gateway.main.id
+                }
+
+                tags = {
+                Name = "Monitoring-Public-RT"
+                }
+                }
+
+                # Route Table Association
+                resource "aws_route_table_association" "public" {
+                subnet_id = aws_subnet.public.id
+                route_table_id = aws_route_table.public.id
+                }
+
+                # Security Group for Monitoring Server
+                resource "aws_security_group" "monitoring" {
+                name = "monitoring-server-sg"
+                description = "Security group for Grafana monitoring server"
+                vpc_id = aws_vpc.main.id
+
+                # SSH access
+                ingress {
+                description = "SSH"
+                from_port = 22
+                to_port = 22
+                protocol = "tcp"
+                cidr_blocks = ["0.0.0.0/0"]
+                }
+
+                # HTTP for Let's Encrypt
+                ingress {
+                description = "HTTP"
+                from_port = 80
+                to_port = 80
+                protocol = "tcp"
+                cidr_blocks = ["0.0.0.0/0"]
+                }
+
+                # HTTPS
+                ingress {
+                description = "HTTPS"
+                from_port = 443
+                to_port = 443
+                protocol = "tcp"
+                cidr_blocks = ["0.0.0.0/0"]
+                }
+
+                # Grafana
+                ingress {
+                description = "Grafana"
+                from_port = 3000
+                to_port = 3000
+                protocol = "tcp"
+                cidr_blocks = ["0.0.0.0/0"]
+                }
+
+                # Prometheus
+                ingress {
+                description = "Prometheus"
+                from_port = 9090
+                to_port = 9090
+                protocol = "tcp"
+                cidr_blocks = ["0.0.0.0/0"]
+                }
+
+                # Node Exporter
+                ingress {
+                description = "Node Exporter"
+                from_port = 9100
+                to_port = 9100
+                protocol = "tcp"
+                cidr_blocks = ["0.0.0.0/0"]
+                }
+
+                # Loki
+                ingress {
+                description = "Loki"
+                from_port = 3100
+                to_port = 3100
+                protocol = "tcp"
+                cidr_blocks = ["0.0.0.0/0"]
+                }
+
+                # All outbound traffic
+                egress {
+                from_port = 0
+                to_port = 0
+                protocol = "-1"
+                cidr_blocks = ["0.0.0.0/0"]
+                }
+
+                tags = {
+                Name = "Monitoring-Server-SG"
+                }
+                }
+
+                # EC2 Instance for Monitoring Server
+                resource "aws_instance" "monitoring_server" {
+                ami = data.aws_ami.ubuntu.id
+                instance_type = var.instance_type
+                key_name = var.key_name
+                subnet_id = aws_subnet.public.id
+                vpc_security_group_ids = [aws_security_group.monitoring.id]
+
+                user_data = templatefile("${path.module}/user_data.sh", {
+                uat_domain = var.uat_domain
+                live_domain = var.live_domain
+                ssl_email = var.ssl_email
+                })
+
+                root_block_device {
+                volume_size = 30
+                volume_type = "gp3"
+                }
+
+                tags = {
+                Name = var.monitoring_server_name
+                }
+                }</div>
+
+              <h3 class="guide-h3">2.3 outputs.tf</h3>
+              <p class="guide-text">Displays connection info after deployment.</p>
+              <div class="code-block">output "monitoring_server_public_ip" {
+                description = "Public IP address of the monitoring server"
+                value = aws_instance.monitoring_server.public_ip
+                }
+
+                output "monitoring_server_private_ip" {
+                description = "Private IP address of the monitoring server"
+                value = aws_instance.monitoring_server.private_ip
+                }
+
+                output "grafana_direct_access" {
+                description = "Direct access to Grafana (before DNS setup)"
+                value = "http://${aws_instance.monitoring_server.public_ip}:3000"
+                }
+
+                output "next_steps" {
+                description = "Next steps after deployment"
+                value = &lt;&lt;-EOT
+
+                NEXT STEPS:
+                ===========
+
+                1. Configure DNS Records:
+                - Add A record: ${var.uat_domain} -&gt; ${aws_instance.monitoring_server.public_ip}
+                - Add A record: ${var.live_domain} -&gt; ${aws_instance.monitoring_server.public_ip}
+
+                2. Wait 5-10 minutes for the server to complete setup
+
+                3. SSH into the server to check progress:
+                ssh -i your-key.pem ubuntu@${aws_instance.monitoring_server.public_ip}
+
+                4. Check setup logs:
+                tail -f /var/log/cloud-init-output.log
+
+                5. Once DNS propagates, access your dashboards:
+                - UAT: https://${var.uat_domain}
+                - LIVE: https://${var.live_domain}
+
+                6. Default Grafana credentials:
+                - Username: admin
+                - Password: admin
+                EOT
+                }</div>
+
+              <h3 class="guide-h3">2.4 user_data.sh</h3>
+              <p class="guide-text">This bash script automates the installation of Docker, Nginx, Certbot, and the
+                deployment of the Grafana stack.</p>
+              <div class="code-block">#!/bin/bash
+                # Exit on any error
+                set -e
+
+                # Log all output
+                exec &gt; &gt;(tee /var/log/user-data.log)
+                exec 2&gt;&1
+
+                echo "=== Starting Monitoring Server Setup ==="
+                echo "Timestamp: $(date)"
+
+                # Update system
+                echo "=== Updating system packages ==="
+                apt-get update -y
+                apt-get upgrade -y
+
+                # Install required packages
+                echo "=== Installing Docker and dependencies ==="
+                apt-get install -y \
+                docker.io \
+                docker-compose \
+                nginx \
+                certbot \
+                python3-certbot-nginx \
+                curl \
+                git
+
+                # Start and enable Docker
+                systemctl start docker
+                systemctl enable docker
+                usermod -aG docker ubuntu
+
+                # Create monitoring directory
+                echo "=== Creating monitoring directory structure ==="
+                mkdir -p /home/ubuntu/monitoring
+                cd /home/ubuntu/monitoring
+
+                # Create docker-compose.yml
+                echo "=== Creating Docker Compose configuration ==="
+                cat &gt; docker-compose.yml &lt;&lt;'EOF'
+                version: '3.8'
+
+                services:
+                node-exporter:
+                image: prom/node-exporter:v1.8.1
+                container_name: node-exporter
+                restart: unless-stopped
+                volumes:
+                - /proc:/host/proc:ro
+                - /sys:/host/sys:ro
+                - /:/rootfs:ro
+                command:
+                - '--path.procfs=/host/proc'
+                - '--path.sysfs=/host/sys'
+                - '--path.rootfs=/rootfs'
+                - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+                ports:
+                - "9100:9100"
+
+                prometheus:
+                image: prom/prometheus:v2.53.0
+                container_name: prometheus
+                restart: unless-stopped
+                ports:
+                - "9090:9090"
+                volumes:
+                - ./prometheus.yml:/etc/prometheus/prometheus.yml
+
+                loki:
+                image: grafana/loki:3.1.0
+                container_name: loki
+                restart: unless-stopped
+                ports:
+                - "3100:3100"
+                command: -config.file=/etc/loki/local-config.yaml
+                volumes:
+                - /home/ubuntu/monitoring/loki-data:/loki
+                - /home/ubuntu/monitoring/loki-local-config.yaml:/etc/loki/local-config.yaml
+
+                promtail:
+                image: grafana/promtail:3.1.0
+                container_name: promtail
+                restart: unless-stopped
+                volumes:
+                - /var/log:/var/log
+                - ./promtail-config.yml:/etc/promtail/config.yml
+                command: -config.file=/etc/promtail/config.yml
+
+                grafana:
+                image: grafana/grafana:11.1.0
+                container_name: grafana
+                restart: unless-stopped
+                ports:
+                - "3000:3000"
+                volumes:
+                - /home/ubuntu/monitoring/grafana-data:/var/lib/grafana
+                - ./grafana.ini:/etc/grafana/grafana.ini
+                environment:
+                - GF_SECURITY_ADMIN_USER=admin
+                - GF_SECURITY_ADMIN_PASSWORD=admin
+                - GF_SECURITY_ALLOW_EMBEDDING=true
+                - GF_AUTH_ANONYMOUS_ENABLED=true
+                - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+                EOF
+
+                # Create Prometheus configuration
+                echo "=== Creating Prometheus configuration ==="
+                cat &gt; prometheus.yml &lt;&lt;'EOF'
+                global:
+                scrape_interval: 15s
+
+                scrape_configs:
+                - job_name: prometheus
+                static_configs:
+                - targets: ['localhost:9090']
+                - job_name: node-exporter
+                static_configs:
+                - targets: ['node-exporter:9100']
+                EOF
+
+                # Create Loki configuration
+                echo "=== Creating Loki configuration ==="
+                cat &gt; loki-local-config.yaml &lt;&lt;'EOF'
+                auth_enabled: false
+                server:
+                http_listen_port: 3100
+                grpc_listen_port: 9096
+                common:
+                path_prefix: /loki
+                storage:
+                filesystem:
+                chunks_directory: /loki/chunks
+                rules_directory: /loki/rules
+                replication_factor: 1
+                ring:
+                instance_addr: 127.0.0.1
+                kvstore:
+                store: inmemory
+                schema_config:
+                configs:
+                - from: 2024-01-01
+                store: tsdb
+                object_store: filesystem
+                schema: v13
+                index:
+                prefix: index_
+                period: 24h
+                limits_config:
+                reject_old_samples: true
+                reject_old_samples_max_age: 168h
+                EOF
+
+                # Create Promtail configuration
+                echo "=== Creating Promtail configuration ==="
+                cat &gt; promtail-config.yml &lt;&lt;'EOF'
+                server:
+                http_listen_port: 9080
+                grpc_listen_port: 0
+
+                positions:
+                filename: /tmp/positions.yaml
+
+                clients:
+                - url: http://loki:3100/loki/api/v1/push
+
+                scrape_configs:
+                - job_name: system
+                static_configs:
+                - targets:
+                - localhost
+                labels:
+                job: varlogs
+                __path__: /var/log/*log
+                EOF
+
+                # Create Grafana configuration
+                echo "=== Creating Grafana configuration ==="
+                cat &gt; grafana.ini &lt;&lt;'EOF'
+                [server]
+                protocol = http
+                http_port = 3000
+
+                [security]
+                admin_user = admin
+                admin_password = admin
+                allow_embedding = true
+
+                [auth.anonymous]
+                enabled = true
+                org_role = Viewer
+
+                [users]
+                allow_sign_up = false
+                EOF
+
+                # Create data directories and permissions
+                mkdir -p grafana-data loki-data
+                chown -R 10001:10001 loki-data
+                chown -R 472:472 grafana-data
+                chown -R ubuntu:ubuntu /home/ubuntu/monitoring
+
+                # Start Docker containers
+                echo "=== Starting Docker containers ==="
+                docker-compose up -d
+
+                # Wait for services to start
+                echo "=== Waiting for services to initialize ==="
+                sleep 30
+
+                # Create nginx configuration for temporary HTTP access
+                echo "=== Creating temporary Nginx configuration ==="
+                cat &gt; /etc/nginx/sites-available/grafana-temp &lt;&lt;EOF
+                server {
+                listen 80;
+                server_name ${uat_domain} ${live_domain};
+
+                location ~ /.well-known/acme-challenge/ {
+                allow all;
+                root /var/www/html;
+                }
+
+                location / {
+                proxy_pass http://127.0.0.1:3000;
+                proxy_set_header Host \$host;
+                proxy_set_header X-Real-IP \$remote_addr;
+                proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto \$scheme;
+                }
+                }
+                EOF
+
+                # Enable temporary configuration
+                ln -sf /etc/nginx/sites-available/grafana-temp /etc/nginx/sites-enabled/grafana-temp
+                rm -f /etc/nginx/sites-enabled/default
+                nginx -t && systemctl reload nginx
+
+                # Create webroot for Let's Encrypt
+                mkdir -p /var/www/html
+
+                echo "=== Waiting for DNS propagation ==="
+                # Get server's public IP
+                PUBLIC_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
+
+                # Function to check DNS resolution
+                check_dns() {
+                local domain=$1
+                local resolved_ip=$(dig +short $domain | tail -n1)
+
+                if [ "$resolved_ip" = "$PUBLIC_IP" ]; then
+                echo "✓ $domain resolves correctly to $PUBLIC_IP"
+                return 0
+                else
+                echo "✗ $domain does not resolve to $PUBLIC_IP (got: $resolved_ip)"
+                return 1
+                fi
+                }
+
+                # Wait up to 10 minutes for DNS propagation
+                MAX_WAIT=600
+                ELAPSED=0
+                INTERVAL=30
+
+                while [ $ELAPSED -lt $MAX_WAIT ]; do
+                if check_dns "${uat_domain}" && check_dns "${live_domain}"; then
+                echo "=== DNS propagation complete! ==="
+                break
+                fi
+
+                echo "Waiting for DNS propagation... ($ELAPSED/$MAX_WAIT seconds)"
+                sleep $INTERVAL
+                ELAPSED=$((ELAPSED + INTERVAL))
+                done
+
+                if [ $ELAPSED -ge $MAX_WAIT ]; then
+                echo "⚠ Warning: DNS propagation timeout. SSL setup will be skipped."
+                echo "Please run the SSL setup manually after DNS propagates."
+                else
+                # Obtain SSL certificates
+                echo "=== Obtaining SSL certificates ==="
+
+                certbot certonly --webroot \
+                -w /var/www/html \
+                -d ${uat_domain} \
+                --non-interactive \
+                --agree-tos \
+                --email ${ssl_email} || echo "Failed to obtain certificate for ${uat_domain}"
+
+                certbot certonly --webroot \
+                -w /var/www/html \
+                -d ${live_domain} \
+                --non-interactive \
+                --agree-tos \
+                --email ${ssl_email} || echo "Failed to obtain certificate for ${live_domain}"
+
+                # Create final Nginx configuration with SSL
+                echo "=== Creating final Nginx configuration with SSL ==="
+                cat &gt; /etc/nginx/sites-available/grafana &lt;&lt;EOF
+                # HTTP server: Redirects both domains to HTTPS
+                server {
+                listen 80;
+                server_name ${uat_domain} ${live_domain};
+
+                location ~ /.well-known/acme-challenge/ {
+                allow all;
+                root /var/www/html;
+                }
+
+                location / {
+                return 301 https://\$host\$request_uri;
+                }
+                }
+
+                # UAT HTTPS Server
+                server {
+                listen 443 ssl;
+                server_name ${uat_domain};
+
+                ssl_certificate /etc/letsencrypt/live/${uat_domain}/fullchain.pem;
+                ssl_certificate_key /etc/letsencrypt/live/${uat_domain}/privkey.pem;
+
+                location / {
+                proxy_pass http://127.0.0.1:3000;
+                proxy_set_header Host \$host;
+                proxy_set_header X-Real-IP \$remote_addr;
+                proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto \$scheme;
+                }
+                }
+
+                # LIVE HTTPS Server
+                server {
+                listen 443 ssl;
+                server_name ${live_domain};
+
+                ssl_certificate /etc/letsencrypt/live/${live_domain}/fullchain.pem;
+                ssl_certificate_key /etc/letsencrypt/live/${live_domain}/privkey.pem;
+
+                location / {
+                proxy_pass http://127.0.0.1:3000;
+                proxy_set_header Host \$host;
+                proxy_set_header X-Real-IP \$remote_addr;
+                proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto \$scheme;
+                }
+                }
+                EOF
+
+                # Switch to SSL configuration
+                rm -f /etc/nginx/sites-enabled/grafana-temp
+                ln -sf /etc/nginx/sites-available/grafana /etc/nginx/sites-enabled/grafana
+
+                nginx -t && systemctl reload nginx
+                echo "=== SSL setup complete! ==="
+                fi
+
+                # Enable Nginx on boot
+                systemctl enable nginx
+                echo "=== Setup Complete ==="</div>
+
+              <h2 class="guide-h2">Step 3: Configure DNS Records</h2>
+              <p class="guide-text">Before deploying, or immediately after, create <strong>A records</strong> in your
+                DNS provider pointing to your server's public IP:</p>
+              <ul class="guide-list">
+                <li><span class="inline-code">grafana.uat.example.com</span> &rarr; Server Public IP</li>
+                <li><span class="inline-code">grafana.live.example.com</span> &rarr; Server Public IP</li>
+              </ul>
+
+              <h2 class="guide-h2">Step 4: Deploy Infrastructure</h2>
+              <div class="code-block"># Initialize Terraform
+                terraform init
+
+                # Review Plan
+                terraform plan
+
+                # Deploy (Type 'yes' when prompted)
+                terraform apply</div>
+              <p class="guide-text mt-2"><i class="fas fa-clock text-blue-500 mr-2"></i><strong>Wait 5-10
+                  minutes</strong> for the server to install all software.</p>
+
+              <h2 class="guide-h2">Step 5: Verify & Access</h2>
+              <p class="guide-text">1. Get your IP and instructions:</p>
+              <div class="code-block">terraform output</div>
+              <p class="guide-text">2. Access Grafana (after DNS propagation):</p>
+              <ul class="guide-list">
+                <li><strong>UAT:</strong> https://grafana.uat.example.com</li>
+                <li><strong>LIVE:</strong> https://grafana.live.example.com</li>
+              </ul>
+              <p class="guide-text"><strong>Default Credentials:</strong></p>
+              <ul class="guide-list">
+                <li>Username: <span class="inline-code">admin</span></li>
+                <li>Password: <span class="inline-code">admin</span></li>
+              </ul>
+
+              <h2 class="guide-h2">Architecture Components</h2>
+              <table class="w-full text-left border-collapse border border-gray-200 mt-4 mb-8">
+                <thead class="bg-gray-100">
+                  <tr>
+                    <th class="p-3 border border-gray-200 font-semibold">Component</th>
+                    <th class="p-3 border border-gray-200 font-semibold">Port</th>
+                    <th class="p-3 border border-gray-200 font-semibold">Purpose</th>
+                  </tr>
+                </thead>
+                <tbody class="text-sm">
+                  <tr>
+                    <td class="p-3 border border-gray-200">Grafana</td>
+                    <td class="p-3 border border-gray-200">3000</td>
+                    <td class="p-3 border border-gray-200">Dashboard & Visualization</td>
+                  </tr>
+                  <tr>
+                    <td class="p-3 border border-gray-200">Prometheus</td>
+                    <td class="p-3 border border-gray-200">9090</td>
+                    <td class="p-3 border border-gray-200">Metrics Collection</td>
+                  </tr>
+                  <tr>
+                    <td class="p-3 border border-gray-200">Loki</td>
+                    <td class="p-3 border border-gray-200">3100</td>
+                    <td class="p-3 border border-gray-200">Log Aggregation</td>
+                  </tr>
+                  <tr>
+                    <td class="p-3 border border-gray-200">Node Exporter</td>
+                    <td class="p-3 border border-gray-200">9100</td>
+                    <td class="p-3 border border-gray-200">System Metrics</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <h2 class="guide-h2">Troubleshooting</h2>
+              <div class="space-y-4">
+                <div class="bg-red-50 p-4 rounded-lg border border-red-100">
+                  <h4 class="font-bold text-red-700">Issue: DNS not resolving / SSL Failed</h4>
+                  <p class="text-sm text-red-600 mt-1">Wait longer for DNS propagation (up to 1 hour). If the script
+                    timed out, run Certbot manually via SSH:</p>
+                  <code
+                    class="block mt-2 bg-white p-2 rounded border border-red-200 text-xs">sudo certbot certonly --webroot -w /var/www/html -d your.domain.com</code>
+                </div>
+                <div class="bg-blue-50 p-4 rounded-lg border border-blue-100">
+                  <h4 class="font-bold text-blue-700">Issue: Docker containers not running</h4>
+                  <p class="text-sm text-blue-600 mt-1">SSH into the server and check container logs:</p>
+                  <code class="block mt-2 bg-white p-2 rounded border border-blue-200 text-xs">docker ps -a
+docker logs grafana</code>
                 </div>
               </div>
+
+              <h2 class="guide-h2">Cleanup</h2>
+              <p class="guide-text">To remove all resources created by Terraform:</p>
+              <div class="code-block">terraform destroy</div>
+
             </div>
           </div>
         </div>
@@ -158,10 +973,8 @@
               subtitleText: 'Live Grafana Dashboard',
               errorMessage: false,
               grafanaUrl: null,
-              dashboardUid: "a953939e-450f-4835-9190-26514f77a760",
 
               init() {
-                // CHANGE: Replaced DOMContentLoaded with Alpine init()
                 const selectedIds = JSON.parse(
                   sessionStorage.getItem("selectedAccountIds") || "[]"
                 );
@@ -187,51 +1000,43 @@
 
               loadDashboardFor(account) {
                 let grafanaIp = account.grafanaIp;
+                let dashboardUid = account.grafanaDashboardUid;
+                let dashboardSlug = account.grafanaDashboardSlug;
 
-                // Environment-aware fallback logic
                 if (!grafanaIp) {
-                  console.warn(
-                    `Grafana IP for "${account.name}" is missing from API. Using environment-aware fallback.`
-                  );
-
-                  const currentHost = window.location.hostname;
-                  const isLive = currentHost.includes("live.xamops.com");
-                  const accountName = account.name.toLowerCase();
-
-                  if (accountName.includes("xammer")) {
-                    grafanaIp = isLive
-                      ? "grafana-xam.live.xamops.com"
-                      : "grafana-xam.uat.xamops.com";
-                  } else if (accountName.includes("marketplace")) {
-                    grafanaIp = isLive
-                      ? "grafana-mkt.live.xamops.com"
-                      : "grafana-mkt.uat.xamops.com";
-                  }
+                  this.showError(`Grafana IP not configured for "${account.name}".`);
+                  return;
                 }
 
-                if (grafanaIp) {
-                  const baseUrl = `https://${grafanaIp}`;
-                  const iframeUrl = new URL(
-                    `${baseUrl}/d/${this.dashboardUid}/aws-infrastructure-overview`
-                  );
-                  iframeUrl.searchParams.append("orgId", "1");
-                  iframeUrl.searchParams.append("kiosk", "true");
-                  this.iframeSrc = iframeUrl.toString();
-
-                  const externalUrl = new URL(
-                    `${baseUrl}/d/${this.dashboardUid}/aws-infrastructure-overview`
-                  );
-                  externalUrl.searchParams.append("orgId", "1");
-                  externalUrl.searchParams.append("refresh", "10s");
-                  this.grafanaUrl = externalUrl.toString();
-
-                  this.subtitleText = `Live Grafana Dashboard for ${account.name}`;
-                  this.errorMessage = false;
-                } else {
-                  this.showError(
-                    `No Grafana instance is configured for the account: "${account.name}".`
-                  );
+                if (!dashboardUid) {
+                  this.showError(`Grafana Dashboard UID not configured for "${account.name}".`);
+                  return;
                 }
+
+                if (!dashboardSlug) {
+                  this.showError(`Grafana Dashboard Slug not configured for "${account.name}".`);
+                  return;
+                }
+
+                const protocol = (grafanaIp.includes(':')) ? 'http' : 'https';
+                const baseUrl = `${protocol}://${grafanaIp}`;
+
+                const iframeUrl = new URL(
+                  `${baseUrl}/d/${dashboardUid}/${dashboardSlug}`
+                );
+                iframeUrl.searchParams.append("orgId", "1");
+                iframeUrl.searchParams.append("kiosk", "true");
+                this.iframeSrc = iframeUrl.toString();
+
+                const externalUrl = new URL(
+                  `${baseUrl}/d/${dashboardUid}/${dashboardSlug}`
+                );
+                externalUrl.searchParams.append("orgId", "1");
+                externalUrl.searchParams.append("refresh", "10s");
+                this.grafanaUrl = externalUrl.toString();
+
+                this.subtitleText = `Live Grafana Dashboard for ${account.name}`;
+                this.errorMessage = false;
               },
 
               showError(message) {

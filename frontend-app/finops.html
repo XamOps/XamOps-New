@@ -7,8 +7,6 @@
     <title>XamOps - FinOps Report</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1.5.1/dist/sockjs.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
     <script type="module" src="/src/main.js"></script>
@@ -109,6 +107,9 @@
             opacity: 1;
         }
     </style>
+    <!-- Usability Improvements -->
+    <link rel="stylesheet" href="/src/usability-improvements.css">
+    <script type="module" src="/src/usability-utils.js"></script>
 </head>
 
 <body class="bg-gray-50">
@@ -574,6 +575,7 @@
                 </div>
 
                 <script>
+                    // alpine:init
                     function finopsReport() {
                         return {
                             isLoading: true,
@@ -613,16 +615,31 @@
 
                             init() {
                                 const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                                const urlParams = new URLSearchParams(window.location.search);
+                                const urlAccountId = urlParams.get('accountId');
+                                const urlAccountIds = urlParams.get('accountIds');
+
+                                if (urlAccountIds) {
+                                    // Sync URL params to session if missing
+                                    const ids = urlAccountIds.split(',');
+                                    if (selectedAccountIds.length === 0) {
+                                        sessionStorage.setItem('selectedAccountIds', JSON.stringify(ids));
+                                        this.newSchedule.cloudAccountId = ids[0];
+                                    }
+                                } else if (urlAccountId) {
+                                    if (selectedAccountIds.length === 0) {
+                                        sessionStorage.setItem('selectedAccountIds', JSON.stringify([urlAccountId]));
+                                        this.newSchedule.cloudAccountId = urlAccountId;
+                                    }
+                                }
+
                                 if (selectedAccountIds.length > 0) {
                                     this.newSchedule.cloudAccountId = selectedAccountIds[0];
                                 }
 
-                                // Wait for Alpine to be fully initialized before loading data
-                                this.$nextTick(() => {
-                                    console.log('[FinOps] Alpine ready, loading report data...');
-                                    this.loadReport(false);
-                                    this.loadSchedules();
-                                });
+                                console.log('[FinOps] Alpine ready, loading report data...');
+                                this.loadReport(false);
+                                this.loadSchedules();
                                 // this.connectWebSocket();
                             },
 
