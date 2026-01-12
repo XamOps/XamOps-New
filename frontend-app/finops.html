@@ -672,7 +672,7 @@
                                 const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
 
                                 if (!selectedAccountId) {
-                                    console.log('No account selected, skipping report load.');
+                                    console.log('[FinOps] No account selected, skipping report load.');
                                     this.isLoading = false;
                                     return;
                                 }
@@ -684,6 +684,7 @@
                                 }
 
                                 const url = `/api/xamops/finops/report?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`;
+                                console.log('[FinOps] Fetching report for account:', selectedAccountId, 'forceRefresh:', forceRefresh);
                                 fetch(url)
                                     .then(res => {
                                         if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
@@ -692,11 +693,12 @@
                                     .then(data => {
                                         if (data) {
                                             this.reportData = data;
+                                            console.log('[FinOps] Report data loaded successfully');
                                             this.renderCharts();
                                         }
                                     })
                                     .catch(err => {
-                                        console.error("Failed to load FinOps report:", err);
+                                        console.error("[FinOps] Failed to load FinOps report:", err);
                                     })
                                     .finally(() => {
                                         this.isLoading = false;
