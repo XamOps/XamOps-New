@@ -200,33 +200,7 @@
 
     <div id="appBody" class="flex h-screen overflow-hidden">
         <include file="/_sidebar.html"></include>
-        <script>
-            document.addEventListener("DOMContentLoaded", function () {
-                document.querySelectorAll('include').forEach(el => {
-                    fetch(el.getAttribute('file'))
-                        .then(response => response.text())
-                        .then(data => {
-                            // 1. Create a container to parse the HTML
-                            const tempDiv = document.createElement('div');
-                            tempDiv.innerHTML = data;
 
-                            // 2. Extract scripts
-                            const scripts = tempDiv.querySelectorAll('script');
-
-                            // 3. Replace wrapper 
-                            el.replaceWith(...tempDiv.childNodes);
-
-                            // 4. Execute scripts manually
-                            scripts.forEach(oldScript => {
-                                const newScript = document.createElement('script');
-                                Array.from(oldScript.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value));
-                                newScript.appendChild(document.createTextNode(oldScript.innerHTML));
-                                document.body.appendChild(newScript);
-                            });
-                        });
-                });
-            });
-        </script>
 
         <div class="flex-1 flex flex-col pl-64 h-screen overflow-hidden">
             <div id="main-content" class="flex flex-col h-full w-full">
@@ -1510,21 +1484,6 @@
                         return valB - valA;
                     });
                     this.showModal = true;
-                },
-
-                goToSingle(id) {
-                    sessionStorage.setItem('selectedAccountIds', JSON.stringify([id]));
-                    window.location.href = `/dashboard.html?accountId=${id}`;
-                },
-
-                goToCloudList(id) {
-                    sessionStorage.setItem('selectedAccountIds', JSON.stringify([id]));
-                    window.location.href = `/cloudlist.html?accountId=${id}`;
-                },
-
-                goToWaste(id) {
-                    sessionStorage.setItem('selectedAccountIds', JSON.stringify([id]));
-                    window.location.href = `/waste.html?accountId=${id}`;
                 },
 
                 formatCurrency(value) {
