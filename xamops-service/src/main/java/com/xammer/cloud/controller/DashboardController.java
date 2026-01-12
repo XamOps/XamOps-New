@@ -256,6 +256,19 @@ public class DashboardController {
             @RequestParam(defaultValue = "false") boolean forceRefresh) {
 
         String accountIdToUse = accountIds.split(",")[0];
+        String cacheKey = "waste-" + accountIdToUse;
+
+        if (!forceRefresh) {
+            // ⭐ NEW: Check database cache first
+            List<DashboardData.WastedResource> cachedWaste = dashboardDataService.getWasteSnapshot(cacheKey);
+            if (cachedWaste != null) {
+                logger.info("Serving Waste data from database cache for account {}", accountIdToUse);
+                return CompletableFuture.completedFuture(cachedWaste);
+            }
+        }
+
+        // Fallback: Fetch fresh data
+        logger.info("Fetching fresh Waste data for account {}", accountIdToUse);
         List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountIdToUse);
         if (accounts.isEmpty()) {
             throw new RuntimeException("Account not found: " + accountIdToUse);

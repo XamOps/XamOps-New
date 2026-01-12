@@ -556,12 +556,9 @@
                                             // Check if scan just finished (transitioned from RUNNING to COMPLETED)
                                             // We use === 'RUNNING' to avoid double-fetching on page load (when status goes UNKNOWN -> COMPLETED)
                                             if (data.status === 'COMPLETED' && this.prowlerStatus.status === 'RUNNING') {
-                                                // Clear client cache to ensure we fetch fresh data from the server
-                                                sessionStorage.removeItem(`securityFindings-${this.selectedAccountId}`);
-
-                                                // Call loadFindings with forceRefresh=false.
-                                                // This is CRITICAL: forceRefresh=false tells the backend "Don't trigger a new Prowler scan",
-                                                // but since ProwlerService evicted the backend cache upon completion, 
+                                                // Reload findings silently in background.
+                                                // forceRefresh=false tells the backend "Don't trigger a new Prowler scan",
+                                                // but since ProwlerService evicted the backend cache upon completion,
                                                 // the backend will rebuild the findings list with the newly available Prowler data.
                                                 this.loadFindings(false, true);
                                             }
@@ -581,32 +578,13 @@
                                     return;
                                 }
 
-                                const cacheKey = `securityFindings-${this.selectedAccountId}`;
-                                const cachedData = sessionStorage.getItem(cacheKey);
-
-                                // 1. Try to load from cache first (Instant Load)
-                                if (cachedData && !forceRefresh) {
-                                    try {
-                                        const parsed = JSON.parse(cachedData);
-                                        this.processFindings(parsed);
-                                        this.isLoading = false;
-
-                                        // Even if we found data, let's fetch in background to check for server updates/stale data
-                                        // unless it's a very fresh session.
-                                        silent = true;
-                                    } catch (e) {
-                                        sessionStorage.removeItem(cacheKey);
-                                    }
-                                }
-
-                                // 2. Set loading state (only if not silent)
+                                // Set loading state (show skeleton on initial load, hide on background refresh)
                                 if (!silent) {
                                     this.isLoading = true;
                                 }
 
                                 if (forceRefresh) {
                                     this.isRefreshing = true;
-                                    sessionStorage.removeItem(cacheKey);
                                 }
 
                                 const url = `/api/xamops/security/findings?accountId=${this.selectedAccountId}&forceRefresh=${forceRefresh}`;
@@ -617,12 +595,10 @@
                                         return res.json();
                                     })
                                     .then(data => {
-                                        sessionStorage.setItem(cacheKey, JSON.stringify(data));
                                         this.processFindings(data);
                                     })
                                     .catch(err => {
                                         console.error('Fetch error:', err);
-                                        // Don't clear findings if we have cached data and just failed a background refresh
                                         if (!silent) {
                                             this.findings = [];
                                             alert(`Failed to load security findings: ${err.message}`);
