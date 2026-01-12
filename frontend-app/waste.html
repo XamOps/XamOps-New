@@ -222,13 +222,16 @@
                                                 onerror="this.src='/icons/default-icon.png'">
                                         </div>
                                         <div class="flex-1">
-                                            <p class="text-sm font-bold text-gray-800" x-text="highestWasteService.serviceType"></p>
-                                            <p class="text-xs text-gray-500" x-text="highestWasteService.count + ' resources'"></p>
+                                            <p class="text-sm font-bold text-gray-800"
+                                                x-text="highestWasteService.serviceType"></p>
+                                            <p class="text-xs text-gray-500"
+                                                x-text="highestWasteService.count + ' resources'"></p>
                                         </div>
                                     </div>
                                     <div class="flex items-baseline space-x-1">
                                         <span class="text-2xl font-bold text-red-600">$</span>
-                                        <span class="text-3xl font-bold text-red-600" x-text="highestWasteService.totalCost.toFixed(2)"></span>
+                                        <span class="text-3xl font-bold text-red-600"
+                                            x-text="highestWasteService.totalCost.toFixed(2)"></span>
                                         <span class="text-xs text-gray-500">/month</span>
                                     </div>
                                 </div>
@@ -400,27 +403,21 @@
 
                             loadWastedResources(forceRefresh = false) {
                                 if (!this.selectedAccountId) return;
-                                const cacheKey = `wasteData-${this.selectedAccountId}`;
-                                const cachedData = sessionStorage.getItem(cacheKey);
 
-                                if (cachedData && !forceRefresh) {
-                                    this.wastedResources = JSON.parse(cachedData);
-                                    this.isLoading = false;
-                                    this.renderSavingsChart();
-                                    return;
-                                }
-
-                                if (!cachedData) this.isLoading = true;
+                                // Set loading states
                                 if (forceRefresh) {
                                     this.isRefreshing = true;
-                                    sessionStorage.removeItem(cacheKey);
+                                } else {
+                                    this.isLoading = true;
                                 }
+
+                                console.log('[Waste] Fetching waste data for account:', this.selectedAccountId, 'forceRefresh:', forceRefresh);
 
                                 fetch(`/api/xamops/waste?accountIds=${this.selectedAccountId}&forceRefresh=${forceRefresh}`)
                                     .then(res => res.json())
                                     .then(data => {
                                         this.wastedResources = Array.isArray(data) ? data : [];
-                                        sessionStorage.setItem(cacheKey, JSON.stringify(this.wastedResources));
+                                        console.log('[Waste] Loaded', this.wastedResources.length, 'waste resources');
                                         this.renderSavingsChart();
                                     })
                                     .catch(err => {
