@@ -666,9 +666,9 @@
                         if (contentType && contentType.includes('application/json')) {
                             const data = await response.json();
                             if (data.tenantId) sessionStorage.setItem('selectedTenantId', data.tenantId);
-                            window.location.href = data.redirectUrl || '/dashboard.html';
+                            window.location.href = data.redirectUrl || '/unified-dashboard.html';
                         } else {
-                            window.location.href = response.url || '/dashboard.html';
+                            window.location.href = response.url || '/unified-dashboard.html';
                         }
                     } else {
                         throw new Error(`Authentication failed: Status ${response.status}`);
