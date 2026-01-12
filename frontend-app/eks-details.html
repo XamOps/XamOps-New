@@ -631,7 +631,9 @@
     <include file="/_sidebar.html"></include>
 
     <div class="flex-1 pl-64">
-      <div class="p-6 max-w-[1600px] mx-auto" x-data="eksDashboard()" x-init="init()">
+      <!-- Added id="main-content" and restructured for Soft Nav compatibility -->
+      <main id="main-content" class="flex-1 flex flex-col min-h-screen" x-data="eksDashboard()" x-init="init()">
+        <div class="p-6 max-w-[1600px] mx-auto">
 
         <!-- ==================== CLUSTER HEADER (Identity + Health Banner) ==================== -->
         <header class="mb-8">
@@ -2320,7 +2322,8 @@
           </div>
 
         </div>
-      </div>
+        </div>
+      </main>
     </div>
   </div>
 
