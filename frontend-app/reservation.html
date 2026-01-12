@@ -6,519 +6,397 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>XamOps - Reservation Management</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
-    <link rel="apple-touch-icon" href="/icons/XamOps.png">
-    <script
-        src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
     <script type="module" src="/src/main.js"></script>
-    <!-- Usability Improvements -->
-    <link rel="stylesheet" href="/src/usability-improvements.css">
-    <script type="module" src="/src/usability-utils.js"></script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+
+        [x-cloak] {
+            display: none !important;
+        }
+
+        /* Smooth Gradients & Glass Effect */
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(226, 232, 240, 0.8);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+            transition: all 0.2s ease-in-out;
+        }
+
+        /* Tab Animations */
+        .tab-btn {
+            position: relative;
+            transition: color 0.2s ease;
+        }
+
+        .tab-btn::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background-color: #4f46e5;
+            /* Indigo-600 */
+            transform: scaleX(0);
+            transform-origin: right;
+            transition: transform 0.3s ease;
+        }
+
+        .tab-btn.active {
+            color: #4f46e5;
+        }
+
+        .tab-btn.active::after {
+            transform: scaleX(1);
+            transform-origin: left;
+        }
+
+        /* Table Styling */
+        .pro-table thead th {
+            background-color: #f8fafc;
+            color: #64748b;
+            font-weight: 600;
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        .pro-table tbody tr {
+            border-bottom: 1px solid #f1f5f9;
+            transition: background-color 0.15s;
+        }
+
+        .pro-table tbody tr:hover {
+            background-color: #f8fafc;
+        }
+
+        .pro-table tbody tr:last-child {
+            border-bottom: none;
+        }
+
+        /* Loading Spinner */
+        .loader {
+            border: 3px solid #e2e8f0;
+            border-top: 3px solid #4f46e5;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
 </head>
 
-<body class="bg-gray-50">
+<body class="bg-slate-50 text-slate-800">
 
     <div class="flex">
         <include file="/_sidebar.html"></include>
 
-        <div class="flex-1 pl-64">
-            <main id="main-content" class="flex-1 flex flex-col min-h-screen" x-data="reservationManagement()">
+        <div class="flex-1 pl-64 transition-all duration-300">
+            <main id="main-content" class="flex flex-col min-h-screen" x-data="reservationManagement()">
 
-                <style>
-                    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-
-                    :root {
-                        --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                        --success-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
-                        --warning-gradient: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-                        --error-gradient: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-                        --glass-bg: rgba(255, 255, 255, 0.95);
-                        --glass-border: rgba(229, 231, 235, 0.8);
-                    }
-
-                    [x-cloak] {
-                        display: none !important;
-                    }
-
-                    .glass-card {
-                        background: var(--glass-bg);
-                        backdrop-filter: blur(10px);
-                        border: 1px solid var(--glass-border);
-                        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-                        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-                    }
-
-                    .glass-card:hover {
-                        transform: translateY(-2px);
-                        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-                    }
-
-                    .skeleton {
-                        background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
-                        background-size: 200% 100%;
-                        animation: skeleton-shimmer 1.5s infinite;
-                        border-radius: 12px;
-                    }
-
-                    @keyframes skeleton-shimmer {
-                        0% {
-                            background-position: -200% 0;
-                        }
-
-                        100% {
-                            background-position: 200% 0;
-                        }
-                    }
-
-                    .header-gradient {
-                        background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%);
-                        backdrop-filter: blur(10px);
-                        border-bottom: 1px solid rgba(229, 231, 235, 0.8);
-                    }
-
-                    .btn-primary {
-                        background: var(--primary-gradient);
-                        border: none;
-                        color: white;
-                        transition: all 0.3s ease;
-                        position: relative;
-                        overflow: hidden;
-                    }
-
-                    .btn-primary::before {
-                        content: '';
-                        position: absolute;
-                        top: 0;
-                        left: -100%;
-                        width: 100%;
-                        height: 100%;
-                        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-                        transition: left 0.5s ease;
-                    }
-
-                    .btn-primary:hover::before {
-                        left: 100%;
-                    }
-
-                    .btn-primary:hover {
-                        transform: translateY(-2px);
-                        box-shadow: 0 10px 15px -3px rgba(102, 126, 234, 0.4);
-                    }
-
-                    .form-input,
-                    .form-select {
-                        background: var(--glass-bg);
-                        backdrop-filter: blur(10px);
-                        border: 1px solid var(--glass-border);
-                        transition: all 0.3s ease;
-                    }
-
-                    .form-input:focus,
-                    .form-select:focus {
-                        background: rgba(255, 255, 255, 1);
-                        border-color: #667eea;
-                        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-                        transform: translateY(-1px);
-                    }
-
-                    .table-enhanced {
-                        background: var(--glass-bg);
-                        backdrop-filter: blur(10px);
-                        border-radius: 12px;
-                        overflow: hidden;
-                        border: 1px solid var(--glass-border);
-                    }
-
-                    .table-enhanced thead {
-                        background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-                    }
-
-                    .table-enhanced tr {
-                        transition: all 0.2s ease;
-                    }
-
-                    .table-enhanced tr:hover {
-                        background: rgba(102, 126, 234, 0.05);
-                        transform: translateX(2px);
-                    }
-
-                    .loading-spinner {
-                        border: 3px solid #f3f4f6;
-                        border-top: 3px solid #667eea;
-                        border-radius: 50%;
-                        width: 20px;
-                        height: 20px;
-                        animation: spin 1s linear infinite;
-                    }
-
-                    @keyframes spin {
-                        0% {
-                            transform: rotate(0deg);
-                        }
-
-                        100% {
-                            transform: rotate(360deg);
-                        }
-                    }
-
-                    .fade-in {
-                        animation: fadeIn 0.5s ease-in-out;
-                    }
-
-                    @keyframes fadeIn {
-                        from {
-                            opacity: 0;
-                            transform: translateY(20px);
-                        }
-
-                        to {
-                            opacity: 1;
-                            transform: translateY(0);
-                        }
-                    }
-                </style>
-
-                <header class="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-10">
-                    <div class="flex items-center space-x-4">
+                <header
+                    class="bg-white border-b border-slate-200 sticky top-0 z-20 px-8 py-5 flex items-center justify-between shadow-sm">
+                    <div class="flex items-center gap-4">
                         <div
-                            class="w-12 h-12 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center">
-                            <i class="fas fa-calendar-check text-white text-xl"></i>
+                            class="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-lg flex items-center justify-center border border-indigo-100">
+                            <i class="fas fa-file-contract text-lg"></i>
                         </div>
                         <div>
-                            <h1 class="text-2xl font-bold text-gray-800">Reservation Management</h1>
-                            <p class="text-sm text-gray-600">Analyze inventory, utilization, and purchase
-                                recommendations</p>
+                            <h1 class="text-xl font-bold text-slate-800">Reservation Management</h1>
+                            <p class="text-xs text-slate-500 font-medium mt-0.5">Optimize costs with RIs and Savings
+                                Plans</p>
                         </div>
                     </div>
-                    <div class="flex items-center space-x-4">
+                    <div class="flex items-center gap-3">
+                        <span x-show="selectedAccountId"
+                            class="px-3 py-1 bg-slate-100 text-slate-600 text-xs rounded-full font-mono border border-slate-200">
+                            ID: <span x-text="selectedAccountId"></span>
+                        </span>
                         <button @click="fetchReservationData(true)"
-                            class="btn-primary flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md"
+                            class="flex items-center gap-2 px-4 py-2 bg-white border border-slate-300 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors shadow-sm"
                             :disabled="isLoading">
                             <i class="fas fa-sync-alt" :class="{ 'fa-spin': isLoading }"></i>
-                            <span x-text="isLoading ? 'Fetching All Data...' : 'Refresh All Data'"></span>
+                            <span x-text="isLoading ? 'Syncing...' : 'Refresh'"></span>
                         </button>
                     </div>
                 </header>
 
-                <div class="flex-1 p-8 space-y-8">
-                    <div x-show="isLoading" x-cloak class="space-y-8">
-                        <div class="skeleton h-96"></div>
-                        <div class="skeleton h-72"></div>
+                <div class="p-8 max-w-7xl mx-auto w-full space-y-6">
+
+                    <div x-show="isLoading && !data.inventory" x-cloak
+                        class="flex flex-col items-center justify-center h-96">
+                        <div class="loader mb-4"></div>
+                        <p class="text-slate-500 text-sm">Loading reservation data...</p>
                     </div>
 
-                    <div x-show="!isLoading" x-cloak class="fade-in space-y-8">
+                    <div x-show="!isLoading || data.inventory" x-cloak class="space-y-6">
 
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            <div class="glass-card rounded-2xl p-6 flex flex-col justify-between">
-                                <h3 class="text-lg font-semibold text-gray-800 mb-4">RI/SP Analysis</h3>
-                                <div class="space-y-4">
-                                    <div class="flex justify-between items-center border-b pb-2">
-                                        <span class="text-gray-600">Utilization (Last 30 Days)</span>
-                                        <span class="font-bold text-xl"
-                                            :class="{'text-green-600': data.analysis && data.analysis.utilizationPercentage >= 95, 'text-yellow-600': data.analysis && data.analysis.utilizationPercentage < 95}">
-                                            <span
-                                                x-text="data.analysis ? data.analysis.utilizationPercentage.toFixed(1) : 'N/A'"></span>%
-                                        </span>
+                        <div class="border-b border-slate-200">
+                            <nav class="-mb-px flex space-x-8" aria-label="Tabs">
+                                <button @click="activeTab = 'overview'; $nextTick(() => initCharts())"
+                                    class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm"
+                                    :class="activeTab === 'overview' ? 'border-indigo-500 text-indigo-600 active' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'">
+                                    Overview & Inventory
+                                </button>
+                                <button @click="activeTab = 'recommendations'"
+                                    class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm"
+                                    :class="activeTab === 'recommendations' ? 'border-indigo-500 text-indigo-600 active' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'">
+                                    Purchase Recommendations
+                                    <span class="ml-2 bg-indigo-100 text-indigo-600 py-0.5 px-2 rounded-full text-xs"
+                                        x-show="data.purchaseRecommendations && data.purchaseRecommendations.length > 0"
+                                        x-text="data.purchaseRecommendations.length"></span>
+                                </button>
+                            </nav>
+                        </div>
+
+                        <div x-show="activeTab === 'overview'" x-transition:enter="transition ease-out duration-200"
+                            x-transition:enter-start="opacity-0 translate-y-2"
+                            x-transition:enter-end="opacity-100 translate-y-0">
+
+                            <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+                                <div class="glass-panel rounded-xl p-5">
+                                    <div class="flex justify-between items-start">
+                                        <div>
+                                            <p class="text-sm font-medium text-slate-500">Avg Utilization (30d)</p>
+                                            <h3 class="text-2xl font-bold text-slate-800 mt-1"
+                                                x-text="data.analysis?.utilizationPercentage ? data.analysis.utilizationPercentage.toFixed(1) + '%' : '0%'">
+                                            </h3>
+                                        </div>
+                                        <div class="p-2 rounded-lg"
+                                            :class="data.analysis?.utilizationPercentage >= 90 ? 'bg-green-100 text-green-600' : 'bg-yellow-100 text-yellow-600'">
+                                            <i class="fas fa-chart-pie"></i>
+                                        </div>
                                     </div>
-                                    <div class="flex justify-between items-center border-b pb-2">
-                                        <span class="text-gray-600">Coverage (Last 30 Days)</span>
-                                        <span class="font-bold text-xl"
-                                            :class="{'text-blue-600': data.analysis && data.analysis.coveragePercentage >= 80, 'text-red-600': data.analysis && data.analysis.coveragePercentage < 50}">
-                                            <span
-                                                x-text="data.analysis ? data.analysis.coveragePercentage.toFixed(1) : 'N/A'"></span>%
-                                        </span>
+                                    <div class="mt-4 w-full bg-slate-200 rounded-full h-1.5">
+                                        <div class="bg-indigo-600 h-1.5 rounded-full"
+                                            :style="`width: ${data.analysis?.utilizationPercentage || 0}%`"></div>
                                     </div>
-                                    <div class="flex justify-between items-center pt-2">
-                                        <span class="text-gray-600">Potential Savings</span>
-                                        <span class="font-bold text-xl text-indigo-600">
-                                            ~$<span
-                                                x-text="data.purchaseRecommendations ? data.purchaseRecommendations.reduce((sum, rec) => sum + parseFloat(rec.monthlySavings || 0), 0).toFixed(0) : 'N/A'"></span>/mo
-                                        </span>
+                                </div>
+
+                                <div class="glass-panel rounded-xl p-5">
+                                    <div class="flex justify-between items-start">
+                                        <div>
+                                            <p class="text-sm font-medium text-slate-500">Coverage (30d)</p>
+                                            <h3 class="text-2xl font-bold text-slate-800 mt-1"
+                                                x-text="data.analysis?.coveragePercentage ? data.analysis.coveragePercentage.toFixed(1) + '%' : '0%'">
+                                            </h3>
+                                        </div>
+                                        <div class="p-2 bg-blue-100 text-blue-600 rounded-lg">
+                                            <i class="fas fa-shield-alt"></i>
+                                        </div>
                                     </div>
+                                    <div class="mt-4 w-full bg-slate-200 rounded-full h-1.5">
+                                        <div class="bg-blue-500 h-1.5 rounded-full"
+                                            :style="`width: ${data.analysis?.coveragePercentage || 0}%`"></div>
+                                    </div>
+                                </div>
+
+                                <div class="glass-panel rounded-xl p-5">
+                                    <div class="flex justify-between items-start">
+                                        <div>
+                                            <p class="text-sm font-medium text-slate-500">Active RIs</p>
+                                            <h3 class="text-2xl font-bold text-slate-800 mt-1"
+                                                x-text="data.inventory?.length || 0"></h3>
+                                        </div>
+                                        <div class="p-2 bg-purple-100 text-purple-600 rounded-lg">
+                                            <i class="fas fa-tags"></i>
+                                        </div>
+                                    </div>
+                                    <p class="text-xs text-slate-500 mt-4">Reserved Instances</p>
+                                </div>
+
+                                <div class="glass-panel rounded-xl p-5">
+                                    <div class="flex justify-between items-start">
+                                        <div>
+                                            <p class="text-sm font-medium text-slate-500">Active Plans</p>
+                                            <h3 class="text-2xl font-bold text-slate-800 mt-1"
+                                                x-text="data.savingsPlans?.length || 0"></h3>
+                                        </div>
+                                        <div class="p-2 bg-orange-100 text-orange-600 rounded-lg">
+                                            <i class="fas fa-piggy-bank"></i>
+                                        </div>
+                                    </div>
+                                    <p class="text-xs text-slate-500 mt-4">Savings Plans</p>
                                 </div>
                             </div>
 
-                            <div class="glass-card rounded-2xl p-6 col-span-2">
-                                <h3 class="text-lg font-semibold text-gray-800 mb-4">Historical Utilization & Coverage
-                                </h3>
-                                <div class="h-64 relative">
+                            <div class="glass-panel rounded-xl p-6 mb-8">
+                                <h3 class="text-base font-semibold text-slate-800 mb-4">Historical Utilization &
+                                    Coverage</h3>
+                                <div class="h-80 relative">
                                     <canvas id="utilizationChart" x-ref="utilizationChart"></canvas>
                                 </div>
                             </div>
-                        </div>
 
-                        <div class="space-y-4">
-                            <div class="flex justify-between items-center pt-4">
-                                <h2 class="text-xl font-bold text-gray-800">Current Inventory</h2>
-                                <div class="flex space-x-2 bg-gray-100 p-1 rounded-lg">
-                                    <button @click="inventoryTab = 'ris'"
-                                        class="px-4 py-2 text-sm font-medium rounded-md transition-all"
-                                        :class="inventoryTab === 'ris' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'">
-                                        Reserved Instances
-                                    </button>
-                                    <button @click="inventoryTab = 'sps'"
-                                        class="px-4 py-2 text-sm font-medium rounded-md transition-all"
-                                        :class="inventoryTab === 'sps' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'">
-                                        Savings Plans
-                                    </button>
-                                </div>
-                            </div>
+                            <div class="glass-panel rounded-xl overflow-hidden">
+                                <div
+                                    class="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50/50">
+                                    <h3 class="text-base font-semibold text-slate-800">Current Inventory</h3>
 
-                            <div x-show="inventoryTab === 'ris'" class="table-enhanced">
-                                <table class="w-full text-sm text-left text-gray-500">
-                                    <thead class="text-xs text-gray-700 uppercase">
-                                        <tr>
-                                            <th scope="col" class="px-6 py-3">ID / Instance Type</th>
-                                            <th scope="col" class="px-6 py-3">Scope / AZ</th>
-                                            <th scope="col" class="px-6 py-3">Count / Offering</th>
-                                            <th scope="col" class="px-6 py-3">State</th>
-                                            <th scope="col" class="px-6 py-3">Utilization (30 Days)</th>
-                                            <th scope="col" class="px-6 py-3">Purchase Date</th>
-                                            <th scope="col" class="px-6 py-3">Expiration Date</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <template x-if="data.inventory && data.inventory.length > 0">
-                                            <template x-for="item in data.inventory" :key="item.reservationId">
-                                                <tr class="border-b border-gray-200 reservation-row">
-                                                    <td class="px-6 py-4 font-medium text-gray-900">
-                                                        <span x-text="item.instanceType"></span>
-                                                        <div class="text-xs text-gray-500 truncate w-32"
-                                                            x-text="item.reservationId" :title="item.reservationId">
-                                                        </div>
-                                                    </td>
-                                                    <td class="px-6 py-4">
-                                                        <span x-text="item.scope"></span>
-                                                        <div class="text-xs text-gray-500"
-                                                            x-text="item.availabilityZone"></div>
-                                                    </td>
-                                                    <td class="px-6 py-4">
-                                                        <span class="font-semibold" x-text="item.instanceCount"></span>
-                                                        <div class="text-xs text-gray-500" x-text="item.offeringType">
-                                                        </div>
-                                                    </td>
-                                                    <td class="px-6 py-4">
-                                                        <span class="px-2 py-1 rounded-full text-xs font-semibold"
-                                                            :class="{
-                                                                'bg-green-100 text-green-800': item.state === 'active',
-                                                                'bg-gray-100 text-gray-600': item.state === 'retired' || item.state === 'expired',
-                                                                'bg-yellow-100 text-yellow-800': item.state === 'pending' || item.state === 'payment-pending'
-                                                            }" x-text="item.state"></span>
-                                                    </td>
-                                                    <td class="px-6 py-4">
-                                                        <div x-show="item.state === 'active'">
-                                                            <span class="font-semibold"
-                                                                :class="{'text-red-600': item.utilizationPercentage < 80, 'text-green-600': item.utilizationPercentage >= 95}"
-                                                                x-text="item.utilizationPercentage ? item.utilizationPercentage.toFixed(1) + '%' : 'N/A'"></span>
-                                                        </div>
-                                                        <div x-show="item.state !== 'active'"
-                                                            class="text-gray-400 text-xs italic">N/A</div>
-                                                    </td>
-                                                    <td class="px-6 py-4">
-                                                        <span x-text="formatDate(item.start)"></span>
-                                                    </td>
-                                                    <td class="px-6 py-4">
-                                                        <div class="flex flex-col">
-                                                            <span x-text="formatDate(item.end)"
-                                                                :class="{'text-red-600 font-bold': isExpiringSoon(item.end)}"></span>
-                                                            <span x-show="isExpiringSoon(item.end)"
-                                                                class="mt-1 px-2 py-0.5 inline-flex text-[10px] font-semibold rounded bg-red-100 text-red-800 w-fit">
-                                                                Expiring Soon
-                                                            </span>
-                                                            <span x-show="isExpired(item.end)"
-                                                                class="mt-1 px-2 py-0.5 inline-flex text-[10px] font-semibold rounded bg-gray-100 text-gray-600 w-fit">
-                                                                Expired
-                                                            </span>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            </template>
-                                        </template>
-                                        <template x-if="!data.inventory || data.inventory.length === 0">
-                                            <tr>
-                                                <td colspan="7" class="text-center py-12 text-gray-500">No
-                                                    Reserved Instances found.</td>
-                                            </tr>
-                                        </template>
-                                    </tbody>
-                                </table>
-                            </div>
-
-                            <div x-show="inventoryTab === 'sps'" class="table-enhanced" x-cloak>
-                                <table class="w-full text-sm text-left text-gray-500">
-                                    <thead class="text-xs text-gray-700 uppercase">
-                                        <tr>
-                                            <th scope="col" class="px-6 py-3">Plan ID / Type</th>
-                                            <th scope="col" class="px-6 py-3">Region</th>
-                                            <th scope="col" class="px-6 py-3">Commitment / Payment</th>
-                                            <th scope="col" class="px-6 py-3">State</th>
-                                            <th scope="col" class="px-6 py-3">Start Date</th>
-                                            <th scope="col" class="px-6 py-3">End Date</th>
-                                            <th scope="col" class="px-6 py-3">Upfront Cost</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <template x-if="data.savingsPlans && data.savingsPlans.length > 0">
-                                            <template x-for="sp in data.savingsPlans" :key="sp.savingsPlanId">
-                                                <tr class="border-b border-gray-200">
-                                                    <td class="px-6 py-4 font-medium text-gray-900">
-                                                        <span x-text="sp.type"></span>
-                                                        <div class="text-xs text-gray-500 truncate w-32"
-                                                            x-text="sp.savingsPlanId" :title="sp.savingsPlanId"></div>
-                                                    </td>
-                                                    <td class="px-6 py-4">
-                                                        <span x-text="sp.region || 'Global'"></span>
-                                                    </td>
-                                                    <td class="px-6 py-4">
-                                                        <span class="font-semibold text-gray-900"
-                                                            x-text="formatCurrency(sp.commitment)"></span>
-                                                        <div class="text-xs text-gray-500 mt-0.5"
-                                                            x-text="sp.paymentOption">
-                                                        </div>
-                                                    </td>
-                                                    <td class="px-6 py-4">
-                                                        <span class="px-2 py-1 rounded-full text-xs font-semibold"
-                                                            :class="{
-                                                                'bg-green-100 text-green-800': sp.state === 'active', 
-                                                                'bg-gray-100 text-gray-600': sp.state === 'retired' || sp.state === 'expired',
-                                                                'bg-yellow-100 text-yellow-800': sp.state === 'payment-pending'
-                                                            }" x-text="sp.state"></span>
-                                                    </td>
-                                                    <td class="px-6 py-4" x-text="formatDate(sp.start)"></td>
-                                                    <td class="px-6 py-4">
-                                                        <div class="flex flex-col">
-                                                            <span x-text="formatDate(sp.end)"
-                                                                :class="{'text-red-600 font-bold': isExpiringSoon(sp.end)}"></span>
-                                                            <span x-show="isExpiringSoon(sp.end)"
-                                                                class="mt-1 px-2 py-0.5 inline-flex text-[10px] font-semibold rounded bg-red-100 text-red-800 w-fit">
-                                                                Expiring Soon
-                                                            </span>
-                                                            <span x-show="isExpired(sp.end)"
-                                                                class="mt-1 px-2 py-0.5 inline-flex text-[10px] font-semibold rounded bg-gray-100 text-gray-600 w-fit">
-                                                                Expired
-                                                            </span>
-                                                        </div>
-                                                    </td>
-                                                    <td class="px-6 py-4"
-                                                        x-text="formatCurrency(sp.upfrontCost, false)">
-                                                    </td>
-                                                </tr>
-                                            </template>
-                                        </template>
-                                        <template x-if="!data.savingsPlans || data.savingsPlans.length === 0">
-                                            <tr>
-                                                <td colspan="7" class="text-center py-12 text-gray-500">No Savings Plans
-                                                    found.</td>
-                                            </tr>
-                                        </template>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-
-                        <div class="space-y-4">
-                            <h2 class="text-xl font-bold text-gray-800 pt-4">Purchase Recommendations</h2>
-                            <div class="glass-card rounded-2xl p-6">
-                                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-                                    <div>
-                                        <label for="term" class="block text-sm font-medium text-gray-700">Term</label>
-                                        <select x-model="recFilters.term" @change="fetchPurchaseRecommendations(true)"
-                                            id="term"
-                                            class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md form-select">
-                                            <option value="ONE_YEAR">1 Year</option>
-                                            <option value="THREE_YEARS">3 Years</option>
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label for="payment"
-                                            class="block text-sm font-medium text-gray-700">Payment</label>
-                                        <select x-model="recFilters.paymentOption"
-                                            @change="fetchPurchaseRecommendations(true)" id="payment"
-                                            class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md form-select">
-                                            <option value="NO_UPFRONT">No Upfront</option>
-                                            <option value="PARTIAL_UPFRONT">Partial Upfront</option>
-                                            <option value="ALL_UPFRONT">All Upfront</option>
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label for="lookback"
-                                            class="block text-sm font-medium text-gray-700">Lookback</label>
-                                        <select x-model="recFilters.lookback"
-                                            @change="fetchPurchaseRecommendations(true)" id="lookback"
-                                            class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md form-select">
-                                            <option value="SEVEN_DAYS">7 Days</option>
-                                            <option value="THIRTY_DAYS">30 Days</option>
-                                            <option value="SIXTY_DAYS">60 Days</option>
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label for="class" class="block text-sm font-medium text-gray-700">Offering
-                                            Class</label>
-                                        <select x-model="recFilters.offeringClass"
-                                            @change="fetchPurchaseRecommendations(true)" id="class"
-                                            class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md form-select">
-                                            <option value="STANDARD">Standard</option>
-                                            <option value="CONVERTIBLE">Convertible</option>
-                                        </select>
+                                    <div class="flex bg-slate-200/80 p-1 rounded-lg">
+                                        <button @click="inventoryTab = 'ris'"
+                                            class="px-4 py-1.5 text-xs font-medium rounded-md transition-all"
+                                            :class="inventoryTab === 'ris' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'">
+                                            Reserved Instances
+                                        </button>
+                                        <button @click="inventoryTab = 'sps'"
+                                            class="px-4 py-1.5 text-xs font-medium rounded-md transition-all"
+                                            :class="inventoryTab === 'sps' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'">
+                                            Savings Plans
+                                        </button>
                                     </div>
                                 </div>
-                                <div class="table-enhanced mt-4">
-                                    <table class="w-full text-sm text-left text-gray-500">
-                                        <thead class="text-xs text-gray-700 uppercase">
+
+                                <div x-show="inventoryTab === 'ris'" class="overflow-x-auto">
+                                    <table class="w-full text-sm text-left text-slate-500 pro-table">
+                                        <thead>
                                             <tr>
-                                                <th scope="col" class="px-6 py-3">Instance Family</th>
-                                                <th scope="col" class="px-6 py-3">Region</th>
-                                                <th scope="col" class="px-6 py-3">Platform</th>
-                                                <th scope="col" class="px-6 py-3">Term</th>
-                                                <th scope="col" class="px-6 py-3">Payment</th>
-                                                <th scope="col" class="px-6 py-3">On-Demand Cost</th>
-                                                <th scope="col" class="px-6 py-3">Est. Monthly Cost</th>
-                                                <th scope="col" class="px-6 py-3">Monthly Savings</th>
+                                                <th class="px-6 py-3">Details</th>
+                                                <th class="px-6 py-3">Scope / AZ</th>
+                                                <th class="px-6 py-3">Count / Offering</th>
+                                                <th class="px-6 py-3">State</th>
+                                                <th class="px-6 py-3">Utilization</th>
+                                                <th class="px-6 py-3">Expiry</th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            <template x-if="isRecsLoading">
-                                                <tr>
-                                                    <td colspan="8" class="text-center p-8">
-                                                        <div class="loading-spinner mx-auto"></div>
-                                                    </td>
-                                                </tr>
-                                            </template>
-                                            <template
-                                                x-if="!isRecsLoading && data.purchaseRecommendations && data.purchaseRecommendations.length > 0">
-                                                <template x-for="rec in data.purchaseRecommendations"
-                                                    :key="rec.instanceFamily + rec.region + rec.term">
-                                                    <tr class="border-b border-gray-200 reservation-row">
-                                                        <td class="px-6 py-4 font-medium text-gray-900"
-                                                            x-text="rec.instanceFamily"></td>
-                                                        <td class="px-6 py-4" x-text="rec.region"></td>
-                                                        <td class="px-6 py-4" x-text="rec.platform"></td>
-                                                        <td class="px-6 py-4" x-text="rec.term"></td>
-                                                        <td class="px-6 py-4"
-                                                            x-text="recFilters.paymentOption.replace('_', ' ')"></td>
-                                                        <td class="px-6 py-4"
-                                                            x-text="formatCurrency(rec.onDemandCost, false)"></td>
-                                                        <td class="px-6 py-4"
-                                                            x-text="formatCurrency(rec.estimatedMonthlyCost, false)">
+                                            <template x-if="data.inventory && data.inventory.length > 0">
+                                                <template x-for="item in data.inventory" :key="item.reservationId">
+                                                    <tr>
+                                                        <td class="px-6 py-4">
+                                                            <div class="font-semibold text-slate-800"
+                                                                x-text="item.instanceType"></div>
+                                                            <div class="text-xs text-slate-400 font-mono mt-0.5"
+                                                                x-text="item.reservationId"></div>
                                                         </td>
-                                                        <td class="px-6 py-4 text-green-600 font-bold"
-                                                            x-text="formatCurrency(rec.monthlySavings, false)">
+                                                        <td class="px-6 py-4">
+                                                            <div x-text="item.scope"></div>
+                                                            <div class="text-xs text-slate-500"
+                                                                x-text="item.availabilityZone || '-'"></div>
+                                                        </td>
+                                                        <td class="px-6 py-4">
+                                                            <div class="font-medium"
+                                                                x-text="item.instanceCount + ' Inst'"></div>
+                                                            <div class="text-xs text-slate-500"
+                                                                x-text="item.offeringType"></div>
+                                                        </td>
+                                                        <td class="px-6 py-4">
+                                                            <span class="px-2.5 py-0.5 rounded-full text-xs font-medium"
+                                                                :class="{
+                                                                    'bg-green-100 text-green-700': item.state === 'active',
+                                                                    'bg-slate-100 text-slate-600': item.state === 'retired' || item.state === 'expired',
+                                                                    'bg-yellow-100 text-yellow-700': item.state === 'pending'
+                                                                }" x-text="item.state"></span>
+                                                        </td>
+                                                        <td class="px-6 py-4">
+                                                            <div class="flex items-center gap-2">
+                                                                <div class="w-16 bg-slate-200 rounded-full h-1.5">
+                                                                    <div class="h-1.5 rounded-full"
+                                                                        :class="item.utilizationPercentage >= 90 ? 'bg-green-500' : (item.utilizationPercentage < 70 ? 'bg-red-500' : 'bg-yellow-500')"
+                                                                        :style="`width: ${item.utilizationPercentage || 0}%`">
+                                                                    </div>
+                                                                </div>
+                                                                <span class="text-xs font-medium"
+                                                                    x-text="(item.utilizationPercentage || 0).toFixed(0) + '%'"></span>
+                                                            </div>
+                                                        </td>
+                                                        <td class="px-6 py-4">
+                                                            <div x-text="formatDate(item.end)"
+                                                                :class="{'text-red-600 font-semibold': isExpiringSoon(item.end)}">
+                                                            </div>
+                                                            <div x-show="isExpiringSoon(item.end)"
+                                                                class="text-[10px] text-red-500 font-medium">Expiring
+                                                                Soon</div>
                                                         </td>
                                                     </tr>
                                                 </template>
                                             </template>
-                                            <template
-                                                x-if="!isRecsLoading && (!data.purchaseRecommendations || data.purchaseRecommendations.length === 0)">
+                                            <template x-if="!data.inventory || data.inventory.length === 0">
                                                 <tr>
-                                                    <td colspan="8" class="text-center py-12 text-gray-500">
-                                                        <div class="flex flex-col items-center">
-                                                            <i class="fas fa-lightbulb text-4xl text-gray-300 mb-4"></i>
-                                                            <h3 class="text-lg font-semibold">No Recommendations
-                                                                Available</h3>
-                                                            <p class="text-sm">Your instance usage appears to be
-                                                                optimized for your current settings.</p>
-                                                        </div>
+                                                    <td colspan="6" class="text-center py-10 text-slate-500">
+                                                        No Reserved Instances found for this account.
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                <div x-show="inventoryTab === 'sps'" class="overflow-x-auto" x-cloak>
+                                    <table class="w-full text-sm text-left text-slate-500 pro-table">
+                                        <thead>
+                                            <tr>
+                                                <th class="px-6 py-3">Plan Type</th>
+                                                <th class="px-6 py-3">Region</th>
+                                                <th class="px-6 py-3">Commitment</th>
+                                                <th class="px-6 py-3">State</th>
+                                                <th class="px-6 py-3">Term</th>
+                                                <th class="px-6 py-3">Expiry</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <template x-if="data.savingsPlans && data.savingsPlans.length > 0">
+                                                <template x-for="sp in data.savingsPlans" :key="sp.savingsPlanId">
+                                                    <tr>
+                                                        <td class="px-6 py-4">
+                                                            <div class="font-semibold text-slate-800" x-text="sp.type">
+                                                            </div>
+                                                            <div class="text-xs text-slate-400 font-mono mt-0.5"
+                                                                x-text="sp.savingsPlanId"></div>
+                                                        </td>
+                                                        <td class="px-6 py-4" x-text="sp.region || 'Global'"></td>
+                                                        <td class="px-6 py-4">
+                                                            <div class="font-medium text-slate-900"
+                                                                x-text="formatCurrency(sp.commitment)"></div>
+                                                            <div class="text-xs text-slate-500"
+                                                                x-text="sp.paymentOption"></div>
+                                                        </td>
+                                                        <td class="px-6 py-4">
+                                                            <span class="px-2.5 py-0.5 rounded-full text-xs font-medium"
+                                                                :class="{
+                                                                    'bg-green-100 text-green-700': sp.state === 'active',
+                                                                    'bg-slate-100 text-slate-600': sp.state !== 'active'
+                                                                }" x-text="sp.state"></span>
+                                                        </td>
+                                                        <td class="px-6 py-4">
+                                                            <div class="text-xs text-slate-500">
+                                                                <span x-text="formatDate(sp.start)"></span> - <span
+                                                                    x-text="formatDate(sp.end)"></span>
+                                                            </div>
+                                                        </td>
+                                                        <td class="px-6 py-4">
+                                                            <div x-text="formatDate(sp.end)"
+                                                                :class="{'text-red-600 font-semibold': isExpiringSoon(sp.end)}">
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                </template>
+                                            </template>
+                                            <template x-if="!data.savingsPlans || data.savingsPlans.length === 0">
+                                                <tr>
+                                                    <td colspan="6" class="text-center py-10 text-slate-500">
+                                                        No Savings Plans found for this account.
                                                     </td>
                                                 </tr>
                                             </template>
@@ -527,226 +405,364 @@
                                 </div>
                             </div>
                         </div>
+
+                        <div x-show="activeTab === 'recommendations'" x-cloak
+                            x-transition:enter="transition ease-out duration-200"
+                            x-transition:enter-start="opacity-0 translate-y-2"
+                            x-transition:enter-end="opacity-100 translate-y-0">
+
+                            <div class="glass-panel rounded-xl p-6 mb-6">
+                                <div class="flex items-center justify-between mb-4">
+                                    <h3 class="text-base font-semibold text-slate-800">Recommendation Parameters</h3>
+                                    <div x-show="isRecsLoading" class="text-xs text-indigo-600 flex items-center gap-2">
+                                        <i class="fas fa-circle-notch fa-spin"></i> Recalculating...
+                                    </div>
+                                </div>
+
+                                <div class="grid grid-cols-1 md:grid-cols-4 gap-5">
+                                    <div>
+                                        <label class="block text-xs font-medium text-slate-500 mb-1.5">Term
+                                            Length</label>
+                                        <select x-model="recFilters.term" @change="fetchPurchaseRecommendations(true)"
+                                            class="block w-full text-sm rounded-lg border-slate-300 bg-white shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 py-2">
+                                            <option value="ONE_YEAR">1 Year</option>
+                                            <option value="THREE_YEARS">3 Years</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-medium text-slate-500 mb-1.5">Payment
+                                            Option</label>
+                                        <select x-model="recFilters.paymentOption"
+                                            @change="fetchPurchaseRecommendations(true)"
+                                            class="block w-full text-sm rounded-lg border-slate-300 bg-white shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 py-2">
+                                            <option value="NO_UPFRONT">No Upfront</option>
+                                            <option value="PARTIAL_UPFRONT">Partial Upfront</option>
+                                            <option value="ALL_UPFRONT">All Upfront</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-medium text-slate-500 mb-1.5">Lookback
+                                            Period</label>
+                                        <select x-model="recFilters.lookback"
+                                            @change="fetchPurchaseRecommendations(true)"
+                                            class="block w-full text-sm rounded-lg border-slate-300 bg-white shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 py-2">
+                                            <option value="SEVEN_DAYS">Past 7 Days</option>
+                                            <option value="THIRTY_DAYS">Past 30 Days</option>
+                                            <option value="SIXTY_DAYS">Past 60 Days</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-medium text-slate-500 mb-1.5">Offering
+                                            Class</label>
+                                        <select x-model="recFilters.offeringClass"
+                                            @change="fetchPurchaseRecommendations(true)"
+                                            class="block w-full text-sm rounded-lg border-slate-300 bg-white shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 py-2">
+                                            <option value="STANDARD">Standard</option>
+                                            <option value="CONVERTIBLE">Convertible</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="glass-panel rounded-xl overflow-hidden">
+                                <table class="w-full text-sm text-left text-slate-500 pro-table">
+                                    <thead>
+                                        <tr>
+                                            <th class="px-6 py-3">Instance Family</th>
+                                            <th class="px-6 py-3">Region</th>
+                                            <th class="px-6 py-3">Platform</th>
+                                            <th class="px-6 py-3">Terms</th>
+                                            <th class="px-6 py-3">On-Demand Cost</th>
+                                            <th class="px-6 py-3">Est. Monthly Cost</th>
+                                            <th class="px-6 py-3">Potential Savings</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <template x-if="isRecsLoading">
+                                            <tr>
+                                                <td colspan="7" class="text-center py-12">
+                                                    <div class="flex justify-center items-center gap-2 text-indigo-600">
+                                                        <div class="loader w-5 h-5"></div>
+                                                        <span>Analyzing usage patterns...</span>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        </template>
+                                        <template
+                                            x-if="!isRecsLoading && data.purchaseRecommendations && data.purchaseRecommendations.length > 0">
+                                            <template x-for="rec in data.purchaseRecommendations"
+                                                :key="rec.instanceFamily + rec.region">
+                                                <tr>
+                                                    <td class="px-6 py-4">
+                                                        <div class="font-bold text-slate-800"
+                                                            x-text="rec.instanceFamily"></div>
+                                                        <div class="text-xs text-slate-500 mt-0.5"
+                                                            x-text="rec.recommendedInstances + ' instances'"></div>
+                                                    </td>
+                                                    <td class="px-6 py-4" x-text="rec.region"></td>
+                                                    <td class="px-6 py-4" x-text="rec.platform"></td>
+                                                    <td class="px-6 py-4">
+                                                        <div
+                                                            class="text-xs bg-slate-100 rounded px-2 py-1 inline-block border border-slate-200">
+                                                            <span x-text="rec.term"></span> / <span
+                                                                x-text="recFilters.paymentOption.replace('_', ' ').toLowerCase()"></span>
+                                                        </div>
+                                                    </td>
+                                                    <td class="px-6 py-4 line-through text-slate-400"
+                                                        x-text="formatCurrency(rec.onDemandCost, false)"></td>
+                                                    <td class="px-6 py-4 font-medium text-slate-800"
+                                                        x-text="formatCurrency(rec.estimatedMonthlyCost, false)"></td>
+                                                    <td class="px-6 py-4">
+                                                        <div class="font-bold text-green-600"
+                                                            x-text="formatCurrency(rec.monthlySavings, false)"></div>
+                                                        <div
+                                                            class="text-[10px] text-green-700 bg-green-50 px-1.5 py-0.5 rounded inline-block mt-1">
+                                                            Monthly</div>
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                        </template>
+                                        <template
+                                            x-if="!isRecsLoading && (!data.purchaseRecommendations || data.purchaseRecommendations.length === 0)">
+                                            <tr>
+                                                <td colspan="7" class="text-center py-16">
+                                                    <div class="flex flex-col items-center">
+                                                        <div
+                                                            class="w-12 h-12 bg-green-50 text-green-500 rounded-full flex items-center justify-center mb-3">
+                                                            <i class="fas fa-check text-xl"></i>
+                                                        </div>
+                                                        <h3 class="text-slate-800 font-medium">Fully Optimized</h3>
+                                                        <p class="text-slate-500 text-sm mt-1 max-w-sm text-center">We
+                                                            couldn't find any additional reservation opportunities based
+                                                            on your current filter settings.</p>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
                     </div>
                 </div>
 
                 <script>
-                    function reservationManagement() {
-                        let chartInstance = null;
+                    document.addEventListener('alpine:init', () => {
+                        Alpine.data('reservationManagement', () => {
+                            let chartInstance = null;
 
-                        return {
-                            isLoading: true,
-                            isRecsLoading: false,
-                            selectedAccountId: null,
-                            inventoryTab: 'ris', // Controls active tab
-                            data: {
-                                analysis: {},
-                                historicalData: {},
-                                inventory: [],
-                                savingsPlans: [], // Added
-                                purchaseRecommendations: [],
-                                modificationRecommendations: []
-                            },
-                            recFilters: {
-                                term: 'ONE_YEAR',
-                                paymentOption: 'NO_UPFRONT',
-                                lookback: 'THIRTY_DAYS',
-                                offeringClass: 'STANDARD'
-                            },
+                            return {
+                                activeTab: 'overview', // Default Tab
+                                isLoading: true,
+                                isRecsLoading: false,
+                                selectedAccountId: null,
+                                inventoryTab: 'ris',
+                                data: {
+                                    analysis: {},
+                                    historicalData: {},
+                                    inventory: [],
+                                    savingsPlans: [],
+                                    purchaseRecommendations: []
+                                },
+                                recFilters: {
+                                    term: 'ONE_YEAR',
+                                    paymentOption: 'NO_UPFRONT',
+                                    lookback: 'THIRTY_DAYS',
+                                    offeringClass: 'STANDARD'
+                                },
 
-                            init() {
-                                // Logic to get account ID
-                                const urlParams = new URLSearchParams(globalThis.location.search);
-                                this.selectedAccountId = urlParams.get('accountIds');
+                                init() {
+                                    const urlParams = new URLSearchParams(window.location.search);
+                                    this.selectedAccountId = urlParams.get('accountIds');
 
-                                if (!this.selectedAccountId) {
-                                    const storedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-                                    if (storedIds.length > 0) {
-                                        this.selectedAccountId = storedIds.join(',');
+                                    if (!this.selectedAccountId) {
+                                        const storedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                                        if (storedIds.length > 0) {
+                                            this.selectedAccountId = storedIds.join(',');
+                                        }
                                     }
-                                }
+                                    this.fetchReservationData(false);
+                                },
 
-                                this.fetchReservationData(false);
-                            },
+                                formatDate(dateString) {
+                                    if (!dateString) return 'N/A';
+                                    const date = new Date(dateString);
+                                    return isNaN(date.getTime()) ? dateString : date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+                                },
 
-                            // CHANGE: Helper function to safely format dates
-                            formatDate(dateString) {
-                                if (!dateString) return 'N/A';
-                                const date = new Date(dateString);
-                                return Number.isNaN(date.getTime()) ? dateString : date.toLocaleDateString();
-                            },
+                                isExpiringSoon(endDate) {
+                                    if (!endDate) return false;
+                                    const today = new Date();
+                                    const expiry = new Date(endDate);
+                                    const threshold = new Date();
+                                    threshold.setDate(today.getDate() + 60);
+                                    return expiry > today && expiry < threshold;
+                                },
 
-                            // Correct Logic: Expiring soon = Future Date AND < 60 days
-                            isExpiringSoon(endDate) {
-                                if (!endDate) return false;
-                                const today = new Date();
-                                const expiry = new Date(endDate);
-                                const threshold = new Date();
-                                threshold.setDate(today.getDate() + 60);
+                                formatCurrency(val, isHourly = true) {
+                                    if (!val) return 'N/A';
+                                    let numStr = String(val).replace(/[^0-9.]/g, '');
+                                    const num = parseFloat(numStr);
+                                    if (isNaN(num)) return val;
+                                    const decimals = (isHourly && num < 1) ? 4 : 2;
+                                    return '$' + num.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals }) + (isHourly ? '/hr' : '');
+                                },
 
-                                // Must be in the future AND within threshold
-                                return expiry > today && expiry < threshold;
-                            },
+                                initCharts() {
+                                    if (!this.data.historicalData || !this.data.historicalData.labels || this.data.historicalData.labels.length === 0) {
+                                        return;
+                                    }
 
-                            // Check if expired
-                            isExpired(endDate) {
-                                if (!endDate) return false;
-                                const today = new Date();
-                                const expiry = new Date(endDate);
-                                return expiry < today;
-                            },
+                                    const canvas = this.$refs.utilizationChart;
+                                    if (!canvas) return;
+                                    const ctx = canvas.getContext('2d');
 
-                            // Clean currency formatting
-                            formatCurrency(val, isHourly = true) {
-                                if (!val) return 'N/A';
-                                // Remove all slashes and text chars to leave just the number
-                                let numStr = String(val).replaceAll(/[^0-9.]/g, '');
-                                const num = Number.parseFloat(numStr);
-                                if (Number.isNaN(num)) return val;
+                                    if (chartInstance) {
+                                        chartInstance.destroy();
+                                    }
 
-                                // if hourly and very small, show 4 decimals, else 2
-                                const decimals = (isHourly && num < 1) ? 4 : 2;
-                                return '$' + num.toFixed(decimals) + (isHourly ? '/hr' : '');
-                            },
+                                    // Create gradients
+                                    const gradientUtil = ctx.createLinearGradient(0, 0, 0, 300);
+                                    gradientUtil.addColorStop(0, 'rgba(79, 70, 229, 0.2)'); // Indigo
+                                    gradientUtil.addColorStop(1, 'rgba(79, 70, 229, 0)');
 
-                            initCharts() {
-                                if (!this.data.historicalData || !this.data.historicalData.labels || this.data.historicalData.labels.length === 0) {
-                                    return;
-                                }
+                                    const gradientCov = ctx.createLinearGradient(0, 0, 0, 300);
+                                    gradientCov.addColorStop(0, 'rgba(16, 185, 129, 0.2)'); // Green
+                                    gradientCov.addColorStop(1, 'rgba(16, 185, 129, 0)');
 
-                                // CHANGE: Added safety check if canvas is not found yet
-                                const canvas = this.$refs.utilizationChart;
-                                if (!canvas) return;
-                                const ctx = canvas.getContext('2d');
-
-                                if (chartInstance) {
-                                    chartInstance.destroy();
-                                }
-
-                                chartInstance = new Chart(ctx, {
-                                    type: 'line',
-                                    data: {
-                                        labels: this.data.historicalData.labels,
-                                        datasets: [
-                                            {
-                                                label: 'Utilization Percentage',
-                                                data: this.data.historicalData.utilizationPercentages,
-                                                borderColor: '#667eea',
-                                                backgroundColor: 'rgba(102, 126, 234, 0.1)',
-                                                fill: false,
-                                                tension: 0.3
+                                    chartInstance = new Chart(ctx, {
+                                        type: 'line',
+                                        data: {
+                                            // Use labels directly from backend (e.g., "Jan 2025", "Feb 2025")
+                                            labels: this.data.historicalData.labels,
+                                            datasets: [
+                                                {
+                                                    label: 'Utilization %',
+                                                    data: this.data.historicalData.utilizationPercentages,
+                                                    borderColor: '#4f46e5',
+                                                    backgroundColor: gradientUtil,
+                                                    borderWidth: 2,
+                                                    pointBackgroundColor: '#fff',
+                                                    pointBorderColor: '#4f46e5',
+                                                    fill: true,
+                                                    tension: 0.4
+                                                },
+                                                {
+                                                    label: 'Coverage %',
+                                                    data: this.data.historicalData.coveragePercentages,
+                                                    borderColor: '#10b981',
+                                                    backgroundColor: gradientCov,
+                                                    borderWidth: 2,
+                                                    pointBackgroundColor: '#fff',
+                                                    pointBorderColor: '#10b981',
+                                                    fill: true,
+                                                    tension: 0.4
+                                                }
+                                            ]
+                                        },
+                                        options: {
+                                            responsive: true,
+                                            maintainAspectRatio: false,
+                                            plugins: {
+                                                legend: {
+                                                    position: 'top',
+                                                    align: 'end',
+                                                    labels: { usePointStyle: true, boxWidth: 8 }
+                                                },
+                                                tooltip: {
+                                                    mode: 'index',
+                                                    intersect: false,
+                                                    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                                                    titleColor: '#1e293b',
+                                                    bodyColor: '#475569',
+                                                    borderColor: '#e2e8f0',
+                                                    borderWidth: 1
+                                                }
                                             },
-                                            {
-                                                label: 'Coverage Percentage',
-                                                data: this.data.historicalData.coveragePercentages,
-                                                borderColor: '#10b981',
-                                                backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                                                fill: false,
-                                                tension: 0.3
-                                            }
-                                        ]
-                                    },
-                                    options: {
-                                        responsive: true,
-                                        maintainAspectRatio: false,
-                                        scales: {
-                                            y: {
-                                                beginAtZero: true,
-                                                max: 100,
-                                                title: {
-                                                    display: true,
-                                                    text: 'Percentage (%)'
+                                            scales: {
+                                                x: {
+                                                    // CRITICAL FIX: Use 'category' so chart.js doesn't try to smart-parse dates and shift timezones
+                                                    type: 'category',
+                                                    grid: { display: false }
+                                                },
+                                                y: {
+                                                    beginAtZero: true,
+                                                    max: 100,
+                                                    grid: { borderDash: [2, 4], color: '#f1f5f9' },
+                                                    title: { display: true, text: 'Percentage (%)' }
                                                 }
                                             }
                                         }
-                                    }
-                                });
-                            },
+                                    });
+                                },
 
-                            fetchReservationData(forceRefresh = false) {
-                                if (!this.selectedAccountId) {
-                                    this.isLoading = false;
-                                    return;
-                                }
-
-                                // CHANGE: Added caching logic (similar to other files) to prevent flashing on soft reload
-                                const cacheKey = `reservationData-${this.selectedAccountId}`;
-                                const cachedData = sessionStorage.getItem(cacheKey);
-
-                                if (cachedData && !forceRefresh) {
-                                    this.data = JSON.parse(cachedData);
-                                    // Ensure savingsPlans array exists even if cache is old
-                                    if (!this.data.savingsPlans) this.data.savingsPlans = [];
-                                    this.isLoading = false;
-                                    this.$nextTick(() => this.initCharts());
-                                    return;
-                                }
-
-                                this.isLoading = true;
-
-                                const url = `/api/xamops/reservations?accountId=${this.selectedAccountId}&forceRefresh=${forceRefresh}`;
-
-                                fetch(url)
-                                    .then(res => {
-                                        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-                                        return res.json();
-                                    })
-                                    .then(data => {
-                                        this.data = data;
-                                        // Ensure savingsPlans array exists
-                                        if (!this.data.savingsPlans) this.data.savingsPlans = [];
-
-                                        // CHANGE: Save to cache
-                                        sessionStorage.setItem(cacheKey, JSON.stringify(data));
-                                        this.$nextTick(() => this.initCharts());
-                                    })
-                                    .catch(err => {
-                                        console.error('Failed to load reservation data:', err);
-                                        // Reset data on failure
-                                        this.data = {
-                                            analysis: {},
-                                            historicalData: {},
-                                            inventory: [],
-                                            savingsPlans: [],
-                                            purchaseRecommendations: [],
-                                            modificationRecommendations: []
-                                        };
-                                    })
-                                    .finally(() => {
+                                fetchReservationData(forceRefresh = false) {
+                                    if (!this.selectedAccountId) {
                                         this.isLoading = false;
-                                        this.isRecsLoading = false;
-                                    });
-                            },
+                                        return;
+                                    }
 
-                            fetchPurchaseRecommendations(forceRefresh = false) {
-                                if (!this.selectedAccountId) return;
+                                    const cacheKey = `reservationData-${this.selectedAccountId}`;
+                                    const cachedData = sessionStorage.getItem(cacheKey);
 
-                                this.isRecsLoading = true;
+                                    if (cachedData && !forceRefresh) {
+                                        this.data = JSON.parse(cachedData);
+                                        if (!this.data.savingsPlans) this.data.savingsPlans = [];
+                                        this.isLoading = false;
+                                        this.$nextTick(() => this.initCharts());
+                                        return;
+                                    }
 
-                                const { term, paymentOption, lookback, offeringClass } = this.recFilters;
-                                const url = `/api/xamops/reservations/recommendations?accountId=${this.selectedAccountId}&term=${term}&paymentOption=${paymentOption}&lookback=${lookback}&offeringClass=${offeringClass}&forceRefresh=${forceRefresh}`;
+                                    this.isLoading = true;
+                                    const url = `/api/xamops/reservations?accountId=${this.selectedAccountId}&forceRefresh=${forceRefresh}`;
 
-                                fetch(url)
-                                    .then(res => res.json())
-                                    .then(data => {
-                                        this.data.purchaseRecommendations = data;
-                                        // Optional: Update the specific part of cache if you wanted, but keeping it simple for now
-                                    })
-                                    .catch(err => {
-                                        console.error('Failed to load purchase recommendations:', err);
-                                        this.data.purchaseRecommendations = [];
-                                    })
-                                    .finally(() => {
-                                        this.isRecsLoading = false;
-                                    });
-                            },
-                        }
-                    }
+                                    fetch(url)
+                                        .then(res => {
+                                            if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                                            return res.json();
+                                        })
+                                        .then(data => {
+                                            this.data = data;
+                                            if (!this.data.savingsPlans) this.data.savingsPlans = [];
+                                            sessionStorage.setItem(cacheKey, JSON.stringify(data));
+                                            this.$nextTick(() => this.initCharts());
+                                        })
+                                        .catch(err => {
+                                            console.error('Failed to load reservation data:', err);
+                                        })
+                                        .finally(() => {
+                                            this.isLoading = false;
+                                        });
+                                },
+
+                                fetchPurchaseRecommendations(forceRefresh = false) {
+                                    if (!this.selectedAccountId) return;
+                                    this.isRecsLoading = true;
+
+                                    const { term, paymentOption, lookback, offeringClass } = this.recFilters;
+                                    const url = `/api/xamops/reservations/recommendations?accountId=${this.selectedAccountId}&term=${term}&paymentOption=${paymentOption}&lookback=${lookback}&offeringClass=${offeringClass}&forceRefresh=${forceRefresh}`;
+
+                                    fetch(url)
+                                        .then(res => res.json())
+                                        .then(data => {
+                                            this.data.purchaseRecommendations = data;
+                                        })
+                                        .catch(err => {
+                                            console.error('Failed to load purchase recommendations:', err);
+                                            this.data.purchaseRecommendations = [];
+                                        })
+                                        .finally(() => {
+                                            this.isRecsLoading = false;
+                                        });
+                                },
+                            };
+                        });
+                    });
                 </script>
             </main>
         </div>
     </div>
-
 </body>
 
 </html>
