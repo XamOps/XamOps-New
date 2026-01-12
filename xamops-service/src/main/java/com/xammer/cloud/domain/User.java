@@ -33,6 +33,9 @@ public class User {
     // --- ✅ MODIFIED THIS LINE ---
     @Column(nullable = false)
     private String role; // e.g., "USER", "ADMIN", "BILLOPS", "XAMOPS"
+    
+    @Column(name = "is_tour_seen", nullable = false)
+    private boolean isTourSeen = false;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "client_id", nullable = false)

@@ -6,10 +6,12 @@ public class UserProfileDto {
     private Long id;
     private String username;
     private List<String> roles;
+    private boolean tourSeen;
 
-    public UserProfileDto(String username, List<String> roles) {
+    public UserProfileDto(String username, List<String> roles, boolean tourSeen) {
         this.username = username;
         this.roles = roles;
+        this.tourSeen = tourSeen;
     }
 
     // Getters and Setters
@@ -36,4 +38,8 @@ public class UserProfileDto {
     public void setRoles(List<String> roles) { 
         this.roles = roles; 
     }
+
+    public boolean isTourSeen() { return tourSeen; }
+    public void setTourSeen(boolean tourSeen) { this.tourSeen = tourSeen; }
+
 }

@@ -1,13 +1,16 @@
 package com.xammer.cloud.controller;
-import com.xammer.cloud.security.ClientUserDetails;
 
-import com.xammer.cloud.domain.User; // --- IMPORT User ---
+import com.xammer.cloud.security.ClientUserDetails;
+import com.xammer.cloud.domain.User;
 import com.xammer.cloud.dto.UserProfileDto;
+import com.xammer.cloud.repository.UserRepository; // --- ✅ IMPORTED ---
+import org.springframework.beans.factory.annotation.Autowired; // --- ✅ IMPORTED ---
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping; // --- ✅ IMPORTED ---
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -15,10 +18,14 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 @RestController
-@RequestMapping("/api/xamops/user") // --- FIX: Changed path to /api/xamops/user ---
+@RequestMapping("/api/xamops/user")
 public class UserProfileController {
 
-@GetMapping("/profile")
+    // --- ✅ INJECT REPOSITORY ---
+    @Autowired
+    private UserRepository userRepository;
+
+    @GetMapping("/profile")
     public ResponseEntity<UserProfileDto> getUserProfile() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
 
@@ -31,17 +38,47 @@ public class UserProfileController {
                 .map(GrantedAuthority::getAuthority)
                 .collect(Collectors.toList());
 
-        UserProfileDto userProfile = new UserProfileDto(username, roles);
+        // --- ✅ FETCH DB STATUS ---
+        boolean isTourSeen = true; // Default safe fallback
+        Long userId = null;
 
-        // ✅ THIS IS THE FIX:
-        // Change the check from 'User' to 'ClientUserDetails'
         Object principal = authentication.getPrincipal();
         if (principal instanceof ClientUserDetails) {
-            // Get the ID from the ClientUserDetails object
-            userProfile.setId(((ClientUserDetails) principal).getId());
+            userId = ((ClientUserDetails) principal).getId();
+            
+            // Fetch real status from DB
+            User user = userRepository.findById(userId).orElse(null);
+            if (user != null) {
+                isTourSeen = user.isTourSeen();
+            }
         }
-        // --- END OF FIX ---
+
+        // --- ✅ PASS 3 ARGUMENTS TO CONSTRUCTOR ---
+        UserProfileDto userProfile = new UserProfileDto(username, roles, isTourSeen);
+
+        if (userId != null) {
+            userProfile.setId(userId);
+        }
         
         return ResponseEntity.ok(userProfile);
+    }
+
+    // --- ✅ ADDED ENDPOINT TO UPDATE STATUS ---
+    @PostMapping("/tour-seen")
+    public ResponseEntity<Void> markTourAsSeen() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        Object principal = authentication.getPrincipal();
+
+        if (principal instanceof ClientUserDetails) {
+            Long userId = ((ClientUserDetails) principal).getId();
+            User user = userRepository.findById(userId).orElse(null);
+            
+            if (user != null) {
+                user.setTourSeen(true); // Set to true
+                userRepository.save(user); // Save to DB
+                return ResponseEntity.ok().build();
+            }
+        }
+        return ResponseEntity.notFound().build();
     }
 }
