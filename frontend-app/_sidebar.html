@@ -67,7 +67,12 @@
     })();
 </script>
 
-<style>
+<style data-global>
+    /* Hide elements with x-cloak until Alpine is ready */
+    [x-cloak] {
+        display: none !important;
+    }
+
     /* Toggle Switch Styles */
     .toggle-switch {
         position: relative;
@@ -126,6 +131,8 @@
 
 <div class="w-64 fixed top-0 left-0 h-screen flex flex-col bg-white shadow-xl z-30" x-data="{
     open: false,
+    // Shared state for dropdown menu management - only one can be open at a time
+    openDropdown: null,
     // 1. OPTIMIZATION: Load from cache immediately to prevent flicker
     accounts: JSON.parse(sessionStorage.getItem('cached_accounts') || '[]'),
     selectedAccountIds: [],
@@ -137,7 +144,7 @@
     multiAccountMode: false,
     isDashboardPage: false,
     isBillingPage: false,
-   
+
     // SuperAdmin Specific State
     tenantList: [],
     tenantUsers: [],
@@ -893,17 +900,18 @@
             </div>
 
             <div class="sidebar-section" :class="{'active': isActive('/finops')}">
-                <div x-data="{ open: isActive('/finops') }">
-                    <button @click="open = !open"
+                <div x-init="if (isActive('/finops')) openDropdown = 'finops'">
+                    <button @click="openDropdown = openDropdown === 'finops' ? null : 'finops'"
                         class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold"
                         :class="isActive('/finops') ? 'bg-gradient-to-r from-green-500 to-teal-600 text-white shadow-lg' : 'text-gray-600 hover:bg-green-50'">
                         <div class="flex items-center gap-3">
                             <i class="fas fa-cogs fa-fw w-5 text-center"></i>
                             <span>FinOps</span>
                         </div>
-                        <i class="fas fa-chevron-down text-xs transition-transform" :class="open && 'rotate-180'"></i>
+                        <i class="fas fa-chevron-down text-xs transition-transform"
+                            :class="openDropdown === 'finops' && 'rotate-180'"></i>
                     </button>
-                    <div x-show="open" class="ml-6 mt-2 space-y-1">
+                    <div x-show="openDropdown === 'finops'" class="ml-6 mt-2 space-y-1">
                         <a :href="getLink('/finops.html')"
                             :class="{'text-green-600 font-bold bg-green-50': isActive('/finops.html')}"
                             class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-green-600">FinOps
@@ -933,17 +941,18 @@
             </div>
 
             <div class="sidebar-section" :class="{'active': isActive('/cloudops')}">
-                <div x-data="{ open: isActive('/cloudops') }">
-                    <button @click="open = !open"
+                <div x-init="if (isActive('/cloudops')) openDropdown = 'cloudops'">
+                    <button @click="openDropdown = openDropdown === 'cloudops' ? null : 'cloudops'"
                         class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold"
                         :class="isActive('/cloudops') ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg' : 'text-gray-600 hover:bg-indigo-50'">
                         <div class="flex items-center gap-3">
                             <i class="fas fa-chart-line fa-fw w-5 text-center"></i>
                             <span>CloudOps</span>
                         </div>
-                        <i class="fas fa-chevron-down text-xs transition-transform" :class="open && 'rotate-180'"></i>
+                        <i class="fas fa-chevron-down text-xs transition-transform"
+                            :class="openDropdown === 'cloudops' && 'rotate-180'"></i>
                     </button>
-                    <div x-show="open" class="ml-6 mt-2 space-y-1">
+                    <div x-show="openDropdown === 'cloudops'" class="ml-6 mt-2 space-y-1">
                         <a :href="getLink('/grafana-dashboard.html')"
                             :class="{'text-indigo-600 font-bold bg-indigo-50': isActive('/grafana-dashboard.html')}"
                             class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-indigo-600">Grafana</a>
@@ -976,17 +985,18 @@
             </div>
 
             <div class="sidebar-section" :class="{'active': isActive('/security')}">
-                <div x-data="{ open: isActive('/security') }">
-                    <button @click="open = !open"
+                <div x-init="if (isActive('/security')) openDropdown = 'security'">
+                    <button @click="openDropdown = openDropdown === 'security' ? null : 'security'"
                         class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold"
                         :class="isActive('/security') ? 'bg-gradient-to-r from-red-500 to-orange-600 text-white shadow-lg' : 'text-gray-600 hover:bg-red-50'">
                         <div class="flex items-center gap-3">
                             <i class="fas fa-shield-alt fa-fw w-5 text-center"></i>
                             <span>SecOps</span>
                         </div>
-                        <i class="fas fa-chevron-down text-xs transition-transform" :class="open && 'rotate-180'"></i>
+                        <i class="fas fa-chevron-down text-xs transition-transform"
+                            :class="openDropdown === 'security' && 'rotate-180'"></i>
                     </button>
-                    <div x-show="open" class="ml-6 mt-2 space-y-1">
+                    <div x-show="openDropdown === 'security'" class="ml-6 mt-2 space-y-1">
                         <a :href="getLink('/security.html')"
                             :class="{'text-red-600 font-bold bg-red-50': isActive('/security.html')}"
                             class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-red-600">Security</a>
@@ -1009,8 +1019,8 @@
         <div x-show="hasAnyRole(['ROLE_XAMOPS', 'ROLE_BILLOPS', 'ROLE_SUPER_ADMIN']) && !hasAnyRole(['ROLE_BILLOPS_ADMIN'])"
             x-cloak class="relative">
             <div class="sidebar-section" :class="{'active': isActive('/billops/')}">
-                <div x-data="{ open: isActive('/billops/') }">
-                    <div x-show="open" x-transition:enter="transition ease-out duration-200"
+                <div x-init="if (isActive('/billops/')) openDropdown = 'billops'">
+                    <div x-show="openDropdown === 'billops'" x-transition:enter="transition ease-out duration-200"
                         x-transition:enter-start="opacity-0 -translate-y-2"
                         x-transition:enter-end="opacity-100 translate-y-0"
                         x-transition:leave="transition ease-in duration-150"
@@ -1036,14 +1046,15 @@
                         </div>
                     </div>
 
-                    <button @click="open = !open"
+                    <button @click="openDropdown = openDropdown === 'billops' ? null : 'billops'"
                         class="nav-item w-full flex items-center justify-between rounded-xl px-7 py-3 font-semibold"
                         :class="isActive('/billops/') ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg' : 'text-gray-600 hover:bg-cyan-50'">
                         <div class="flex items-center">
                             <i class="fas fa-file-invoice-dollar fa-fw w-5 text-center"></i>
                             <span>BillOps</span>
                         </div>
-                        <i class="fas fa-chevron-down text-xs transition-transform" :class="open && 'rotate-180'"></i>
+                        <i class="fas fa-chevron-down text-xs transition-transform"
+                            :class="openDropdown === 'billops' && 'rotate-180'"></i>
                     </button>
                 </div>
             </div>
@@ -1051,8 +1062,8 @@
         <div x-show="hasAnyRole('ROLE_BILLOPS_ADMIN')" x-cloak class="relative">
 
             <div class="sidebar-section">
-                <div x-data="{ open: isActive('/billops/admin_') }">
-                    <div x-show="open" x-transition:enter="transition ease-out duration-200"
+                <div x-init="if (isActive('/billops/admin_')) openDropdown = 'billops-admin'">
+                    <div x-show="openDropdown === 'billops-admin'" x-transition:enter="transition ease-out duration-200"
                         x-transition:enter-start="opacity-0 -translate-y-2"
                         x-transition:enter-end="opacity-100 translate-y-0"
                         x-transition:leave="transition ease-in duration-150"
@@ -1083,15 +1094,16 @@
                         </div>
                     </div>
 
-                    <button @click="open = !open"
+                    <button @click="openDropdown = openDropdown === 'billops-admin' ? null : 'billops-admin'"
                         class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold mx-3"
                         :class="isActive('/billops/admin_') ? 'bg-gradient-to-r from-gray-700 to-gray-800 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-100'">
                         <div x-show="hasAnyRole('ROLE_BILLOPS_ADMIN')" x-cloak>
                             <div class="px-3 py-2 text-xs font-semibold text-gray-400 uppercase">Admin Tools</div>
 
                             <div class="sidebar-section">
-                                <div x-data="{ open: isActive('/billops/admin_') }">
-                                    <button @click="open = !open"
+                                <div x-init="if (isActive('/billops/admin_')) openDropdown = 'billops-admin-nested'">
+                                    <button
+                                        @click="openDropdown = openDropdown === 'billops-admin-nested' ? null : 'billops-admin-nested'"
                                         class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold mx-3"
                                         :class="isActive('/billops/admin_') ? 'bg-gradient-to-r from-gray-700 to-gray-800 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-100'">
                                         <div class="flex items-center gap-3">
@@ -1099,7 +1111,7 @@
                                             <span>Admin Console</span>
                                         </div>
                                         <i class="fas fa-chevron-down text-xs transition-transform"
-                                            :class="open && 'rotate-180'"></i>
+                                            :class="openDropdown === 'billops-admin-nested' && 'rotate-180'"></i>
                                     </button>
 
                                     <div x-show="open" x-transition:enter="transition ease-out duration-200"
@@ -1131,8 +1143,10 @@
                                     </div>
                                 </div>
 
-                                <div x-data="{ open: isActive('/billops/licenses_') }" class="mt-2">
-                                    <button @click="open = !open"
+                                <div x-init="if (isActive('/billops/licenses_')) openDropdown = 'billops-licenses'"
+                                    class="mt-2">
+                                    <button
+                                        @click="openDropdown = openDropdown === 'billops-licenses' ? null : 'billops-licenses'"
                                         class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold mx-3"
                                         :class="isActive('/billops/licenses_') ? 'bg-gradient-to-r from-gray-700 to-gray-800 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-100'">
                                         <div class="flex items-center gap-3">
@@ -1140,10 +1154,11 @@
                                             <span>Licenses</span>
                                         </div>
                                         <i class="fas fa-chevron-down text-xs transition-transform"
-                                            :class="open && 'rotate-180'"></i>
+                                            :class="openDropdown === 'billops-licenses' && 'rotate-180'"></i>
                                     </button>
 
-                                    <div x-show="open" x-transition:enter="transition ease-out duration-200"
+                                    <div x-show="openDropdown === 'billops-licenses'"
+                                        x-transition:enter="transition ease-out duration-200"
                                         x-transition:enter-start="opacity-0 -translate-y-2"
                                         x-transition:enter-end="opacity-100 translate-y-0"
                                         x-transition:leave="transition ease-in duration-150"
@@ -1189,8 +1204,9 @@
                                 <div class="sidebar-section"
                                     :class="{'active': isActive('/account-manager') || isActive('/user-manager') || isActive('/Xamops_User_management') || isActive('/superadmin_customers')}">
                                     <div
-                                        x-data="{ open: isActive('/account-manager') || isActive('/user-manager') || isActive('/Xamops_User_management') || isActive('/superadmin_customers') }">
-                                        <div x-show="open" x-transition:enter="transition ease-out duration-200"
+                                        x-init="if (isActive('/account-manager') || isActive('/user-manager') || isActive('/Xamops_User_management') || isActive('/superadmin_customers')) openDropdown = 'settings'">
+                                        <div x-show="openDropdown === 'settings'"
+                                            x-transition:enter="transition ease-out duration-200"
                                             x-transition:enter-start="opacity-0 -translate-y-2"
                                             x-transition:enter-end="opacity-100 translate-y-0"
                                             x-transition:leave="transition ease-in duration-150"
@@ -1220,7 +1236,7 @@
                                             </div>
                                         </div>
 
-                                        <button @click="open = !open"
+                                        <button @click="openDropdown = openDropdown === 'settings' ? null : 'settings'"
                                             class="nav-item w-full flex items-center justify-between rounded-xl px-7 py-3 font-semibold"
                                             :class="isActive('/account-manager') || isActive('/user-manager') || isActive('/Xamops_User_management') || isActive('/superadmin_customers') ? 'bg-gradient-to-r from-gray-500 to-gray-600 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-50'">
                                             <div class="flex items-center">
@@ -1228,7 +1244,7 @@
                                                 <span>Settings</span>
                                             </div>
                                             <i class="fas fa-chevron-down text-xs transition-transform"
-                                                :class="open && 'rotate-180'"></i>
+                                                :class="openDropdown === 'settings' && 'rotate-180'"></i>
                                         </button>
                                     </div>
                                 </div>
