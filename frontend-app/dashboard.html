@@ -110,6 +110,8 @@
         }
 
         .kpi-card .main-content {
+            position: relative;
+            z-index: 1;
             transition: opacity 0.3s ease-in-out;
         }
 
@@ -123,13 +125,15 @@
             left: 0;
             right: 0;
             bottom: 0;
-            opacity: 0;
+            opacity: 0 !important;
             transition: opacity 0.3s ease-in-out;
             pointer-events: none;
+            visibility: hidden;
         }
 
         .kpi-card:hover .sparkline-container {
-            opacity: 1;
+            opacity: 1 !important;
+            visibility: visible;
         }
 
         .resource-card {
