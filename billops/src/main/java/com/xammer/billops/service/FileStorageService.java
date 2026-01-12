@@ -35,6 +35,9 @@ public class FileStorageService {
         this.s3Presigner = s3Presigner;
     }
 
+    /**
+     * Uploads a MultipartFile (from HTTP request) to S3.
+     */
     public String uploadFile(MultipartFile file) {
         String originalFilename = file.getOriginalFilename();
         if (originalFilename == null || originalFilename.isBlank()) {
@@ -56,6 +59,28 @@ public class FileStorageService {
         } catch (IOException e) {
             logger.error("Failed to upload file to S3", e);
             throw new RuntimeException("Failed to upload attachment", e);
+        }
+    }
+
+    /**
+     * NEW METHOD: Uploads raw byte content (e.g., generated PDFs) to S3.
+     */
+    public String uploadFileBytes(String fileName, byte[] content, String contentType) {
+        // Create a unique key specific for RCA documents
+        String key = "rca/" + UUID.randomUUID() + "/" + fileName;
+
+        try {
+            PutObjectRequest putOb = PutObjectRequest.builder()
+                    .bucket(bucketName)
+                    .key(key)
+                    .contentType(contentType)
+                    .build();
+
+            s3Client.putObject(putOb, RequestBody.fromBytes(content));
+            return key;
+        } catch (Exception e) {
+            logger.error("Failed to upload byte content to S3", e);
+            throw new RuntimeException("Failed to upload file content", e);
         }
     }
 
