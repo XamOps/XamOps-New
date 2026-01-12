@@ -13,6 +13,7 @@ import com.xammer.cloud.dto.gcp.GcpDashboardData;
 import com.xammer.cloud.dto.sonarqube.SonarQubeMetricsDto;
 import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.repository.JobExecutionHistoryRepository;
 import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.service.gcp.GcpDataService;
@@ -59,6 +60,10 @@ public class DashboardDataService {
     private static final String SNAPSHOT_KEY_GCP = "UNIFIED_DASHBOARD_GCP";
     private static final String SNAPSHOT_KEY_AZURE = "UNIFIED_DASHBOARD_AZURE";
 
+    // Currency Conversion Rate: INR to USD
+    // GCP billing in India is in INR, we convert to USD for unified display
+    private static final double INR_TO_USD_RATE = 0.012; // Approximately 1 INR = 0.012 USD (83 INR = 1 USD)
+
     private final CloudAccountRepository cloudAccountRepository;
     private final AwsClientProvider awsClientProvider;
     private final GcpDataService gcpDataService;
@@ -78,6 +83,11 @@ public class DashboardDataService {
     // Phase 2: Master Data Access for Tenant Iteration
     private final JdbcTemplate masterJdbcTemplate;
 
+    private final JobExecutionHistoryRepository jobExecutionHistoryRepository;
+
+    // ADDED: Environment-aware configuration
+    private final com.xammer.cloud.config.SchedulingEnvironmentConfig envConfig;
+
     @Autowired
     public DashboardDataService(
             CloudAccountRepository cloudAccountRepository,
@@ -95,7 +105,9 @@ public class DashboardDataService {
             @Lazy com.xammer.cloud.service.azure.AzureDashboardService azureDashboardService,
             @Lazy SonarQubeService sonarQubeService,
             UserRepository userRepository,
-            @Qualifier("masterDataSource") DataSource masterDataSource) {
+            JobExecutionHistoryRepository jobExecutionHistoryRepository,
+            @Qualifier("masterDataSource") DataSource masterDataSource,
+            com.xammer.cloud.config.SchedulingEnvironmentConfig envConfig) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.gcpDataService = gcpDataService;
@@ -111,7 +123,9 @@ public class DashboardDataService {
         this.azureDashboardService = azureDashboardService;
         this.sonarQubeService = sonarQubeService;
         this.userRepository = userRepository;
+        this.jobExecutionHistoryRepository = jobExecutionHistoryRepository;
         this.masterJdbcTemplate = new JdbcTemplate(masterDataSource);
+        this.envConfig = envConfig;
     }
 
     // ============================================================================================
@@ -119,12 +133,12 @@ public class DashboardDataService {
     // ============================================================================================
 
     /**
-     * Runs every 5 minutes to pre-calculate dashboard data for all tenants.
-     * Uses fixedDelay to ensure the next run waits 5 minutes AFTER the previous one
-     * finishes.
-     * This prevents overlap if a run takes longer than 5 minutes.
+     * OPTIMIZED: Runs once daily to pre-calculate dashboard data for the current tenant only.
+     * Changed from every 6 hours to daily at 1:00 AM to reduce AWS API costs.
+     * Uses cron schedule instead of fixedDelay to ensure predictable execution time.
+     * No immediate execution on startup - waits until scheduled time.
      */
-    @Scheduled(fixedDelay = 300000) // 5 minutes delay after completion
+    @Scheduled(cron = "0 0 1 * * ?") // Daily at 1:00 AM
     public void runBackgroundAggregation() {
         logger.info("⚡ [Async-Aggregator] Starting global dashboard aggregation...");
         long totalStart = System.currentTimeMillis();
@@ -139,19 +153,53 @@ public class DashboardDataService {
 
         for (String tenantId : activeTenants) {
             long tenantStart = System.currentTimeMillis();
+            com.xammer.cloud.domain.JobExecutionHistory jobHistory = new com.xammer.cloud.domain.JobExecutionHistory(
+                    "DASHBOARD_AGGREGATION", tenantId, LocalDateTime.now(), "RUNNING");
+
+            // We need to save this in the TENANT context? No, this history should probably
+            // be in the tenant DB.
+            // However, the `runBackgroundAggregation` iterates over tenants.
+            // If we want a central history, it should be in master DB, but we are using
+            // JpaRepository which usually binds to the current tenant DataSource.
+            // Given the requirement "in database the data should store in proper format",
+            // keeping it in the tenant DB is safer/easier with existing Jpa setup.
+
+            // Note: We need to switch context BEFORE saving the start record if we want it
+            // in Tenant DB.
+
             try {
                 TenantContext.setCurrentTenant(tenantId);
+
+                // Save START record
+                jobHistory = jobExecutionHistoryRepository.save(jobHistory);
+
                 logger.info(">> Processing Tenant: {}", tenantId);
 
-                // Add a check to verify we are in the correct database context if possible,
-                // or just rely on the logs to show successful save.
+                int processedCount = aggregateTenantData(tenantId);
 
-                aggregateTenantData(tenantId);
+                jobHistory.setEndTime(LocalDateTime.now());
+                jobHistory.setStatus("SUCCESS");
+                jobHistory.setItemsProcessed(processedCount);
+                jobExecutionHistoryRepository.save(jobHistory);
+
                 logger.info("<< Finished Tenant: {} | Time: {}ms | Saved to DB Context: {}", tenantId,
                         (System.currentTimeMillis() - tenantStart), tenantId);
             } catch (Exception e) {
                 logger.error("❌ Failed to process tenant {} | Time: {}ms", tenantId,
                         (System.currentTimeMillis() - tenantStart), e);
+
+                // Try to log failure to DB implementation
+                try {
+                    // Ensure we are still in context to save error
+                    if (jobHistory.getId() != null) {
+                        jobHistory.setEndTime(LocalDateTime.now());
+                        jobHistory.setStatus("FAILURE");
+                        jobHistory.setErrorMessage(e.getMessage());
+                        jobExecutionHistoryRepository.save(jobHistory);
+                    }
+                } catch (Exception writeEx) {
+                    logger.error("Failed to write failure log to DB", writeEx);
+                }
             } finally {
                 TenantContext.clear();
             }
@@ -160,22 +208,47 @@ public class DashboardDataService {
                 (System.currentTimeMillis() - totalStart));
     }
 
+    /**
+     * Fetch active tenants - ENVIRONMENT AWARE
+     * Only returns the tenant associated with the current environment
+     */
     private List<String> fetchActiveTenants() {
         try {
-            return masterJdbcTemplate.queryForList("SELECT tenant_id FROM tenant_config WHERE active = true",
-                    String.class);
+            if (!envConfig.isSchedulingEnabled()) {
+                logger.info("⚠️ Scheduling is disabled in this environment");
+                return Collections.emptyList();
+            }
+
+            String currentTenant = envConfig.getCurrentTenantId();
+            logger.info("🔒 Environment filter: Only processing tenant '{}' (environment: {})",
+                       currentTenant, envConfig.getActiveProfile());
+
+            // Only return the current environment's tenant
+            List<String> tenants = masterJdbcTemplate.queryForList(
+                "SELECT tenant_id FROM tenant_config WHERE active = true AND tenant_id = ?",
+                String.class,
+                currentTenant
+            );
+
+            if (tenants.isEmpty()) {
+                logger.warn("⚠️ No active tenant found for tenant_id: {}", currentTenant);
+            } else {
+                logger.info("✅ Found tenant '{}' for background aggregation", currentTenant);
+            }
+
+            return tenants;
         } catch (Exception e) {
-            logger.error("Failed to fetch tenants from Master DB", e);
+            logger.error("❌ Failed to fetch tenants from Master DB", e);
             return Collections.emptyList();
         }
     }
 
-    private void aggregateTenantData(String tenantId) {
+    private int aggregateTenantData(String tenantId) {
         // 1. Fetch all accounts for this tenant (System Admin View)
         List<CloudAccount> allAccounts = cloudAccountRepository.findAll();
         if (allAccounts.isEmpty()) {
             logger.info("No accounts found for tenant {}. Skipping.", tenantId);
-            return;
+            return 0;
         }
 
         logger.info("Found {} total accounts for tenant {}", allAccounts.size(), tenantId);
@@ -233,65 +306,49 @@ public class DashboardDataService {
             logger.error("Azure Aggregation failed for {}", tenantId, e);
         }
 
-        // 5. Standard Dashboard: Pre-cache granular endpoints for individual accounts
-        logger.info("Pre-caching granular dashboard data for {} accounts...", allAccounts.size());
+        // 5. Standard Dashboard: Pre-cache granular endpoints AND full dashboard for
+        // individual accounts
+        logger.info("Pre-caching dashboard data for {} accounts...", allAccounts.size());
         for (CloudAccount account : allAccounts) {
             if (!"CONNECTED".equalsIgnoreCase(account.getStatus())) {
                 continue; // Skip non-connected accounts
             }
 
             try {
-                String accountId = String.valueOf(account.getId());
-                logger.debug("Pre-caching granular data for account: {}", accountId);
+                // FIX: Use actual cloud account ID, not database ID
+                String accountId;
+                if ("AWS".equalsIgnoreCase(account.getProvider())) {
+                    accountId = account.getAwsAccountId();
+                } else if ("GCP".equalsIgnoreCase(account.getProvider())) {
+                    accountId = account.getGcpProjectId();
+                } else if ("Azure".equalsIgnoreCase(account.getProvider())) {
+                    accountId = account.getAzureSubscriptionId();
+                } else {
+                    logger.warn("Unknown provider {} for account {}, skipping", account.getProvider(), account.getId());
+                    continue;
+                }
 
-                // Pre-cache all granular endpoints in parallel
-                CompletableFuture.allOf(
-                        CompletableFuture.runAsync(() -> {
-                            try {
-                                getGranularKpi(accountId, true, null);
-                                logger.debug("✓ KPI cached for {}", accountId);
-                            } catch (Exception e) {
-                                logger.warn("Failed to pre-cache KPI for {}: {}", accountId, e.getMessage());
-                            }
-                        }),
-                        CompletableFuture.runAsync(() -> {
-                            try {
-                                getGranularInventory(accountId, true, null);
-                                logger.debug("✓ Inventory cached for {}", accountId);
-                            } catch (Exception e) {
-                                logger.warn("Failed to pre-cache Inventory for {}: {}", accountId, e.getMessage());
-                            }
-                        }),
-                        CompletableFuture.runAsync(() -> {
-                            try {
-                                getGranularCost(accountId, true, null);
-                                logger.debug("✓ Cost cached for {}", accountId);
-                            } catch (Exception e) {
-                                logger.warn("Failed to pre-cache Cost for {}: {}", accountId, e.getMessage());
-                            }
-                        }),
-                        CompletableFuture.runAsync(() -> {
-                            try {
-                                getGranularOptimization(accountId, true, null);
-                                logger.debug("✓ Optimization cached for {}", accountId);
-                            } catch (Exception e) {
-                                logger.warn("Failed to pre-cache Optimization for {}: {}", accountId, e.getMessage());
-                            }
-                        }),
-                        CompletableFuture.runAsync(() -> {
-                            try {
-                                getGranularMap(accountId, true, null);
-                                logger.debug("✓ Map cached for {}", accountId);
-                            } catch (Exception e) {
-                                logger.warn("Failed to pre-cache Map for {}: {}", accountId, e.getMessage());
-                            }
-                        })).join(); // Wait for all to complete
+                if (accountId == null || accountId.isEmpty()) {
+                    logger.warn("Account ID is null or empty for account {}, skipping", account.getId());
+                    continue;
+                }
+
+                logger.debug("Pre-caching data for account: {} ({})", accountId, account.getProvider());
+
+                // Cache the FULL dashboard data (this contains everything needed!)
+                try {
+                    getDashboardData(accountId, true, null);
+                    logger.info("✓ Full Dashboard cached for {} ({})", accountId, account.getProvider());
+                } catch (Exception e) {
+                    logger.error("Failed to cache dashboard for {}: {}", accountId, e.getMessage());
+                }
 
             } catch (Exception e) {
-                logger.warn("Failed to pre-cache granular data for account {}: {}", account.getId(), e.getMessage());
+                logger.warn("Failed to pre-cache data for account {}: {}", account.getId(), e.getMessage());
             }
         }
-        logger.info("✅ Granular dashboard pre-caching complete for tenant {}", tenantId);
+        logger.info("✅ Dashboard pre-caching complete for tenant {}", tenantId);
+        return allAccounts.size();
     }
 
     private void saveSnapshot(String key, DashboardData data) {
@@ -311,7 +368,12 @@ public class DashboardDataService {
         Optional<CachedData> cached = cachedDataRepository.findById(key);
         if (cached.isPresent()) {
             try {
-                return objectMapper.readValue(cached.get().getJsonData(), DashboardData.class);
+                DashboardData data = objectMapper.readValue(cached.get().getJsonData(), DashboardData.class);
+                if (cached.get().getLastUpdated() != null) {
+                    data.setLastUpdated(cached.get().getLastUpdated()
+                            .format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
+                }
+                return data;
             } catch (JsonProcessingException e) {
                 logger.error("Failed to deserialize snapshot {}", key, e);
             }
@@ -373,35 +435,42 @@ public class DashboardDataService {
     public DashboardData getUnifiedAwsData(ClientUserDetails userDetails, boolean forceRefresh)
             throws ExecutionException, InterruptedException, IOException {
 
-        // 1. Get Tenant Context (Scopes the cache key to the specific client/tenant)
+        // 1. Get Tenant Context
         String tenantId = TenantContext.getCurrentTenant();
-        String scopedKey = SNAPSHOT_KEY_AWS + "::" + tenantId;
 
-        // 2. Try to fetch from Snapshot first (Phase 2 optimization)
+        // 2. Determine Cache Key (User Scoped vs Global)
+        boolean isAdmin = isUserAdmin(userDetails);
+        String scopedKey = SNAPSHOT_KEY_AWS + "::" + tenantId;
+        if (!isAdmin && userDetails != null) {
+            scopedKey += "::" + userDetails.getUsername();
+        }
+
+        // 3. Try to fetch from Snapshot first
         if (!forceRefresh) {
-            DashboardData cached = getSnapshot(scopedKey); // Use SCOPED KEY
+            DashboardData cached = getSnapshot(scopedKey);
             if (cached != null) {
-                logger.info("Returning Cached AWS Snapshot for Unified View (Tenant: {})", tenantId);
+                logger.info("Returning Cached AWS Snapshot for Unified View (Tenant: {} | User: {})", tenantId,
+                        isAdmin ? "Global/Admin" : userDetails.getUsername());
                 populateAvailableAccounts(cached, userDetails);
                 return cached;
             }
         }
 
-        // 3. Fallback to Live Fetch
+        // 4. Fallback to Live Fetch
         List<CloudAccount> allAccounts = fetchUserAccounts(userDetails);
         List<String> awsIds = allAccounts.stream()
                 .filter(a -> "AWS".equalsIgnoreCase(a.getProvider()))
                 .map(CloudAccount::getAwsAccountId)
                 .collect(Collectors.toList());
 
-        // 4. Handle Empty State gracefully
+        // 5. Handle Empty State gracefully
         if (awsIds.isEmpty()) {
             return createEmptyDashboardData("AWS");
         }
 
         DashboardData result = getMultiAccountAwsDashboardData(awsIds, forceRefresh, userDetails);
 
-        // 5. Save using SCOPED KEY
+        // 6. Save using SCOPED KEY
         saveSnapshot(scopedKey, result);
 
         return result;
@@ -410,13 +479,20 @@ public class DashboardDataService {
     public DashboardData getUnifiedGcpData(ClientUserDetails userDetails, boolean forceRefresh) {
 
         String tenantId = TenantContext.getCurrentTenant();
+
+        // Determine Cache Key
+        boolean isAdmin = isUserAdmin(userDetails);
         String scopedKey = SNAPSHOT_KEY_GCP + "::" + tenantId;
+        if (!isAdmin && userDetails != null) {
+            scopedKey += "::" + userDetails.getUsername();
+        }
 
         // 1. Try to fetch from Snapshot
         if (!forceRefresh) {
             DashboardData cached = getSnapshot(scopedKey);
             if (cached != null) {
-                logger.info("Returning Cached GCP Snapshot for Unified View (Tenant: {})", tenantId);
+                logger.info("Returning Cached GCP Snapshot for Unified View (Tenant: {} | User: {})", tenantId,
+                        isAdmin ? "Global/Admin" : userDetails.getUsername());
                 populateAvailableAccounts(cached, userDetails);
                 return cached;
             }
@@ -440,13 +516,20 @@ public class DashboardDataService {
     public DashboardData getUnifiedAzureData(ClientUserDetails userDetails, boolean forceRefresh) {
 
         String tenantId = TenantContext.getCurrentTenant();
+
+        // Determine Cache Key
+        boolean isAdmin = isUserAdmin(userDetails);
         String scopedKey = SNAPSHOT_KEY_AZURE + "::" + tenantId;
+        if (!isAdmin && userDetails != null) {
+            scopedKey += "::" + userDetails.getUsername();
+        }
 
         // 1. Try to fetch from Snapshot
         if (!forceRefresh) {
             DashboardData cached = getSnapshot(scopedKey);
             if (cached != null) {
-                logger.info("Returning Cached Azure Snapshot for Unified View (Tenant: {})", tenantId);
+                logger.info("Returning Cached Azure Snapshot for Unified View (Tenant: {} | User: {})", tenantId,
+                        isAdmin ? "Global/Admin" : userDetails.getUsername());
                 populateAvailableAccounts(cached, userDetails);
                 return cached;
             }
@@ -539,6 +622,14 @@ public class DashboardDataService {
     // ============================================================================================
     // PRIVATE HELPERS & CORE LOGIC
     // ============================================================================================
+
+    private boolean isUserAdmin(ClientUserDetails userDetails) {
+        if (userDetails == null)
+            return false; // System user is effectively admin, but handled separately
+        return userDetails.getAuthorities().stream()
+                .anyMatch(role -> "ROLE_BILLOPS_ADMIN".equals(role.getAuthority())
+                        || "ROLE_SUPER_ADMIN".equals(role.getAuthority()));
+    }
 
     private List<CloudAccount> fetchUserAccounts(ClientUserDetails userDetails) {
         // Support for "System" user (null) in background tasks
@@ -824,12 +915,17 @@ public class DashboardDataService {
             GcpDashboardData data = dataList.get(i);
             CloudAccount acc = accounts.get(i);
 
-            totalMTD += data.getMonthToDateSpend();
-            totalForecast += data.getForecastedSpend();
-            totalLastMonth += data.getLastMonthSpend();
+            // Convert GCP costs from INR to USD
+            double mtdUsd = data.getMonthToDateSpend() * INR_TO_USD_RATE;
+            double forecastUsd = data.getForecastedSpend() * INR_TO_USD_RATE;
+            double lastMonthUsd = data.getLastMonthSpend() * INR_TO_USD_RATE;
+
+            totalMTD += mtdUsd;
+            totalForecast += forecastUsd;
+            totalLastMonth += lastMonthUsd;
 
             DashboardData.Account subAcc = new DashboardData.Account(acc.getGcpProjectId(), acc.getAccountName(),
-                    data.getMonthToDateSpend(), data.getForecastedSpend());
+                    mtdUsd, forecastUsd);
             subAcc.setResourceInventory(data.getResourceInventory());
             subAcc.setOptimizationSummary(data.getOptimizationSummary());
             subAcc.setSecurityScore(data.getSecurityScore());
@@ -875,13 +971,17 @@ public class DashboardDataService {
 
             if (data.getCostHistory() != null) {
                 for (GcpCostDto cost : data.getCostHistory()) {
-                    costHistoryMap.merge(cost.getName(), cost.getAmount(), Double::sum);
+                    // Convert cost history from INR to USD
+                    double costUsd = cost.getAmount() * INR_TO_USD_RATE;
+                    costHistoryMap.merge(cost.getName(), costUsd, Double::sum);
                 }
             }
 
             if (data.getBillingSummary() != null) {
                 for (GcpCostDto bill : data.getBillingSummary()) {
-                    billingSummaryMap.merge(bill.getName(), bill.getAmount(), Double::sum);
+                    // Convert billing summary from INR to USD
+                    double billUsd = bill.getAmount() * INR_TO_USD_RATE;
+                    billingSummaryMap.merge(bill.getName(), billUsd, Double::sum);
                 }
             }
         }
@@ -1243,16 +1343,20 @@ public class DashboardDataService {
         String tenant = TenantContext.getCurrentTenant();
         logger.info("🔍 [Single-Account-Fetch] Started | Tenant: {} | User: {} | Account: {}", tenant, user, accountId);
 
-        String cacheKey = "dashboardData-" + accountId;
+        // 1. Determine Cache Key (Scoped by Tenant + Account)
+        String dbCacheKey = "DASHBOARD_DATA::" + tenant + "::" + accountId;
 
+        // 2. Try to fetch from Database Cache first (if not forcing refresh)
         if (!forceRefresh) {
-            Optional<DashboardData> cachedData = redisCache.get(cacheKey, DashboardData.class);
-            if (cachedData.isPresent()) {
-                logger.info("✅ [Single-Account-Fetch] Returned from Cache | Account: {}", accountId);
-                return cachedData.get();
+            DashboardData cached = getSnapshot(dbCacheKey);
+            if (cached != null) {
+                logger.info("✅ [Single-Account-Fetch] Returned from DB Cache | Tenant: {} | Account: {}", tenant,
+                        accountId);
+                return cached;
             }
         }
 
+        // 3. Fetch Fresh Data from Cloud Provider
         CloudAccount account = getAccount(accountId);
         DashboardData freshData;
 
@@ -1276,20 +1380,14 @@ public class DashboardDataService {
                 freshData = getAwsDashboardData(account, forceRefresh, userDetails);
             }
 
-            // Cache in Redis
-            redisCache.put(cacheKey, freshData, 10);
+            // 4. Save to Database Cache (Primary Storage)
+            saveSnapshot(dbCacheKey, freshData);
 
-            // ✅ Archive to Postgres for Superset
-            String dbKey = "DASHBOARD_DATA::" + accountId + "::" + LocalDate.now();
-            String json = objectMapper.writeValueAsString(freshData);
+            // 5. Update Granular Cache Keys (FIX for stale dashboard widgets)
+            updateGranularSnapshots(accountId, freshData);
 
-            CachedData archivalData = cachedDataRepository.findById(dbKey).orElse(new CachedData());
-            archivalData.setCacheKey(dbKey);
-            archivalData.setJsonData(json);
-            archivalData.setLastUpdated(LocalDateTime.now());
-
-            cachedDataRepository.save(archivalData);
-            logger.info("✅ Archived Dashboard Data to DB for account {}", accountId);
+            freshData.setLastUpdated(java.time.LocalDateTime.now()
+                    .format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
 
             long duration = System.currentTimeMillis() - startTime;
             logger.info("✅ [Single-Account-Fetch] Completed | Tenant: {} | Time: {}ms | Account: {}", tenant, duration,
@@ -2030,6 +2128,8 @@ public class DashboardDataService {
             }
 
             // Save Snapshot
+            data.setLastUpdated(java.time.LocalDateTime.now()
+                    .format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
             saveSnapshot(cacheKey, data);
             return data;
         } catch (Exception e) {
@@ -2078,6 +2178,8 @@ public class DashboardDataService {
                 return getDashboardData(accountId, forceRefresh, userDetails);
             }
 
+            data.setLastUpdated(java.time.LocalDateTime.now()
+                    .format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
             saveSnapshot(cacheKey, data);
             return data;
         } catch (Exception e) {
@@ -2122,6 +2224,8 @@ public class DashboardDataService {
                 return getDashboardData(accountId, forceRefresh, userDetails);
             }
 
+            data.setLastUpdated(java.time.LocalDateTime.now()
+                    .format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
             saveSnapshot(cacheKey, data);
             return data;
         } catch (Exception e) {
@@ -2189,6 +2293,8 @@ public class DashboardDataService {
                 return getDashboardData(accountId, forceRefresh, userDetails);
             }
 
+            data.setLastUpdated(java.time.LocalDateTime.now()
+                    .format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
             saveSnapshot(cacheKey, data);
             return data;
         } catch (Exception e) {
@@ -2228,6 +2334,8 @@ public class DashboardDataService {
                 return getDashboardData(accountId, forceRefresh, userDetails);
             }
 
+            data.setLastUpdated(java.time.LocalDateTime.now()
+                    .format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
             saveSnapshot(cacheKey, data);
             return data;
         } catch (Exception e) {
@@ -2240,5 +2348,103 @@ public class DashboardDataService {
         DashboardData data = new DashboardData();
         data.setError(errorMsg);
         return data;
+    }
+
+    // ============================================================================================
+    // FIX: HELPER TO SYNC GRANULAR CACHES
+    // ============================================================================================
+
+    private void updateGranularSnapshots(String accountId, DashboardData data) {
+        try {
+            logger.debug("Syncing granular cache snapshots for account {}", accountId);
+
+            // 1. KPI Cache
+            if (data.getSelectedAccount() != null && data.getSelectedAccount().getCostHistory() != null) {
+                // Ensure we construct the specific partial object expected by KPI endpoint
+                DashboardData kpiData = new DashboardData();
+                kpiData.setSelectedProvider(data.getSelectedProvider());
+                DashboardData.Account kpiAcc = new DashboardData.Account();
+                kpiAcc.setId(accountId);
+                kpiAcc.setName(data.getSelectedAccount().getName());
+
+                kpiAcc.setCostHistory(data.getSelectedAccount().getCostHistory());
+                kpiAcc.setOptimizationSummary(data.getSelectedAccount().getOptimizationSummary());
+                kpiAcc.setMonthToDateSpend(data.getSelectedAccount().getMonthToDateSpend());
+                kpiAcc.setForecastedSpend(data.getSelectedAccount().getForecastedSpend());
+                kpiAcc.setLastMonthSpend(data.getSelectedAccount().getLastMonthSpend());
+
+                kpiData.setSelectedAccount(kpiAcc);
+                saveSnapshot("DASHBOARD_KPI::" + accountId, kpiData);
+            }
+
+            // 2. Inventory Cache
+            if (data.getSelectedAccount() != null && data.getSelectedAccount().getResourceInventory() != null) {
+                DashboardData invData = new DashboardData();
+                invData.setSelectedProvider(data.getSelectedProvider());
+                DashboardData.Account invAcc = new DashboardData.Account();
+                invAcc.setId(accountId);
+                invAcc.setName(data.getSelectedAccount().getName());
+
+                invAcc.setResourceInventory(data.getSelectedAccount().getResourceInventory());
+                invAcc.setCloudWatchStatus(data.getSelectedAccount().getCloudWatchStatus());
+
+                invData.setSelectedAccount(invAcc);
+                saveSnapshot("DASHBOARD_INVENTORY::" + accountId, invData);
+            }
+
+            // 3. Cost Cache
+            if (data.getSelectedAccount() != null && data.getSelectedAccount().getCostHistory() != null) {
+                DashboardData costData = new DashboardData();
+                costData.setSelectedProvider(data.getSelectedProvider());
+                DashboardData.Account costAcc = new DashboardData.Account();
+                costAcc.setId(accountId);
+                costAcc.setName(data.getSelectedAccount().getName());
+
+                costAcc.setCostHistory(data.getSelectedAccount().getCostHistory());
+                costAcc.setBillingSummary(data.getSelectedAccount().getBillingSummary());
+
+                costData.setSelectedAccount(costAcc);
+                saveSnapshot("DASHBOARD_COST::" + accountId, costData);
+            }
+
+            // 4. Optimization Cache
+            if (data.getSelectedAccount() != null) {
+                DashboardData optData = new DashboardData();
+                optData.setSelectedProvider(data.getSelectedProvider());
+                DashboardData.Account optAcc = new DashboardData.Account();
+                optAcc.setId(accountId);
+                optAcc.setName(data.getSelectedAccount().getName());
+
+                optAcc.setEc2Recommendations(data.getSelectedAccount().getEc2Recommendations());
+                optAcc.setEbsRecommendations(data.getSelectedAccount().getEbsRecommendations());
+                optAcc.setLambdaRecommendations(data.getSelectedAccount().getLambdaRecommendations());
+                optAcc.setWastedResources(data.getSelectedAccount().getWastedResources());
+                optAcc.setCostAnomalies(data.getSelectedAccount().getCostAnomalies());
+                optAcc.setOptimizationSummary(data.getSelectedAccount().getOptimizationSummary());
+                optAcc.setSavingsSummary(data.getSelectedAccount().getSavingsSummary());
+
+                optData.setSelectedAccount(optAcc);
+                saveSnapshot("DASHBOARD_OPT::" + accountId, optData);
+            }
+
+            // 5. Map Cache
+            if (data.getSelectedAccount() != null && data.getSelectedAccount().getRegionStatus() != null) {
+                DashboardData mapData = new DashboardData();
+                mapData.setSelectedProvider(data.getSelectedProvider());
+                DashboardData.Account mapAcc = new DashboardData.Account();
+                mapAcc.setId(accountId);
+                mapAcc.setName(data.getSelectedAccount().getName());
+
+                mapAcc.setRegionStatus(data.getSelectedAccount().getRegionStatus());
+
+                mapData.setSelectedAccount(mapAcc);
+                saveSnapshot("DASHBOARD_MAP::" + accountId, mapData);
+            }
+
+            logger.info("✓ Granular cache snapshots synced for {}", accountId);
+
+        } catch (Exception e) {
+            logger.error("Failed to sync granular snapshots for {}", accountId, e);
+        }
     }
 }

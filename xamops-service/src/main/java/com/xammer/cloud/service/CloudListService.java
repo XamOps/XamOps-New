@@ -931,7 +931,27 @@ public class CloudListService {
 
     private CompletableFuture<List<ResourceDto>> fetchAmplifyAppsForCloudlist(CloudAccount account,
             List<DashboardData.RegionStatus> activeRegions) {
-        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+        // AWS Amplify is not available in all regions - filter to supported regions only
+        Set<String> amplifyUnsupportedRegions = Set.of(
+            "ap-south-2",    // Hyderabad
+            "ap-southeast-3", // Jakarta
+            "ap-southeast-4", // Melbourne
+            "eu-south-2",    // Spain
+            "eu-central-2",  // Zurich
+            "me-central-1",  // UAE
+            "il-central-1"   // Israel
+        );
+
+        List<DashboardData.RegionStatus> supportedRegions = activeRegions.stream()
+                .filter(region -> !amplifyUnsupportedRegions.contains(region.getRegionId()))
+                .collect(Collectors.toList());
+
+        if (supportedRegions.isEmpty()) {
+            logger.debug("No Amplify-supported regions active for account {}", account.getAwsAccountId());
+            return CompletableFuture.completedFuture(Collections.emptyList());
+        }
+
+        return fetchAllRegionalResources(account, supportedRegions, regionId -> {
             AmplifyClient amplify = awsClientProvider.getAmplifyClient(account, regionId);
             return amplify.listApps().apps().stream()
                     .map(a -> new ResourceDto(a.appArn(), a.name(), "Amplify App", getRegionFromArn(a.appArn()),

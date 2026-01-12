@@ -7,9 +7,10 @@
     <title>XamOps - Cost Management</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script type="module" src="/src/main.js"></script>
+    <!-- Usability Improvements -->
+    <link rel="stylesheet" href="/src/usability-improvements.css">
+    <script type="module" src="/src/usability-utils.js"></script>
 </head>
 
 <body class="bg-gray-50">
@@ -388,14 +389,9 @@
 
 
                                 if (this.selectedAccountId) {
-
-                                    // Wait for Alpine to be fully initialized before loading data
-                                    this.$nextTick(() => {
-                                        console.log('[Cost] Alpine ready, loading cost data...');
-                                        this.loadCostData();
-                                        this.loadForecast();
-                                    });
-
+                                    console.log('[Cost] Alpine initialized, loading cost data...');
+                                    this.loadCostData();
+                                    this.loadForecast();
                                 }
 
                             },

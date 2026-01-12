@@ -8,8 +8,6 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="icon" href="icons/XamOps.png" sizes="32x32" type="image/png">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.0/dist/cdn.min.js"></script>
     <script type="module" src="src/main.js"></script>
 </head>
 
@@ -100,11 +98,31 @@
 
                 <header
                     class="bg-white border-b border-gray-200 px-8 py-4 flex justify-between items-center flex-shrink-0">
-                    <div>
-                        <h1 class="text-2xl font-bold text-gray-800">Spot Automation</h1>
-                        <p class="text-sm text-gray-500">Automated Spot instance management & cost optimization across
-                            all
-                            regions</p>
+                    <div class="flex items-center gap-3">
+                        <div>
+                            <h1 class="text-2xl font-bold text-gray-800">Spot Automation</h1>
+                            <p class="text-sm text-gray-500">Automated Spot instance management & cost optimization across
+                                all
+                                regions</p>
+                        </div>
+                        <!-- Setup Guide Icon -->
+                        <div class="tooltip">
+                            <i class="fas fa-question-circle text-blue-500 hover:text-blue-600 text-xl cursor-help"></i>
+                            <span class="tooltiptext" style="width: 350px; left: -320px;">
+                                <div class="font-semibold mb-2 text-sm">Setup Steps:</div>
+                                <ol class="list-decimal list-inside space-y-2 text-xs">
+                                    <li><strong>Click "Deploy to AWS"</strong> button to open CloudFormation template</li>
+                                    <li><strong>Deploy the stack</strong> in your AWS account using the CloudFormation console</li>
+                                    <li><strong>Wait for deployment</strong> to complete (status: CREATE_COMPLETE)</li>
+                                    <li><strong>Click "Sync Account"</strong> button above</li>
+                                    <li><strong>Enter your AWS Account ID</strong> and submit</li>
+                                </ol>
+                                <div class="mt-3 pt-2 border-t border-gray-500 text-xs">
+                                    <i class="fas fa-info-circle mr-1"></i>
+                                    The stack sets up IAM roles and permissions for AutoSpotting
+                                </div>
+                            </span>
+                        </div>
                     </div>
                     <div class="flex space-x-3">
                         <button @click="showSyncAccountModal = true"
@@ -147,7 +165,7 @@
                 </div>
 
                 <div class="flex-1 overflow-y-auto p-8 bg-gray-50">
-                    <div class="max-w-7xl mx-auto space-y-6">
+                    <div class="space-y-6">
                         <div x-show="activeTab === 'current'" x-cloak>
                             <!-- Loading Indicator for Initial Data Fetch -->
                             <div x-show="loadingInitialData"

@@ -92,10 +92,12 @@ public class AwsConfig {
     @Bean("awsTaskExecutor")
     public TaskExecutor threadPoolTaskExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(50);
-        executor.setMaxPoolSize(100);
-        executor.setQueueCapacity(1000);
+        // Optimized for connection pool management
+        executor.setCorePoolSize(5); // Allow 5 concurrent AWS operations
+        executor.setMaxPoolSize(10); // Burst to 10 (matches HikariCP max pool size)
+        executor.setQueueCapacity(100); // Queue up to 100 tasks
         executor.setThreadNamePrefix("AWS-Async-");
+        executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
         executor.initialize();
         return executor;
     }

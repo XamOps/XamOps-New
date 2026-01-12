@@ -1,18 +1,25 @@
 package com.xammer.cloud.service;
 
+import com.xammer.cloud.config.multitenancy.TenantContext;
 import com.xammer.cloud.domain.CloudAccount;
+import com.xammer.cloud.domain.JobExecutionHistory;
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.repository.JobExecutionHistoryRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.cache.CacheManager;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import javax.sql.DataSource;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 
 @Service
 public class ProactiveCacheRefreshService {
@@ -22,15 +29,21 @@ public class ProactiveCacheRefreshService {
     private final CloudAccountRepository cloudAccountRepository;
     private final CacheManager cacheManager;
     private final CloudListService cloudListService; // Required to get active regions
-    
+
     // Services for different pages
-    private final DashboardDataService dashboardDataService; 
-    private final FinOpsService finOpsService;             
-    private final CostService costService;                 
-    private final SecurityService securityService;         
-    private final PerformanceInsightsService performanceService; 
-    private final ReservationService reservationService;   
-    private final OptimizationService optimizationService; 
+    private final DashboardDataService dashboardDataService;
+    private final FinOpsService finOpsService;
+    private final CostService costService;
+    private final SecurityService securityService;
+    private final PerformanceInsightsService performanceService;
+    private final ReservationService reservationService;
+    private final OptimizationService optimizationService;
+
+    private final JobExecutionHistoryRepository jobExecutionHistoryRepository;
+    private final JdbcTemplate masterJdbcTemplate;
+
+    // ADDED: Environment-aware configuration
+    private final com.xammer.cloud.config.SchedulingEnvironmentConfig envConfig;
 
     @Autowired
     public ProactiveCacheRefreshService(
@@ -43,7 +56,10 @@ public class ProactiveCacheRefreshService {
             SecurityService securityService,
             PerformanceInsightsService performanceService,
             ReservationService reservationService,
-            OptimizationService optimizationService) {
+            OptimizationService optimizationService,
+            JobExecutionHistoryRepository jobExecutionHistoryRepository,
+            @Qualifier("masterDataSource") DataSource masterDataSource,
+            com.xammer.cloud.config.SchedulingEnvironmentConfig envConfig) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.cacheManager = cacheManager;
         this.cloudListService = cloudListService;
@@ -54,6 +70,50 @@ public class ProactiveCacheRefreshService {
         this.performanceService = performanceService;
         this.reservationService = reservationService;
         this.optimizationService = optimizationService;
+        this.jobExecutionHistoryRepository = jobExecutionHistoryRepository;
+        this.masterJdbcTemplate = new JdbcTemplate(masterDataSource);
+        this.envConfig = envConfig;
+
+        // Log configuration on startup
+        envConfig.logConfiguration();
+    }
+
+    /**
+     * Helper to fetch active tenants from Master DB - ENVIRONMENT AWARE
+     * Only returns the tenant associated with the current environment:
+     * - local -> customer1
+     * - uat -> customer2
+     * - prod -> customer3
+     */
+    private List<String> fetchActiveTenants() {
+        try {
+            if (!envConfig.isSchedulingEnabled()) {
+                logger.info("⚠️ Scheduling is disabled in this environment");
+                return Collections.emptyList();
+            }
+
+            String currentTenant = envConfig.getCurrentTenantId();
+            logger.info("🔒 Environment filter active: Only processing tenant '{}' (environment: {})",
+                       currentTenant, envConfig.getActiveProfile());
+
+            // Only return the current environment's tenant
+            List<String> tenants = masterJdbcTemplate.queryForList(
+                "SELECT tenant_id FROM tenant_config WHERE active = true AND tenant_id = ?",
+                String.class,
+                currentTenant
+            );
+
+            if (tenants.isEmpty()) {
+                logger.warn("⚠️ No active tenant found for tenant_id: {}", currentTenant);
+            } else {
+                logger.info("✅ Found tenant '{}' for processing", currentTenant);
+            }
+
+            return tenants;
+        } catch (Exception e) {
+            logger.error("❌ Failed to fetch tenants from Master DB", e);
+            return Collections.emptyList();
+        }
     }
 
     /**
@@ -68,45 +128,76 @@ public class ProactiveCacheRefreshService {
     }
 
     /**
-     * Helper to fetch active regions for an account. 
+     * Helper to fetch active regions for an account.
      * Security, Optimization, and Reservation services require this list.
      */
     private List<DashboardData.RegionStatus> getActiveRegions(CloudAccount account) {
         try {
-            // We use false for forceRefresh here to avoid re-scanning regions just for the list
+            // We use false for forceRefresh here to avoid re-scanning regions just for the
+            // list
             return cloudListService.getRegionStatusForAccount(account, false).join();
         } catch (Exception e) {
-            logger.warn("Could not fetch active regions for account {}. Defaulting to empty list.", getAccountId(account));
+            logger.warn("Could not fetch active regions for account {}. Defaulting to empty list.",
+                    getAccountId(account));
             return List.of();
         }
     }
 
     // ===================================================================================
-    // 2:00 AM -> Dashboard & FinOps (High Priority)
+    // DISABLED: Redundant - The 5-minute job in DashboardDataService handles all
+    // refreshes
     // ===================================================================================
-    @Scheduled(cron = "0 0 2 * * ?") 
-    public void refreshDashboardAndFinOps() {
+    // @Scheduled(cron = "0 0 2 * * ?")
+    public void refreshDashboardAndFinOps_DISABLED() {
         logger.info("--- [2:00 AM] Starting Dashboard & FinOps Refresh ---");
-        for (CloudAccount account : getAllAccounts()) {
-            String accountId = getAccountId(account);
-            if (accountId == null) continue;
+        List<String> tenants = fetchActiveTenants();
+
+        for (String tenantId : tenants) {
+            JobExecutionHistory jobHistory = new JobExecutionHistory("REFRESH_DASHBOARD_FINOPS", tenantId,
+                    LocalDateTime.now(), "RUNNING");
 
             try {
-                // 1. Dashboard
-                if (cacheManager.getCache("dashboardData") != null) {
-                    cacheManager.getCache("dashboardData").evict(accountId);
+                TenantContext.setCurrentTenant(tenantId);
+                jobHistory = jobExecutionHistoryRepository.save(jobHistory);
+                logger.info(">> Processing Tenant: {}", tenantId);
+
+                int count = 0;
+                for (CloudAccount account : getAllAccounts()) {
+                    String accountId = getAccountId(account);
+                    if (accountId == null)
+                        continue;
+
+                    try {
+                        // 1. Dashboard (Now uses DB cache - forceRefresh=true will update DB
+                        // automatically)
+                        dashboardDataService.getDashboardData(accountId, true, null);
+
+                        // 2. FinOps Report
+                        if (cacheManager.getCache("finOpsReport") != null) {
+                            cacheManager.getCache("finOpsReport").evict(accountId);
+                        }
+                        finOpsService.getFinOpsReport(accountId, true).join();
+                        count++;
+                    } catch (Exception e) {
+                        logger.error("Failed Dashboard/FinOps refresh for {}", accountId, e);
+                    }
                 }
-                dashboardDataService.getDashboardData(accountId, true, null);
-                
-                // 2. FinOps Report
-                if (cacheManager.getCache("finOpsReport") != null) {
-                    cacheManager.getCache("finOpsReport").evict(accountId);
-                }
-                finOpsService.getFinOpsReport(accountId, true).join();
-                
-                logger.info(" > Dashboard & FinOps refreshed for {}", accountId);
+
+                jobHistory.setStatus("SUCCESS");
+                jobHistory.setItemsProcessed(count);
+                jobHistory.setEndTime(LocalDateTime.now());
+                jobExecutionHistoryRepository.save(jobHistory);
+
             } catch (Exception e) {
-                logger.error("Failed Dashboard/FinOps refresh for {}", accountId, e);
+                logger.error("❌ Failed refresh for tenant {}", tenantId, e);
+                if (jobHistory.getId() != null) {
+                    jobHistory.setStatus("FAILURE");
+                    jobHistory.setErrorMessage(e.getMessage());
+                    jobHistory.setEndTime(LocalDateTime.now());
+                    jobExecutionHistoryRepository.save(jobHistory);
+                }
+            } finally {
+                TenantContext.clear();
             }
         }
     }
@@ -114,22 +205,49 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 2:30 AM -> Cost Management (Data Intensive)
     // ===================================================================================
-    @Scheduled(cron = "0 30 2 * * ?") 
+    @Scheduled(cron = "0 30 2 * * ?")
     public void refreshCostData() {
         logger.info("--- [2:30 AM] Starting Cost Data Refresh (cost.html) ---");
         String startDate = LocalDate.now().withDayOfMonth(1).toString(); // Start of month
         String endDate = LocalDate.now().toString(); // Today
 
-        for (CloudAccount account : getAllAccounts()) {
-            String accountId = getAccountId(account);
-            if (accountId == null) continue;
+        List<String> tenants = fetchActiveTenants();
 
+        for (String tenantId : tenants) {
+            JobExecutionHistory jobHistory = new JobExecutionHistory("REFRESH_COST_DATA", tenantId, LocalDateTime.now(),
+                    "RUNNING");
             try {
-                // Refresh generic cost breakdown (SERVICE level)
-                costService.getCostBreakdown(accountId, "SERVICE", null, true, startDate, endDate).join();
-                logger.info(" > Cost data refreshed for {}", accountId);
+                TenantContext.setCurrentTenant(tenantId);
+                jobHistory = jobExecutionHistoryRepository.save(jobHistory);
+
+                int count = 0;
+                for (CloudAccount account : getAllAccounts()) {
+                    String accountId = getAccountId(account);
+                    if (accountId == null)
+                        continue;
+                    try {
+                        costService.getCostBreakdown(accountId, "SERVICE", null, true, startDate, endDate).join();
+                        count++;
+                    } catch (Exception e) {
+                        logger.error("Failed Cost refresh for {}", accountId, e);
+                    }
+                }
+
+                jobHistory.setStatus("SUCCESS");
+                jobHistory.setItemsProcessed(count);
+                jobHistory.setEndTime(LocalDateTime.now());
+                jobExecutionHistoryRepository.save(jobHistory);
+
             } catch (Exception e) {
-                logger.error("Failed Cost refresh for {}", accountId, e);
+                logger.error("❌ Failed cost refresh for tenant {}", tenantId, e);
+                if (jobHistory.getId() != null) {
+                    jobHistory.setStatus("FAILURE");
+                    jobHistory.setErrorMessage(e.getMessage());
+                    jobHistory.setEndTime(LocalDateTime.now());
+                    jobExecutionHistoryRepository.save(jobHistory);
+                }
+            } finally {
+                TenantContext.clear();
             }
         }
     }
@@ -137,97 +255,175 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 3:00 AM -> Security & Performance
     // ===================================================================================
-    @Scheduled(cron = "0 0 3 * * ?") 
+    @Scheduled(cron = "0 0 3 * * ?")
     public void refreshSecurityAndPerformance() {
         logger.info("--- [3:00 AM] Starting Security & Performance Refresh ---");
-        for (CloudAccount account : getAllAccounts()) {
-            String accountId = getAccountId(account);
-            if (accountId == null) continue;
+        List<String> tenants = fetchActiveTenants();
 
+        for (String tenantId : tenants) {
+            JobExecutionHistory jobHistory = new JobExecutionHistory("REFRESH_SEC_PERF", tenantId, LocalDateTime.now(),
+                    "RUNNING");
             try {
-                // 1. Security (Requires Account Object and Region List)
-                List<DashboardData.RegionStatus> regions = getActiveRegions(account);
-                
-                if (cacheManager.getCache("securityFindings") != null) {
-                    cacheManager.getCache("securityFindings").evict(accountId); // Assuming simple key, actual key in service is complex
-                }
-                // Correct Method: getComprehensiveSecurityFindings(CloudAccount, List<RegionStatus>, boolean)
-                securityService.getComprehensiveSecurityFindings(account, regions, true).join(); 
-                
-                // 2. Performance (Takes String ID)
-                if (cacheManager.getCache("performanceInsights") != null) {
-                    cacheManager.getCache("performanceInsights").evict(accountId);
-                }
-                // Correct Method: getInsights(String accountId, String severity, boolean forceRefresh)
-                performanceService.getInsights(accountId, "ALL", true);
+                TenantContext.setCurrentTenant(tenantId);
+                jobHistory = jobExecutionHistoryRepository.save(jobHistory);
 
-                logger.info(" > Security & Performance refreshed for {}", accountId);
+                int count = 0;
+                for (CloudAccount account : getAllAccounts()) {
+                    String accountId = getAccountId(account);
+                    if (accountId == null)
+                        continue;
+
+                    try {
+                        // 1. Security (Requires Account Object and Region List)
+                        List<DashboardData.RegionStatus> regions = getActiveRegions(account);
+
+                        if (cacheManager.getCache("securityFindings") != null) {
+                            cacheManager.getCache("securityFindings").evict(accountId);
+                        }
+                        securityService.getComprehensiveSecurityFindings(account, regions, true).join();
+
+                        // 2. Performance (Takes String ID)
+                        if (cacheManager.getCache("performanceInsights") != null) {
+                            cacheManager.getCache("performanceInsights").evict(accountId);
+                        }
+                        performanceService.getInsights(accountId, "ALL", true);
+                        count++;
+                    } catch (Exception e) {
+                        logger.error("Failed Security/Performance refresh for {}", accountId, e);
+                    }
+                }
+
+                jobHistory.setStatus("SUCCESS");
+                jobHistory.setItemsProcessed(count);
+                jobHistory.setEndTime(LocalDateTime.now());
+                jobExecutionHistoryRepository.save(jobHistory);
+
             } catch (Exception e) {
-                logger.error("Failed Security/Performance refresh for {}", accountId, e);
+                logger.error("❌ Failed sec/perf refresh for tenant {}", tenantId, e);
+                if (jobHistory.getId() != null) {
+                    jobHistory.setStatus("FAILURE");
+                    jobHistory.setErrorMessage(e.getMessage());
+                    jobHistory.setEndTime(LocalDateTime.now());
+                    jobExecutionHistoryRepository.save(jobHistory);
+                }
+            } finally {
+                TenantContext.clear();
             }
         }
     }
 
     // ===================================================================================
     // 3:30 AM -> Optimization (Waste & Rightsizing)
+    // OPTIMIZED: Changed from daily to Mon/Wed/Fri to reduce costs
     // ===================================================================================
-    @Scheduled(cron = "0 30 3 * * ?") 
+    @Scheduled(cron = "0 30 3 * * MON,WED,FRI")
     public void refreshOptimization() {
         logger.info("--- [3:30 AM] Starting Optimization Refresh (Waste & Rightsizing) ---");
-        for (CloudAccount account : getAllAccounts()) {
-            String accountId = getAccountId(account);
-            if (accountId == null) continue;
+        List<String> tenants = fetchActiveTenants();
 
+        for (String tenantId : tenants) {
+            JobExecutionHistory jobHistory = new JobExecutionHistory("REFRESH_OPTIMIZATION", tenantId,
+                    LocalDateTime.now(), "RUNNING");
             try {
-                List<DashboardData.RegionStatus> regions = getActiveRegions(account);
+                TenantContext.setCurrentTenant(tenantId);
+                jobHistory = jobExecutionHistoryRepository.save(jobHistory);
 
-                // 1. Rightsizing (OptimizationService)
-                // Correct Method: getAllOptimizationRecommendations(String accountId, boolean forceRefresh)
-                optimizationService.getAllOptimizationRecommendations(accountId, true).join();
+                int count = 0;
+                for (CloudAccount account : getAllAccounts()) {
+                    String accountId = getAccountId(account);
+                    if (accountId == null)
+                        continue;
 
-                // 2. Waste (OptimizationService)
-                // Correct Method: getWastedResources(CloudAccount, List<RegionStatus>, boolean)
-                optimizationService.getWastedResources(account, regions, true).join();
+                    try {
+                        List<DashboardData.RegionStatus> regions = getActiveRegions(account);
 
-                logger.info(" > Optimization (Waste/Rightsizing) refreshed for {}", accountId);
+                        // 1. Rightsizing
+                        optimizationService.getAllOptimizationRecommendations(accountId, true).join();
+
+                        // 2. Waste
+                        optimizationService.getWastedResources(account, regions, true).join();
+                        count++;
+                    } catch (Exception e) {
+                        logger.error("Failed Optimization refresh for {}", accountId, e);
+                    }
+                }
+
+                jobHistory.setStatus("SUCCESS");
+                jobHistory.setItemsProcessed(count);
+                jobHistory.setEndTime(LocalDateTime.now());
+                jobExecutionHistoryRepository.save(jobHistory);
+
             } catch (Exception e) {
-                logger.error("Failed Optimization refresh for {}", accountId, e);
+                logger.error("❌ Failed optimization refresh for tenant {}", tenantId, e);
+                if (jobHistory.getId() != null) {
+                    jobHistory.setStatus("FAILURE");
+                    jobHistory.setErrorMessage(e.getMessage());
+                    jobHistory.setEndTime(LocalDateTime.now());
+                    jobExecutionHistoryRepository.save(jobHistory);
+                }
+            } finally {
+                TenantContext.clear();
             }
         }
     }
 
     // ===================================================================================
     // 4:00 AM -> Reservations (Can be slow)
+    // OPTIMIZED: Changed from daily to weekly (Sundays) to reduce costs
     // ===================================================================================
-    @Scheduled(cron = "0 0 4 * * ?") 
+    @Scheduled(cron = "0 0 4 * * SUN")
     public void refreshReservations() {
         logger.info("--- [4:00 AM] Starting Reservation Refresh ---");
-        for (CloudAccount account : getAllAccounts()) {
-            String accountId = getAccountId(account);
-            if (accountId == null) continue;
+        List<String> tenants = fetchActiveTenants();
 
+        for (String tenantId : tenants) {
+            JobExecutionHistory jobHistory = new JobExecutionHistory("REFRESH_RESERVATIONS", tenantId,
+                    LocalDateTime.now(), "RUNNING");
             try {
-                List<DashboardData.RegionStatus> regions = getActiveRegions(account);
+                TenantContext.setCurrentTenant(tenantId);
+                jobHistory = jobExecutionHistoryRepository.save(jobHistory);
 
-                // 1. Reservation Inventory
-                // Correct Method: getReservationInventory(CloudAccount, List<RegionStatus>, boolean)
-                reservationService.getReservationInventory(account, regions, true).join();
+                int count = 0;
+                for (CloudAccount account : getAllAccounts()) {
+                    String accountId = getAccountId(account);
+                    if (accountId == null)
+                        continue;
 
-                // 2. Reservation Recommendations
-                // Correct Method: getReservationPurchaseRecommendations(...)
-                // Using standard defaults: 1 Year, No Upfront, 7 Days lookback, Standard Class
-                reservationService.getReservationPurchaseRecommendations(
-                    account, 
-                    "ONE_YEAR", 
-                    "NO_UPFRONT", 
-                    "SEVEN_DAYS", // Ensure this matches LookbackPeriodInDays enum or valid string
-                    "STANDARD", 
-                    true
-                ).join();
+                    try {
+                        List<DashboardData.RegionStatus> regions = getActiveRegions(account);
 
-                logger.info(" > Reservations refreshed for {}", accountId);
+                        // 1. Reservation Inventory
+                        reservationService.getReservationInventory(account, regions, true).join();
+
+                        // 2. Reservation Recommendations
+                        reservationService.getReservationPurchaseRecommendations(
+                                account,
+                                "ONE_YEAR",
+                                "NO_UPFRONT",
+                                "SEVEN_DAYS",
+                                "STANDARD",
+                                true).join();
+                        count++;
+                    } catch (Exception e) {
+                        logger.error("Failed Reservation refresh for {}", accountId, e);
+                    }
+                }
+
+                jobHistory.setStatus("SUCCESS");
+                jobHistory.setItemsProcessed(count);
+                jobHistory.setEndTime(LocalDateTime.now());
+                jobExecutionHistoryRepository.save(jobHistory);
+
             } catch (Exception e) {
-                logger.error("Failed Reservation refresh for {}", accountId, e);
+                logger.error("❌ Failed reservation refresh for tenant {}", tenantId, e);
+                if (jobHistory.getId() != null) {
+                    jobHistory.setStatus("FAILURE");
+                    jobHistory.setErrorMessage(e.getMessage());
+                    jobHistory.setEndTime(LocalDateTime.now());
+                    jobExecutionHistoryRepository.save(jobHistory);
+                }
+            } finally {
+                TenantContext.clear();
             }
         }
     }

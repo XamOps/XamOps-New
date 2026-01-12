@@ -4,12 +4,14 @@ import './style.css';
 // Import and initialize Alpine.js
 import Alpine from 'alpinejs';
 
-// STEP 3: Global Dependency Handling
-// We guard the initialization to prevent errors during Soft Navigation.
-// Even if this script is loaded again, Alpine will only start once.
-if (!window.Alpine) {
-    window.Alpine = Alpine;
-    Alpine.start();
+// Import Chart.js and register all components
+import Chart from 'chart.js/auto';
 
-    console.log('✅ Alpine.js Initialized (Single Instance)');
-}
+// Make Alpine and Chart available globally
+window.Alpine = Alpine;
+window.Chart = Chart;
+
+// Initialize Alpine.js
+Alpine.start();
+
+console.log('✅ Alpine.js Initialized');

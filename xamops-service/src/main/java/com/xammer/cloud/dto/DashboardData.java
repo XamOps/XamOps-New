@@ -20,6 +20,7 @@ public class DashboardData {
   private List<String> selectedAccountNames;
   private List<String> failedAccounts;
   private String selectedProvider; // "AWS", "GCP", or null for single account
+  private String lastUpdated; // Timestamp of when data was cached/fetched
 
   public boolean isMultiAccountView() {
     return isMultiAccountView;

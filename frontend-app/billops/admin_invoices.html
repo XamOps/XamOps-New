@@ -8,7 +8,6 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
     <link rel="apple-touch-icon" href="/icons/XamOps.png">
-    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script type="module" src="/src/main.js"></script>
 </head>
@@ -133,7 +132,7 @@
                             <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Year</label>
                             <select x-model.number="generation.year"
                                 class="block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm p-2 border bg-gray-50">
-                                <template x-for="y in [2025, 2024, 2023]" :key="y">
+                                <template x-for="y in [2026, 2025, 2024]" :key="y">
                                     <option :value="y" x-text="y"></option>
                                 </template>
                             </select>

@@ -9,8 +9,10 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
     <link rel="apple-touch-icon" href="/icons/XamOps.png">
-    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
     <script type="module" src="/src/main.js"></script>
+    <!-- Usability Improvements -->
+    <link rel="stylesheet" href="/src/usability-improvements.css">
+    <script type="module" src="/src/usability-utils.js"></script>
 </head>
 
 <body class="bg-gray-50">
@@ -1341,25 +1343,59 @@ enforcement: DENY
                                     });
                             },
 
-                            removeAccount(account) {
+                            async removeAccount(account) {
                                 if (!confirm(`Are you sure you want to remove the account "${account.name}"?`)) return;
-                                fetch(`/api/xamops/account-manager/accounts/${account.dbId}`, {
-                                    method: 'DELETE',
-                                    credentials: 'include'
-                                })
-                                    .then(res => {
-                                        if (!res.ok) throw new Error('Failed to remove account.');
-                                        this.accounts = this.accounts.filter(acc => acc.dbId !== account.dbId);
 
-                                        // Clean up session storage if needed
-                                        const selectedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-                                        const newSelectedIds = selectedIds.filter(id => id !== account.id);
-                                        if (selectedIds.length !== newSelectedIds.length) {
-                                            sessionStorage.setItem('selectedAccountIds', JSON.stringify(newSelectedIds));
-                                            window.location.href = '/dashboard.html';
+                                try {
+                                    const res = await fetch(`/api/xamops/account-manager/accounts/${account.dbId}`, {
+                                        method: 'DELETE',
+                                        credentials: 'include'
+                                    });
+
+                                    if (!res.ok) {
+                                        // Try to get error details from response
+                                        let errorMessage = 'Failed to remove account.';
+                                        try {
+                                            const errorData = await res.json();
+                                            errorMessage = errorData.message || errorData.error || errorMessage;
+                                        } catch (e) {
+                                            // If response is not JSON, try text
+                                            try {
+                                                const errorText = await res.text();
+                                                if (errorText) errorMessage = errorText;
+                                            } catch (e2) {
+                                                // Keep default message
+                                            }
                                         }
-                                    })
-                                    .catch(err => alert(`Error: ${err.message}`));
+
+                                        // Check if it's a constraint violation
+                                        if (errorMessage.includes('constraint') || errorMessage.includes('ConstraintViolationException')) {
+                                            throw new Error(
+                                                'Cannot delete account because it has associated data (costs, resources, billing records, etc.).\n\n' +
+                                                'The account must be cleaned up first before deletion.\n\n' +
+                                                'Technical details: Database foreign key constraint violation.'
+                                            );
+                                        }
+
+                                        throw new Error(`${errorMessage} (Status: ${res.status})`);
+                                    }
+
+                                    // Success - remove from UI
+                                    this.accounts = this.accounts.filter(acc => acc.dbId !== account.dbId);
+
+                                    // Clean up session storage if needed
+                                    const selectedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                                    const newSelectedIds = selectedIds.filter(id => id !== account.id);
+                                    if (selectedIds.length !== newSelectedIds.length) {
+                                        sessionStorage.setItem('selectedAccountIds', JSON.stringify(newSelectedIds));
+                                        window.location.href = '/dashboard.html';
+                                    }
+
+                                    alert('Account removed successfully!');
+                                } catch (err) {
+                                    console.error('Error removing account:', err);
+                                    alert(`Error: ${err.message}`);
+                                }
                             },
 
                             getStatusColor(status, type) {
