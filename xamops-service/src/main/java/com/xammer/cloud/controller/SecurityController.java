@@ -1,9 +1,11 @@
 package com.xammer.cloud.controller;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.service.CloudListService;
+import com.xammer.cloud.service.DashboardDataService;
 import com.xammer.cloud.service.ExcelExportService;
 import com.xammer.cloud.service.ProwlerService;
 import com.xammer.cloud.service.SecurityService;
@@ -30,20 +32,23 @@ public class SecurityController {
     private static final Logger logger = LoggerFactory.getLogger(SecurityController.class);
 
     private final SecurityService securityService;
-    private final CloudListService cloudListService;
-    private final ExcelExportService excelExportService;
     private final CloudAccountRepository cloudAccountRepository;
-    private final ProwlerService prowlerService; // ✅ Added ProwlerService
+    private final CloudListService cloudListService;
+    private final DashboardDataService dashboardDataService;
+    private final ExcelExportService excelExportService;
+    private final ProwlerService prowlerService;
 
     public SecurityController(SecurityService securityService,
-            CloudListService cloudListService,
-            ExcelExportService excelExportService,
             CloudAccountRepository cloudAccountRepository,
-            ProwlerService prowlerService) { // ✅ Injected here
+            CloudListService cloudListService,
+            DashboardDataService dashboardDataService,
+            ExcelExportService excelExportService,
+            ProwlerService prowlerService) {
         this.securityService = securityService;
-        this.cloudListService = cloudListService;
-        this.excelExportService = excelExportService;
         this.cloudAccountRepository = cloudAccountRepository;
+        this.cloudListService = cloudListService;
+        this.dashboardDataService = dashboardDataService;
+        this.excelExportService = excelExportService;
         this.prowlerService = prowlerService;
     }
 
@@ -54,6 +59,21 @@ public class SecurityController {
 
         logger.info("Fetching security findings for accountId: {}, forceRefresh: {}", accountId, forceRefresh);
 
+        String cacheKey = "security-" + accountId;
+
+        if (!forceRefresh) {
+            // ⭐ NEW: Check database cache first
+            List<DashboardData.SecurityFinding> cachedFindings = (List<DashboardData.SecurityFinding>) dashboardDataService
+                    .getSecuritySnapshot(
+                            cacheKey, new TypeReference<List<DashboardData.SecurityFinding>>() {
+                            });
+
+            if (cachedFindings != null) {
+                logger.info("Serving security findings from database cache for account {}", accountId);
+                return CompletableFuture.completedFuture(ResponseEntity.ok(cachedFindings));
+            }
+        }
+
         List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
         if (accounts.isEmpty()) {
             logger.warn("No account found for accountId: {}", accountId);
@@ -63,6 +83,8 @@ public class SecurityController {
 
         CloudAccount account = accounts.get(0);
 
+        // Fallback: Fetch fresh data
+        logger.info("Fetching fresh security findings for account {}", accountId);
         return cloudListService.getRegionStatusForAccount(account, forceRefresh)
                 .thenCompose(activeRegions -> {
                     logger.info("Found {} active regions for account {}",

@@ -1,6 +1,7 @@
 package com.xammer.cloud.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.cloud.config.multitenancy.TenantContext;
 import com.xammer.cloud.domain.CachedData;
@@ -8,6 +9,7 @@ import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.SonarQubeProject;
 import com.xammer.cloud.domain.User;
 import com.xammer.cloud.dto.DashboardData;
+import com.xammer.cloud.dto.FinOpsReportDto;
 import com.xammer.cloud.dto.gcp.GcpCostDto;
 import com.xammer.cloud.dto.gcp.GcpDashboardData;
 import com.xammer.cloud.dto.sonarqube.SonarQubeMetricsDto;
@@ -133,9 +135,11 @@ public class DashboardDataService {
     // ============================================================================================
 
     /**
-     * OPTIMIZED: Runs once daily to pre-calculate dashboard data for the current tenant only.
+     * OPTIMIZED: Runs once daily to pre-calculate dashboard data for the current
+     * tenant only.
      * Changed from every 6 hours to daily at 1:00 AM to reduce AWS API costs.
-     * Uses cron schedule instead of fixedDelay to ensure predictable execution time.
+     * Uses cron schedule instead of fixedDelay to ensure predictable execution
+     * time.
      * No immediate execution on startup - waits until scheduled time.
      */
     @Scheduled(cron = "0 0 1 * * ?") // Daily at 1:00 AM
@@ -221,14 +225,13 @@ public class DashboardDataService {
 
             String currentTenant = envConfig.getCurrentTenantId();
             logger.info("🔒 Environment filter: Only processing tenant '{}' (environment: {})",
-                       currentTenant, envConfig.getActiveProfile());
+                    currentTenant, envConfig.getActiveProfile());
 
             // Only return the current environment's tenant
             List<String> tenants = masterJdbcTemplate.queryForList(
-                "SELECT tenant_id FROM tenant_config WHERE active = true AND tenant_id = ?",
-                String.class,
-                currentTenant
-            );
+                    "SELECT tenant_id FROM tenant_config WHERE active = true AND tenant_id = ?",
+                    String.class,
+                    currentTenant);
 
             if (tenants.isEmpty()) {
                 logger.warn("⚠️ No active tenant found for tenant_id: {}", currentTenant);
@@ -343,6 +346,18 @@ public class DashboardDataService {
                     logger.error("Failed to cache dashboard for {}: {}", accountId, e.getMessage());
                 }
 
+                // ⭐ NEW: Cache FinOps data for AWS accounts
+                if ("AWS".equalsIgnoreCase(account.getProvider())) {
+                    try {
+                        FinOpsReportDto finopsData = finOpsService.getFinOpsReport(accountId, true).join();
+                        String finopsKey = "finops-" + accountId;
+                        saveFinOpsSnapshot(finopsKey, finopsData);
+                        logger.info("✓ FinOps cached for {} (AWS)", accountId);
+                    } catch (Exception e) {
+                        logger.error("Failed to cache FinOps for {}: {}", accountId, e.getMessage());
+                    }
+                }
+
             } catch (Exception e) {
                 logger.warn("Failed to pre-cache data for account {}: {}", account.getId(), e.getMessage());
             }
@@ -376,6 +391,87 @@ public class DashboardDataService {
                 return data;
             } catch (JsonProcessingException e) {
                 logger.error("Failed to deserialize snapshot {}", key, e);
+            }
+        }
+        return null;
+    }
+
+    // ============================================================================================
+    // FINOPS, WASTE & SECURITY SNAPSHOT HELPERS (for database caching)
+    // ============================================================================================
+
+    private void saveFinOpsSnapshot(String key, FinOpsReportDto data) {
+        try {
+            CachedData cachedData = cachedDataRepository.findById(key).orElse(new CachedData());
+            cachedData.setCacheKey(key);
+            cachedData.setJsonData(objectMapper.writeValueAsString(data));
+            cachedData.setLastUpdated(LocalDateTime.now());
+            cachedDataRepository.save(cachedData);
+            logger.info("Saved FinOps snapshot: {}", key);
+        } catch (JsonProcessingException e) {
+            logger.error("Failed to serialize FinOps snapshot {}", key, e);
+        }
+    }
+
+    public FinOpsReportDto getFinOpsSnapshot(String key) {
+        Optional<CachedData> cached = cachedDataRepository.findById(key);
+        if (cached.isPresent()) {
+            try {
+                return objectMapper.readValue(cached.get().getJsonData(), FinOpsReportDto.class);
+            } catch (JsonProcessingException e) {
+                logger.error("Failed to deserialize FinOps snapshot {}", key, e);
+            }
+        }
+        return null;
+    }
+
+    public void saveWasteSnapshot(String key, List<DashboardData.WastedResource> data) {
+        try {
+            CachedData cachedData = cachedDataRepository.findById(key).orElse(new CachedData());
+            cachedData.setCacheKey(key);
+            cachedData.setJsonData(objectMapper.writeValueAsString(data));
+            cachedData.setLastUpdated(LocalDateTime.now());
+            cachedDataRepository.save(cachedData);
+            logger.info("Saved Waste snapshot: {}", key);
+        } catch (JsonProcessingException e) {
+            logger.error("Failed to serialize Waste snapshot {}", key, e);
+        }
+    }
+
+    public List<DashboardData.WastedResource> getWasteSnapshot(String key) {
+        Optional<CachedData> cached = cachedDataRepository.findById(key);
+        if (cached.isPresent()) {
+            try {
+                return objectMapper.readValue(cached.get().getJsonData(),
+                        new TypeReference<List<DashboardData.WastedResource>>() {
+                        });
+            } catch (JsonProcessingException e) {
+                logger.error("Failed to deserialize Waste snapshot {}", key, e);
+            }
+        }
+        return null;
+    }
+
+    public void saveSecuritySnapshot(String key, Object data) {
+        try {
+            CachedData cachedData = cachedDataRepository.findById(key).orElse(new CachedData());
+            cachedData.setCacheKey(key);
+            cachedData.setJsonData(objectMapper.writeValueAsString(data));
+            cachedData.setLastUpdated(LocalDateTime.now());
+            cachedDataRepository.save(cachedData);
+            logger.info("Saved Security snapshot: {}", key);
+        } catch (JsonProcessingException e) {
+            logger.error("Failed to serialize Security snapshot {}", key, e);
+        }
+    }
+
+    public Object getSecuritySnapshot(String key, TypeReference<?> typeRef) {
+        Optional<CachedData> cached = cachedDataRepository.findById(key);
+        if (cached.isPresent()) {
+            try {
+                return objectMapper.readValue(cached.get().getJsonData(), typeRef);
+            } catch (JsonProcessingException e) {
+                logger.error("Failed to deserialize Security snapshot {}", key, e);
             }
         }
         return null;

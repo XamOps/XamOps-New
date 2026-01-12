@@ -28,29 +28,44 @@ public class FinOpsController {
     private final FinOpsService finOpsService;
     private final CacheService cacheService;
     private final FinOpsRefreshService finOpsRefreshService;
+    private final com.xammer.cloud.service.DashboardDataService dashboardDataService;
 
-    public FinOpsController(FinOpsService finOpsService, CacheService cacheService, FinOpsRefreshService finOpsRefreshService) {
+    public FinOpsController(FinOpsService finOpsService, CacheService cacheService,
+            FinOpsRefreshService finOpsRefreshService,
+            com.xammer.cloud.service.DashboardDataService dashboardDataService) {
         this.finOpsService = finOpsService;
         this.cacheService = cacheService;
         this.finOpsRefreshService = finOpsRefreshService;
+        this.dashboardDataService = dashboardDataService;
     }
 
-@GetMapping("/report")
-public ResponseEntity<?> getFinOpsReport(
-        @RequestParam String accountId,
-        @RequestParam(defaultValue = "false") boolean forceRefresh) {
+    @GetMapping("/report")
+    public ResponseEntity<?> getFinOpsReport(
+            @RequestParam String accountId,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
 
-    try {
-        // This method will now wait for the data and return it in the response
-        // for both initial loads and forced refreshes.
-        FinOpsReportDto report = finOpsService.getFinOpsReport(accountId, forceRefresh).join();
-        return ResponseEntity.ok(report);
-    } catch (Exception e) {
-        logger.error("Error fetching FinOps report for account {}", accountId, e);
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(Map.of("error", "Failed to retrieve FinOps report.", "message", e.getMessage()));
+        try {
+            String cacheKey = "finops-" + accountId;
+
+            if (!forceRefresh) {
+                // ⭐ NEW: Check database cache first
+                FinOpsReportDto cachedReport = dashboardDataService.getFinOpsSnapshot(cacheKey);
+                if (cachedReport != null) {
+                    logger.info("Serving FinOps report from database cache for account {}", accountId);
+                    return ResponseEntity.ok(cachedReport);
+                }
+            }
+
+            // Fallback: Fetch fresh data
+            logger.info("Fetching fresh FinOps report for account {}", accountId);
+            FinOpsReportDto report = finOpsService.getFinOpsReport(accountId, forceRefresh).join();
+            return ResponseEntity.ok(report);
+        } catch (Exception e) {
+            logger.error("Error fetching FinOps report for account {}", accountId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to retrieve FinOps report.", "message", e.getMessage()));
+        }
     }
-}
 
     @GetMapping("/cost-by-tag")
     public CompletableFuture<ResponseEntity<List<Map<String, Object>>>> getCostByTag(
@@ -65,8 +80,9 @@ public ResponseEntity<?> getFinOpsReport(
                 });
     }
 
- @PostMapping("/budgets")
-    public ResponseEntity<BudgetDetails> createBudget(@RequestParam String accountId, @RequestBody BudgetDetails budgetDetails, Principal principal) {
+    @PostMapping("/budgets")
+    public ResponseEntity<BudgetDetails> createBudget(@RequestParam String accountId,
+            @RequestBody BudgetDetails budgetDetails, Principal principal) {
         try {
             // Capture the returned DTO from the service
             BudgetDetails createdBudget = finOpsService.createBudget(accountId, budgetDetails, principal.getName());
@@ -78,7 +94,7 @@ public ResponseEntity<?> getFinOpsReport(
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
         }
     }
-    
+
     @DeleteMapping("/budgets")
     public ResponseEntity<Void> deleteBudget(@RequestParam String accountId, @RequestParam String budgetName) {
         try {
