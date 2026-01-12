@@ -1223,18 +1223,65 @@
                                 </div>
                             </div>
 
-                            <div class="p-3 space-y-2">
+                            <div class="p-3 space-y-2" x-data="{ showLogoutModal: false }">
                                 <div>
-                                    <form id="logoutForm" action="/logout" method="POST" class="w-full">
-                                        <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"
-                                            x-ref="csrf">
-                                        <button type="submit"
-                                            onclick="return confirm('Are you sure you want to log out?')"
-                                            class="nav-item flex items-center gap-3 rounded-xl px-4 py-3 font-semibold text-gray-600 hover:bg-red-50 w-full text-left">
-                                            <i class="fas fa-sign-out-alt fa-fw w-5 text-center"></i>
-                                            <span>Logout</span>
-                                        </button>
-                                    </form>
+                                    <button type="button" @click="showLogoutModal = true"
+                                        class="nav-item flex items-center gap-3 rounded-xl px-4 py-3 font-semibold text-gray-600 hover:bg-red-50 w-full text-left">
+                                        <i class="fas fa-sign-out-alt fa-fw w-5 text-center"></i>
+                                        <span>Logout</span>
+                                    </button>
+
+                                    <!-- Logout Confirmation Modal -->
+                                    <div x-show="showLogoutModal" x-cloak
+                                        class="fixed inset-0 z-50 overflow-y-auto"
+                                        @keydown.escape.window="showLogoutModal = false">
+                                        <!-- Backdrop -->
+                                        <div class="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
+                                            @click="showLogoutModal = false"></div>
+
+                                        <!-- Modal -->
+                                        <div class="flex items-center justify-center min-h-screen p-4">
+                                            <div @click.stop
+                                                class="relative bg-white rounded-xl shadow-2xl max-w-md w-full transform transition-all"
+                                                x-transition:enter="ease-out duration-300"
+                                                x-transition:enter-start="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
+                                                x-transition:enter-end="opacity-100 translate-y-0 sm:scale-100"
+                                                x-transition:leave="ease-in duration-200"
+                                                x-transition:leave-start="opacity-100 translate-y-0 sm:scale-100"
+                                                x-transition:leave-end="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95">
+
+                                                <!-- Icon -->
+                                                <div class="flex items-center justify-center pt-8 pb-4">
+                                                    <div class="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center">
+                                                        <i class="fas fa-sign-out-alt text-red-600 text-2xl"></i>
+                                                    </div>
+                                                </div>
+
+                                                <!-- Content -->
+                                                <div class="px-6 pb-6 text-center">
+                                                    <h3 class="text-xl font-bold text-gray-900 mb-2">Confirm Logout</h3>
+                                                    <p class="text-sm text-gray-600 mb-6">
+                                                        Are you sure you want to log out? You will need to sign in again to access your account.
+                                                    </p>
+
+                                                    <!-- Actions -->
+                                                    <div class="flex gap-3">
+                                                        <button type="button" @click="showLogoutModal = false"
+                                                            class="flex-1 px-4 py-2.5 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">
+                                                            Cancel
+                                                        </button>
+                                                        <form id="logoutForm" action="/logout" method="POST" class="flex-1">
+                                                            <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}">
+                                                            <button type="submit"
+                                                                class="w-full px-4 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 rounded-lg transition-all shadow-md hover:shadow-lg">
+                                                                Logout
+                                                            </button>
+                                                        </form>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1242,6 +1289,34 @@
             </div>
             <script>
                 document.addEventListener('DOMContentLoaded', () => {
+                    // Handle logout form submission
+                    const logoutForm = document.getElementById('logoutForm');
+                    if (logoutForm) {
+                        logoutForm.addEventListener('submit', async (e) => {
+                            e.preventDefault();
+
+                            try {
+                                const formData = new FormData(logoutForm);
+                                await fetch('/logout', {
+                                    method: 'POST',
+                                    body: formData,
+                                    credentials: 'include'
+                                });
+
+                                // Clear session storage
+                                sessionStorage.clear();
+
+                                // Redirect to login page
+                                window.location.href = '/';
+                            } catch (error) {
+                                console.error('Logout failed:', error);
+                                // Still redirect to login on error
+                                sessionStorage.clear();
+                                window.location.href = '/';
+                            }
+                        });
+                    }
+
                     // Intercept clicks on the sidebar navigation
                     document.addEventListener('click', async (e) => {
                         const link = e.target.closest('a');
