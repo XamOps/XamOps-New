@@ -9,8 +9,6 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
     <link rel="apple-touch-icon" href="/icons/XamOps.png">
-    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script type="module" src="/src/main.js"></script>
     <!-- Usability Improvements -->
     <link rel="stylesheet" href="/src/usability-improvements.css">
@@ -200,23 +198,46 @@
 
                 <div class="flex-1 p-8 space-y-8">
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        <div class="kpi-card p-6 fade-in">
-                            <h3 class="text-gray-600 text-sm font-medium mb-2">Potential Savings</h3>
-                            <p class="text-4xl font-bold text-red-600 mb-1"
+                        <div class="kpi-card p-4 fade-in">
+                            <h3 class="text-gray-600 text-xs font-medium mb-2">Potential Savings</h3>
+                            <p class="text-3xl font-bold text-red-600 mb-1"
                                 x-text="isLoading ? '...' : '$' + potentialSavings.toFixed(2)"></p>
                             <p class="text-xs text-gray-500">per month</p>
                         </div>
-                        <div class="kpi-card p-6 fade-in">
-                            <h3 class="text-gray-600 text-sm font-medium mb-2">Wasted Resources</h3>
-                            <p class="text-4xl font-bold text-red-600 mb-1" x-text="isLoading ? '...' : resourceCount">
+                        <div class="kpi-card p-4 fade-in">
+                            <h3 class="text-gray-600 text-xs font-medium mb-2">Wasted Resources</h3>
+                            <p class="text-3xl font-bold text-red-600 mb-1" x-text="isLoading ? '...' : resourceCount">
                             </p>
                             <p class="text-xs text-gray-500">items found</p>
                         </div>
-                        <div class="kpi-card p-6 fade-in">
-                            <h3 class="text-lg font-bold text-gray-800 mb-4">Savings by Category</h3>
-                            <div class="h-48">
-                                <canvas id="savingsChart"></canvas>
-                            </div>
+                        <div class="kpi-card p-4 fade-in">
+                            <h3 class="text-gray-600 text-xs font-medium mb-2">Highest Waste Cost</h3>
+                            <template x-if="!isLoading && highestWasteService">
+                                <div>
+                                    <div class="flex items-center space-x-3 mb-2">
+                                        <div class="w-10 h-10 flex items-center justify-center rounded-lg bg-gray-100">
+                                            <img :src="'/icons/' + getServiceIcon(highestWasteService.serviceType)"
+                                                :alt="highestWasteService.serviceType"
+                                                class="w-full h-full rounded-lg object-cover"
+                                                onerror="this.src='/icons/default-icon.png'">
+                                        </div>
+                                        <div class="flex-1">
+                                            <p class="text-sm font-bold text-gray-800" x-text="highestWasteService.serviceType"></p>
+                                            <p class="text-xs text-gray-500" x-text="highestWasteService.count + ' resources'"></p>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-baseline space-x-1">
+                                        <span class="text-2xl font-bold text-red-600">$</span>
+                                        <span class="text-3xl font-bold text-red-600" x-text="highestWasteService.totalCost.toFixed(2)"></span>
+                                        <span class="text-xs text-gray-500">/month</span>
+                                    </div>
+                                </div>
+                            </template>
+                            <template x-if="isLoading || !highestWasteService">
+                                <div class="text-center py-4">
+                                    <p class="text-2xl text-gray-400">...</p>
+                                </div>
+                            </template>
                         </div>
                     </div>
 
@@ -426,6 +447,31 @@
                             get resourceCount() {
                                 if (!Array.isArray(this.filteredResources)) return 0;
                                 return this.filteredResources.length;
+                            },
+
+                            get highestWasteService() {
+                                if (!Array.isArray(this.wastedResources) || this.wastedResources.length === 0) return null;
+
+                                const serviceGroups = this.wastedResources.reduce((acc, resource) => {
+                                    const serviceType = resource.resourceType || 'Other';
+                                    if (!acc[serviceType]) {
+                                        acc[serviceType] = {
+                                            serviceType: serviceType,
+                                            totalCost: 0,
+                                            count: 0
+                                        };
+                                    }
+                                    acc[serviceType].totalCost += resource.monthlySavings || 0;
+                                    acc[serviceType].count += 1;
+                                    return acc;
+                                }, {});
+
+                                const services = Object.values(serviceGroups);
+                                if (services.length === 0) return null;
+
+                                return services.reduce((max, service) =>
+                                    service.totalCost > max.totalCost ? service : max
+                                );
                             },
 
                             renderSavingsChart() {
