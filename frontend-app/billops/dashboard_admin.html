@@ -516,19 +516,27 @@
                     function adminDashboard() {
                         return {
                             data: null,
-                            loading: true,
+                            loading: false,
+                            isRefreshing: false,
                             error: null,
                             providerChart: null,
                             statusChart: null,
+                            pollingInterval: null,
 
                             init() {
+                                // Load dashboard data immediately (will always return cached data)
                                 this.loadDashboard();
-                                Alpine.store('dashboard', { loading: true });
+                                Alpine.store('dashboard', { loading: false });
+
+                                // Start background polling every 30 seconds to check for updates
+                                this.startBackgroundPolling();
                             },
 
                             async loadDashboard(forceRefresh = false) {
-                                this.loading = true;
-                                if (Alpine.store('dashboard')) Alpine.store('dashboard').loading = this.loading;
+                                // Show loading spinner ONLY if there's no data yet (first time load)
+                                if (!this.data) {
+                                    this.loading = true;
+                                }
                                 this.error = null;
 
                                 try {
@@ -540,20 +548,53 @@
                                         throw new Error(`HTTP error! status: ${response.status}`);
                                     }
 
-                                    this.data = await response.json();
-                                    await this.$nextTick();
-                                    this.renderCharts();
+                                    const newData = await response.json();
+
+                                    // Smoothly update data if changed
+                                    if (JSON.stringify(this.data) !== JSON.stringify(newData)) {
+                                        this.data = newData;
+                                        await this.$nextTick();
+                                        this.renderCharts();
+                                    } else if (!this.data) {
+                                        // First load
+                                        this.data = newData;
+                                        await this.$nextTick();
+                                        this.renderCharts();
+                                    }
                                 } catch (err) {
                                     console.error('Error loading admin dashboard:', err);
-                                    this.error = 'Failed to load dashboard data. Please try again.';
+                                    // Don't show error on background refresh, only on manual refresh
+                                    if (forceRefresh) {
+                                        this.error = 'Failed to load dashboard data. Please try again.';
+                                    }
                                 } finally {
+                                    // Clear loading state after first load
                                     this.loading = false;
-                                    if (Alpine.store('dashboard')) Alpine.store('dashboard').loading = this.loading;
                                 }
                             },
 
+                            startBackgroundPolling() {
+                                // Poll for updates every 30 seconds in the background
+                                this.pollingInterval = setInterval(() => {
+                                    this.loadDashboard(false);
+                                }, 30000);
+                            },
+
                             async refreshDashboard() {
+                                this.isRefreshing = true;
+                                if (Alpine.store('dashboard')) Alpine.store('dashboard').loading = true;
+
                                 await this.loadDashboard(true);
+
+                                this.isRefreshing = false;
+                                if (Alpine.store('dashboard')) Alpine.store('dashboard').loading = false;
+                            },
+
+                            destroy() {
+                                // Clean up polling interval when component is destroyed
+                                if (this.pollingInterval) {
+                                    clearInterval(this.pollingInterval);
+                                }
                             },
 
                             renderCharts() {

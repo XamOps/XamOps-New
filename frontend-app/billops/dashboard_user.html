@@ -351,9 +351,9 @@
                     </div>
 
                     <div x-show="loading" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        <template x-for="i in 3">
-                            <div class="h-32 bg-gray-100 rounded-xl shimmer animate-pulse"></div>
-                        </template>
+                        <div class="h-32 bg-gray-100 rounded-xl shimmer animate-pulse"></div>
+                        <div class="h-32 bg-gray-100 rounded-xl shimmer animate-pulse"></div>
+                        <div class="h-32 bg-gray-100 rounded-xl shimmer animate-pulse"></div>
                     </div>
 
                     <div x-show="!loading" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -418,11 +418,7 @@
                                 All &rarr;</a>
                         </div>
                         <div class="space-y-3">
-                            <div x-show="loading">
-                                <div class="h-12 bg-gray-100 rounded-lg shimmer animate-pulse mb-2"></div>
-                                <div class="h-12 bg-gray-100 rounded-lg shimmer animate-pulse mb-2"></div>
-                            </div>
-                            <div x-show="!loading">
+                            <div>
                                 <template x-for="invoice in data?.recentInvoices || []" :key="invoice.id">
                                     <div
                                         class="flex items-center justify-between p-3 bg-gray-50/80 rounded-lg hover:bg-white hover:shadow-md transition-all border border-transparent hover:border-gray-100 group">
@@ -466,11 +462,7 @@
                                 All &rarr;</a>
                         </div>
                         <div class="space-y-3">
-                            <div x-show="loading">
-                                <div class="h-12 bg-gray-100 rounded-lg shimmer animate-pulse mb-2"></div>
-                                <div class="h-12 bg-gray-100 rounded-lg shimmer animate-pulse mb-2"></div>
-                            </div>
-                            <div x-show="!loading">
+                            <div>
                                 <template x-for="ticket in data?.recentTickets || []" :key="ticket.id">
                                     <div
                                         class="flex items-center justify-between p-3 bg-gray-50/80 rounded-lg hover:bg-white hover:shadow-md transition-all border border-transparent hover:border-gray-100 group">
@@ -517,20 +509,27 @@
                     function userDashboard() {
                         return {
                             data: null,
-                            loading: true,
+                            loading: false,
+                            isRefreshing: false,
                             error: null,
                             trendChart: null,
                             providerChart: null,
+                            pollingInterval: null,
 
                             init() {
+                                // Load dashboard data immediately (will always return cached data)
                                 this.loadDashboard();
-                                // Subscribe to store loading if needed, but managing local state for now
-                                Alpine.store('dashboard', { loading: true });
+                                Alpine.store('dashboard', { loading: false });
+
+                                // Start background polling every 30 seconds to check for updates
+                                this.startBackgroundPolling();
                             },
 
                             async loadDashboard(forceRefresh = false) {
-                                this.loading = true;
-                                if (Alpine.store('dashboard')) Alpine.store('dashboard').loading = this.loading;
+                                // Show loading spinner ONLY if there's no data yet (first time load)
+                                if (!this.data) {
+                                    this.loading = true;
+                                }
                                 this.error = null;
 
                                 try {
@@ -542,20 +541,53 @@
                                         throw new Error(`HTTP error! status: ${response.status}`);
                                     }
 
-                                    this.data = await response.json();
-                                    await this.$nextTick();
-                                    this.renderCharts();
+                                    const newData = await response.json();
+
+                                    // Smoothly update data if changed
+                                    if (JSON.stringify(this.data) !== JSON.stringify(newData)) {
+                                        this.data = newData;
+                                        await this.$nextTick();
+                                        this.renderCharts();
+                                    } else if (!this.data) {
+                                        // First load
+                                        this.data = newData;
+                                        await this.$nextTick();
+                                        this.renderCharts();
+                                    }
                                 } catch (err) {
                                     console.error('Error loading user dashboard:', err);
-                                    this.error = 'Failed to load dashboard data. Please try again.';
+                                    // Don't show error on background refresh, only on manual refresh
+                                    if (forceRefresh) {
+                                        this.error = 'Failed to load dashboard data. Please try again.';
+                                    }
                                 } finally {
+                                    // Clear loading state after first load
                                     this.loading = false;
-                                    if (Alpine.store('dashboard')) Alpine.store('dashboard').loading = this.loading;
                                 }
                             },
 
+                            startBackgroundPolling() {
+                                // Poll for updates every 30 seconds in the background
+                                this.pollingInterval = setInterval(() => {
+                                    this.loadDashboard(false);
+                                }, 30000);
+                            },
+
                             async refreshDashboard() {
+                                this.isRefreshing = true;
+                                if (Alpine.store('dashboard')) Alpine.store('dashboard').loading = true;
+
                                 await this.loadDashboard(true);
+
+                                this.isRefreshing = false;
+                                if (Alpine.store('dashboard')) Alpine.store('dashboard').loading = false;
+                            },
+
+                            destroy() {
+                                // Clean up polling interval when component is destroyed
+                                if (this.pollingInterval) {
+                                    clearInterval(this.pollingInterval);
+                                }
                             },
 
                             renderCharts() {
