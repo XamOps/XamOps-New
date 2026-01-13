@@ -256,11 +256,15 @@
 
         // Auto-apply selection if we have selected accounts but no URL params
         const hasUrlParams = urlAccountId || urlProjectId;
-        // Fix: Do not auto-redirect from unified-dashboard or BillOps dashboards, as they are valid landing pages without params
+        // Fix: Do not auto-redirect from unified-dashboard, BillOps dashboards, or detail pages, as they are valid landing pages without params
         const isExcludedPage = window.location.pathname.includes('unified-dashboard.html') ||
                                window.location.pathname.includes('account-manager.html') ||
                                window.location.pathname.includes('/billops/dashboard_user.html') ||
-                               window.location.pathname.includes('/billops/dashboard_admin.html');
+                               window.location.pathname.includes('/billops/dashboard_admin.html') ||
+                               window.location.pathname.includes('admin_invoice_detail.html') ||
+                               window.location.pathname.includes('invoice_detail.html') ||
+                               window.location.pathname.includes('ticket_detail.html') ||
+                               window.location.pathname.includes('admin_ticket_detail.html');
 
         if (!hasUrlParams && this.selectedAccountIds.length > 0 && !isExcludedPage) {
             console.log('🔄 Auto-applying saved account selection...');
@@ -350,11 +354,15 @@
                     // Auto-apply selection if we're on a page that needs it
                     const urlParams = new URLSearchParams(window.location.search);
                     
-                    // Fix: Do not auto-redirect from unified-dashboard or BillOps dashboards
+                    // Fix: Do not auto-redirect from unified-dashboard, BillOps dashboards, or detail pages
                     const isExcludedPage = window.location.pathname.includes('unified-dashboard.html') ||
                                            window.location.pathname.includes('account-manager.html') ||
                                            window.location.pathname.includes('/billops/dashboard_user.html') ||
-                                           window.location.pathname.includes('/billops/dashboard_admin.html');
+                                           window.location.pathname.includes('/billops/dashboard_admin.html') ||
+                                           window.location.pathname.includes('admin_invoice_detail.html') ||
+                                           window.location.pathname.includes('invoice_detail.html') ||
+                                           window.location.pathname.includes('ticket_detail.html') ||
+                                           window.location.pathname.includes('admin_ticket_detail.html');
 
                     if (!urlParams.get('accountId') && !urlParams.get('accountIds') && !isExcludedPage) {
                         console.log('🔄 Auto-applying first account selection...');

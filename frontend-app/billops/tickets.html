@@ -68,8 +68,17 @@
                                 My Support Tickets (Billing)
                                 <span x-show="isUpdating" class="updating-spinner" title="Refreshing data..."></span>
                             </h1>
-                            <p class="text-sm text-gray-500 mt-1" x-show="selectedAccountId"
-                                x-text="`Account: ${selectedAccountId}`"></p>
+                            <div class="flex items-center space-x-3 mt-1">
+                                <p class="text-sm text-gray-500" x-show="selectedAccountId"
+                                    x-text="`Account: ${selectedAccountId}`"></p>
+                                <template x-if="lastUpdated">
+                                    <span
+                                        class="text-[10px] text-gray-400 font-medium bg-gray-50 px-1.5 py-0.5 rounded border border-gray-100 flex items-center opacity-70">
+                                        <i class="far fa-clock mr-1"></i>
+                                        Synced: <span class="ml-1" x-text="lastUpdatedDisplay"></span>
+                                    </span>
+                                </template>
+                            </div>
                         </div>
                         <div class="flex items-center space-x-4">
                             <button @click="fetchFreshData(true)"
@@ -323,6 +332,8 @@
                     showModal: false,
                     cacheKey: 'billops_account_tickets_v1',
                     selectedAccountId: null,
+                    lastUpdated: null,
+                    lastUpdatedDisplay: '',
 
                     form: {
                         category: 'Account and Billing',
@@ -360,23 +371,44 @@
 
                         // 3. Trigger Background Sync (Stale-While-Revalidate)
                         this.fetchFreshData(false);
+
+                        // 4. Listen for browser back/forward navigation (soft navigation)
+                        window.addEventListener('popstate', (event) => {
+                            console.log('[Tickets] Popstate event detected, refreshing tickets list');
+                            this.fetchFreshData(false);
+                        });
                     },
 
                     loadFromLocalStorage() {
                         try {
                             const cached = localStorage.getItem(this.cacheKey);
                             if (cached) {
-                                let allCachedTickets = JSON.parse(cached);
+                                let { data, timestamp } = JSON.parse(cached);
 
-                                // Apply client-side filtering to cached data
-                                if (this.selectedAccountId) {
-                                    this.tickets = allCachedTickets.filter(t => t.accountId === this.selectedAccountId);
-                                } else {
-                                    this.tickets = allCachedTickets;
+                                // Handle backward compatibility if 'cached' was just the array
+                                if (Array.isArray(JSON.parse(cached))) {
+                                    data = JSON.parse(cached);
+                                    timestamp = null;
                                 }
 
-                                this.loading = false;
-                                return true;
+                                if (data && Array.isArray(data)) {
+                                    console.log("⚡ [Tickets] Loaded from cache.");
+
+                                    // Apply client-side filtering to cached data
+                                    if (this.selectedAccountId) {
+                                        this.tickets = data.filter(t => t.accountId === this.selectedAccountId);
+                                    } else {
+                                        this.tickets = data;
+                                    }
+
+                                    if (timestamp) {
+                                        this.lastUpdated = timestamp;
+                                        this.updateLastUpdatedDisplay();
+                                    }
+
+                                    this.loading = false;
+                                    return true;
+                                }
                             }
                         } catch (e) {
                             console.error("Error reading cache:", e);
@@ -384,18 +416,24 @@
                         return false;
                     },
 
+                    updateLastUpdatedDisplay() {
+                        if (!this.lastUpdated) return;
+                        const date = new Date(this.lastUpdated);
+                        // Using a slightly more compact format for the tickets header
+                        this.lastUpdatedDisplay = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    },
+
                     async fetchFreshData(manual = false) {
                         if (manual) console.log("🖱️ Manual refresh triggered");
 
-                        if (manual) {
+                        if (manual || !this.hasData) {
+                            this.isUpdating = true;
+                        } else {
+                            // Subtle background refresh
                             this.isUpdating = true;
                         }
 
                         this.error = null;
-
-                        if (!this.hasData) {
-                            this.loading = true;
-                        }
 
                         try {
                             const url = `/api/billops/tickets/category/Account%20and%20Billing?forceRefresh=${manual}`;
@@ -411,6 +449,16 @@
 
                             const allTickets = await response.json();
 
+                            // Update Cache with timestamp
+                            const now = Date.now();
+                            localStorage.setItem(this.cacheKey, JSON.stringify({
+                                data: allTickets,
+                                timestamp: now
+                            }));
+
+                            this.lastUpdated = now;
+                            this.updateLastUpdatedDisplay();
+
                             // Filter tickets based on the selected account ID from URL
                             let filteredTickets = allTickets;
                             if (this.selectedAccountId) {
@@ -419,9 +467,6 @@
 
                             // Sort: Newest first
                             this.tickets = filteredTickets.sort((a, b) => b.id - a.id);
-
-                            // Update Frontend Cache with the full list (so switching accounts works without re-fetch)
-                            localStorage.setItem(this.cacheKey, JSON.stringify(allTickets));
 
                         } catch (err) {
                             console.error("Fetch error:", err);
@@ -487,6 +532,7 @@
                     },
 
                     viewTicket(id) {
+                        // Navigate to ticket detail page
                         window.location.href = `/billops/ticket_detail.html?id=${id}`;
                     },
 

@@ -51,6 +51,13 @@
                         <span x-show="isUpdating" class="updating-spinner" title="Refreshing..."></span>
                     </h1>
                     <div class="flex items-center gap-3">
+                        <template x-if="lastUpdated">
+                            <div
+                                class="text-[10px] text-gray-400 font-medium bg-gray-50 px-1.5 py-1 rounded border border-gray-100 opacity-80">
+                                <i class="far fa-clock mr-1"></i>
+                                Last Synced: <span x-text="lastUpdatedDisplay"></span>
+                            </div>
+                        </template>
                         <div class="relative">
                             <span class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                                 <i class="fas fa-search text-gray-400"></i>
@@ -239,6 +246,8 @@
                             error: null,
                             search: '',
                             activeTab: 'Account and Billing',
+                            lastUpdated: null,
+                            lastUpdatedDisplay: '',
 
                             cacheKey: 'xamops_admin_tickets_v1',
 
@@ -254,14 +263,42 @@
                                 try {
                                     const cached = localStorage.getItem(this.cacheKey);
                                     if (cached) {
-                                        this.tickets = JSON.parse(cached);
-                                        this.loading = false;
-                                        return true;
+                                        let { data, timestamp } = JSON.parse(cached);
+
+                                        // Handle backward compatibility
+                                        if (Array.isArray(JSON.parse(cached))) {
+                                            data = JSON.parse(cached);
+                                            timestamp = null;
+                                        }
+
+                                        if (data && Array.isArray(data)) {
+                                            console.log("⚡ [Admin Tickets] Loaded from cache.");
+                                            this.tickets = data.sort((a, b) => b.id - a.id);
+
+                                            if (timestamp) {
+                                                this.lastUpdated = timestamp;
+                                                this.updateLastUpdatedDisplay();
+                                            }
+
+                                            this.loading = false;
+                                            return true;
+                                        }
                                     }
                                 } catch (e) {
                                     console.error("Error loading from cache:", e);
                                 }
                                 return false;
+                            },
+
+                            updateLastUpdatedDisplay() {
+                                if (!this.lastUpdated) return;
+                                const date = new Date(this.lastUpdated);
+                                this.lastUpdatedDisplay = date.toLocaleString([], {
+                                    month: 'short',
+                                    day: 'numeric',
+                                    hour: '2-digit',
+                                    minute: '2-digit'
+                                });
                             },
 
                             get filteredTickets() {
@@ -287,12 +324,12 @@
                             },
 
                             fetchTickets(isRefresh = false) {
-                                if (isRefresh) {
+                                if (isRefresh || this.tickets.length === 0) {
                                     this.isUpdating = true;
+                                    if (this.tickets.length === 0) this.loading = true;
                                 } else {
-                                    if (this.tickets.length === 0) {
-                                        this.loading = true;
-                                    }
+                                    // Hidden background refresh
+                                    this.isUpdating = true;
                                 }
 
                                 const url = isRefresh
@@ -308,8 +345,18 @@
                                         return res.json();
                                     })
                                     .then(data => {
+                                        console.log('✅ [Admin Tickets] Fresh data received.');
                                         this.tickets = data.sort((a, b) => b.id - a.id);
-                                        localStorage.setItem(this.cacheKey, JSON.stringify(this.tickets));
+
+                                        // Cache logic
+                                        const now = Date.now();
+                                        this.lastUpdated = now;
+                                        this.updateLastUpdatedDisplay();
+                                        localStorage.setItem(this.cacheKey, JSON.stringify({
+                                            data: this.tickets,
+                                            timestamp: now
+                                        }));
+
                                         this.error = null;
                                     })
                                     .catch(err => {

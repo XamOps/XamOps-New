@@ -106,6 +106,13 @@
                         </div>
                     </div>
                     <div class="flex items-center space-x-4">
+                        <template x-if="lastUpdated">
+                            <div
+                                class="text-xs text-gray-400 font-medium bg-gray-50 px-2 py-1 rounded border border-gray-100">
+                                <i class="far fa-clock mr-1"></i>
+                                Last Updated: <span x-text="lastUpdatedDisplay"></span>
+                            </div>
+                        </template>
                         <button @click="fetchData(true)" :disabled="loading || isUpdating"
                             class="text-gray-600 hover:text-indigo-600 transition-colors p-2 rounded-full hover:bg-gray-100 focus:outline-none"
                             title="Refresh List">
@@ -338,6 +345,8 @@
                             error: null,
                             updateError: null,
                             mergeSuccess: false,
+                            lastUpdated: null,
+                            lastUpdatedDisplay: '',
 
                             // Selection State
                             selectedIds: [],
@@ -367,12 +376,42 @@
                                 }
 
                                 this.fetchAccounts();
+
+                                // ⚡ 1. Load from cache
+                                this.loadFromCache();
+
+                                // 🔄 2. Background Refresh
                                 this.fetchData(false);
 
                                 // Watcher to validate selection whenever it changes
                                 this.$watch('selectedIds', () => {
                                     this.validateMergeSelection();
                                 });
+                            },
+
+                            loadFromCache() {
+                                const cacheKey = `admin_invoices_list`;
+                                const cached = localStorage.getItem(cacheKey);
+                                if (cached) {
+                                    try {
+                                        const { data, timestamp } = JSON.parse(cached);
+                                        if (data && Array.isArray(data)) {
+                                            console.log("⚡ [Admin Invoices] Loaded from cache.");
+                                            this.invoices = data;
+                                            this.lastUpdated = timestamp;
+                                            this.updateLastUpdatedDisplay();
+                                            this.loading = false;
+                                        }
+                                    } catch (e) {
+                                        console.warn("Failed to parse cached admin invoices", e);
+                                    }
+                                }
+                            },
+
+                            updateLastUpdatedDisplay() {
+                                if (!this.lastUpdated) return;
+                                const date = new Date(this.lastUpdated);
+                                this.lastUpdatedDisplay = date.toLocaleString();
                             },
 
                             getSelectedAccountName() {
@@ -428,12 +467,13 @@
                             },
 
                             fetchData(forceRefresh) {
-                                if (forceRefresh) {
+                                // If forceRefresh manual OR no data yet
+                                if (forceRefresh || this.invoices.length === 0) {
                                     this.isUpdating = true;
                                     this.updateError = null;
+                                    if (this.invoices.length === 0) this.loading = true;
                                 } else {
-                                    this.loading = true;
-                                    this.error = null;
+                                    this.isUpdating = true;
                                 }
 
                                 // Clear selection on refresh to avoid stale data
@@ -448,21 +488,28 @@
                                         return res.json();
                                     })
                                     .then(data => {
+                                        console.log('✅ [Admin Invoices] Fresh data received.');
                                         this.invoices = data;
+
+                                        // Cache logic
+                                        const now = Date.now();
+                                        this.lastUpdated = now;
+                                        this.updateLastUpdatedDisplay();
+                                        localStorage.setItem('admin_invoices_list', JSON.stringify({
+                                            data: data,
+                                            timestamp: now
+                                        }));
+
                                         this.error = null;
                                         this.updateError = null;
                                     })
                                     .catch(err => {
                                         console.error("Error fetching invoices:", err);
                                         const msg = err.message || "Failed to load invoices.";
-                                        if (forceRefresh) {
-                                            this.updateError = msg;
+                                        if (forceRefresh || this.invoices.length === 0) {
+                                            this.error = msg;
                                         } else {
-                                            if (this.invoices.length === 0) {
-                                                this.error = msg;
-                                            } else {
-                                                this.updateError = msg + " (Showing cached data)";
-                                            }
+                                            this.updateError = msg + " (Showing cached data)";
                                         }
                                     })
                                     .finally(() => {

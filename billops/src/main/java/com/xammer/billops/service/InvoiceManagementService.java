@@ -960,7 +960,13 @@ public class InvoiceManagementService {
     @Transactional(readOnly = true)
     public List<InvoiceDto> getAllInvoicesAndCache() {
         List<Invoice> invoices = invoiceRepository.findAll();
-        List<InvoiceDto> dtos = invoices.stream().map(InvoiceDto::fromEntity).collect(Collectors.toList());
+        long now = System.currentTimeMillis();
+        List<InvoiceDto> dtos = invoices.stream().map(invoice -> {
+            InvoiceDto dto = InvoiceDto.fromEntity(invoice);
+            dto.setLastUpdated(now);
+            return dto;
+        }).collect(Collectors.toList());
+
         redisCache.put(INVOICE_LIST_CACHE_KEY, dtos, CACHE_TTL_MINUTES);
         return dtos;
     }
