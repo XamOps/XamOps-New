@@ -35,7 +35,7 @@ public class CustomAuthenticationSuccessHandler implements AuthenticationSuccess
         response.setContentType("application/json");
 
         // 1. Determine Redirect URL based on Role
-        String redirectUrl = "/dashboard.html";
+        String redirectUrl = "/unified-dashboard.html"; // Default fallback
         Collection<? extends GrantedAuthority> authorities = authentication.getAuthorities();
         for (GrantedAuthority authority : authorities) {
             if (authority.getAuthority().equals("ROLE_BILLOPS_ADMIN")) {
@@ -43,6 +43,9 @@ public class CustomAuthenticationSuccessHandler implements AuthenticationSuccess
                 break;
             } else if (authority.getAuthority().equals("ROLE_BILLOPS")) {
                 redirectUrl = "/billops/dashboard_user.html";
+                break;
+            } else if (authority.getAuthority().equals("ROLE_XAMOPS")) {
+                redirectUrl = "/unified-dashboard.html";
                 break;
             }
         }

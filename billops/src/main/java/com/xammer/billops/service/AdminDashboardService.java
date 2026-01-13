@@ -3,6 +3,7 @@ package com.xammer.billops.service;
 import com.xammer.billops.domain.CloudAccount;
 import com.xammer.billops.dto.AccountSummaryDto;
 import com.xammer.billops.dto.AdminDashboardDto;
+import com.xammer.billops.dto.BillingDashboardDto;
 import com.xammer.billops.dto.InvoiceDto;
 import com.xammer.billops.dto.TicketDto;
 import com.xammer.billops.repository.ClientRepository;
@@ -38,16 +39,21 @@ public class AdminDashboardService {
     private static final String CACHE_KEY = "billops:admin:dashboard";
     private static final long CACHE_TTL_MINUTES = 15;
 
-    public AdminDashboardService(CloudAccountRepository cloudAccountRepository,
-                                InvoiceRepository invoiceRepository,
-                                TicketRepository ticketRepository,
-                                ClientRepository clientRepository,
-                                RedisCacheService redisCache) {
-        this.cloudAccountRepository = cloudAccountRepository;
+    private final BillingService billingService;
+
+    public AdminDashboardService(
+            InvoiceRepository invoiceRepository,
+            CloudAccountRepository cloudAccountRepository,
+            TicketRepository ticketRepository,
+            ClientRepository clientRepository,
+            RedisCacheService redisCacheService,
+            BillingService billingService) {
         this.invoiceRepository = invoiceRepository;
+        this.cloudAccountRepository = cloudAccountRepository;
         this.ticketRepository = ticketRepository;
         this.clientRepository = clientRepository;
-        this.redisCache = redisCache;
+        this.redisCache = redisCacheService;
+        this.billingService = billingService;
     }
 
     public AdminDashboardDto getAdminDashboardSummary(boolean forceRefresh) {
@@ -80,8 +86,7 @@ public class AdminDashboardService {
         Map<String, Long> accountsByStatus = allAccounts.stream()
                 .collect(Collectors.groupingBy(
                         acc -> acc.getStatus() != null ? acc.getStatus() : "UNKNOWN",
-                        Collectors.counting()
-                ));
+                        Collectors.counting()));
         dashboard.setAccountsByStatus(accountsByStatus);
 
         // Get invoice counts
@@ -129,8 +134,10 @@ public class AdminDashboardService {
         // Top 10 spending accounts
         List<AccountSummaryDto> topAccounts = accountSummaries.stream()
                 .sorted((a1, a2) -> {
-                    BigDecimal s1 = a1.getCurrentMonthSpending() != null ? a1.getCurrentMonthSpending() : BigDecimal.ZERO;
-                    BigDecimal s2 = a2.getCurrentMonthSpending() != null ? a2.getCurrentMonthSpending() : BigDecimal.ZERO;
+                    BigDecimal s1 = a1.getCurrentMonthSpending() != null ? a1.getCurrentMonthSpending()
+                            : BigDecimal.ZERO;
+                    BigDecimal s2 = a2.getCurrentMonthSpending() != null ? a2.getCurrentMonthSpending()
+                            : BigDecimal.ZERO;
                     return s2.compareTo(s1);
                 })
                 .limit(10)
@@ -144,16 +151,15 @@ public class AdminDashboardService {
         spendingByProvider.put("Azure", BigDecimal.ZERO);
 
         for (AccountSummaryDto account : accountSummaries) {
-            BigDecimal spending = account.getCurrentMonthSpending() != null ?
-                                 account.getCurrentMonthSpending() : BigDecimal.ZERO;
+            BigDecimal spending = account.getCurrentMonthSpending() != null ? account.getCurrentMonthSpending()
+                    : BigDecimal.ZERO;
             spendingByProvider.merge(account.getProvider(), spending, BigDecimal::add);
         }
         dashboard.setSpendingByProvider(spendingByProvider);
 
         // Recent invoices (last 10)
         List<Invoice> recentInvoiceEntities = invoiceRepository.findAll(
-            PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "invoiceDate"))
-        ).getContent();
+                PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "invoiceDate"))).getContent();
 
         List<InvoiceDto> recentInvoices = recentInvoiceEntities.stream()
                 .map(this::convertToInvoiceDto)
@@ -162,8 +168,7 @@ public class AdminDashboardService {
 
         // Recent tickets (last 10)
         List<Ticket> recentTicketEntities = ticketRepository.findAll(
-            PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "createdAt"))
-        ).getContent();
+                PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "createdAt"))).getContent();
 
         List<TicketDto> recentTickets = recentTicketEntities.stream()
                 .map(this::convertToTicketDto)
@@ -179,15 +184,20 @@ public class AdminDashboardService {
 
     private BigDecimal calculateAccountSpending(CloudAccount account, YearMonth month) {
         try {
-            List<Invoice> invoices = invoiceRepository.findByCloudAccountIdAndBillingPeriodAndStatus(
-                account.getId(),
-                month.toString(),
-                Invoice.InvoiceStatus.FINALIZED
-            );
+            // Use BillingService to get accurate spend (matches Billing Page logic)
+            BillingDashboardDto billingData = billingService.getAccountBillingSummary(
+                    account,
+                    month.getYear(),
+                    month.getMonthValue());
 
-            return invoices.stream()
-                    .map(Invoice::getAmount)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            // Sum up costs from service breakdown
+            if (billingData.getServiceBreakdown() != null) {
+                return billingData.getServiceBreakdown().stream()
+                        .map(s -> BigDecimal.valueOf(s.getCost()))
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+            }
+
+            return BigDecimal.ZERO;
         } catch (Exception e) {
             logger.warn("Error calculating spending for account {}: {}", account.getAccountName(), e.getMessage());
             return BigDecimal.ZERO;
@@ -197,7 +207,8 @@ public class AdminDashboardService {
     private LocalDate getLastInvoiceDate(CloudAccount account) {
         try {
             List<Invoice> invoices = invoiceRepository.findAll().stream()
-                    .filter(inv -> inv.getCloudAccount() != null && inv.getCloudAccount().getId().equals(account.getId()))
+                    .filter(inv -> inv.getCloudAccount() != null
+                            && inv.getCloudAccount().getId().equals(account.getId()))
                     .sorted((i1, i2) -> i2.getInvoiceDate().compareTo(i1.getInvoiceDate()))
                     .limit(1)
                     .collect(Collectors.toList());
@@ -212,7 +223,7 @@ public class AdminDashboardService {
     }
 
     private AccountSummaryDto convertToAccountSummary(CloudAccount account, BigDecimal currentMonthSpending,
-                                                     BigDecimal lastMonthSpending, LocalDate lastInvoiceDate) {
+            BigDecimal lastMonthSpending, LocalDate lastInvoiceDate) {
         AccountSummaryDto dto = new AccountSummaryDto();
         dto.setId(account.getId());
         dto.setAccountName(account.getAccountName());
