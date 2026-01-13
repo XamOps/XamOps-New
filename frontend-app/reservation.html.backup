@@ -1,0 +1,1017 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XamOps - Reservation Management</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
+
+    <script type="module" src="/src/main.js"></script>
+
+    <script>
+        function reservationManagement() {
+            let chartInstance = null;
+
+            return {
+                    activeTab: 'recommendations', // Default Tab
+                    isLoading: true,
+                    isRecsLoading: false,
+                    selectedAccountId: (() => {
+                        const urlParams = new URLSearchParams(window.location.search);
+                        const accountId = urlParams.get('accountIds');
+                        if (accountId) return accountId;
+                        const storedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                        return storedIds.length > 0 ? storedIds.join(',') : null;
+                    })(),
+                    inventoryTab: 'ris',
+                    data: {
+                        analysis: {},
+                        historicalData: {},
+                        inventory: [],
+                        savingsPlans: [],
+                        purchaseRecommendations: []
+                    },
+                    recFilters: {
+                        term: 'ONE_YEAR',
+                        paymentOption: 'NO_UPFRONT',
+                        lookback: 'THIRTY_DAYS',
+                        offeringClass: 'STANDARD'
+                    },
+
+                    init() {
+                        // selectedAccountId is now initialized above
+                        // Always attempt to fetch data, even if no account ID
+                        // The fetch function will handle the validation
+                        this.fetchReservationData(false);
+                    },
+
+                    formatDate(dateString) {
+                        if (!dateString) return 'N/A';
+                        const date = new Date(dateString);
+                        return isNaN(date.getTime()) ? dateString : date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+                    },
+
+                    isExpiringSoon(endDate) {
+                        if (!endDate) return false;
+                        const today = new Date();
+                        const expiry = new Date(endDate);
+                        const threshold = new Date();
+                        threshold.setDate(today.getDate() + 60);
+                        return expiry > today && expiry < threshold;
+                    },
+
+                    formatCurrency(val, isHourly = true) {
+                        if (!val) return 'N/A';
+                        let numStr = String(val).replace(/[^0-9.]/g, '');
+                        const num = parseFloat(numStr);
+                        if (isNaN(num)) return val;
+                        const decimals = (isHourly && num < 1) ? 4 : 2;
+                        return '$' + num.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals }) + (isHourly ? '/hr' : '');
+                    },
+
+                    initCharts() {
+                        if (!this.data.historicalData || !this.data.historicalData.labels || this.data.historicalData.labels.length === 0) {
+                            return;
+                        }
+
+                        const canvas = this.$refs.utilizationChart;
+                        if (!canvas) return;
+                        const ctx = canvas.getContext('2d');
+
+                        if (chartInstance) {
+                            chartInstance.destroy();
+                        }
+
+                        // Create gradients
+                        const gradientUtil = ctx.createLinearGradient(0, 0, 0, 300);
+                        gradientUtil.addColorStop(0, 'rgba(79, 70, 229, 0.2)'); // Indigo
+                        gradientUtil.addColorStop(1, 'rgba(79, 70, 229, 0)');
+
+                        const gradientCov = ctx.createLinearGradient(0, 0, 0, 300);
+                        gradientCov.addColorStop(0, 'rgba(16, 185, 129, 0.2)'); // Green
+                        gradientCov.addColorStop(1, 'rgba(16, 185, 129, 0)');
+
+                        chartInstance = new Chart(ctx, {
+                            type: 'line',
+                            data: {
+                                // Use labels directly from backend (e.g., "Jan 2025", "Feb 2025")
+                                labels: this.data.historicalData.labels,
+                                datasets: [
+                                    {
+                                        label: 'Utilization %',
+                                        data: this.data.historicalData.utilizationPercentages,
+                                        borderColor: '#4f46e5',
+                                        backgroundColor: gradientUtil,
+                                        borderWidth: 2,
+                                        pointBackgroundColor: '#fff',
+                                        pointBorderColor: '#4f46e5',
+                                        fill: true,
+                                        tension: 0.4
+                                    },
+                                    {
+                                        label: 'Coverage %',
+                                        data: this.data.historicalData.coveragePercentages,
+                                        borderColor: '#10b981',
+                                        backgroundColor: gradientCov,
+                                        borderWidth: 2,
+                                        pointBackgroundColor: '#fff',
+                                        pointBorderColor: '#10b981',
+                                        fill: true,
+                                        tension: 0.4
+                                    }
+                                ]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                    legend: {
+                                        position: 'top',
+                                        align: 'end',
+                                        labels: { usePointStyle: true, boxWidth: 8 }
+                                    },
+                                    tooltip: {
+                                        mode: 'index',
+                                        intersect: false,
+                                        backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                                        titleColor: '#1e293b',
+                                        bodyColor: '#475569',
+                                        borderColor: '#e2e8f0',
+                                        borderWidth: 1
+                                    }
+                                },
+                                scales: {
+                                    x: {
+                                        // CRITICAL FIX: Use 'category' so chart.js doesn't try to smart-parse dates and shift timezones
+                                        type: 'category',
+                                        grid: { display: false }
+                                    },
+                                    y: {
+                                        beginAtZero: true,
+                                        max: 100,
+                                        grid: { borderDash: [2, 4], color: '#f1f5f9' },
+                                        title: { display: true, text: 'Percentage (%)' }
+                                    }
+                                }
+                            }
+                        });
+                    },
+
+                    fetchReservationData(forceRefresh = false) {
+                        if (!this.selectedAccountId) {
+                            this.isLoading = false;
+                            return;
+                        }
+
+                        const cacheKey = `reservationData-${this.selectedAccountId}`;
+                        const cachedData = sessionStorage.getItem(cacheKey);
+
+                        if (cachedData && !forceRefresh) {
+                            this.data = JSON.parse(cachedData);
+                            if (!this.data.savingsPlans) this.data.savingsPlans = [];
+                            this.isLoading = false;
+                            this.$nextTick(() => this.initCharts());
+                            return;
+                        }
+
+                        this.isLoading = true;
+                        const url = `/api/xamops/reservations?accountId=${this.selectedAccountId}&forceRefresh=${forceRefresh}`;
+
+                        fetch(url)
+                            .then(res => {
+                                if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                                return res.json();
+                            })
+                            .then(data => {
+                                this.data = data;
+                                if (!this.data.savingsPlans) this.data.savingsPlans = [];
+                                sessionStorage.setItem(cacheKey, JSON.stringify(data));
+                                this.$nextTick(() => this.initCharts());
+                            })
+                            .catch(err => {
+                                console.error('Failed to load reservation data:', err);
+                            })
+                            .finally(() => {
+                                this.isLoading = false;
+                            });
+                    },
+
+                    fetchPurchaseRecommendations(forceRefresh = false) {
+                        if (!this.selectedAccountId) return;
+                        this.isRecsLoading = true;
+
+                        const { term, paymentOption, lookback, offeringClass } = this.recFilters;
+                        const url = `/api/xamops/reservations/recommendations?accountId=${this.selectedAccountId}&term=${term}&paymentOption=${paymentOption}&lookback=${lookback}&offeringClass=${offeringClass}&forceRefresh=${forceRefresh}`;
+
+                        fetch(url)
+                            .then(res => res.json())
+                            .then(data => {
+                                this.data.purchaseRecommendations = data;
+                            })
+                            .catch(err => {
+                                console.error('Failed to load purchase recommendations:', err);
+                                this.data.purchaseRecommendations = [];
+                            })
+                            .finally(() => {
+                                this.isRecsLoading = false;
+                            });
+                    },
+                };
+        }
+    </script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ef 100%);
+            color: #1f2937;
+        }
+
+        [x-cloak] {
+            display: none !important;
+        }
+
+        /* Glass Card Effects */
+        .glass-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .glass-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+            transition: left 0.5s;
+        }
+
+        .glass-card:hover::before {
+            left: 100%;
+        }
+
+        .glass-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.1), 0 4px 12px rgba(0, 0, 0, 0.06);
+        }
+
+        /* Metric Card Enhancements */
+        .metric-card {
+            position: relative;
+            z-index: 1;
+        }
+
+        .metric-value {
+            font-weight: 800;
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        /* Tab Animations */
+        .tab-btn {
+            position: relative;
+            transition: all 0.2s ease;
+        }
+
+        .tab-btn::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            background: linear-gradient(90deg, #6366f1, #8b5cf6);
+            transform: scaleX(0);
+            transform-origin: right;
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            border-radius: 2px;
+        }
+
+        .tab-btn.active::after {
+            transform: scaleX(1);
+            transform-origin: left;
+        }
+
+        /* Enhanced Table Styling */
+        .pro-table {
+            border-collapse: separate;
+            border-spacing: 0;
+        }
+
+        .pro-table thead th {
+            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+            color: #475569;
+            font-weight: 700;
+            font-size: 0.7rem;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            border-bottom: 2px solid #e2e8f0;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        .pro-table tbody tr {
+            border-bottom: 1px solid #f1f5f9;
+            transition: all 0.2s ease;
+        }
+
+        .pro-table tbody tr:hover {
+            background: linear-gradient(90deg, #f8fafc 0%, #ffffff 100%);
+            transform: scale(1.01);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        }
+
+        .pro-table tbody tr:last-child {
+            border-bottom: none;
+        }
+
+        /* Status Badges */
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.025em;
+        }
+
+        .status-active {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+        }
+
+        .status-expiring {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            color: white;
+            box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
+        }
+
+        /* Loading Spinner */
+        .loader {
+            border: 3px solid #e5e7eb;
+            border-top: 3px solid #6366f1;
+            border-radius: 50%;
+            width: 48px;
+            height: 48px;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* Fade In Animation */
+        .fade-in {
+            animation: fadeIn 0.5s ease-in-out;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Custom Scrollbar */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f5f9;
+            border-radius: 4px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            border-radius: 4px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="flex">
+        <include file="/_sidebar.html"></include>
+
+        <div class="flex-1 pl-64 transition-all duration-300">
+            <main id="main-content" class="flex flex-col min-h-screen" x-data="reservationManagement()">
+
+                <header
+                    class="bg-white border-b border-gray-100 sticky top-0 z-20 px-8 py-5 flex items-center justify-between shadow-sm backdrop-blur-sm bg-white/95">
+                    <div class="flex items-center gap-4">
+                        <div
+                            class="w-12 h-12 bg-gradient-to-br from-indigo-100 to-purple-100 rounded-xl flex items-center justify-center shadow-md border border-indigo-200/50">
+                            <i class="fas fa-file-contract text-indigo-600 text-xl"></i>
+                        </div>
+                        <div>
+                            <h1 class="text-2xl font-black text-gray-900 tracking-tight">Reservation Management</h1>
+                            <p class="text-xs text-gray-500 font-semibold mt-1 flex items-center gap-2">
+                                <i class="fas fa-piggy-bank text-indigo-500 text-[10px]"></i>
+                                Optimize costs with Reserved Instances & Savings Plans
+                            </p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <span x-show="selectedAccountId"
+                            class="px-4 py-2 bg-gradient-to-br from-gray-50 to-gray-100 text-gray-700 text-xs rounded-lg font-mono border border-gray-200 shadow-sm">
+                            <i class="fas fa-hashtag text-indigo-500 text-[10px]"></i>
+                            <span x-text="selectedAccountId"></span>
+                        </span>
+                        <button @click="fetchReservationData(true)"
+                            class="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white text-sm font-semibold rounded-lg shadow-md hover:shadow-lg transition-all active:scale-95 transform"
+                            :disabled="isLoading">
+                            <i class="fas fa-sync-alt text-sm" :class="{ 'animate-spin': isLoading }"></i>
+                            <span x-text="isLoading ? 'Syncing...' : 'Refresh'"></span>
+                        </button>
+                    </div>
+                </header>
+
+                <div class="flex-1 p-8 space-y-6 custom-scrollbar overflow-y-auto">
+
+                    <div x-show="isLoading && (!data.inventory || data.inventory.length === 0)" x-cloak
+                        class="flex flex-col items-center justify-center h-96 fade-in">
+                        <div class="loader mb-6"></div>
+                        <p class="text-gray-600 text-base font-semibold">Loading reservation data...</p>
+                        <p class="text-gray-400 text-sm mt-2">Please wait while we fetch your information</p>
+                    </div>
+
+                    <div x-show="!isLoading || (data.inventory && data.inventory.length > 0)" x-cloak
+                        class="space-y-6 fade-in">
+
+                        <div class="glass-card rounded-xl p-1 shadow-sm">
+                            <nav class="flex space-x-1" aria-label="Tabs">
+                                <button @click="activeTab = 'recommendations'"
+                                    class="tab-btn flex-1 whitespace-nowrap py-3 px-4 border-b-0 font-semibold text-sm rounded-lg transition-all flex items-center justify-center gap-2"
+                                    :class="activeTab === 'recommendations' ? 'bg-gradient-to-br from-indigo-50 to-purple-50 text-indigo-700 shadow-sm active' : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'">
+                                    <i class="fas fa-lightbulb"></i>
+                                    Purchase Recommendations
+                                    <span
+                                        class="ml-1 bg-gradient-to-br from-indigo-500 to-purple-500 text-white py-0.5 px-2.5 rounded-full text-xs font-bold shadow-md"
+                                        x-show="data.purchaseRecommendations && data.purchaseRecommendations.length > 0"
+                                        x-text="data.purchaseRecommendations.length"></span>
+                                </button>
+                                <button @click="activeTab = 'overview'; $nextTick(() => initCharts())"
+                                    class="tab-btn flex-1 whitespace-nowrap py-3 px-4 border-b-0 font-semibold text-sm rounded-lg transition-all"
+                                    :class="activeTab === 'overview' ? 'bg-gradient-to-br from-indigo-50 to-purple-50 text-indigo-700 shadow-sm active' : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'">
+                                    <i class="fas fa-chart-line mr-2"></i>
+                                    Overview & Inventory
+                                </button>
+                            </nav>
+                        </div>
+
+                        <div x-show="activeTab === 'overview'" x-transition:enter="transition ease-out duration-300"
+                            x-transition:enter-start="opacity-0 translate-y-4"
+                            x-transition:enter-end="opacity-100 translate-y-0">
+
+                            <!-- No Data Message -->
+                            <div x-show="!data.inventory || (data.inventory.length === 0 && (!data.savingsPlans || data.savingsPlans.length === 0))"
+                                class="glass-card rounded-xl p-12 text-center">
+                                <div class="flex flex-col items-center">
+                                    <div class="w-24 h-24 bg-gradient-to-br from-gray-100 to-gray-200 rounded-full flex items-center justify-center mb-6 shadow-lg">
+                                        <i class="fas fa-inbox text-gray-400 text-4xl"></i>
+                                    </div>
+                                    <h3 class="text-2xl font-black text-gray-900 mb-3">No Reservation Data Available</h3>
+                                    <p class="text-gray-600 text-base mb-2 max-w-md">
+                                        No Reserved Instances or Savings Plans were found for this account.
+                                    </p>
+                                    <p class="text-gray-500 text-sm mb-6">
+                                        This could mean you haven't purchased any reservations yet, or data is still being processed.
+                                    </p>
+                                    <button @click="fetchReservationData(true)"
+                                        class="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white text-sm font-semibold rounded-lg shadow-md hover:shadow-lg transition-all active:scale-95 transform">
+                                        <i class="fas fa-sync-alt text-sm"></i>
+                                        <span>Refresh Data</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Metrics & Data (shown when data exists) -->
+                            <div x-show="data.inventory && (data.inventory.length > 0 || (data.savingsPlans && data.savingsPlans.length > 0))">
+                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                                <div
+                                    class="glass-card rounded-xl p-5 metric-card border-l-4 border-l-indigo-500 fade-in">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider">Avg
+                                            Utilization (30d)</h3>
+                                        <div class="w-10 h-10 rounded-lg flex items-center justify-center shadow-md"
+                                            :class="data.analysis?.utilizationPercentage >= 90 ? 'bg-gradient-to-br from-green-100 to-emerald-100' : 'bg-gradient-to-br from-yellow-100 to-amber-100'">
+                                            <i class="fas fa-chart-pie"
+                                                :class="data.analysis?.utilizationPercentage >= 90 ? 'text-green-600' : 'text-yellow-600'"></i>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-baseline gap-2 mb-3">
+                                        <h3 class="text-3xl font-black metric-value"
+                                            x-text="data.analysis?.utilizationPercentage ? data.analysis.utilizationPercentage.toFixed(1) + '%' : '0%'">
+                                        </h3>
+                                    </div>
+                                    <div class="w-full bg-gray-100 rounded-full h-2 shadow-inner overflow-hidden">
+                                        <div class="h-2 rounded-full transition-all duration-1000 shadow-md"
+                                            :class="data.analysis?.utilizationPercentage >= 90 ? 'bg-gradient-to-r from-green-500 to-emerald-500' : 'bg-gradient-to-r from-yellow-500 to-amber-500'"
+                                            :style="`width: ${data.analysis?.utilizationPercentage || 0}%`"></div>
+                                    </div>
+                                </div>
+
+                                <div class="glass-card rounded-xl p-5 metric-card border-l-4 border-l-blue-500 fade-in">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider">Coverage
+                                            (30d)</h3>
+                                        <div
+                                            class="w-10 h-10 bg-gradient-to-br from-blue-100 to-indigo-100 rounded-lg flex items-center justify-center shadow-md">
+                                            <i class="fas fa-shield-alt text-blue-600"></i>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-baseline gap-2 mb-3">
+                                        <h3 class="text-3xl font-black metric-value"
+                                            x-text="data.analysis?.coveragePercentage ? data.analysis.coveragePercentage.toFixed(1) + '%' : '0%'">
+                                        </h3>
+                                    </div>
+                                    <div class="w-full bg-gray-100 rounded-full h-2 shadow-inner overflow-hidden">
+                                        <div class="bg-gradient-to-r from-blue-500 to-indigo-500 h-2 rounded-full transition-all duration-1000 shadow-md"
+                                            :style="`width: ${data.analysis?.coveragePercentage || 0}%`"></div>
+                                    </div>
+                                </div>
+
+                                <div
+                                    class="glass-card rounded-xl p-5 metric-card border-l-4 border-l-purple-500 fade-in">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider">Active RIs
+                                        </h3>
+                                        <div
+                                            class="w-10 h-10 bg-gradient-to-br from-purple-100 to-pink-100 rounded-lg flex items-center justify-center shadow-md">
+                                            <i class="fas fa-tags text-purple-600"></i>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-baseline gap-2 mb-2">
+                                        <h3 class="text-4xl font-black metric-value"
+                                            x-text="data.inventory?.length || 0"></h3>
+                                    </div>
+                                    <p class="text-xs text-gray-500 font-semibold mt-3 flex items-center gap-1">
+                                        <i class="fas fa-server text-purple-500 text-[10px]"></i>
+                                        Reserved Instances
+                                    </p>
+                                </div>
+
+                                <div
+                                    class="glass-card rounded-xl p-5 metric-card border-l-4 border-l-orange-500 fade-in">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider">Active
+                                            Plans</h3>
+                                        <div
+                                            class="w-10 h-10 bg-gradient-to-br from-orange-100 to-yellow-100 rounded-lg flex items-center justify-center shadow-md">
+                                            <i class="fas fa-piggy-bank text-orange-600"></i>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-baseline gap-2 mb-2">
+                                        <h3 class="text-4xl font-black metric-value"
+                                            x-text="data.savingsPlans?.length || 0"></h3>
+                                    </div>
+                                    <p class="text-xs text-gray-500 font-semibold mt-3 flex items-center gap-1">
+                                        <i class="fas fa-coins text-orange-500 text-[10px]"></i>
+                                        Savings Plans
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div class="glass-card rounded-xl p-5 mb-6 border-t-4 border-t-indigo-500">
+                                <div class="flex items-center justify-between mb-4">
+                                    <div>
+                                        <h3 class="text-lg font-black text-gray-900 flex items-center gap-2">
+                                            <i class="fas fa-chart-area text-indigo-600"></i>
+                                            Historical Utilization & Coverage
+                                        </h3>
+                                        <p class="text-xs text-gray-500 mt-1 font-medium">30-day trend analysis</p>
+                                    </div>
+                                    <div class="flex gap-2">
+                                        <div
+                                            class="w-10 h-10 rounded-lg bg-gradient-to-br from-indigo-50 to-purple-50 flex items-center justify-center">
+                                            <i class="fas fa-chart-line text-indigo-600 text-sm"></i>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="h-80 relative custom-scrollbar">
+                                    <canvas id="utilizationChart" x-ref="utilizationChart"></canvas>
+                                </div>
+                            </div>
+
+                            <div class="glass-card rounded-xl overflow-hidden border-t-4 border-t-purple-500">
+                                <div
+                                    class="px-6 py-5 border-b border-gray-100 flex justify-between items-center bg-gradient-to-r from-gray-50/50 to-white">
+                                    <div>
+                                        <h3 class="text-lg font-black text-gray-900 flex items-center gap-2">
+                                            <i class="fas fa-database text-purple-600"></i>
+                                            Current Inventory
+                                        </h3>
+                                        <p class="text-xs text-gray-500 mt-1 font-medium">Active reservations and plans
+                                        </p>
+                                    </div>
+
+                                    <div class="flex bg-gray-100 p-1 rounded-xl shadow-inner">
+                                        <button @click="inventoryTab = 'ris'"
+                                            class="px-5 py-2 text-xs font-bold rounded-lg transition-all"
+                                            :class="inventoryTab === 'ris' ? 'bg-gradient-to-br from-purple-500 to-indigo-500 text-white shadow-md' : 'text-gray-600 hover:text-gray-900'">
+                                            <i class="fas fa-server mr-1"></i>
+                                            Reserved Instances
+                                        </button>
+                                        <button @click="inventoryTab = 'sps'"
+                                            class="px-5 py-2 text-xs font-bold rounded-lg transition-all"
+                                            :class="inventoryTab === 'sps' ? 'bg-gradient-to-br from-purple-500 to-indigo-500 text-white shadow-md' : 'text-gray-600 hover:text-gray-900'">
+                                            <i class="fas fa-piggy-bank mr-1"></i>
+                                            Savings Plans
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div x-show="inventoryTab === 'ris'" class="overflow-x-auto">
+                                    <table class="w-full text-sm text-left text-slate-500 pro-table">
+                                        <thead>
+                                            <tr>
+                                                <th class="px-6 py-3">Details</th>
+                                                <th class="px-6 py-3">Scope / AZ</th>
+                                                <th class="px-6 py-3">Count / Offering</th>
+                                                <th class="px-6 py-3">State</th>
+                                                <th class="px-6 py-3">Utilization</th>
+                                                <th class="px-6 py-3">Expiry</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <template x-if="data.inventory && data.inventory.length > 0">
+                                                <template x-for="item in data.inventory" :key="item.reservationId">
+                                                    <tr>
+                                                        <td class="px-6 py-4">
+                                                            <div class="font-semibold text-slate-800"
+                                                                x-text="item.instanceType"></div>
+                                                            <div class="text-xs text-slate-400 font-mono mt-0.5"
+                                                                x-text="item.reservationId"></div>
+                                                        </td>
+                                                        <td class="px-6 py-4">
+                                                            <div x-text="item.scope"></div>
+                                                            <div class="text-xs text-slate-500"
+                                                                x-text="item.availabilityZone || '-'"></div>
+                                                        </td>
+                                                        <td class="px-6 py-4">
+                                                            <div class="font-medium"
+                                                                x-text="item.instanceCount + ' Inst'"></div>
+                                                            <div class="text-xs text-slate-500"
+                                                                x-text="item.offeringType"></div>
+                                                        </td>
+                                                        <td class="px-6 py-4">
+                                                            <span class="status-badge" :class="{
+                                                                    'status-active': item.state === 'active',
+                                                                    'bg-gradient-to-r from-gray-400 to-gray-500 text-white': item.state === 'retired' || item.state === 'expired',
+                                                                    'status-expiring': item.state === 'pending'
+                                                                }" x-text="item.state"></span>
+                                                        </td>
+                                                        <td class="px-6 py-4">
+                                                            <div class="flex items-center gap-2">
+                                                                <div
+                                                                    class="w-20 bg-gray-100 rounded-full h-2 shadow-inner overflow-hidden">
+                                                                    <div class="h-2 rounded-full transition-all duration-500"
+                                                                        :class="item.utilizationPercentage >= 90 ? 'bg-gradient-to-r from-green-500 to-emerald-500' : (item.utilizationPercentage < 70 ? 'bg-gradient-to-r from-red-500 to-rose-500' : 'bg-gradient-to-r from-yellow-500 to-amber-500')"
+                                                                        :style="`width: ${item.utilizationPercentage || 0}%`">
+                                                                    </div>
+                                                                </div>
+                                                                <span class="text-xs font-bold text-gray-700"
+                                                                    x-text="(item.utilizationPercentage || 0).toFixed(0) + '%'"></span>
+                                                            </div>
+                                                        </td>
+                                                        <td class="px-6 py-4">
+                                                            <div class="font-medium" x-text="formatDate(item.end)"
+                                                                :class="{'text-red-600': isExpiringSoon(item.end)}">
+                                                            </div>
+                                                            <div x-show="isExpiringSoon(item.end)"
+                                                                class="text-[10px] text-red-600 font-bold flex items-center gap-1 mt-0.5">
+                                                                <i class="fas fa-exclamation-circle"></i>
+                                                                Expiring Soon
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                </template>
+                                            </template>
+                                            <template x-if="!data.inventory || data.inventory.length === 0">
+                                                <tr>
+                                                    <td colspan="6" class="text-center py-16">
+                                                        <div class="flex flex-col items-center">
+                                                            <div
+                                                                class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+                                                                <i class="fas fa-inbox text-gray-400 text-2xl"></i>
+                                                            </div>
+                                                            <p class="text-gray-600 font-semibold mb-1">No Reserved
+                                                                Instances Found</p>
+                                                            <p class="text-gray-400 text-sm">No data available for this
+                                                                account</p>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                <div x-show="inventoryTab === 'sps'" class="overflow-x-auto" x-cloak>
+                                    <table class="w-full text-sm text-left text-slate-500 pro-table">
+                                        <thead>
+                                            <tr>
+                                                <th class="px-6 py-3">Plan Type</th>
+                                                <th class="px-6 py-3">Region</th>
+                                                <th class="px-6 py-3">Commitment</th>
+                                                <th class="px-6 py-3">State</th>
+                                                <th class="px-6 py-3">Term</th>
+                                                <th class="px-6 py-3">Expiry</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <template x-if="data.savingsPlans && data.savingsPlans.length > 0">
+                                                <template x-for="sp in data.savingsPlans" :key="sp.savingsPlanId">
+                                                    <tr>
+                                                        <td class="px-6 py-4">
+                                                            <div class="font-semibold text-slate-800" x-text="sp.type">
+                                                            </div>
+                                                            <div class="text-xs text-slate-400 font-mono mt-0.5"
+                                                                x-text="sp.savingsPlanId"></div>
+                                                        </td>
+                                                        <td class="px-6 py-4" x-text="sp.region || 'Global'"></td>
+                                                        <td class="px-6 py-4">
+                                                            <div class="font-medium text-slate-900"
+                                                                x-text="formatCurrency(sp.commitment)"></div>
+                                                            <div class="text-xs text-slate-500"
+                                                                x-text="sp.paymentOption"></div>
+                                                        </td>
+                                                        <td class="px-6 py-4">
+                                                            <span class="status-badge" :class="{
+                                                                    'status-active': sp.state === 'active',
+                                                                    'bg-gradient-to-r from-gray-400 to-gray-500 text-white': sp.state !== 'active'
+                                                                }" x-text="sp.state"></span>
+                                                        </td>
+                                                        <td class="px-6 py-4">
+                                                            <div class="text-xs text-gray-600 font-medium">
+                                                                <span x-text="formatDate(sp.start)"></span> → <span
+                                                                    x-text="formatDate(sp.end)"></span>
+                                                            </div>
+                                                        </td>
+                                                        <td class="px-6 py-4">
+                                                            <div class="font-medium" x-text="formatDate(sp.end)"
+                                                                :class="{'text-red-600': isExpiringSoon(sp.end)}">
+                                                            </div>
+                                                            <div x-show="isExpiringSoon(sp.end)"
+                                                                class="text-[10px] text-red-600 font-bold flex items-center gap-1 mt-0.5">
+                                                                <i class="fas fa-exclamation-circle"></i>
+                                                                Expiring Soon
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                </template>
+                                            </template>
+                                            <template x-if="!data.savingsPlans || data.savingsPlans.length === 0">
+                                                <tr>
+                                                    <td colspan="6" class="text-center py-16">
+                                                        <div class="flex flex-col items-center">
+                                                            <div
+                                                                class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+                                                                <i class="fas fa-piggy-bank text-gray-400 text-2xl"></i>
+                                                            </div>
+                                                            <p class="text-gray-600 font-semibold mb-1">No Savings Plans
+                                                                Found</p>
+                                                            <p class="text-gray-400 text-sm">No active savings plans for
+                                                                this account</p>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            </div>
+                        </div>
+
+                        <div x-show="activeTab === 'recommendations'" x-cloak
+                            x-transition:enter="transition ease-out duration-300"
+                            x-transition:enter-start="opacity-0 translate-y-4"
+                            x-transition:enter-end="opacity-100 translate-y-0">
+
+                            <div class="glass-card rounded-xl p-5 mb-6 border-t-4 border-t-purple-500">
+                                <div class="flex items-center justify-between mb-4">
+                                    <div>
+                                        <h3 class="text-lg font-black text-gray-900 flex items-center gap-2">
+                                            <i class="fas fa-sliders-h text-purple-600"></i>
+                                            Recommendation Parameters
+                                        </h3>
+                                        <p class="text-xs text-gray-500 mt-1 font-medium">Customize your purchase
+                                            recommendations</p>
+                                    </div>
+                                    <div x-show="isRecsLoading"
+                                        class="flex items-center gap-2 px-4 py-2 bg-indigo-50 rounded-lg">
+                                        <i class="fas fa-circle-notch fa-spin text-indigo-600"></i>
+                                        <span class="text-sm font-semibold text-indigo-700">Recalculating...</span>
+                                    </div>
+                                </div>
+
+                                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                    <div>
+                                        <label
+                                            class="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-2">
+                                            <i class="fas fa-calendar-alt text-indigo-500 text-[10px] mr-1"></i>
+                                            Term Length
+                                        </label>
+                                        <select x-model="recFilters.term" @change="fetchPurchaseRecommendations(true)"
+                                            class="block w-full text-sm rounded-lg border-2 border-gray-200 bg-white shadow-sm hover:border-indigo-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 py-2.5 font-medium transition-all">
+                                            <option value="ONE_YEAR">1 Year</option>
+                                            <option value="THREE_YEARS">3 Years</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label
+                                            class="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-2">
+                                            <i class="fas fa-credit-card text-purple-500 text-[10px] mr-1"></i>
+                                            Payment Option
+                                        </label>
+                                        <select x-model="recFilters.paymentOption"
+                                            @change="fetchPurchaseRecommendations(true)"
+                                            class="block w-full text-sm rounded-lg border-2 border-gray-200 bg-white shadow-sm hover:border-indigo-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 py-2.5 font-medium transition-all">
+                                            <option value="NO_UPFRONT">No Upfront</option>
+                                            <option value="PARTIAL_UPFRONT">Partial Upfront</option>
+                                            <option value="ALL_UPFRONT">All Upfront</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label
+                                            class="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-2">
+                                            <i class="fas fa-history text-blue-500 text-[10px] mr-1"></i>
+                                            Lookback Period
+                                        </label>
+                                        <select x-model="recFilters.lookback"
+                                            @change="fetchPurchaseRecommendations(true)"
+                                            class="block w-full text-sm rounded-lg border-2 border-gray-200 bg-white shadow-sm hover:border-indigo-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 py-2.5 font-medium transition-all">
+                                            <option value="SEVEN_DAYS">Past 7 Days</option>
+                                            <option value="THIRTY_DAYS">Past 30 Days</option>
+                                            <option value="SIXTY_DAYS">Past 60 Days</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label
+                                            class="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-2">
+                                            <i class="fas fa-tag text-green-500 text-[10px] mr-1"></i>
+                                            Offering Class
+                                        </label>
+                                        <select x-model="recFilters.offeringClass"
+                                            @change="fetchPurchaseRecommendations(true)"
+                                            class="block w-full text-sm rounded-lg border-2 border-gray-200 bg-white shadow-sm hover:border-indigo-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 py-2.5 font-medium transition-all">
+                                            <option value="STANDARD">Standard</option>
+                                            <option value="CONVERTIBLE">Convertible</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="glass-card rounded-xl overflow-hidden border-t-4 border-t-green-500">
+                                <div
+                                    class="px-6 py-5 border-b border-gray-100 bg-gradient-to-r from-gray-50/50 to-white">
+                                    <h3 class="text-lg font-black text-gray-900 flex items-center gap-2">
+                                        <i class="fas fa-lightbulb text-green-600"></i>
+                                        Purchase Recommendations
+                                    </h3>
+                                    <p class="text-xs text-gray-500 mt-1 font-medium">Optimized reservation purchase
+                                        suggestions</p>
+                                </div>
+                                <table class="w-full text-sm text-left text-slate-500 pro-table">
+                                    <thead>
+                                        <tr>
+                                            <th class="px-6 py-3">Instance Family</th>
+                                            <th class="px-6 py-3">Region</th>
+                                            <th class="px-6 py-3">Platform</th>
+                                            <th class="px-6 py-3">Terms</th>
+                                            <th class="px-6 py-3">On-Demand Cost</th>
+                                            <th class="px-6 py-3">Est. Monthly Cost</th>
+                                            <th class="px-6 py-3">Potential Savings</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <template x-if="isRecsLoading">
+                                            <tr>
+                                                <td colspan="7" class="text-center py-16">
+                                                    <div class="flex flex-col items-center gap-3">
+                                                        <div class="loader"></div>
+                                                        <div class="text-gray-600 font-semibold">Analyzing usage
+                                                            patterns...</div>
+                                                        <div class="text-gray-400 text-xs">This may take a moment</div>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        </template>
+                                        <template
+                                            x-if="!isRecsLoading && data.purchaseRecommendations && data.purchaseRecommendations.length > 0">
+                                            <template x-for="rec in data.purchaseRecommendations"
+                                                :key="rec.instanceFamily + rec.region">
+                                                <tr>
+                                                    <td class="px-6 py-4">
+                                                        <div class="font-bold text-gray-800 text-base"
+                                                            x-text="rec.instanceFamily"></div>
+                                                        <div class="text-xs text-gray-500 mt-1 flex items-center gap-1">
+                                                            <i class="fas fa-server text-indigo-500 text-[10px]"></i>
+                                                            <span
+                                                                x-text="rec.recommendedInstances + ' instances'"></span>
+                                                        </div>
+                                                    </td>
+                                                    <td class="px-6 py-4 font-medium text-gray-700" x-text="rec.region">
+                                                    </td>
+                                                    <td class="px-6 py-4 font-medium text-gray-700"
+                                                        x-text="rec.platform"></td>
+                                                    <td class="px-6 py-4">
+                                                        <div
+                                                            class="text-xs font-semibold bg-gradient-to-br from-indigo-50 to-purple-50 text-indigo-700 rounded-lg px-3 py-1.5 inline-block border border-indigo-200">
+                                                            <span x-text="rec.term"></span> / <span
+                                                                x-text="recFilters.paymentOption.replace('_', ' ').toLowerCase()"></span>
+                                                        </div>
+                                                    </td>
+                                                    <td class="px-6 py-4 line-through text-gray-400 font-medium"
+                                                        x-text="formatCurrency(rec.onDemandCost, false)"></td>
+                                                    <td class="px-6 py-4 font-bold text-gray-900 text-base"
+                                                        x-text="formatCurrency(rec.estimatedMonthlyCost, false)"></td>
+                                                    <td class="px-6 py-4">
+                                                        <div class="flex items-center gap-2">
+                                                            <i class="fas fa-arrow-down text-green-600"></i>
+                                                            <div class="font-black text-green-600 text-base"
+                                                                x-text="formatCurrency(rec.monthlySavings, false)">
+                                                            </div>
+                                                        </div>
+                                                        <div
+                                                            class="text-[10px] font-bold text-green-700 bg-gradient-to-br from-green-50 to-emerald-50 px-2 py-1 rounded-full inline-block mt-1 border border-green-200">
+                                                            PER MONTH</div>
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                        </template>
+                                        <template
+                                            x-if="!isRecsLoading && (!data.purchaseRecommendations || data.purchaseRecommendations.length === 0)">
+                                            <tr>
+                                                <td colspan="7" class="text-center py-20">
+                                                    <div class="flex flex-col items-center">
+                                                        <div
+                                                            class="w-20 h-20 bg-gradient-to-br from-green-100 to-emerald-100 rounded-full flex items-center justify-center mb-4 shadow-md">
+                                                            <i class="fas fa-check text-green-600 text-3xl"></i>
+                                                        </div>
+                                                        <h3 class="text-gray-900 font-black text-lg">Fully Optimized
+                                                        </h3>
+                                                        <p
+                                                            class="text-gray-500 text-sm mt-2 max-w-md text-center font-medium">
+                                                            Great news! We couldn't find any additional reservation
+                                                            opportunities
+                                                            based on your current usage patterns and filter settings.
+                                                        </p>
+                                                        <div class="mt-4 text-xs text-gray-400">
+                                                            Try adjusting filters to explore other scenarios
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+            </main>
+        </div>
+    </div>
+</body>
+
+</html>
