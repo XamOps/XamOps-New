@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/devops-scripts")
+@RequestMapping("/api/dev_ops_script")
 @CrossOrigin(origins = "*")
 public class DevOpsScriptController {
 

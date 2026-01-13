@@ -30,11 +30,16 @@ public class CloudmapController {
     public CompletableFuture<ResponseEntity<List<ResourceDto>>> getVpcs(
             @RequestParam String accountId,
             @RequestParam(defaultValue = "false") boolean forceRefresh) {
+        logger.info("Fetching VPCs for cloudmap - Account: {}, Force Refresh: {}", accountId, forceRefresh);
+
         return cloudMapService.getVpcListForCloudmap(accountId, forceRefresh)
-                .thenApply(ResponseEntity::ok)
+                .thenApply(vpcs -> {
+                    logger.info("Successfully fetched {} VPCs for account {}", vpcs.size(), accountId);
+                    return ResponseEntity.ok(vpcs);
+                })
                 .exceptionally(ex -> {
-                    logger.error("Failed to get VPC list for cloudmap for account {}", accountId, ex);
-                    return ResponseEntity.status(500).body(null);
+                    logger.error("Failed to get VPC list for cloudmap for account {}: {}", accountId, ex.getMessage(), ex);
+                    return ResponseEntity.status(500).body(List.of());
                 });
     }
 
@@ -44,11 +49,19 @@ public class CloudmapController {
             @RequestParam(required = false) String vpcId,
             @RequestParam(required = false) String region,
             @RequestParam(defaultValue = "false") boolean forceRefresh) {
+        logger.info("Fetching graph data - Account: {}, VPC: {}, Region: {}, Force Refresh: {}",
+                accountId, vpcId, region, forceRefresh);
+
         return cloudMapService.getGraphData(accountId, vpcId, region, forceRefresh)
-                .thenApply(ResponseEntity::ok)
+                .thenApply(elements -> {
+                    logger.info("Successfully fetched {} graph elements for account {} and VPC {}",
+                            elements.size(), accountId, vpcId);
+                    return ResponseEntity.ok(elements);
+                })
                 .exceptionally(ex -> {
-                    logger.error("Failed to get graph data for account {} and VPC {}", accountId, vpcId, ex);
-                    return ResponseEntity.status(500).body(null);
+                    logger.error("Failed to get graph data for account {} and VPC {}: {}",
+                            accountId, vpcId, ex.getMessage(), ex);
+                    return ResponseEntity.status(500).body(List.of());
                 });
     }
 }

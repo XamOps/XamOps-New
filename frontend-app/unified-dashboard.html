@@ -276,33 +276,7 @@
 
     <div id="appBody" class="flex h-screen overflow-hidden">
         <include file="/_sidebar.html"></include>
-        <script>
-            document.addEventListener("DOMContentLoaded", function () {
-                document.querySelectorAll('include').forEach(el => {
-                    fetch(el.getAttribute('file'))
-                        .then(response => response.text())
-                        .then(data => {
-                            // 1. Create a container to parse the HTML
-                            const tempDiv = document.createElement('div');
-                            tempDiv.innerHTML = data;
 
-                            // 2. Extract scripts
-                            const scripts = tempDiv.querySelectorAll('script');
-
-                            // 3. Replace wrapper 
-                            el.replaceWith(...tempDiv.childNodes);
-
-                            // 4. Execute scripts manually
-                            scripts.forEach(oldScript => {
-                                const newScript = document.createElement('script');
-                                Array.from(oldScript.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value));
-                                newScript.appendChild(document.createTextNode(oldScript.innerHTML));
-                                document.body.appendChild(newScript);
-                            });
-                        });
-                });
-            });
-        </script>
 
         <div class="flex-1 flex flex-col pl-64 h-screen overflow-hidden">
             <div id="main-content" class="flex flex-col h-full w-full">
@@ -670,10 +644,10 @@
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 min-h-[400px]">
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         <div
-                            class="lg:col-span-2 glass-card rounded-xl p-8 flex flex-col border-t-4 border-t-indigo-500">
-                            <div class="flex items-center justify-between mb-6">
+                            class="lg:col-span-2 glass-card rounded-xl p-6 flex flex-col border-t-4 border-t-indigo-500">
+                            <div class="flex items-center justify-between mb-4">
                                 <div>
                                     <h3 class="text-lg font-black text-gray-900 flex items-center gap-2">
                                         <i class="fas fa-chart-bar text-indigo-600"></i>
@@ -689,12 +663,12 @@
                                     </div>
                                 </div>
                             </div>
-                            <div class="flex-1 relative w-full">
+                            <div class="relative w-full" style="height: 350px;">
                                 <canvas id="stackedCostChart"></canvas>
                             </div>
                         </div>
-                        <div class="glass-card rounded-xl p-8 flex flex-col border-t-4 border-t-purple-500">
-                            <div class="flex items-center justify-between mb-6">
+                        <div class="glass-card rounded-xl p-6 flex flex-col border-t-4 border-t-purple-500">
+                            <div class="flex items-center justify-between mb-4">
                                 <div>
                                     <h3 class="text-lg font-black text-gray-900 flex items-center gap-2">
                                         <i class="fas fa-chart-pie text-purple-600"></i>
@@ -703,7 +677,7 @@
                                     <p class="text-xs text-gray-500 mt-1 font-medium">Current month breakdown</p>
                                 </div>
                             </div>
-                            <div class="flex-1 relative w-full flex items-center justify-center">
+                            <div class="relative w-full flex items-center justify-center" style="height: 200px;">
                                 <canvas id="providerDonutChart"></canvas>
                             </div>
                         </div>
@@ -1075,7 +1049,6 @@
                 showModal: false,
                 viewMode: 'cost', // cost, resource, waste, alerts, savings
                 activeProvider: '',
-                activeProvider: '',
                 activeAccountList: [],
                 lastUpdated: null,
                 serverTime: null,
@@ -1083,9 +1056,12 @@
                 init() {
                     console.log("Initializing Unified Dashboard...");
 
-                    this.fetchAll(false); // Initial fetch uses cached data
-                    this.initStackedChart();
-                    this.initProviderChart();
+                    // Wait for next tick to ensure DOM is ready
+                    this.$nextTick(() => {
+                        this.fetchAll(false); // Initial fetch uses cached data
+                        this.initStackedChart();
+                        this.initProviderChart();
+                    });
 
                     setInterval(() => this.updateTimeAgo(), 60000);
 
@@ -1094,6 +1070,16 @@
                         console.log("Auto-refreshing dashboard data...");
                         this.fetchAll(false); // Use cached data for auto-refresh
                     }, 60000);
+
+                    // Listen for page-loaded event (soft navigation)
+                    window.addEventListener('page-loaded', () => {
+                        console.log("Page loaded event received, reinitializing charts...");
+                        this.$nextTick(() => {
+                            this.initStackedChart();
+                            this.initProviderChart();
+                            this.fetchAll(true); // Force refresh on navigation
+                        });
+                    });
                 },
 
                 async fetchAll(force = false) {
@@ -1200,7 +1186,19 @@
 
                 // --- Charts ---
                 initStackedChart() {
-                    const ctx = document.getElementById('stackedCostChart').getContext('2d');
+                    const canvas = document.getElementById('stackedCostChart');
+                    if (!canvas) {
+                        console.warn('Stacked chart canvas not found, retrying...');
+                        setTimeout(() => this.initStackedChart(), 100);
+                        return;
+                    }
+                    const ctx = canvas.getContext('2d');
+
+                    // Destroy existing chart if it exists
+                    if (costChartInstance) {
+                        costChartInstance.destroy();
+                        costChartInstance = null;
+                    }
 
                     // Create gradients
                     const awsGradient = ctx.createLinearGradient(0, 0, 0, 400);
@@ -1316,7 +1314,19 @@
                 },
 
                 initProviderChart() {
-                    const ctx = document.getElementById('providerDonutChart').getContext('2d');
+                    const canvas = document.getElementById('providerDonutChart');
+                    if (!canvas) {
+                        console.warn('Provider chart canvas not found, retrying...');
+                        setTimeout(() => this.initProviderChart(), 100);
+                        return;
+                    }
+                    const ctx = canvas.getContext('2d');
+
+                    // Destroy existing chart if it exists
+                    if (providerDonutChartInstance) {
+                        providerDonutChartInstance.destroy();
+                        providerDonutChartInstance = null;
+                    }
 
                     providerDonutChartInstance = new Chart(ctx, {
                         type: 'doughnut',
@@ -1591,21 +1601,6 @@
                         return valB - valA;
                     });
                     this.showModal = true;
-                },
-
-                goToSingle(id) {
-                    sessionStorage.setItem('selectedAccountIds', JSON.stringify([id]));
-                    window.location.href = `/dashboard.html?accountId=${id}`;
-                },
-
-                goToCloudList(id) {
-                    sessionStorage.setItem('selectedAccountIds', JSON.stringify([id]));
-                    window.location.href = `/cloudlist.html?accountId=${id}`;
-                },
-
-                goToWaste(id) {
-                    sessionStorage.setItem('selectedAccountIds', JSON.stringify([id]));
-                    window.location.href = `/waste.html?accountId=${id}`;
                 },
 
                 formatCurrency(value) {

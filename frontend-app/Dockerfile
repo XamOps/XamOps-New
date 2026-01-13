@@ -1,40 +1,32 @@
 # Stage 1: Build the frontend assets
-# Use a Node.js image that matches your development environment
-FROM node:18-alpine AS build
+FROM node:20-alpine AS build
 
-# Set the working directory
+# Set working directory
 WORKDIR /app
 
-# Copy package.json and package-lock.json (or yarn.lock)
+# Copy package manifests first for caching
 COPY package*.json ./
 
 # Install dependencies
 RUN npm install
 
-# Copy the rest of your application source code
+# Copy full source
 COPY . .
 
-# Run the build script defined in your package.json
-# This will create a 'dist' directory with the static files for all MPA entry points
+# Build for production (Vite outputs to dist/)
 RUN npm run build
 
-# Stage 2: Serve the static files with Nginx
-# Use a lightweight Nginx image
+# Stage 2: Serve using Nginx for MPA
 FROM nginx:1.25-alpine
 
-# Copy the custom Nginx configuration
-# Configured for multi-page application (MPA) serving, proxying exact file requests
+# Copy MPA nginx config
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# Copy the built assets from the 'build' stage
-# The 'dist' folder contains all MPA HTML files (e.g., dashboard.html, billing.html)
+# Copy built artifacts
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Ensure ownership and permissions for Nginx (optional, but good practice)
-RUN chown -R nginx:nginx /usr/share/nginx/html && chmod -R 755 /usr/share/nginx/html
-
-# Expose port 80, the default port for Nginx
+# Expose port 80 for HTTP
 EXPOSE 80
 
-# The command to start Nginx when the container starts
+# Start Nginx
 CMD ["nginx", "-g", "daemon off;"]

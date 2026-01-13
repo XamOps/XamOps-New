@@ -9,6 +9,8 @@
     <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
     <link rel="apple-touch-icon" href="/icons/XamOps.png">
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
 </head>
 
 <body class="bg-gray-50">
@@ -553,16 +555,33 @@
                             },
 
                             init() {
+                                // Read account ID from URL
                                 const urlParams = new URLSearchParams(window.location.search);
                                 this.accountId = urlParams.get('accountIds') || urlParams.get('accountId');
 
                                 if (!this.accountId) {
                                     this.error = "No AWS Account ID(s) specified in the URL.";
                                     this.loading = false;
-                                    return;
+                                    console.warn('[Billing] No account ID in URL, waiting for sidebar to apply selection...');
+
+                                    // Wait for sidebar to apply account selection
+                                    // Don't return, just wait for the event
+                                } else {
+                                    // We have an account ID, fetch data
+                                    this.fetchData(false);
                                 }
 
-                                this.fetchData(false);
+                                // Listen for account changes from sidebar
+                                window.addEventListener('account-changed', (event) => {
+                                    console.log('[Billing] Account changed event received:', event.detail);
+                                    const newAccountId = event.detail.accountIds ? event.detail.accountIds.join(',') : event.detail.accountId;
+                                    if (newAccountId && newAccountId !== this.accountId) {
+                                        console.log('[Billing] Updating account ID to:', newAccountId);
+                                        this.accountId = newAccountId;
+                                        this.error = null;
+                                        this.fetchData(false);
+                                    }
+                                });
                             },
 
                             fetchData(forceRefresh = false) {
