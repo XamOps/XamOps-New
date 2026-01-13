@@ -26,6 +26,24 @@ public class EksCompleteDashboardDto {
     // Trivy Data
     private TrivyDashboard trivy;
 
+    // ✅ NEW: Detailed Pod Information
+    private List<PodDetail> podDetails;
+
+    // ✅ NEW: Detailed Node Information
+    private List<NodeDetail> nodeDetails;
+
+    // ✅ NEW: Pod Metrics for dedicated Pods tab
+    private PodMetrics podMetrics;
+
+    // ✅ NEW: Container Metrics for dedicated Containers tab
+    private ContainerMetrics containerMetrics;
+
+    // ✅ NEW: Node Metrics for dedicated Nodes tab
+    private NodeMetrics nodeMetrics;
+
+    // ✅ NEW: Karpenter Dashboard Data
+    private KarpenterDashboard karpenter;
+
     public KubescapeDashboard getKubescape() {
         return kubescape;
     }
@@ -40,6 +58,38 @@ public class EksCompleteDashboardDto {
 
     public void setTrivy(TrivyDashboard trivy) {
         this.trivy = trivy;
+    }
+
+    public PodMetrics getPodMetrics() {
+        return podMetrics;
+    }
+
+    public void setPodMetrics(PodMetrics podMetrics) {
+        this.podMetrics = podMetrics;
+    }
+
+    public ContainerMetrics getContainerMetrics() {
+        return containerMetrics;
+    }
+
+    public void setContainerMetrics(ContainerMetrics containerMetrics) {
+        this.containerMetrics = containerMetrics;
+    }
+
+    public NodeMetrics getNodeMetrics() {
+        return nodeMetrics;
+    }
+
+    public void setNodeMetrics(NodeMetrics nodeMetrics) {
+        this.nodeMetrics = nodeMetrics;
+    }
+
+    public KarpenterDashboard getKarpenter() {
+        return karpenter;
+    }
+
+    public void setKarpenter(KarpenterDashboard karpenter) {
+        this.karpenter = karpenter;
     }
 
     // Nested Classes
@@ -547,6 +597,7 @@ public class EksCompleteDashboardDto {
             private Double cpuUsage;
             private Double memoryUsage;
             private Map<String, ContainerMetrics> containers;
+            private List<ContainerStatus> containerStatuses;  // NEW: Container lifecycle states from K8s API
 
             public static class ContainerMetrics {
                 private String name;
@@ -585,6 +636,55 @@ public class EksCompleteDashboardDto {
 
                 public void setFsUsage(Double fsUsage) {
                     this.fsUsage = fsUsage;
+                }
+            }
+
+            public static class ContainerStatus {
+                private String name;
+                private String state;  // "running", "waiting", or "terminated"
+                private Integer restartCount;
+                private String image;
+                private Boolean ready;
+
+                // Getters and Setters
+                public String getName() {
+                    return name;
+                }
+
+                public void setName(String name) {
+                    this.name = name;
+                }
+
+                public String getState() {
+                    return state;
+                }
+
+                public void setState(String state) {
+                    this.state = state;
+                }
+
+                public Integer getRestartCount() {
+                    return restartCount;
+                }
+
+                public void setRestartCount(Integer restartCount) {
+                    this.restartCount = restartCount;
+                }
+
+                public String getImage() {
+                    return image;
+                }
+
+                public void setImage(String image) {
+                    this.image = image;
+                }
+
+                public Boolean getReady() {
+                    return ready;
+                }
+
+                public void setReady(Boolean ready) {
+                    this.ready = ready;
                 }
             }
 
@@ -659,6 +759,14 @@ public class EksCompleteDashboardDto {
 
             public void setContainers(Map<String, ContainerMetrics> containers) {
                 this.containers = containers;
+            }
+
+            public List<ContainerStatus> getContainerStatuses() {
+                return containerStatuses;
+            }
+
+            public void setContainerStatuses(List<ContainerStatus> containerStatuses) {
+                this.containerStatuses = containerStatuses;
             }
         }
 
@@ -852,5 +960,1034 @@ public class EksCompleteDashboardDto {
 
     public void setWorkloadHealth(WorkloadHealth workloadHealth) {
         this.workloadHealth = workloadHealth;
+    }
+
+    public List<PodDetail> getPodDetails() {
+        return podDetails;
+    }
+
+    public void setPodDetails(List<PodDetail> podDetails) {
+        this.podDetails = podDetails;
+    }
+
+    public List<NodeDetail> getNodeDetails() {
+        return nodeDetails;
+    }
+
+    public void setNodeDetails(List<NodeDetail> nodeDetails) {
+        this.nodeDetails = nodeDetails;
+    }
+
+    /**
+     * ✅ NEW: Comprehensive Pod Details with Container-level Metrics
+     * This provides Cast.ai-level detail for individual pods
+     */
+    public static class PodDetail {
+        private String name;
+        private String namespace;
+        private String phase;
+        private String node;
+        private String podIp;
+        private Boolean ready;
+        private Integer restarts;
+        private String age;
+        private String ownerKind;
+        private String ownerName;
+        private Double cpuRequest;
+        private Double memoryRequest;
+        private Double cpuLimit;
+        private Double memoryLimit;
+        private Double cpuUsage;
+        private Double memoryUsage;
+        private Integer containerCount;
+        private List<ContainerDetail> containers;
+
+        public static class ContainerDetail {
+            private String name;
+            private String image;
+            private String imageId;
+            private Double cpuUsage;
+            private Double memoryUsage;
+            private Double fsUsage;
+            private Boolean running;
+            private Integer restarts;
+
+            // Getters and Setters
+            public String getName() {
+                return name;
+            }
+
+            public void setName(String name) {
+                this.name = name;
+            }
+
+            public String getImage() {
+                return image;
+            }
+
+            public void setImage(String image) {
+                this.image = image;
+            }
+
+            public String getImageId() {
+                return imageId;
+            }
+
+            public void setImageId(String imageId) {
+                this.imageId = imageId;
+            }
+
+            public Double getCpuUsage() {
+                return cpuUsage;
+            }
+
+            public void setCpuUsage(Double cpuUsage) {
+                this.cpuUsage = cpuUsage;
+            }
+
+            public Double getMemoryUsage() {
+                return memoryUsage;
+            }
+
+            public void setMemoryUsage(Double memoryUsage) {
+                this.memoryUsage = memoryUsage;
+            }
+
+            public Double getFsUsage() {
+                return fsUsage;
+            }
+
+            public void setFsUsage(Double fsUsage) {
+                this.fsUsage = fsUsage;
+            }
+
+            public Boolean getRunning() {
+                return running;
+            }
+
+            public void setRunning(Boolean running) {
+                this.running = running;
+            }
+
+            public Integer getRestarts() {
+                return restarts;
+            }
+
+            public void setRestarts(Integer restarts) {
+                this.restarts = restarts;
+            }
+        }
+
+        // Getters and Setters for PodDetail
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+
+        public String getNamespace() {
+            return namespace;
+        }
+
+        public void setNamespace(String namespace) {
+            this.namespace = namespace;
+        }
+
+        public String getPhase() {
+            return phase;
+        }
+
+        public void setPhase(String phase) {
+            this.phase = phase;
+        }
+
+        public String getNode() {
+            return node;
+        }
+
+        public void setNode(String node) {
+            this.node = node;
+        }
+
+        public String getPodIp() {
+            return podIp;
+        }
+
+        public void setPodIp(String podIp) {
+            this.podIp = podIp;
+        }
+
+        public Boolean getReady() {
+            return ready;
+        }
+
+        public void setReady(Boolean ready) {
+            this.ready = ready;
+        }
+
+        public Integer getRestarts() {
+            return restarts;
+        }
+
+        public void setRestarts(Integer restarts) {
+            this.restarts = restarts;
+        }
+
+        public String getAge() {
+            return age;
+        }
+
+        public void setAge(String age) {
+            this.age = age;
+        }
+
+        public String getOwnerKind() {
+            return ownerKind;
+        }
+
+        public void setOwnerKind(String ownerKind) {
+            this.ownerKind = ownerKind;
+        }
+
+        public String getOwnerName() {
+            return ownerName;
+        }
+
+        public void setOwnerName(String ownerName) {
+            this.ownerName = ownerName;
+        }
+
+        public Double getCpuRequest() {
+            return cpuRequest;
+        }
+
+        public void setCpuRequest(Double cpuRequest) {
+            this.cpuRequest = cpuRequest;
+        }
+
+        public Double getMemoryRequest() {
+            return memoryRequest;
+        }
+
+        public void setMemoryRequest(Double memoryRequest) {
+            this.memoryRequest = memoryRequest;
+        }
+
+        public Double getCpuLimit() {
+            return cpuLimit;
+        }
+
+        public void setCpuLimit(Double cpuLimit) {
+            this.cpuLimit = cpuLimit;
+        }
+
+        public Double getMemoryLimit() {
+            return memoryLimit;
+        }
+
+        public void setMemoryLimit(Double memoryLimit) {
+            this.memoryLimit = memoryLimit;
+        }
+
+        public Double getCpuUsage() {
+            return cpuUsage;
+        }
+
+        public void setCpuUsage(Double cpuUsage) {
+            this.cpuUsage = cpuUsage;
+        }
+
+        public Double getMemoryUsage() {
+            return memoryUsage;
+        }
+
+        public void setMemoryUsage(Double memoryUsage) {
+            this.memoryUsage = memoryUsage;
+        }
+
+        public Integer getContainerCount() {
+            return containerCount;
+        }
+
+        public void setContainerCount(Integer containerCount) {
+            this.containerCount = containerCount;
+        }
+
+        public List<ContainerDetail> getContainers() {
+            return containers;
+        }
+
+        public void setContainers(List<ContainerDetail> containers) {
+            this.containers = containers;
+        }
+    }
+
+    /**
+     * ✅ NEW: Comprehensive Node Details with Capacity, Conditions, and Pod
+     * Placement
+     * This provides Cast.ai-level detail for individual nodes
+     */
+    public static class NodeDetail {
+        private String name;
+        private String internalIp;
+        private String hostname;
+        private String status;
+        private String kubeletVersion;
+        private String osImage;
+        private String kernelVersion;
+        private String containerRuntime;
+        private String instanceId;
+        private String zone;
+        private Double cpuCapacity;
+        private Double memoryCapacity;
+        private Integer podsCapacity;
+        private Double cpuAllocatable;
+        private Double memoryAllocatable;
+        private Integer podsAllocatable;
+        private Double cpuUsagePercent;
+        private Double memoryUsagePercent;
+        private List<String> conditions;
+        private List<String> pods;
+        private Integer podCount;
+
+        // Getters and Setters
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+
+        public String getInternalIp() {
+            return internalIp;
+        }
+
+        public void setInternalIp(String internalIp) {
+            this.internalIp = internalIp;
+        }
+
+        public String getHostname() {
+            return hostname;
+        }
+
+        public void setHostname(String hostname) {
+            this.hostname = hostname;
+        }
+
+        public String getStatus() {
+            return status;
+        }
+
+        public void setStatus(String status) {
+            this.status = status;
+        }
+
+        public String getKubeletVersion() {
+            return kubeletVersion;
+        }
+
+        public void setKubeletVersion(String kubeletVersion) {
+            this.kubeletVersion = kubeletVersion;
+        }
+
+        public String getOsImage() {
+            return osImage;
+        }
+
+        public void setOsImage(String osImage) {
+            this.osImage = osImage;
+        }
+
+        public String getKernelVersion() {
+            return kernelVersion;
+        }
+
+        public void setKernelVersion(String kernelVersion) {
+            this.kernelVersion = kernelVersion;
+        }
+
+        public String getContainerRuntime() {
+            return containerRuntime;
+        }
+
+        public void setContainerRuntime(String containerRuntime) {
+            this.containerRuntime = containerRuntime;
+        }
+
+        public String getInstanceId() {
+            return instanceId;
+        }
+
+        public void setInstanceId(String instanceId) {
+            this.instanceId = instanceId;
+        }
+
+        public String getZone() {
+            return zone;
+        }
+
+        public void setZone(String zone) {
+            this.zone = zone;
+        }
+
+        public Double getCpuCapacity() {
+            return cpuCapacity;
+        }
+
+        public void setCpuCapacity(Double cpuCapacity) {
+            this.cpuCapacity = cpuCapacity;
+        }
+
+        public Double getMemoryCapacity() {
+            return memoryCapacity;
+        }
+
+        public void setMemoryCapacity(Double memoryCapacity) {
+            this.memoryCapacity = memoryCapacity;
+        }
+
+        public Integer getPodsCapacity() {
+            return podsCapacity;
+        }
+
+        public void setPodsCapacity(Integer podsCapacity) {
+            this.podsCapacity = podsCapacity;
+        }
+
+        public Double getCpuAllocatable() {
+            return cpuAllocatable;
+        }
+
+        public void setCpuAllocatable(Double cpuAllocatable) {
+            this.cpuAllocatable = cpuAllocatable;
+        }
+
+        public Double getMemoryAllocatable() {
+            return memoryAllocatable;
+        }
+
+        public void setMemoryAllocatable(Double memoryAllocatable) {
+            this.memoryAllocatable = memoryAllocatable;
+        }
+
+        public Integer getPodsAllocatable() {
+            return podsAllocatable;
+        }
+
+        public void setPodsAllocatable(Integer podsAllocatable) {
+            this.podsAllocatable = podsAllocatable;
+        }
+
+        public Double getCpuUsagePercent() {
+            return cpuUsagePercent;
+        }
+
+        public void setCpuUsagePercent(Double cpuUsagePercent) {
+            this.cpuUsagePercent = cpuUsagePercent;
+        }
+
+        public Double getMemoryUsagePercent() {
+            return memoryUsagePercent;
+        }
+
+        public void setMemoryUsagePercent(Double memoryUsagePercent) {
+            this.memoryUsagePercent = memoryUsagePercent;
+        }
+
+        public List<String> getConditions() {
+            return conditions;
+        }
+
+        public void setConditions(List<String> conditions) {
+            this.conditions = conditions;
+        }
+
+        public List<String> getPods() {
+            return pods;
+        }
+
+        public void setPods(List<String> pods) {
+            this.pods = pods;
+        }
+
+        public Integer getPodCount() {
+            return podCount;
+        }
+
+        public void setPodCount(Integer podCount) {
+            this.podCount = podCount;
+        }
+    }
+
+    /**
+     * ✅ NEW: Pod Metrics for dedicated Pods tab
+     * Comprehensive pod-level aggregated metrics
+     */
+    public static class PodMetrics {
+        private Integer runningCount;
+        private Integer pendingCount;
+        private Integer failedCount;
+        private Integer succeededCount;
+        private Integer totalContainers;
+        private Integer qosGuaranteed;
+        private Integer qosBurstable;
+        private Integer qosBestEffort;
+        private List<PodRestartInfo> podsWithRestarts;
+
+        // Resource aggregations for charts
+        private Double totalCpuRequested;
+        private Double totalCpuLimited;
+        private Double totalCpuUsed;
+        private Double totalMemoryRequested;
+        private Double totalMemoryLimited;
+        private Double totalMemoryUsed;
+
+        public static class PodRestartInfo {
+            private String name;
+            private String namespace;
+            private Integer restarts;
+            private String lastRestartTime;
+            private String status;
+
+            // Getters and Setters
+            public String getName() {
+                return name;
+            }
+
+            public void setName(String name) {
+                this.name = name;
+            }
+
+            public String getNamespace() {
+                return namespace;
+            }
+
+            public void setNamespace(String namespace) {
+                this.namespace = namespace;
+            }
+
+            public Integer getRestarts() {
+                return restarts;
+            }
+
+            public void setRestarts(Integer restarts) {
+                this.restarts = restarts;
+            }
+
+            public String getLastRestartTime() {
+                return lastRestartTime;
+            }
+
+            public void setLastRestartTime(String lastRestartTime) {
+                this.lastRestartTime = lastRestartTime;
+            }
+
+            public String getStatus() {
+                return status;
+            }
+
+            public void setStatus(String status) {
+                this.status = status;
+            }
+        }
+
+        // Getters and Setters
+        public Integer getRunningCount() {
+            return runningCount;
+        }
+
+        public void setRunningCount(Integer runningCount) {
+            this.runningCount = runningCount;
+        }
+
+        public Integer getPendingCount() {
+            return pendingCount;
+        }
+
+        public void setPendingCount(Integer pendingCount) {
+            this.pendingCount = pendingCount;
+        }
+
+        public Integer getFailedCount() {
+            return failedCount;
+        }
+
+        public void setFailedCount(Integer failedCount) {
+            this.failedCount = failedCount;
+        }
+
+        public Integer getSucceededCount() {
+            return succeededCount;
+        }
+
+        public void setSucceededCount(Integer succeededCount) {
+            this.succeededCount = succeededCount;
+        }
+
+        public Integer getTotalContainers() {
+            return totalContainers;
+        }
+
+        public void setTotalContainers(Integer totalContainers) {
+            this.totalContainers = totalContainers;
+        }
+
+        public Integer getQosGuaranteed() {
+            return qosGuaranteed;
+        }
+
+        public void setQosGuaranteed(Integer qosGuaranteed) {
+            this.qosGuaranteed = qosGuaranteed;
+        }
+
+        public Integer getQosBurstable() {
+            return qosBurstable;
+        }
+
+        public void setQosBurstable(Integer qosBurstable) {
+            this.qosBurstable = qosBurstable;
+        }
+
+        public Integer getQosBestEffort() {
+            return qosBestEffort;
+        }
+
+        public void setQosBestEffort(Integer qosBestEffort) {
+            this.qosBestEffort = qosBestEffort;
+        }
+
+        public List<PodRestartInfo> getPodsWithRestarts() {
+            return podsWithRestarts;
+        }
+
+        public void setPodsWithRestarts(List<PodRestartInfo> podsWithRestarts) {
+            this.podsWithRestarts = podsWithRestarts;
+        }
+
+        public Double getTotalCpuRequested() {
+            return totalCpuRequested;
+        }
+
+        public void setTotalCpuRequested(Double totalCpuRequested) {
+            this.totalCpuRequested = totalCpuRequested;
+        }
+
+        public Double getTotalCpuLimited() {
+            return totalCpuLimited;
+        }
+
+        public void setTotalCpuLimited(Double totalCpuLimited) {
+            this.totalCpuLimited = totalCpuLimited;
+        }
+
+        public Double getTotalCpuUsed() {
+            return totalCpuUsed;
+        }
+
+        public void setTotalCpuUsed(Double totalCpuUsed) {
+            this.totalCpuUsed = totalCpuUsed;
+        }
+
+        public Double getTotalMemoryRequested() {
+            return totalMemoryRequested;
+        }
+
+        public void setTotalMemoryRequested(Double totalMemoryRequested) {
+            this.totalMemoryRequested = totalMemoryRequested;
+        }
+
+        public Double getTotalMemoryLimited() {
+            return totalMemoryLimited;
+        }
+
+        public void setTotalMemoryLimited(Double totalMemoryLimited) {
+            this.totalMemoryLimited = totalMemoryLimited;
+        }
+
+        public Double getTotalMemoryUsed() {
+            return totalMemoryUsed;
+        }
+
+        public void setTotalMemoryUsed(Double totalMemoryUsed) {
+            this.totalMemoryUsed = totalMemoryUsed;
+        }
+    }
+
+    /**
+     * ✅ NEW: Container Metrics for dedicated Containers tab
+     * Container-level aggregated metrics and detailed list
+     */
+    public static class ContainerMetrics {
+        private Integer runningCount;
+        private Integer waitingCount;
+        private Integer terminatedCount;
+        private Integer totalRestarts;
+        private List<ContainerInfo> containers;
+        private Double totalMemoryWorkingSet;
+        private Double totalMemoryRss;
+        private Double totalMemoryAvailable;
+
+        public static class ContainerInfo {
+            private String id;
+            private String name;
+            private String pod;
+            private String image;
+            private Double cpuUsage;
+            private Double memoryUsage;
+            private Double fsUsage;
+            private Boolean running;
+
+            // Getters and Setters
+            public String getId() {
+                return id;
+            }
+
+            public void setId(String id) {
+                this.id = id;
+            }
+
+            public String getName() {
+                return name;
+            }
+
+            public void setName(String name) {
+                this.name = name;
+            }
+
+            public String getPod() {
+                return pod;
+            }
+
+            public void setPod(String pod) {
+                this.pod = pod;
+            }
+
+            public String getImage() {
+                return image;
+            }
+
+            public void setImage(String image) {
+                this.image = image;
+            }
+
+            public Double getCpuUsage() {
+                return cpuUsage;
+            }
+
+            public void setCpuUsage(Double cpuUsage) {
+                this.cpuUsage = cpuUsage;
+            }
+
+            public Double getMemoryUsage() {
+                return memoryUsage;
+            }
+
+            public void setMemoryUsage(Double memoryUsage) {
+                this.memoryUsage = memoryUsage;
+            }
+
+            public Double getFsUsage() {
+                return fsUsage;
+            }
+
+            public void setFsUsage(Double fsUsage) {
+                this.fsUsage = fsUsage;
+            }
+
+            public Boolean getRunning() {
+                return running;
+            }
+
+            public void setRunning(Boolean running) {
+                this.running = running;
+            }
+        }
+
+        // Getters and Setters
+        public Integer getRunningCount() {
+            return runningCount;
+        }
+
+        public void setRunningCount(Integer runningCount) {
+            this.runningCount = runningCount;
+        }
+
+        public Integer getWaitingCount() {
+            return waitingCount;
+        }
+
+        public void setWaitingCount(Integer waitingCount) {
+            this.waitingCount = waitingCount;
+        }
+
+        public Integer getTerminatedCount() {
+            return terminatedCount;
+        }
+
+        public void setTerminatedCount(Integer terminatedCount) {
+            this.terminatedCount = terminatedCount;
+        }
+
+        public Integer getTotalRestarts() {
+            return totalRestarts;
+        }
+
+        public void setTotalRestarts(Integer totalRestarts) {
+            this.totalRestarts = totalRestarts;
+        }
+
+        public List<ContainerInfo> getContainers() {
+            return containers;
+        }
+
+        public void setContainers(List<ContainerInfo> containers) {
+            this.containers = containers;
+        }
+
+        public Double getTotalMemoryWorkingSet() {
+            return totalMemoryWorkingSet;
+        }
+
+        public void setTotalMemoryWorkingSet(Double totalMemoryWorkingSet) {
+            this.totalMemoryWorkingSet = totalMemoryWorkingSet;
+        }
+
+        public Double getTotalMemoryRss() {
+            return totalMemoryRss;
+        }
+
+        public void setTotalMemoryRss(Double totalMemoryRss) {
+            this.totalMemoryRss = totalMemoryRss;
+        }
+
+        public Double getTotalMemoryAvailable() {
+            return totalMemoryAvailable;
+        }
+
+        public void setTotalMemoryAvailable(Double totalMemoryAvailable) {
+            this.totalMemoryAvailable = totalMemoryAvailable;
+        }
+    }
+
+    /**
+     * ✅ NEW: Node Metrics for dedicated Nodes tab
+     * Node-level aggregated metrics and detailed list
+     */
+    public static class NodeMetrics {
+        private Integer readyCount;
+        private Double totalCpuCapacity;
+        private Double totalMemoryCapacity;
+        private Integer totalPods;
+        private Integer conditionsReady;
+        private Integer conditionsDiskPressure;
+        private Integer conditionsMemoryPressure;
+        private Integer conditionsPidPressure;
+        private List<NodeInfo> nodes;
+
+        public static class NodeInfo {
+            private String name;
+            private String internalIp;
+            private Boolean ready;
+            private Double cpuCapacity;
+            private Double cpuAllocatable;
+            private Double cpuUsage;
+            private Double memoryCapacity;
+            private Double memoryAllocatable;
+            private Double memoryUsage;
+            private Integer podCapacity;
+            private Integer podCount;
+            private String kubeletVersion;
+            private String zone;
+            private String instanceId;
+
+            // Getters and Setters
+            public String getName() {
+                return name;
+            }
+
+            public void setName(String name) {
+                this.name = name;
+            }
+
+            public String getInternalIp() {
+                return internalIp;
+            }
+
+            public void setInternalIp(String internalIp) {
+                this.internalIp = internalIp;
+            }
+
+            public Boolean getReady() {
+                return ready;
+            }
+
+            public void setReady(Boolean ready) {
+                this.ready = ready;
+            }
+
+            public Double getCpuCapacity() {
+                return cpuCapacity;
+            }
+
+            public void setCpuCapacity(Double cpuCapacity) {
+                this.cpuCapacity = cpuCapacity;
+            }
+
+            public Double getCpuAllocatable() {
+                return cpuAllocatable;
+            }
+
+            public void setCpuAllocatable(Double cpuAllocatable) {
+                this.cpuAllocatable = cpuAllocatable;
+            }
+
+            public Double getCpuUsage() {
+                return cpuUsage;
+            }
+
+            public void setCpuUsage(Double cpuUsage) {
+                this.cpuUsage = cpuUsage;
+            }
+
+            public Double getMemoryCapacity() {
+                return memoryCapacity;
+            }
+
+            public void setMemoryCapacity(Double memoryCapacity) {
+                this.memoryCapacity = memoryCapacity;
+            }
+
+            public Double getMemoryAllocatable() {
+                return memoryAllocatable;
+            }
+
+            public void setMemoryAllocatable(Double memoryAllocatable) {
+                this.memoryAllocatable = memoryAllocatable;
+            }
+
+            public Double getMemoryUsage() {
+                return memoryUsage;
+            }
+
+            public void setMemoryUsage(Double memoryUsage) {
+                this.memoryUsage = memoryUsage;
+            }
+
+            public Integer getPodCapacity() {
+                return podCapacity;
+            }
+
+            public void setPodCapacity(Integer podCapacity) {
+                this.podCapacity = podCapacity;
+            }
+
+            public Integer getPodCount() {
+                return podCount;
+            }
+
+            public void setPodCount(Integer podCount) {
+                this.podCount = podCount;
+            }
+
+            public String getKubeletVersion() {
+                return kubeletVersion;
+            }
+
+            public void setKubeletVersion(String kubeletVersion) {
+                this.kubeletVersion = kubeletVersion;
+            }
+
+            public String getZone() {
+                return zone;
+            }
+
+            public void setZone(String zone) {
+                this.zone = zone;
+            }
+
+            public String getInstanceId() {
+                return instanceId;
+            }
+
+            public void setInstanceId(String instanceId) {
+                this.instanceId = instanceId;
+            }
+        }
+
+        // Getters and Setters
+        public Integer getReadyCount() {
+            return readyCount;
+        }
+
+        public void setReadyCount(Integer readyCount) {
+            this.readyCount = readyCount;
+        }
+
+        public Double getTotalCpuCapacity() {
+            return totalCpuCapacity;
+        }
+
+        public void setTotalCpuCapacity(Double totalCpuCapacity) {
+            this.totalCpuCapacity = totalCpuCapacity;
+        }
+
+        public Double getTotalMemoryCapacity() {
+            return totalMemoryCapacity;
+        }
+
+        public void setTotalMemoryCapacity(Double totalMemoryCapacity) {
+            this.totalMemoryCapacity = totalMemoryCapacity;
+        }
+
+        public Integer getTotalPods() {
+            return totalPods;
+        }
+
+        public void setTotalPods(Integer totalPods) {
+            this.totalPods = totalPods;
+        }
+
+        public Integer getConditionsReady() {
+            return conditionsReady;
+        }
+
+        public void setConditionsReady(Integer conditionsReady) {
+            this.conditionsReady = conditionsReady;
+        }
+
+        public Integer getConditionsDiskPressure() {
+            return conditionsDiskPressure;
+        }
+
+        public void setConditionsDiskPressure(Integer conditionsDiskPressure) {
+            this.conditionsDiskPressure = conditionsDiskPressure;
+        }
+
+        public Integer getConditionsMemoryPressure() {
+            return conditionsMemoryPressure;
+        }
+
+        public void setConditionsMemoryPressure(Integer conditionsMemoryPressure) {
+            this.conditionsMemoryPressure = conditionsMemoryPressure;
+        }
+
+        public Integer getConditionsPidPressure() {
+            return conditionsPidPressure;
+        }
+
+        public void setConditionsPidPressure(Integer conditionsPidPressure) {
+            this.conditionsPidPressure = conditionsPidPressure;
+        }
+
+        public List<NodeInfo> getNodes() {
+            return nodes;
+        }
+
+        public void setNodes(List<NodeInfo> nodes) {
+            this.nodes = nodes;
+        }
     }
 }
