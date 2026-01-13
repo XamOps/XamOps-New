@@ -164,7 +164,7 @@
     }
 </style>
 
-<div class="w-64 fixed top-0 left-0 h-screen flex flex-col bg-white shadow-xl z-30" x-data="{
+<div id="tour-sidebar" class="w-64 fixed top-0 left-0 h-screen flex flex-col bg-white shadow-xl z-30" x-data="{
     open: false,
     // Shared state for dropdown menu management - only one can be open at a time
     openDropdown: null,
@@ -856,7 +856,7 @@
 
     <div class="p-4 border-b bg-gradient-to-r from-gray-50 to-white flex-shrink-0">
         <div class="relative">
-            <div @click="open = !open"
+            <div id="tour-account-selector" @click="open = !open"
                 class="flex items-center justify-between p-3 rounded-xl bg-white border border-gray-200 hover:border-indigo-300 cursor-pointer transition-all duration-200 hover:shadow-md">
                 <div class="flex items-center min-w-0">
                     <div class="relative flex-shrink-0">
@@ -1023,7 +1023,7 @@
     <nav class="flex-1 px-3 py-4 space-y-2 text-sm overflow-y-auto sidebar-scroll">
         <div x-show="hasAnyRole(['ROLE_XAMOPS', 'ROLE_ADMIN', 'ROLE_SUPER_ADMIN'])" x-cloak>
             <div class="sidebar-section" :class="{'active': isActive('/dashboard.html')}">
-                <a :href="getLink('/dashboard.html')"
+                <a id="tour-link-dashboard" :href="getLink('/dashboard.html')"
                     class="nav-item flex items-center gap-3 rounded-xl px-4 py-3 font-semibold"
                     :class="isActive('/dashboard.html') ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg' : 'text-gray-600 hover:bg-indigo-50'">
                     <i class="fas fa-tachometer-alt fa-fw w-5 text-center"></i>
@@ -1033,7 +1033,7 @@
 
             <div class="sidebar-section" :class="{'active': isActive('/finops')}">
                 <div x-init="if (isActive('/finops')) openDropdown = 'finops'">
-                    <button @click="openDropdown = openDropdown === 'finops' ? null : 'finops'"
+                    <button id="tour-nav-finops-toggle" @click="openDropdown = openDropdown === 'finops' ? null : 'finops'"
                         class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold"
                         :class="isActive('/finops') ? 'bg-gradient-to-r from-green-500 to-teal-600 text-white shadow-lg' : 'text-gray-600 hover:bg-green-50'">
                         <div class="flex items-center gap-3">
@@ -1044,11 +1044,11 @@
                             :class="openDropdown === 'finops' && 'rotate-180'"></i>
                     </button>
                     <div x-show="openDropdown === 'finops'" class="ml-6 mt-2 space-y-1">
-                        <a :href="getLink('/finops.html')"
+                        <a id="tour-nav-finops-report" :href="getLink('/finops.html')"
                             :class="{'text-green-600 font-bold bg-green-50': isActive('/finops.html')}"
                             class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-green-600">FinOps
                             Report</a>
-                        <a :href="getLink('/cost.html')"
+                        <a id="tour-nav-finops-cost" :href="getLink('/cost.html')"
                             :class="{'text-green-600 font-bold bg-green-50': isActive('/cost.html')}"
                             class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-green-600">Costs
                             Overview</a>
@@ -1061,11 +1061,11 @@
                         <a :href="getLink('/reservation.html')"
                             :class="{'text-green-600 font-bold bg-green-50': isActive('/reservation.html')}"
                             class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-green-600">Reservations</a>
-                        <a :href="getLink('/spot-automation.html')" x-show="selectedAccountDisplay.provider === 'AWS'"
+                        <a id="tour-nav-finops-spot" :href="getLink('/spot-automation.html')" x-show="selectedAccountDisplay.provider === 'AWS'"
                             :class="{'text-green-600 font-bold bg-green-50': isActive('/spot-automation.html')}"
                             class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-green-600">Spot
                             Automation</a>
-                        <a :href="getLink('/cloudsitter.html')" x-show="selectedAccountDisplay.provider === 'AWS'"
+                        <a id="tour-nav-finops-cloudsitter" :href="getLink('/cloudsitter.html')" x-show="selectedAccountDisplay.provider === 'AWS'"
                             :class="{'text-green-600 font-bold bg-green-50': isActive('/cloudsitter.html')}"
                             class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-green-600">Cloudsitter</a>
                     </div>
@@ -1074,7 +1074,7 @@
 
             <div class="sidebar-section" :class="{'active': isActive('/cloudops')}">
                 <div x-init="if (isActive('/cloudops')) openDropdown = 'cloudops'">
-                    <button @click="openDropdown = openDropdown === 'cloudops' ? null : 'cloudops'"
+                    <button id="tour-nav-cloudops-toggle" @click="openDropdown = openDropdown === 'cloudops' ? null : 'cloudops'"
                         class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold"
                         :class="isActive('/cloudops') ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg' : 'text-gray-600 hover:bg-indigo-50'">
                         <div class="flex items-center gap-3">
@@ -1085,20 +1085,20 @@
                             :class="openDropdown === 'cloudops' && 'rotate-180'"></i>
                     </button>
                     <div x-show="openDropdown === 'cloudops'" class="ml-6 mt-2 space-y-1">
-                        <a :href="getLink('/grafana-dashboard.html')"
+                        <a id="tour-nav-cloudops-grafana" :href="getLink('/grafana-dashboard.html')"
                             :class="{'text-indigo-600 font-bold bg-indigo-50': isActive('/grafana-dashboard.html')}"
                             class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-indigo-600">Grafana</a>
                         <a :href="getLink('/xamops_tickets.html')"
                             :class="{'text-indigo-600 font-bold bg-indigo-50': isActive('/xamops_tickets.html')}"
                             class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-indigo-600">Tickets</a>
-                        <a :href="getLink('/devops_in_the_box.html')"
+                        <a id="tour-nav-cloudops-devops" :href="getLink('/devops_in_the_box.html')"
                             :class="{'text-red-600 font-bold bg-red-50': isActive('/devops_in_the_box.html')}"
                             class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-cyan-600">DevOps
                             In The Box</a>
-                        <a :href="getLink('/cloudk8s.html')"
+                        <a id="tour-nav-cloudops-k8s" :href="getLink('/cloudk8s.html')"
                             :class="{'text-indigo-600 font-bold bg-indigo-50': isActive('/cloudk8s.html')}"
                             class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-indigo-600">CloudK8s</a>
-                        <a :href="getLink('/cicd_pipelines.html')"
+                        <a id="tour-nav-cloudops-cicd" :href="getLink('/cicd_pipelines.html')"
                             :class="{'text-indigo-600 font-bold bg-indigo-50': isActive('/cicd_pipelines')}"
                             class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-indigo-600">CICD
                             Pipelines</a>
@@ -1118,7 +1118,7 @@
 
             <div class="sidebar-section" :class="{'active': isActive('/security')}">
                 <div x-init="if (isActive('/security')) openDropdown = 'security'">
-                    <button @click="openDropdown = openDropdown === 'security' ? null : 'security'"
+                    <button id="tour-nav-secops-toggle" @click="openDropdown = openDropdown === 'security' ? null : 'security'"
                         class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold"
                         :class="isActive('/security') ? 'bg-gradient-to-r from-red-500 to-orange-600 text-white shadow-lg' : 'text-gray-600 hover:bg-red-50'">
                         <div class="flex items-center gap-3">
@@ -1150,7 +1150,7 @@
         <div x-show="hasAnyRole(['ROLE_XAMOPS', 'ROLE_BILLOPS', 'ROLE_SUPER_ADMIN'])" x-cloak>
             <div class="sidebar-section" :class="{'active': isActive('/billops/')}">
                 <div x-init="if (isActive('/billops/')) openDropdown = 'billops'">
-                    <button @click="openDropdown = openDropdown === 'billops' ? null : 'billops'"
+                    <button id="tour-nav-billops-toggle" @click="openDropdown = openDropdown === 'billops' ? null : 'billops'"
                         class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold"
                         :class="isActive('/billops/') ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg' : 'text-gray-600 hover:bg-cyan-50'">
                         <div class="flex items-center gap-3">
@@ -1314,7 +1314,7 @@
                         </div>
                     </div>
 
-                    <button @click="openDropdown = openDropdown === 'settings' ? null : 'settings'"
+                    <button id="tour-nav-settings-toggle" @click="openDropdown = openDropdown === 'settings' ? null : 'settings'"
                         class="nav-item w-full flex items-center justify-between rounded-xl px-7 py-3 font-semibold"
                         :class="isActive('/account-manager') || isActive('/user-manager') || isActive('/Xamops_User_management') || isActive('/superadmin_customers') ? 'bg-gradient-to-r from-gray-500 to-gray-600 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-50'">
                         <div class="flex items-center">
@@ -1643,6 +1643,43 @@
         });
 
         window.addEventListener('popstate', () => window.location.reload());
+
+        // --- TOUR HELPER FUNCTION ---
+        // This allows the Tour Driver to open/close sidebar menus programmatically
+        window.toggleDropdown = function(elementId, action) {
+            const sidebar = document.getElementById('tour-sidebar');
+
+            // Safety check: ensure sidebar and Alpine data exist
+            if (!sidebar || !sidebar._x_dataStack) {
+                console.warn('Sidebar or Alpine data not found for tour toggle');
+                return;
+            }
+
+            // Access the Alpine.js component data
+            const alpineData = sidebar._x_dataStack[0];
+
+            // Map the HTML ID to the internal Alpine 'openDropdown' value
+            const idToMenuMap = {
+                'tour-nav-finops-toggle': 'finops',
+                'tour-nav-cloudops-toggle': 'cloudops',
+                'tour-nav-secops-toggle': 'security',
+                'tour-nav-billops-toggle': 'billops',
+                'tour-nav-settings-toggle': 'settings'
+            };
+
+            const menuName = idToMenuMap[elementId];
+            if (!menuName) return;
+
+            // Apply the action
+            if (action === 'open') {
+                alpineData.openDropdown = menuName;
+            } else if (action === 'close') {
+                // Only close if it's currently the one open
+                if (alpineData.openDropdown === menuName) {
+                    alpineData.openDropdown = null;
+                }
+            }
+        };
 
         function updateSidebarActiveState(targetHref) {
             // Remove active class from all items
