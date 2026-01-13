@@ -421,6 +421,13 @@
 
                     <div x-show="activeTab === 'aws'" x-cloak class="fade-in">
                         <div class="glass-card p-8">
+                            <div class="flex items-center justify-between mb-4">
+                                <div class="flex items-center space-x-2 text-sm text-gray-600">
+                                    <i class="fab fa-aws text-orange-500"></i>
+                                    <span class="text-xs italic">These recommendations are coming directly from
+                                        AWS</span>
+                                </div>
+                            </div>
                             <div x-show="isLoading" class="skeleton h-96 rounded-2xl"></div>
 
                             <div x-show="!isLoading && filteredRecommendations.length === 0" x-cloak
@@ -729,7 +736,7 @@
                             isLoadingXamOps: true,
                             isRefreshing: false,
                             isRefreshingXamOps: false,
-                            activeTab: 'xamops',
+                            activeTab: 'aws',
                             recommendations: [],
                             xamopsRecommendations: [],
                             showAiModal: false,
@@ -920,7 +927,23 @@
                             },
 
                             get filteredRecommendations() {
-                                return this.recommendations;
+                                // Filter out recommendations where recommendedType is "Optimized" or contains "Optimized"
+                                // Also filter out recommendations where recommendationReason indicates already optimized
+                                return this.recommendations.filter(rec => {
+                                    // Check recommendedType field
+                                    if (rec.recommendedType) {
+                                        const recType = rec.recommendedType.toLowerCase();
+                                        if (recType.includes('optimized')) return false;
+                                    }
+
+                                    // Check recommendationReason field for optimized EBS volumes
+                                    if (rec.recommendationReason) {
+                                        const reason = rec.recommendationReason.toLowerCase();
+                                        if (reason.includes('optimized') || reason.includes('no recommendation')) return false;
+                                    }
+
+                                    return true;
+                                });
                             },
 
                             getServiceIcon(serviceType) {
