@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>XamOps - BillOps Admin Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
+    <link rel="apple-touch-icon" href="/icons/XamOps.png">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ef 100%);
+            color: #1f2937;
+        }
+
+        [x-cloak] {
+            display: none !important;
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .glass-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+            transition: left 0.5s;
+        }
+
+        .glass-card:hover::before {
+            left: 100%;
+        }
+
+        .glass-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08);
+            border-color: rgba(99, 102, 241, 0.2);
+        }
+
+        .metric-card {
+            position: relative;
+            z-index: 1;
+        }
+
+        .metric-value {
+            font-weight: 800;
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .shimmer {
+            background: #f6f7f8;
+            background-image: linear-gradient(to right, #f6f7f8 0%, #edeef1 20%, #f6f7f8 40%, #f6f7f8 100%);
+            background-repeat: no-repeat;
+            background-size: 800px 100%;
+            animation: placeholderShimmer 1.5s linear infinite forwards;
+        }
+
+        @keyframes placeholderShimmer {
+            0% {
+                background-position: -468px 0;
+            }
+
+            100% {
+                background-position: 468px 0;
+            }
+        }
+
+        .fade-in {
+            animation: fadeIn 0.5s ease-out forwards;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+
+            to {
+                opacity: 1;
+            }
+        }
+
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+    </style>
+</head>
+
+<body class="antialiased text-gray-800 bg-gray-50">
+
+    <div class="flex h-screen overflow-hidden">
+        <include file="/_sidebar.html"></include>
+
+        <div class="flex-1 flex flex-col pl-64 h-screen overflow-hidden">
+
+            <!-- Header -->
+            <header
+                class="h-20 bg-gradient-to-r from-white via-gray-50 to-white border-b border-gray-200 flex items-center justify-between px-8 sticky top-0 z-20 shadow-lg backdrop-blur-sm">
+                <div class="flex items-center gap-4">
+                    <div
+                        class="w-12 h-12 bg-gradient-to-br from-indigo-600 via-purple-600 to-indigo-700 rounded-xl flex items-center justify-center text-white shadow-lg transform hover:scale-105 transition-transform">
+                        <i class="fas fa-user-shield text-lg"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-black text-gray-900 tracking-tight flex items-center gap-2">
+                            BillOps Command Center
+                            <span
+                                class="text-xs font-semibold px-2 py-0.5 bg-gradient-to-r from-purple-100 to-pink-100 text-purple-600 rounded-full">Admin</span>
+                        </h1>
+                        <div class="flex items-center gap-3 text-xs text-gray-500 mt-1">
+                            <div class="flex items-center gap-1.5">
+                                <div
+                                    class="w-2 h-2 bg-green-500 rounded-full animate-pulse shadow-lg shadow-green-500/50">
+                                </div>
+                                <span class="font-medium">System Overview</span>
+                            </div>
+                            <span class="text-gray-300">|</span>
+                            <span class="text-gray-400">All Clients</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-4" x-data>
+                    <button @click="$dispatch('refresh-dashboard')"
+                        class="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 shadow-md hover:shadow-lg rounded-lg transition-all active:scale-95 transform">
+                        <i class="fas fa-sync-alt" x-bind:class="{'animate-spin': $store.dashboard?.loading}"></i>
+                        Refresh
+                    </button>
+                </div>
+            </header>
+
+            <main id="main-content" class="flex-1 overflow-y-auto p-8 space-y-6 custom-scrollbar"
+                x-data="adminDashboard()" @refresh-dashboard.window="refreshDashboard()">
+
+                <!-- Error State -->
+                <div x-show="error" x-cloak
+                    class="bg-red-50 border-l-4 border-red-500 p-4 rounded-r shadow-sm animate-pulse">
+                    <div class="flex items-center gap-3">
+                        <i class="fas fa-exclamation-circle text-red-500 text-xl"></i>
+                        <span x-text="error" class="text-red-700 font-medium"></span>
+                    </div>
+                </div>
+
+                <!-- Stats Grid -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+
+                    <!-- Total Spending -->
+                    <div class="glass-card rounded-xl p-6 metric-card border-l-4 border-l-indigo-500">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider">Total System Spend</h3>
+                            <div
+                                class="w-10 h-10 bg-gradient-to-br from-indigo-100 to-purple-100 rounded-lg flex items-center justify-center">
+                                <i class="fas fa-dollar-sign text-indigo-600"></i>
+                            </div>
+                        </div>
+                        <div x-show="!loading" class="fade-in">
+                            <div class="flex items-baseline gap-2 mb-1">
+                                <span class="text-3xl font-black metric-value"
+                                    x-text="formatCurrency(data?.totalSpending)"></span>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-2 font-medium">Aggregated across all clients</p>
+                        </div>
+                        <div x-show="loading" class="animate-pulse space-y-4">
+                            <div class="h-10 w-36 bg-gray-200 shimmer rounded-lg"></div>
+                            <div class="h-3 w-24 bg-gray-200 shimmer rounded-full"></div>
+                        </div>
+                    </div>
+
+                    <!-- Total Accounts -->
+                    <div class="glass-card rounded-xl p-6 metric-card border-l-4 border-l-purple-500">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider">Total Accounts</h3>
+                            <div
+                                class="w-10 h-10 bg-gradient-to-br from-purple-100 to-pink-100 rounded-lg flex items-center justify-center">
+                                <i class="fas fa-layer-group text-purple-600"></i>
+                            </div>
+                        </div>
+                        <div x-show="!loading" class="fade-in">
+                            <div class="flex items-baseline justify-between mb-2">
+                                <span class="text-3xl font-black metric-value" x-text="data?.totalAccounts || 0"></span>
+                                <div class="flex -space-x-2">
+                                    <div class="w-8 h-8 rounded-full bg-white flex items-center justify-center border-2 border-white shadow-sm z-30"
+                                        title="AWS">
+                                        <i class="fab fa-aws text-[#FF9900]"></i>
+                                    </div>
+                                    <div class="w-8 h-8 rounded-full bg-white flex items-center justify-center border-2 border-white shadow-sm z-20"
+                                        title="GCP">
+                                        <i class="fab fa-google text-[#34A853]"></i>
+                                    </div>
+                                    <div class="w-8 h-8 rounded-full bg-white flex items-center justify-center border-2 border-white shadow-sm z-10"
+                                        title="Azure">
+                                        <i class="fab fa-microsoft text-[#0078D4]"></i>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="text-xs text-gray-500 mt-2 font-medium">
+                                <span x-text="data?.awsAccountsCount || 0"></span> AWS |
+                                <span x-text="data?.gcpAccountsCount || 0"></span> GCP |
+                                <span x-text="data?.azureAccountsCount || 0"></span> Azure
+                            </div>
+                        </div>
+                        <div x-show="loading" class="animate-pulse space-y-4">
+                            <div class="h-10 w-20 bg-gray-200 shimmer rounded-lg"></div>
+                            <div class="h-3 w-full bg-gray-200 shimmer rounded-full"></div>
+                        </div>
+                    </div>
+
+                    <!-- Invoices -->
+                    <div class="glass-card rounded-xl p-6 metric-card border-l-4 border-l-blue-500">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider">Total Invoices</h3>
+                            <div
+                                class="w-10 h-10 bg-gradient-to-br from-blue-100 to-cyan-100 rounded-lg flex items-center justify-center">
+                                <i class="fas fa-file-invoice-dollar text-blue-600"></i>
+                            </div>
+                        </div>
+                        <div x-show="!loading" class="fade-in">
+                            <div class="flex items-baseline gap-2 mb-1">
+                                <span class="text-3xl font-black metric-value"
+                                    x-text="(data?.pendingInvoices || 0) + (data?.finalizedInvoices || 0)"></span>
+                            </div>
+                            <div class="text-xs text-gray-500 mt-2 font-medium">
+                                <span class="text-blue-600 font-bold" x-text="data?.pendingInvoices || 0"></span>
+                                Pending |
+                                <span class="text-green-600 font-bold" x-text="data?.finalizedInvoices || 0"></span>
+                                Finalized
+                            </div>
+                        </div>
+                        <div x-show="loading" class="animate-pulse space-y-4">
+                            <div class="h-10 w-24 bg-gray-200 shimmer rounded-lg"></div>
+                            <div class="h-3 w-32 bg-gray-200 shimmer rounded-full"></div>
+                        </div>
+                    </div>
+
+                    <!-- Tickets -->
+                    <div class="glass-card rounded-xl p-6 metric-card border-l-4 border-l-orange-500">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider">System Tickets</h3>
+                            <div
+                                class="w-10 h-10 bg-gradient-to-br from-orange-100 to-amber-100 rounded-lg flex items-center justify-center">
+                                <i class="fas fa-ticket-alt text-orange-600"></i>
+                            </div>
+                        </div>
+                        <div x-show="!loading" class="fade-in">
+                            <div class="flex items-baseline gap-2 mb-1">
+                                <span class="text-3xl font-black metric-value" x-text="data?.openTickets || 0"></span>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-2 font-medium flex items-center gap-1">
+                                <i class="fas fa-users text-[10px] text-gray-400"></i>
+                                Total Clients: <span class="text-gray-900 font-bold"
+                                    x-text="data?.totalClients || 0"></span>
+                            </p>
+                        </div>
+                        <div x-show="loading" class="animate-pulse space-y-4">
+                            <div class="h-10 w-24 bg-gray-200 shimmer rounded-lg"></div>
+                            <div class="h-3 w-32 bg-gray-200 shimmer rounded-full"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Charts Row -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="glass-card rounded-xl p-6 flex flex-col border-t-4 border-t-indigo-500">
+                        <div class="flex items-center justify-between mb-4">
+                            <div>
+                                <h3 class="text-lg font-black text-gray-900 flex items-center gap-2">
+                                    <i class="fas fa-chart-pie text-indigo-600"></i>
+                                    Global Spending Distribution
+                                </h3>
+                                <p class="text-xs text-gray-500 mt-1 font-medium">By Cloud Provider</p>
+                            </div>
+                        </div>
+                        <div class="relative w-full" style="height: 300px;">
+                            <canvas id="providerChart"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="glass-card rounded-xl p-6 flex flex-col border-t-4 border-t-purple-500">
+                        <div class="flex items-center justify-between mb-4">
+                            <div>
+                                <h3 class="text-lg font-black text-gray-900 flex items-center gap-2">
+                                    <i class="fas fa-chart-bar text-purple-600"></i>
+                                    Account Status
+                                </h3>
+                                <p class="text-xs text-gray-500 mt-1 font-medium">Active vs Inactive</p>
+                            </div>
+                        </div>
+                        <div class="relative w-full" style="height: 300px;">
+                            <canvas id="statusChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Top Spending Accounts Table -->
+                <div class="glass-card rounded-xl p-6 border-l-4 border-l-cyan-500">
+                    <div class="flex items-center justify-between mb-6">
+                        <h3 class="text-lg font-black text-gray-900 flex items-center gap-2">
+                            <i class="fas fa-trophy text-cyan-600"></i>
+                            Top 10 Spending Accounts
+                        </h3>
+                    </div>
+
+                    <div class="overflow-x-auto rounded-xl border border-gray-100">
+                        <div x-show="loading" class="p-4 space-y-4">
+                            <div class="h-10 w-full bg-gray-100 shimmer rounded-lg animate-pulse"></div>
+                            <div class="h-10 w-full bg-gray-100 shimmer rounded-lg animate-pulse"></div>
+                            <div class="h-10 w-full bg-gray-100 shimmer rounded-lg animate-pulse"></div>
+                        </div>
+                        <table class="min-w-full divide-y divide-gray-200" x-show="!loading">
+                            <thead class="bg-gray-50/80 backdrop-blur-sm">
+                                <tr>
+                                    <th
+                                        class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                        Account Name</th>
+                                    <th
+                                        class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                        Provider</th>
+                                    <th
+                                        class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                        Client</th>
+                                    <th
+                                        class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                        Status</th>
+                                    <th
+                                        class="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                        Current Month</th>
+                                    <th
+                                        class="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                        Last Month</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white/40 divide-y divide-gray-200">
+                                <template x-for="account in data?.topSpendingAccounts || []" :key="account.id">
+                                    <tr class="hover:bg-indigo-50/50 transition-colors">
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900"
+                                            x-text="account.accountName"></td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm">
+                                            <span
+                                                class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-white shadow-sm border border-gray-100">
+                                                <i class="fab" :class="{
+                                                   'fa-aws text-[#FF9900]': account.provider === 'AWS',
+                                                   'fa-google text-[#34A853]': account.provider === 'GCP',
+                                                   'fa-microsoft text-[#0078D4]': account.provider === 'Azure'
+                                               }"></i>
+                                                <span x-text="account.provider"></span>
+                                            </span>
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600 font-medium"
+                                            x-text="account.clientName"></td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm">
+                                            <span class="px-2 py-1 text-[10px] font-bold uppercase rounded-full" :class="{
+                                                      'bg-green-100 text-green-700': account.status === 'ACTIVE',
+                                                      'bg-yellow-100 text-yellow-700': account.status === 'PENDING',
+                                                      'bg-red-100 text-red-700': account.status === 'INACTIVE'
+                                                  }" x-text="account.status"></span>
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-right font-black text-gray-900"
+                                            x-text="formatCurrency(account.currentMonthSpending)"></td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500"
+                                            x-text="formatCurrency(account.lastMonthSpending)"></td>
+                                    </tr>
+                                </template>
+                                <template x-if="!data?.topSpendingAccounts || data.topSpendingAccounts.length === 0">
+                                    <tr>
+                                        <td colspan="6" class="px-6 py-8 text-center text-gray-500">No account data
+                                            available</td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Recent Activity Row -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <!-- Recent Invoices -->
+                    <div class="glass-card rounded-xl p-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-lg font-black text-gray-900">Recent Invoices</h3>
+                            <a href="#"
+                                class="text-xs font-bold text-indigo-600 hover:text-indigo-800 hover:underline uppercase tracking-wide">View
+                                All &rarr;</a>
+                        </div>
+                        <div class="space-y-3">
+                            <div x-show="loading">
+                                <div class="h-12 bg-gray-100 rounded-lg shimmer animate-pulse mb-2"></div>
+                                <div class="h-12 bg-gray-100 rounded-lg shimmer animate-pulse mb-2"></div>
+                            </div>
+                            <div x-show="!loading">
+                                <template x-for="invoice in data?.recentInvoices || []" :key="invoice.id">
+                                    <div
+                                        class="flex items-center justify-between p-3 bg-gray-50/80 rounded-lg hover:bg-white hover:shadow-md transition-all border border-transparent hover:border-gray-100 group">
+                                        <div class="flex items-center gap-3">
+                                            <div
+                                                class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center">
+                                                <i class="fas fa-file-invoice text-xs"></i>
+                                            </div>
+                                            <div>
+                                                <p class="text-sm font-bold text-gray-900 group-hover:text-indigo-700 transition-colors"
+                                                    x-text="invoice.invoiceNumber"></p>
+                                                <p class="text-[10px] text-gray-500 font-semibold"
+                                                    x-text="invoice.clientName + ' - ' + invoice.accountName"></p>
+                                            </div>
+                                        </div>
+                                        <div class="text-right">
+                                            <p class="text-sm font-black text-gray-900"
+                                                x-text="formatCurrency(invoice.amount)"></p>
+                                            <span class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase"
+                                                :class="{
+                                                      'bg-yellow-100 text-yellow-700': invoice.status === 'DRAFT',
+                                                      'bg-green-100 text-green-700': invoice.status === 'FINALIZED'
+                                                  }" x-text="invoice.status"></span>
+                                        </div>
+                                    </div>
+                                </template>
+                                <template x-if="!data?.recentInvoices || data.recentInvoices.length === 0">
+                                    <p class="text-center text-gray-400 py-4 text-sm font-medium">No recent invoices
+                                        found</p>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Recent Tickets -->
+                    <div class="glass-card rounded-xl p-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-lg font-black text-gray-900">Recent Tickets</h3>
+                            <a href="#"
+                                class="text-xs font-bold text-indigo-600 hover:text-indigo-800 hover:underline uppercase tracking-wide">View
+                                All &rarr;</a>
+                        </div>
+                        <div class="space-y-3">
+                            <div x-show="loading">
+                                <div class="h-12 bg-gray-100 rounded-lg shimmer animate-pulse mb-2"></div>
+                                <div class="h-12 bg-gray-100 rounded-lg shimmer animate-pulse mb-2"></div>
+                            </div>
+                            <div x-show="!loading">
+                                <template x-for="ticket in data?.recentTickets || []" :key="ticket.id">
+                                    <div
+                                        class="flex items-center justify-between p-3 bg-gray-50/80 rounded-lg hover:bg-white hover:shadow-md transition-all border border-transparent hover:border-gray-100 group">
+                                        <div class="flex items-center gap-3">
+                                            <div
+                                                class="w-8 h-8 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center">
+                                                <i class="fas fa-life-ring text-xs"></i>
+                                            </div>
+                                            <div>
+                                                <p class="text-sm font-bold text-gray-900 group-hover:text-indigo-700 transition-colors"
+                                                    x-text="ticket.subject"></p>
+                                                <p class="text-[10px] text-gray-500 uppercase font-semibold">
+                                                    <span x-text="ticket.category"></span>
+                                                    <template x-if="ticket.severity">
+                                                        <span> • <span :class="{
+                                                            'text-red-500': ticket.severity === 'HIGH' || ticket.severity === 'CRITICAL',
+                                                            'text-yellow-600': ticket.severity === 'MEDIUM',
+                                                            'text-blue-500': ticket.severity === 'LOW'
+                                                        }" x-text="ticket.severity"></span></span>
+                                                    </template>
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div class="text-right">
+                                            <span class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase"
+                                                :class="{
+                                                      'bg-red-100 text-red-700': ticket.status === 'OPEN',
+                                                      'bg-yellow-100 text-yellow-700': ticket.status === 'IN_PROGRESS',
+                                                      'bg-green-100 text-green-700': ticket.status === 'CLOSED'
+                                                  }" x-text="ticket.status"></span>
+                                        </div>
+                                    </div>
+                                </template>
+                                <template x-if="!data?.recentTickets || data.recentTickets.length === 0">
+                                    <p class="text-center text-gray-400 py-4 text-sm font-medium">No recent tickets
+                                        found</p>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <script>
+                    function adminDashboard() {
+                        return {
+                            data: null,
+                            loading: true,
+                            error: null,
+                            providerChart: null,
+                            statusChart: null,
+
+                            init() {
+                                this.loadDashboard();
+                                Alpine.store('dashboard', { loading: true });
+                            },
+
+                            async loadDashboard(forceRefresh = false) {
+                                this.loading = true;
+                                if (Alpine.store('dashboard')) Alpine.store('dashboard').loading = this.loading;
+                                this.error = null;
+
+                                try {
+                                    const response = await fetch(`/api/billops/dashboard/admin?forceRefresh=${forceRefresh}`, {
+                                        credentials: 'include'
+                                    });
+
+                                    if (!response.ok) {
+                                        throw new Error(`HTTP error! status: ${response.status}`);
+                                    }
+
+                                    this.data = await response.json();
+                                    await this.$nextTick();
+                                    this.renderCharts();
+                                } catch (err) {
+                                    console.error('Error loading admin dashboard:', err);
+                                    this.error = 'Failed to load dashboard data. Please try again.';
+                                } finally {
+                                    this.loading = false;
+                                    if (Alpine.store('dashboard')) Alpine.store('dashboard').loading = this.loading;
+                                }
+                            },
+
+                            async refreshDashboard() {
+                                await this.loadDashboard(true);
+                            },
+
+                            renderCharts() {
+                                this.renderProviderChart();
+                                this.renderStatusChart();
+                            },
+
+                            renderProviderChart() {
+                                const ctx = document.getElementById('providerChart');
+                                if (!ctx || !this.data?.spendingByProvider) return;
+
+                                if (this.providerChart) {
+                                    this.providerChart.destroy();
+                                }
+
+                                const spendingData = this.data.spendingByProvider;
+                                const labels = Object.keys(spendingData);
+                                const values = Object.values(spendingData);
+
+                                this.providerChart = new Chart(ctx, {
+                                    type: 'doughnut',
+                                    data: {
+                                        labels: labels,
+                                        datasets: [{
+                                            data: values,
+                                            backgroundColor: ['#ff9900', '#34A853', '#0078D4'],
+                                            borderWidth: 0,
+                                            hoverOffset: 4
+                                        }]
+                                    },
+                                    options: {
+                                        responsive: true,
+                                        maintainAspectRatio: false,
+                                        cutout: '75%',
+                                        plugins: {
+                                            legend: {
+                                                position: 'right',
+                                                labels: {
+                                                    usePointStyle: true,
+                                                    padding: 20,
+                                                    font: { family: 'Inter', weight: '500' }
+                                                }
+                                            },
+                                            tooltip: {
+                                                backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                                                bodyColor: '#1f2937',
+                                                borderColor: '#e5e7eb',
+                                                borderWidth: 1,
+                                                padding: 10,
+                                                callbacks: {
+                                                    label: (context) => {
+                                                        return `${context.label}: ${this.formatCurrency(context.raw)}`;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                });
+                            },
+
+                            renderStatusChart() {
+                                const ctx = document.getElementById('statusChart');
+                                if (!ctx || !this.data?.accountsByStatus) return;
+
+                                if (this.statusChart) {
+                                    this.statusChart.destroy();
+                                }
+
+                                const statusData = this.data.accountsByStatus;
+                                const labels = Object.keys(statusData);
+                                const values = Object.values(statusData);
+
+                                this.statusChart = new Chart(ctx, {
+                                    type: 'bar',
+                                    data: {
+                                        labels: labels,
+                                        datasets: [{
+                                            label: 'Accounts',
+                                            data: values,
+                                            backgroundColor: '#6366f1',
+                                            borderRadius: 6,
+                                            barThickness: 32
+                                        }]
+                                    },
+                                    options: {
+                                        responsive: true,
+                                        maintainAspectRatio: false,
+                                        plugins: {
+                                            legend: {
+                                                display: false
+                                            }
+                                        },
+                                        scales: {
+                                            y: {
+                                                beginAtZero: true,
+                                                ticks: {
+                                                    stepSize: 1,
+                                                    font: { family: 'Inter' }
+                                                },
+                                                grid: {
+                                                    color: '#f3f4f6',
+                                                    drawBorder: false
+                                                }
+                                            },
+                                            x: {
+                                                grid: {
+                                                    display: false
+                                                },
+                                                ticks: {
+                                                    font: { family: 'Inter' }
+                                                }
+                                            }
+                                        }
+                                    }
+                                });
+                            },
+
+                            formatCurrency(value) {
+                                if (!value && value !== 0) return '$0.00';
+                                return new Intl.NumberFormat('en-US', {
+                                    style: 'currency',
+                                    currency: 'USD',
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2
+                                }).format(value);
+                            }
+                        }
+                    }
+                </script>
+
+            </main>
+        </div>
+    </div>
+</body>
+
+</html>

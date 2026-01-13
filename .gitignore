@@ -23,3 +23,17 @@ kubeconfig*
 logs/
 *.log
 *.gz
+
+# AI/Session files
+.claude/
+[A-Z_]*.md
+
+# Backups and temporary files
+*.html.bak
+*.html.tmp
+*.disabled
+
+# Test scripts and guides
+test-prometheus-metrics.sh
+integration-guide.html
+NEW_TABS_CONTENT.html

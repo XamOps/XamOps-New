@@ -188,7 +188,8 @@ table tbody tr:hover {
 }
 
 .copy-text::after {
-  content: '\f0c5'; /* Font Awesome copy icon */
+  content: '\f0c5';
+  /* Font Awesome copy icon */
   font-family: 'Font Awesome 6 Free', sans-serif;
   font-weight: 900;
   font-size: 0.75rem;
@@ -202,7 +203,8 @@ table tbody tr:hover {
 }
 
 .copy-text.copied::after {
-  content: '\f00c'; /* Font Awesome check icon */
+  content: '\f00c';
+  /* Font Awesome check icon */
   color: #10b981;
   opacity: 1;
 }
@@ -345,7 +347,8 @@ table tbody tr:hover {
 }
 
 .sortable-header::after {
-  content: '\f0dc'; /* Font Awesome sort icon */
+  content: '\f0dc';
+  /* Font Awesome sort icon */
   font-family: 'Font Awesome 6 Free', sans-serif;
   font-weight: 900;
   position: absolute;
@@ -363,13 +366,15 @@ table tbody tr:hover {
 }
 
 .sortable-header.sort-asc::after {
-  content: '\f0de'; /* Font Awesome sort-up icon */
+  content: '\f0de';
+  /* Font Awesome sort-up icon */
   opacity: 1;
   color: #5b4fc7;
 }
 
 .sortable-header.sort-desc::after {
-  content: '\f0dd'; /* Font Awesome sort-down icon */
+  content: '\f0dd';
+  /* Font Awesome sort-down icon */
   opacity: 1;
   color: #5b4fc7;
 }
@@ -391,8 +396,15 @@ table tbody tr:hover {
 }
 
 @keyframes fade-in-out {
-  0%, 100% { opacity: 0.7; }
-  50% { opacity: 1; }
+
+  0%,
+  100% {
+    opacity: 0.7;
+  }
+
+  50% {
+    opacity: 1;
+  }
 }
 
 /* ============================================
@@ -401,20 +413,23 @@ table tbody tr:hover {
 
 /* Skeleton loader with shimmer */
 .skeleton-loader {
-  background: linear-gradient(
-    90deg,
-    #f1f5f9 25%,
-    #e2e8f0 50%,
-    #f1f5f9 75%
-  );
+  background: linear-gradient(90deg,
+      #f1f5f9 25%,
+      #e2e8f0 50%,
+      #f1f5f9 75%);
   background-size: 200% 100%;
   animation: shimmer-animation 1.5s infinite;
   border-radius: 0.5rem;
 }
 
 @keyframes shimmer-animation {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
+  0% {
+    background-position: -200% 0;
+  }
+
+  100% {
+    background-position: 200% 0;
+  }
 }
 
 /* Spinner loader */
@@ -429,8 +444,13 @@ table tbody tr:hover {
 }
 
 @keyframes spin-animation {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 /* Loading overlay */
@@ -569,13 +589,17 @@ table tbody tr:hover {
 
 /* High contrast mode support */
 @media (prefers-contrast: high) {
-  button, a, select {
+
+  button,
+  a,
+  select {
     border: 2px solid currentColor;
   }
 }
 
 /* Reduced motion support */
 @media (prefers-reduced-motion: reduce) {
+
   *,
   *::before,
   *::after {

@@ -94,14 +94,13 @@ public class ProactiveCacheRefreshService {
 
             String currentTenant = envConfig.getCurrentTenantId();
             logger.info("🔒 Environment filter active: Only processing tenant '{}' (environment: {})",
-                       currentTenant, envConfig.getActiveProfile());
+                    currentTenant, envConfig.getActiveProfile());
 
             // Only return the current environment's tenant
             List<String> tenants = masterJdbcTemplate.queryForList(
-                "SELECT tenant_id FROM tenant_config WHERE active = true AND tenant_id = ?",
-                String.class,
-                currentTenant
-            );
+                    "SELECT tenant_id FROM tenant_config WHERE active = true AND tenant_id = ?",
+                    String.class,
+                    currentTenant);
 
             if (tenants.isEmpty()) {
                 logger.warn("⚠️ No active tenant found for tenant_id: {}", currentTenant);
@@ -280,7 +279,14 @@ public class ProactiveCacheRefreshService {
                         if (cacheManager.getCache("securityFindings") != null) {
                             cacheManager.getCache("securityFindings").evict(accountId);
                         }
-                        securityService.getComprehensiveSecurityFindings(account, regions, true).join();
+
+                        // ⭐ MODIFIED: Capture findings and save to database cache
+                        List<DashboardData.SecurityFinding> findings = securityService
+                                .getComprehensiveSecurityFindings(account, regions, true).join();
+
+                        String securityKey = "security-" + accountId;
+                        dashboardDataService.saveSecuritySnapshot(securityKey, findings);
+                        logger.info("✓ Security cached for {} (database)", accountId);
 
                         // 2. Performance (Takes String ID)
                         if (cacheManager.getCache("performanceInsights") != null) {
@@ -341,7 +347,13 @@ public class ProactiveCacheRefreshService {
                         optimizationService.getAllOptimizationRecommendations(accountId, true).join();
 
                         // 2. Waste
-                        optimizationService.getWastedResources(account, regions, true).join();
+                        List<DashboardData.WastedResource> wasteData = optimizationService
+                                .getWastedResources(account, regions, true).join();
+
+                        String wasteKey = "waste-" + accountId;
+                        dashboardDataService.saveWasteSnapshot(wasteKey, wasteData);
+                        logger.info("✓ Waste cached for {} (database)", accountId);
+
                         count++;
                     } catch (Exception e) {
                         logger.error("Failed Optimization refresh for {}", accountId, e);

@@ -134,6 +134,31 @@
                         </div>
                     </div>
                     <div class="flex items-center space-x-4">
+                        <!-- Date Range Filter -->
+                        <div class="flex items-center space-x-2 bg-white border border-gray-300 rounded-lg px-4 py-2 shadow-sm">
+                            <i class="fas fa-calendar text-gray-400"></i>
+                            <input type="date" x-model="dateFilter.startDate"
+                                class="border-0 focus:ring-0 text-sm text-gray-700 bg-transparent"
+                                :max="dateFilter.endDate || new Date().toISOString().split('T')[0]"
+                                placeholder="Start Date">
+                            <span class="text-gray-400">to</span>
+                            <input type="date" x-model="dateFilter.endDate"
+                                class="border-0 focus:ring-0 text-sm text-gray-700 bg-transparent"
+                                :min="dateFilter.startDate"
+                                :max="new Date().toISOString().split('T')[0]"
+                                placeholder="End Date">
+                            <button @click="applyDateFilter()"
+                                class="ml-2 px-3 py-1 bg-indigo-600 text-white text-xs font-semibold rounded hover:bg-indigo-700 transition-all"
+                                :disabled="!dateFilter.startDate || !dateFilter.endDate">
+                                Apply
+                            </button>
+                            <button @click="clearDateFilter()"
+                                x-show="dateFilter.startDate || dateFilter.endDate"
+                                class="text-gray-400 hover:text-gray-600"
+                                title="Clear filter">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
                         <div class="flex items-center space-x-2">
                             <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
                             <span class="text-sm text-gray-600">Live data</span>
@@ -612,6 +637,10 @@
                                 budgetLimit: null,
                                 budgetUnit: 'USD'
                             },
+                            dateFilter: {
+                                startDate: '',
+                                endDate: ''
+                            },
 
                             init() {
                                 const selectedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
@@ -672,7 +701,7 @@
                                 const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
 
                                 if (!selectedAccountId) {
-                                    console.log('No account selected, skipping report load.');
+                                    console.log('[FinOps] No account selected, skipping report load.');
                                     this.isLoading = false;
                                     return;
                                 }
@@ -683,7 +712,15 @@
                                     this.isLoading = true;
                                 }
 
-                                const url = `/api/xamops/finops/report?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`;
+                                let url = `/api/xamops/finops/report?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`;
+
+                                // Add date range parameters if both dates are set
+                                if (this.dateFilter.startDate && this.dateFilter.endDate) {
+                                    url += `&startDate=${this.dateFilter.startDate}&endDate=${this.dateFilter.endDate}`;
+                                    console.log('[FinOps] Fetching report with date range:', this.dateFilter.startDate, 'to', this.dateFilter.endDate);
+                                }
+
+                                console.log('[FinOps] Fetching report for account:', selectedAccountId, 'forceRefresh:', forceRefresh);
                                 fetch(url)
                                     .then(res => {
                                         if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
@@ -692,16 +729,39 @@
                                     .then(data => {
                                         if (data) {
                                             this.reportData = data;
+                                            console.log('[FinOps] Report data loaded successfully');
                                             this.renderCharts();
                                         }
                                     })
                                     .catch(err => {
-                                        console.error("Failed to load FinOps report:", err);
+                                        console.error("[FinOps] Failed to load FinOps report:", err);
                                     })
                                     .finally(() => {
                                         this.isLoading = false;
                                         this.isRefreshing = false;
                                     });
+                            },
+
+                            applyDateFilter() {
+                                if (!this.dateFilter.startDate || !this.dateFilter.endDate) {
+                                    alert('Please select both start and end dates.');
+                                    return;
+                                }
+
+                                if (this.dateFilter.startDate > this.dateFilter.endDate) {
+                                    alert('Start date must be before end date.');
+                                    return;
+                                }
+
+                                console.log('[FinOps] Applying date filter:', this.dateFilter.startDate, 'to', this.dateFilter.endDate);
+                                this.loadReport(false);
+                            },
+
+                            clearDateFilter() {
+                                this.dateFilter.startDate = '';
+                                this.dateFilter.endDate = '';
+                                console.log('[FinOps] Date filter cleared, reloading report');
+                                this.loadReport(false);
                             },
 
                             loadSchedules() {

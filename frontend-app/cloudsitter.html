@@ -7,46 +7,10 @@
 
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-
-    <script>
-        (function () {
-            if (window._tenantInterceptorInitialized) return;
-            window._tenantInterceptorInitialized = true;
-
-            const originalFetch = window.fetch;
-            window.fetch = async function (url, options = {}) {
-                const tenantId = sessionStorage.getItem('selectedTenantId');
-
-                if (!options.headers) {
-                    options.headers = {};
-                }
-
-                // Inject Tenant ID Header
-                if (tenantId) {
-                    if (options.headers instanceof Headers) {
-                        options.headers.set('X-Tenant-ID', tenantId);
-                    } else {
-                        options.headers['X-Tenant-ID'] = tenantId;
-                    }
-                }
-
-                // Handle JSON content type default
-                const urlStr = url.toString();
-                if (urlStr.startsWith('/') || urlStr.includes(window.location.origin)) {
-                    if (!options.headers['Content-Type'] && !(options.body instanceof FormData)) {
-                        if (options.headers instanceof Headers) {
-                            options.headers.set('Content-Type', 'application/json');
-                        } else {
-                            options.headers['Content-Type'] = 'application/json';
-                        }
-                    }
-                }
-
-                return originalFetch(url, options);
-            };
-            console.log("✅ Global Tenant Interceptor Activated (Cloudsitter)");
-        })();
-    </script>
+    <script type="module" src="/src/main.js"></script>
+    <!-- Usability Improvements -->
+    <link rel="stylesheet" href="/src/usability-improvements.css">
+    <script type="module" src="/src/usability-utils.js"></script>
 
     <style>
         .schedule-cell {
@@ -387,6 +351,8 @@
                     </div>
                 </div>
 
+            </div>
+
                 <div x-show="showAssignModal"
                     class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-50 flex items-center justify-center transition-opacity"
                     x-transition.opacity x-cloak>
@@ -493,10 +459,6 @@
                     </div>
                 </div>
 
-            </main>
-        </div>
-    </div>
-
     <script>
         function cloudsitterApp() {
             return {
@@ -586,13 +548,21 @@
                                     .then(async (resResponse) => {
                                         if (resResponse.ok) {
                                             const resData = await resResponse.json();
+                                            console.log('✅ CloudList API response:', resData);
                                             const allResources = resData.content || resData;
+                                            console.log(`📦 Total resources: ${allResources.length}`);
                                             ec2Instances = allResources.filter(r => r.type === 'EC2 Instance');
+                                            console.log(`✅ Found ${ec2Instances.length} EC2 instances`);
 
                                             // Cache the EC2 instances
                                             sessionStorage.setItem(cacheKey, JSON.stringify(ec2Instances));
                                             sessionStorage.setItem(cacheTimestampKey, Date.now().toString());
+                                        } else {
+                                            console.error('❌ CloudList API error:', resResponse.status, resResponse.statusText);
                                         }
+                                    })
+                                    .catch(err => {
+                                        console.error('❌ CloudList API fetch failed:', err);
                                     })
                             );
                         }
@@ -623,8 +593,11 @@
                             };
                         });
 
+                        console.log(`✅ Mapped ${this.resources.length} resources for CloudSitter display`);
+
                         if (polResponse.ok) {
                             this.policies = await polResponse.json();
+                            console.log(`✅ Loaded ${this.policies.length} policies`);
                         }
 
                     } catch (e) {
@@ -851,6 +824,9 @@
             }
         }
     </script>
+            </main>
+        </div>
+    </div>
 </body>
 
 </html>

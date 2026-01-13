@@ -44,9 +44,12 @@ public class GlobalExceptionHandler {
         // If the request expects JS/CSS/Images, do NOT try to return a JSON body (Map),
         // as Spring cannot convert Map -> application/javascript.
         String path = request.getRequestURI().toLowerCase();
+        String acceptHeader = request.getHeader("Accept");
+
         if (path.endsWith(".js") || path.endsWith(".css") || path.endsWith(".map") ||
                 path.endsWith(".ico") || path.endsWith(".png") || path.endsWith(".jpg") ||
-                path.endsWith(".woff") || path.endsWith(".woff2")) {
+                path.endsWith(".woff") || path.endsWith(".woff2") ||
+                (acceptHeader != null && acceptHeader.contains("javascript"))) { // ✅ Added Accept Header Check
             // Return status only, no JSON body
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
