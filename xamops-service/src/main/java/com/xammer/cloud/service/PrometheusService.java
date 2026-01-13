@@ -449,9 +449,9 @@ public class PrometheusService {
         // kubeletstats metric tracks cumulative CPU time across all modes
         // The rate gives CPU-seconds per second, but includes all modes (user, system,
         // idle, etc.)
-        // Dividing by 100 normalizes this to actual usage percentage
+        // Multiplying by 100 converts fraction to percentage
         String query = String.format(
-                "(sum(rate(xamops_eks_k8s_node_cpu_time_seconds_total{cluster_name=\"%s\"}[5m])) / " +
+                "(sum(rate(xamops_eks_container_cpu_usage{cluster_name=\"%s\"}[5m])) / " +
                         "sum(xamops_eks_kube_node_status_capacity{cluster_name=\"%s\", resource=\"cpu\"})) * 100",
                 clusterName, clusterName);
         return fetchScalarValue(prometheusUrl, query);
