@@ -14,8 +14,6 @@ import com.xammer.cloud.domain.Invoice;
 import com.xammer.cloud.domain.Ticket;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -36,7 +34,7 @@ public class UserDashboardService {
     private final RedisCacheService redisCache;
 
     private static final String CACHE_KEY_PREFIX = "billops:user:dashboard:";
-    private static final long CACHE_TTL_MINUTES = 15;
+    private static final long CACHE_TTL_MINUTES = 1440; // 24 hours
 
     private final BillingService billingService;
 
@@ -176,6 +174,7 @@ public class UserDashboardService {
         dashboard.setRecentTickets(recentTickets);
 
         // Cache the result
+        dashboard.setLastUpdated(System.currentTimeMillis());
         redisCache.put(cacheKey, dashboard, CACHE_TTL_MINUTES);
         logger.info("User dashboard data cached for {} minutes", CACHE_TTL_MINUTES);
 

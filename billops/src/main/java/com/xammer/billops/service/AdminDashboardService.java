@@ -37,7 +37,7 @@ public class AdminDashboardService {
     private final RedisCacheService redisCache;
 
     private static final String CACHE_KEY = "billops:admin:dashboard";
-    private static final long CACHE_TTL_MINUTES = 15;
+    private static final long CACHE_TTL_MINUTES = 1440; // 24 hours
 
     private final BillingService billingService;
 
@@ -176,6 +176,7 @@ public class AdminDashboardService {
         dashboard.setRecentTickets(recentTickets);
 
         // Cache the result
+        dashboard.setLastUpdated(System.currentTimeMillis());
         redisCache.put(CACHE_KEY, dashboard, CACHE_TTL_MINUTES);
         logger.info("Admin dashboard data cached for {} minutes", CACHE_TTL_MINUTES);
 
