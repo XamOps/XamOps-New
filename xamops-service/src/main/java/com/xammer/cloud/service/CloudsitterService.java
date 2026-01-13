@@ -344,6 +344,12 @@ public class CloudsitterService {
 
         Ec2Client ec2 = awsClientProvider.getEc2Client(account, assignment.getRegion());
         Instance instance = describeInstance(ec2, instanceId);
+
+        if (instance == null) {
+            logger.warn("CloudSitter: Instance {} not found - it may have been terminated. Skipping policy enforcement.", instanceId);
+            return false;
+        }
+
         String currentState = instance.state().nameAsString();
 
         logger.debug("CloudSitter: Instance {} current state: {}", instanceId, currentState);
@@ -428,7 +434,21 @@ public class CloudsitterService {
     }
 
     private Instance describeInstance(Ec2Client ec2, String instanceId) {
-        return ec2.describeInstances(r -> r.instanceIds(instanceId))
-                .reservations().get(0).instances().get(0);
+        try {
+            var response = ec2.describeInstances(r -> r.instanceIds(instanceId));
+
+            if (response.reservations().isEmpty() || response.reservations().get(0).instances().isEmpty()) {
+                logger.warn("CloudSitter: Instance {} not found or has no reservations", instanceId);
+                return null;
+            }
+
+            return response.reservations().get(0).instances().get(0);
+        } catch (software.amazon.awssdk.services.ec2.model.Ec2Exception e) {
+            logger.warn("CloudSitter: Instance {} does not exist or cannot be accessed: {}", instanceId, e.awsErrorDetails().errorMessage());
+            return null;
+        } catch (Exception e) {
+            logger.error("CloudSitter: Unexpected error describing instance {}", instanceId, e);
+            return null;
+        }
     }
 }

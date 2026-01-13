@@ -252,9 +252,9 @@
                                 class="border-2 border-gray-200 rounded-lg text-sm px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-medium hover:border-gray-300 transition-colors">
                                 <option value="">Loading...</option>
                             </select>
-                            <button id="save-btn-live"
+                            <button id="save-btn-live" onclick="exportGraphAsPng()"
                                 class="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-md hover:shadow-lg transition-all active:scale-95">
-                                <i class="fas fa-download mr-1"></i> Export
+                                <i class="fas fa-download mr-1"></i> Export PNG
                             </button>
                         </div>
 
@@ -297,11 +297,35 @@
                         class="absolute inset-0 flex items-center justify-center z-20 pointer-events-none"
                         style="display: none;">
                         <div
-                            class="bg-white/95 backdrop-blur border border-gray-200 rounded-xl p-6 shadow-xl text-center pointer-events-auto">
-                            <div
+                            class="bg-white/95 backdrop-blur border border-gray-200 rounded-xl p-6 shadow-xl text-center pointer-events-auto max-w-md">
+                            <div id="spinner"
                                 class="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3">
                             </div>
-                            <h3 class="font-bold text-gray-800" id="msg-title">Loading...</h3>
+                            <h3 class="font-bold text-gray-800 mb-2" id="msg-title">Loading...</h3>
+                            <p class="text-sm text-gray-500" id="msg-subtitle"></p>
+                        </div>
+                    </div>
+
+                    <div id="empty-state"
+                        class="absolute inset-0 flex items-center justify-center z-10 bg-gradient-to-br from-gray-50 to-gray-100"
+                        style="display: none;">
+                        <div class="text-center max-w-md px-6">
+                            <div class="w-20 h-20 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg">
+                                <i class="fas fa-project-diagram text-white text-3xl"></i>
+                            </div>
+                            <h3 class="text-2xl font-bold text-gray-800 mb-2">No Resources Found</h3>
+                            <p class="text-gray-600 mb-4">Your cloud infrastructure visualization will appear here once resources are detected.</p>
+                            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 text-left">
+                                <h4 class="font-semibold text-blue-800 mb-2 flex items-center gap-2">
+                                    <i class="fas fa-info-circle"></i> What to check:
+                                </h4>
+                                <ul class="text-sm text-blue-700 space-y-1">
+                                    <li><i class="fas fa-check-circle text-blue-500"></i> Verify your AWS account has resources</li>
+                                    <li><i class="fas fa-check-circle text-blue-500"></i> Check if credentials are properly configured</li>
+                                    <li><i class="fas fa-check-circle text-blue-500"></i> Try selecting a different VPC or region</li>
+                                    <li><i class="fas fa-check-circle text-blue-500"></i> Refresh the page to reload data</li>
+                                </ul>
+                            </div>
                         </div>
                     </div>
 
@@ -468,14 +492,24 @@
 
             if (!selectedAccountId) {
                 vpcSelector.innerHTML = '<option value="">Please select an account</option>';
+                showMessage(true, 'No account selected. Please select an account from the dashboard.');
                 return;
             }
 
             vpcSelector.innerHTML = '<option value="">Loading VPCs...</option>';
+            showMessage(true, 'Loading VPCs...');
+
             fetch(`/api/xamops/cloudmap/vpcs?accountId=${selectedAccountId}`)
-                .then(r => r.json())
+                .then(r => {
+                    if (!r.ok) {
+                        throw new Error(`HTTP error! status: ${r.status}`);
+                    }
+                    return r.json();
+                })
                 .then(vpcs => {
+                    showMessage(false);
                     vpcSelector.innerHTML = '';
+
                     if (Array.isArray(vpcs) && vpcs.length > 0) {
                         vpcs.forEach(vpc => {
                             const opt = document.createElement('option');
@@ -490,12 +524,21 @@
                         loadLiveGraph(vpcSelector.options[0].value);
                     } else {
                         vpcSelector.innerHTML = '<option value="">🌐 Global & S3</option>';
-                        loadLiveGraph("");
+                        showMessage(true, 'No VPCs found. Showing global resources...');
+                        setTimeout(() => loadLiveGraph(""), 1000);
                     }
                 })
                 .catch(err => {
-                    console.error(err);
-                    vpcSelector.innerHTML = '<option>Error loading data</option>';
+                    console.error('Error loading VPCs:', err);
+                    vpcSelector.innerHTML = '<option value="">🌐 Global & S3 (Retry)</option>';
+                    showMessage(true, `Failed to load VPCs: ${err.message}. Click Export to retry.`);
+
+                    // Add retry button
+                    const retryBtn = document.createElement('button');
+                    retryBtn.className = 'bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-xs ml-2';
+                    retryBtn.innerHTML = '<i class="fas fa-sync-alt mr-1"></i> Retry';
+                    retryBtn.onclick = () => initLiveMode();
+                    document.getElementById('controls-live').appendChild(retryBtn);
                 });
 
             vpcSelector.onchange = (e) => loadLiveGraph(e.target.value);
@@ -506,12 +549,27 @@
             showMessage(true, 'Loading AWS Topology...');
 
             fetch(`/api/xamops/cloudmap/graph?accountId=${selectedAccountId}&vpcId=${vpcId || ''}&region=${region || ''}`)
-                .then(r => r.json())
-                .then(data => {
-                    renderGraph(data, false); // false = read-only
-                    showMessage(false);
+                .then(r => {
+                    if (!r.ok) {
+                        throw new Error(`HTTP error! status: ${r.status}`);
+                    }
+                    return r.json();
                 })
-                .catch(() => showMessage(true, 'Failed to load graph.'));
+                .then(data => {
+                    showMessage(false);
+
+                    if (!data || data.length === 0) {
+                        showEmptyState();
+                        renderGraph([], false); // Render empty graph
+                    } else {
+                        renderGraph(data, false); // false = read-only
+                    }
+                })
+                .catch(err => {
+                    console.error('Error loading graph:', err);
+                    showMessage(true, `Failed to load graph: ${err.message}. Please try again or select a different VPC.`);
+                    renderGraph([], false); // Render empty graph on error
+                });
         }
 
         // --- 5. Design Mode Logic ---
@@ -729,10 +787,30 @@
             document.getElementById('info-panel').classList.remove('translate-x-full');
         }
 
-        function showMessage(show, text) {
+        function showMessage(show, text, subtitle = '') {
             const el = document.getElementById('message-overlay');
+            const spinner = document.getElementById('spinner');
+            const emptyState = document.getElementById('empty-state');
+
             el.style.display = show ? 'flex' : 'none';
-            if (text) document.getElementById('msg-title').textContent = text;
+            emptyState.style.display = 'none';
+
+            if (show && text) {
+                document.getElementById('msg-title').textContent = text;
+                document.getElementById('msg-subtitle').textContent = subtitle;
+
+                // Hide spinner for non-loading messages
+                if (text.toLowerCase().includes('failed') || text.toLowerCase().includes('error') || text.toLowerCase().includes('no resources')) {
+                    spinner.style.display = 'none';
+                } else {
+                    spinner.style.display = 'block';
+                }
+            }
+        }
+
+        function showEmptyState() {
+            document.getElementById('message-overlay').style.display = 'none';
+            document.getElementById('empty-state').style.display = 'flex';
         }
 
         window.closeInfoPanel = function () {
@@ -762,6 +840,42 @@
             });
             document.getElementById('legend').innerHTML = legendHtml;
         }
+
+        // Export graph as PNG
+        window.exportGraphAsPng = function () {
+            if (!cy) {
+                alert('No graph to export');
+                return;
+            }
+
+            try {
+                const vpcSelector = document.getElementById('vpc-selector');
+                const selectedVpc = vpcSelector.options[vpcSelector.selectedIndex].text || 'cloudmap';
+                const filename = `aws-cloudmap-${selectedVpc.replace(/[^a-z0-9]/gi, '_').toLowerCase()}-${new Date().toISOString().split('T')[0]}.png`;
+
+                const png = cy.png({
+                    output: 'blob',
+                    bg: '#f8fafc',
+                    full: true,
+                    scale: 2
+                });
+
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(png);
+                link.download = filename;
+                link.click();
+
+                // Show success message briefly
+                const originalText = document.getElementById('save-btn-live').innerHTML;
+                document.getElementById('save-btn-live').innerHTML = '<i class="fas fa-check mr-1"></i> Exported!';
+                setTimeout(() => {
+                    document.getElementById('save-btn-live').innerHTML = originalText;
+                }, 2000);
+            } catch (err) {
+                console.error('Export failed:', err);
+                alert('Failed to export graph: ' + err.message);
+            }
+        };
     </script>
 
 </body>

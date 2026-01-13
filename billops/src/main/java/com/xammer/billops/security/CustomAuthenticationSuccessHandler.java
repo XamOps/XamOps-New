@@ -39,10 +39,10 @@ public class CustomAuthenticationSuccessHandler implements AuthenticationSuccess
         Collection<? extends GrantedAuthority> authorities = authentication.getAuthorities();
         for (GrantedAuthority authority : authorities) {
             if (authority.getAuthority().equals("ROLE_BILLOPS_ADMIN")) {
-                redirectUrl = "/billops/admin_invoices.html";
+                redirectUrl = "/billops/dashboard_admin.html";
                 break;
             } else if (authority.getAuthority().equals("ROLE_BILLOPS")) {
-                redirectUrl = "/billops/billing.html";
+                redirectUrl = "/billops/dashboard_user.html";
                 break;
             }
         }

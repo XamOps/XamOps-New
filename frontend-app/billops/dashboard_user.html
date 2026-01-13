@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>XamOps - BillOps Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
+    <link rel="apple-touch-icon" href="/icons/XamOps.png">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+</head>
+
+<body class="bg-gray-50">
+    <div class="flex h-screen overflow-hidden">
+        <include file="/_sidebar.html"></include>
+
+        <div class="flex-1 flex flex-col overflow-hidden pl-64">
+            <main id="main-content" class="flex-1 overflow-y-auto p-6" x-data="userDashboard()">
+
+                <style>
+                    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+                    body {
+                        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+                    }
+
+                    [x-cloak] {
+                        display: none !important;
+                    }
+
+                    .dashboard-card {
+                        background: #ffffff;
+                        border-radius: 12px;
+                        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.1);
+                        border: 1px solid rgba(226, 232, 240, 0.6);
+                        transition: all 0.2s ease;
+                    }
+
+                    .dashboard-card:hover {
+                        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.07), 0 2px 4px rgba(0, 0, 0, 0.06);
+                    }
+
+                    .stat-card {
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        color: white;
+                        border-radius: 12px;
+                        padding: 1.5rem;
+                        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+                    }
+
+                    .account-card {
+                        background: white;
+                        border: 2px solid #e5e7eb;
+                        border-radius: 12px;
+                        padding: 1.25rem;
+                        transition: all 0.2s ease;
+                        cursor: pointer;
+                    }
+
+                    .account-card:hover {
+                        border-color: #6366f1;
+                        box-shadow: 0 4px 6px rgba(99, 102, 241, 0.1);
+                        transform: translateY(-2px);
+                    }
+
+                    .provider-badge {
+                        display: inline-flex;
+                        align-items: center;
+                        padding: 0.25rem 0.75rem;
+                        border-radius: 9999px;
+                        font-size: 0.75rem;
+                        font-weight: 600;
+                    }
+
+                    .provider-aws {
+                        background-color: #ff9900;
+                        color: white;
+                    }
+
+                    .provider-gcp {
+                        background-color: #4285f4;
+                        color: white;
+                    }
+
+                    .provider-azure {
+                        background-color: #0078d4;
+                        color: white;
+                    }
+                </style>
+
+                <!-- Header -->
+                <div class="mb-6">
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <h1 class="text-3xl font-bold text-gray-900">My BillOps Dashboard</h1>
+                            <p class="text-gray-600 mt-1">Overview of your cloud accounts and billing</p>
+                        </div>
+                        <button @click="refreshDashboard"
+                                class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2"
+                                :disabled="loading">
+                            <i class="fas fa-sync-alt" :class="{ 'fa-spin': loading }"></i>
+                            <span>Refresh</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Loading State -->
+                <div x-show="loading && !data" x-cloak class="flex justify-center items-center h-64">
+                    <div class="text-center">
+                        <i class="fas fa-spinner fa-spin text-4xl text-indigo-600 mb-4"></i>
+                        <p class="text-gray-600">Loading dashboard data...</p>
+                    </div>
+                </div>
+
+                <!-- Error State -->
+                <div x-show="error" x-cloak class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6">
+                    <div class="flex items-center gap-2">
+                        <i class="fas fa-exclamation-circle"></i>
+                        <span x-text="error"></span>
+                    </div>
+                </div>
+
+                <!-- Dashboard Content -->
+                <div x-show="data && !loading" x-cloak>
+                    <!-- Summary Cards -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+                        <!-- Current Month Spending -->
+                        <div class="stat-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-white text-opacity-90 text-sm font-medium">This Month</p>
+                                    <p class="text-3xl font-bold mt-1" x-text="formatCurrency(data?.currentMonthSpending)"></p>
+                                    <p class="text-xs text-white text-opacity-75 mt-1" x-text="getSpendingTrend()"></p>
+                                </div>
+                                <i class="fas fa-chart-line text-4xl text-white text-opacity-30"></i>
+                            </div>
+                        </div>
+
+                        <!-- Total Accounts -->
+                        <div class="stat-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-white text-opacity-90 text-sm font-medium">My Accounts</p>
+                                    <p class="text-3xl font-bold mt-1" x-text="data?.totalAccounts || 0"></p>
+                                    <p class="text-xs text-white text-opacity-75 mt-1">
+                                        AWS: <span x-text="data?.awsAccountsCount || 0"></span> |
+                                        GCP: <span x-text="data?.gcpAccountsCount || 0"></span> |
+                                        Azure: <span x-text="data?.azureAccountsCount || 0"></span>
+                                    </p>
+                                </div>
+                                <i class="fas fa-cloud text-4xl text-white text-opacity-30"></i>
+                            </div>
+                        </div>
+
+                        <!-- Pending Invoices -->
+                        <div class="stat-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-white text-opacity-90 text-sm font-medium">Pending Invoices</p>
+                                    <p class="text-3xl font-bold mt-1" x-text="data?.pendingInvoices || 0"></p>
+                                    <p class="text-xs text-white text-opacity-75 mt-1">View all invoices</p>
+                                </div>
+                                <i class="fas fa-file-invoice text-4xl text-white text-opacity-30"></i>
+                            </div>
+                        </div>
+
+                        <!-- Open Tickets -->
+                        <div class="stat-card" style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-white text-opacity-90 text-sm font-medium">Open Tickets</p>
+                                    <p class="text-3xl font-bold mt-1" x-text="data?.openTickets || 0"></p>
+                                    <p class="text-xs text-white text-opacity-75 mt-1">Support requests</p>
+                                </div>
+                                <i class="fas fa-ticket-alt text-4xl text-white text-opacity-30"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Charts Row -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                        <!-- Spending Trend -->
+                        <div class="dashboard-card p-6">
+                            <h3 class="text-lg font-semibold text-gray-900 mb-4">Spending Trend (Last 6 Months)</h3>
+                            <div style="height: 250px; position: relative;">
+                                <canvas id="trendChart"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- Spending by Provider -->
+                        <div class="dashboard-card p-6">
+                            <h3 class="text-lg font-semibold text-gray-900 mb-4">Spending by Provider</h3>
+                            <div style="height: 250px; position: relative;">
+                                <canvas id="providerChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- My Accounts -->
+                    <div class="dashboard-card p-6 mb-6">
+                        <h3 class="text-lg font-semibold text-gray-900 mb-4">My Cloud Accounts</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            <template x-for="account in data?.accounts || []" :key="account.id">
+                                <div class="account-card">
+                                    <div class="flex items-start justify-between mb-3">
+                                        <div class="flex-1">
+                                            <h4 class="font-semibold text-gray-900 text-sm mb-1" x-text="account.accountName"></h4>
+                                            <span class="provider-badge"
+                                                  :class="{
+                                                      'provider-aws': account.provider === 'AWS',
+                                                      'provider-gcp': account.provider === 'GCP',
+                                                      'provider-azure': account.provider === 'Azure'
+                                                  }"
+                                                  x-text="account.provider"></span>
+                                        </div>
+                                        <span class="px-2 py-1 text-xs font-semibold rounded-full"
+                                              :class="{
+                                                  'bg-green-100 text-green-800': account.status === 'ACTIVE',
+                                                  'bg-yellow-100 text-yellow-800': account.status === 'PENDING',
+                                                  'bg-red-100 text-red-800': account.status === 'INACTIVE'
+                                              }"
+                                              x-text="account.status"></span>
+                                    </div>
+                                    <div class="border-t pt-3 mt-3">
+                                        <div class="flex justify-between items-center mb-2">
+                                            <span class="text-xs text-gray-500">This Month:</span>
+                                            <span class="text-sm font-semibold text-gray-900" x-text="formatCurrency(account.currentMonthSpending)"></span>
+                                        </div>
+                                        <div class="flex justify-between items-center">
+                                            <span class="text-xs text-gray-500">Last Month:</span>
+                                            <span class="text-sm text-gray-600" x-text="formatCurrency(account.lastMonthSpending)"></span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                            <template x-if="!data?.accounts || data.accounts.length === 0">
+                                <div class="col-span-3 text-center py-8 text-gray-500">
+                                    <i class="fas fa-inbox text-4xl mb-3"></i>
+                                    <p>No accounts found</p>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+
+                    <!-- Recent Activity Row -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <!-- Recent Invoices -->
+                        <div class="dashboard-card p-6">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="text-lg font-semibold text-gray-900">Recent Invoices</h3>
+                                <a href="/billops/invoices.html" class="text-sm text-indigo-600 hover:text-indigo-700">View All →</a>
+                            </div>
+                            <div class="space-y-3">
+                                <template x-for="invoice in data?.recentInvoices || []" :key="invoice.id">
+                                    <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                                        <div class="flex-1">
+                                            <p class="text-sm font-medium text-gray-900" x-text="invoice.invoiceNumber"></p>
+                                            <p class="text-xs text-gray-500">
+                                                <span x-text="invoice.accountName"></span> -
+                                                <span x-text="invoice.billingPeriod"></span>
+                                            </p>
+                                        </div>
+                                        <div class="text-right">
+                                            <p class="text-sm font-semibold text-gray-900" x-text="formatCurrency(invoice.amount)"></p>
+                                            <span class="text-xs px-2 py-1 rounded-full"
+                                                  :class="{
+                                                      'bg-yellow-100 text-yellow-800': invoice.status === 'DRAFT',
+                                                      'bg-green-100 text-green-800': invoice.status === 'FINALIZED'
+                                                  }"
+                                                  x-text="invoice.status"></span>
+                                        </div>
+                                    </div>
+                                </template>
+                                <template x-if="!data?.recentInvoices || data.recentInvoices.length === 0">
+                                    <p class="text-center text-gray-500 py-4">No recent invoices</p>
+                                </template>
+                            </div>
+                        </div>
+
+                        <!-- Recent Tickets -->
+                        <div class="dashboard-card p-6">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="text-lg font-semibold text-gray-900">Recent Tickets</h3>
+                                <a href="/billops/tickets.html" class="text-sm text-indigo-600 hover:text-indigo-700">View All →</a>
+                            </div>
+                            <div class="space-y-3">
+                                <template x-for="ticket in data?.recentTickets || []" :key="ticket.id">
+                                    <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                                        <div class="flex-1">
+                                            <p class="text-sm font-medium text-gray-900" x-text="ticket.subject"></p>
+                                            <p class="text-xs text-gray-500">
+                                                <span x-text="ticket.category"></span>
+                                                <template x-if="ticket.severity">
+                                                    - <span x-text="ticket.severity"></span>
+                                                </template>
+                                            </p>
+                                        </div>
+                                        <div class="text-right">
+                                            <span class="text-xs px-2 py-1 rounded-full"
+                                                  :class="{
+                                                      'bg-red-100 text-red-800': ticket.status === 'OPEN',
+                                                      'bg-yellow-100 text-yellow-800': ticket.status === 'IN_PROGRESS',
+                                                      'bg-green-100 text-green-800': ticket.status === 'CLOSED'
+                                                  }"
+                                                  x-text="ticket.status"></span>
+                                        </div>
+                                    </div>
+                                </template>
+                                <template x-if="!data?.recentTickets || data.recentTickets.length === 0">
+                                    <p class="text-center text-gray-500 py-4">No recent tickets</p>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <script>
+                    function userDashboard() {
+                        return {
+                            data: null,
+                            loading: true,
+                            error: null,
+                            trendChart: null,
+                            providerChart: null,
+
+                            init() {
+                                this.loadDashboard();
+                            },
+
+                            async loadDashboard(forceRefresh = false) {
+                                this.loading = true;
+                                this.error = null;
+
+                                try {
+                                    const response = await fetch(`/api/billops/dashboard/user?forceRefresh=${forceRefresh}`, {
+                                        credentials: 'include'
+                                    });
+
+                                    if (!response.ok) {
+                                        throw new Error(`HTTP error! status: ${response.status}`);
+                                    }
+
+                                    this.data = await response.json();
+                                    await this.$nextTick();
+                                    this.renderCharts();
+                                } catch (err) {
+                                    console.error('Error loading user dashboard:', err);
+                                    this.error = 'Failed to load dashboard data. Please try again.';
+                                } finally {
+                                    this.loading = false;
+                                }
+                            },
+
+                            async refreshDashboard() {
+                                await this.loadDashboard(true);
+                            },
+
+                            renderCharts() {
+                                this.renderTrendChart();
+                                this.renderProviderChart();
+                            },
+
+                            renderTrendChart() {
+                                const ctx = document.getElementById('trendChart');
+                                if (!ctx || !this.data?.spendingTrend) return;
+
+                                if (this.trendChart) {
+                                    this.trendChart.destroy();
+                                }
+
+                                const trendData = this.data.spendingTrend;
+                                const labels = trendData.map(item => item.date);
+                                const values = trendData.map(item => item.cost);
+
+                                this.trendChart = new Chart(ctx, {
+                                    type: 'line',
+                                    data: {
+                                        labels: labels,
+                                        datasets: [{
+                                            label: 'Spending',
+                                            data: values,
+                                            borderColor: '#6366f1',
+                                            backgroundColor: 'rgba(99, 102, 241, 0.1)',
+                                            borderWidth: 2,
+                                            fill: true,
+                                            tension: 0.4
+                                        }]
+                                    },
+                                    options: {
+                                        responsive: true,
+                                        maintainAspectRatio: false,
+                                        plugins: {
+                                            legend: {
+                                                display: false
+                                            },
+                                            tooltip: {
+                                                callbacks: {
+                                                    label: (context) => {
+                                                        return `Spending: ${this.formatCurrency(context.raw)}`;
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        scales: {
+                                            y: {
+                                                beginAtZero: true,
+                                                ticks: {
+                                                    callback: (value) => {
+                                                        return '$' + value.toLocaleString();
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                });
+                            },
+
+                            renderProviderChart() {
+                                const ctx = document.getElementById('providerChart');
+                                if (!ctx || !this.data?.spendingByProvider) return;
+
+                                if (this.providerChart) {
+                                    this.providerChart.destroy();
+                                }
+
+                                const spendingData = this.data.spendingByProvider;
+                                const labels = Object.keys(spendingData);
+                                const values = Object.values(spendingData);
+
+                                this.providerChart = new Chart(ctx, {
+                                    type: 'doughnut',
+                                    data: {
+                                        labels: labels,
+                                        datasets: [{
+                                            data: values,
+                                            backgroundColor: ['#ff9900', '#4285f4', '#0078d4'],
+                                            borderWidth: 2,
+                                            borderColor: '#ffffff'
+                                        }]
+                                    },
+                                    options: {
+                                        responsive: true,
+                                        maintainAspectRatio: false,
+                                        plugins: {
+                                            legend: {
+                                                position: 'bottom'
+                                            },
+                                            tooltip: {
+                                                callbacks: {
+                                                    label: (context) => {
+                                                        return `${context.label}: ${this.formatCurrency(context.raw)}`;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                });
+                            },
+
+                            getSpendingTrend() {
+                                if (!this.data?.currentMonthSpending || !this.data?.lastMonthSpending) {
+                                    return '';
+                                }
+
+                                const current = parseFloat(this.data.currentMonthSpending) || 0;
+                                const last = parseFloat(this.data.lastMonthSpending) || 0;
+
+                                if (last === 0) return '';
+
+                                const change = ((current - last) / last * 100).toFixed(1);
+                                const isIncrease = current > last;
+
+                                return `${isIncrease ? '↑' : '↓'} ${Math.abs(change)}% from last month`;
+                            },
+
+                            formatCurrency(value) {
+                                if (!value && value !== 0) return '$0.00';
+                                return new Intl.NumberFormat('en-US', {
+                                    style: 'currency',
+                                    currency: 'USD',
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2
+                                }).format(value);
+                            }
+                        }
+                    }
+                </script>
+
+            </main>
+        </div>
+    </div>
+</body>
+
+</html>

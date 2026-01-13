@@ -548,13 +548,21 @@
                                     .then(async (resResponse) => {
                                         if (resResponse.ok) {
                                             const resData = await resResponse.json();
+                                            console.log('✅ CloudList API response:', resData);
                                             const allResources = resData.content || resData;
+                                            console.log(`📦 Total resources: ${allResources.length}`);
                                             ec2Instances = allResources.filter(r => r.type === 'EC2 Instance');
+                                            console.log(`✅ Found ${ec2Instances.length} EC2 instances`);
 
                                             // Cache the EC2 instances
                                             sessionStorage.setItem(cacheKey, JSON.stringify(ec2Instances));
                                             sessionStorage.setItem(cacheTimestampKey, Date.now().toString());
+                                        } else {
+                                            console.error('❌ CloudList API error:', resResponse.status, resResponse.statusText);
                                         }
+                                    })
+                                    .catch(err => {
+                                        console.error('❌ CloudList API fetch failed:', err);
                                     })
                             );
                         }
@@ -585,8 +593,11 @@
                             };
                         });
 
+                        console.log(`✅ Mapped ${this.resources.length} resources for CloudSitter display`);
+
                         if (polResponse.ok) {
                             this.policies = await polResponse.json();
+                            console.log(`✅ Loaded ${this.policies.length} policies`);
                         }
 
                     } catch (e) {

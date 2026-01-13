@@ -34,43 +34,97 @@ public class CloudMapService {
     private AwsClientProvider awsClientProvider;
 
     public CompletableFuture<List<ResourceDto>> getVpcListForCloudmap(String accountId, boolean forceRefresh) {
-        CloudAccount account = getAccount(accountId);
-        return cloudListService.getAllResources(account, forceRefresh)
-                .thenApply(resources -> resources.stream()
-                        .filter(r -> "VPC".equals(r.getType()))
-                        .collect(Collectors.toList()));
+        try {
+            CloudAccount account = getAccount(accountId);
+            logger.info("Fetching all resources for account {} to filter VPCs", accountId);
+
+            return cloudListService.getAllResources(account, forceRefresh)
+                    .thenApply(resources -> {
+                        if (resources == null) {
+                            logger.warn("Received null resources list for account {}", accountId);
+                            return new ArrayList<ResourceDto>();
+                        }
+
+                        List<ResourceDto> vpcs = resources.stream()
+                                .filter(r -> r != null && "VPC".equals(r.getType()))
+                                .collect(Collectors.toList());
+
+                        logger.info("Filtered {} VPCs from {} total resources for account {}",
+                                vpcs.size(), resources.size(), accountId);
+                        return vpcs;
+                    })
+                    .exceptionally(ex -> {
+                        logger.error("Error fetching VPCs for account {}: {}", accountId, ex.getMessage(), ex);
+                        return new ArrayList<ResourceDto>();
+                    });
+        } catch (Exception ex) {
+            logger.error("Failed to initialize VPC fetch for account {}: {}", accountId, ex.getMessage(), ex);
+            return CompletableFuture.completedFuture(new ArrayList<ResourceDto>());
+        }
     }
 
     public CompletableFuture<List<Map<String, Object>>> getGraphData(String accountId, String vpcId, String region, boolean forceRefresh) {
-        CloudAccount account = getAccount(accountId);
-        return cloudListService.getAllResources(account, forceRefresh)
-                .thenApply(allResources -> {
-                    List<Map<String, Object>> elements = new ArrayList<>();
-                    List<ResourceDto> relevantResources;
+        try {
+            CloudAccount account = getAccount(accountId);
+            logger.info("Fetching graph data for account {}, VPC: {}, Region: {}", accountId, vpcId, region);
 
-                    if (vpcId != null && !vpcId.isEmpty()) {
-                        // --- VPC-specific view ---
-                        Ec2Client ec2Client = awsClientProvider.getEc2Client(account, region);
-                        addVpcAndSubnetNodes(elements, ec2Client, vpcId);
+            return cloudListService.getAllResources(account, forceRefresh)
+                    .thenApply(allResources -> {
+                        if (allResources == null) {
+                            logger.warn("Received null resources list for account {}", accountId);
+                            return new ArrayList<Map<String, Object>>();
+                        }
 
-                        relevantResources = allResources.stream()
-                                .filter(r -> vpcId.equals(getDetail(r, "VPC ID")) || vpcId.equals(r.getId()))
-                                .collect(Collectors.toList());
-                    } else {
-                        // --- Global view (non-VPC resources) ---
-                        relevantResources = allResources.stream()
-                                .filter(r -> getDetail(r, "VPC ID") == null && !"Subnet".equals(r.getType()))
-                                .collect(Collectors.toList());
-                    }
+                        logger.info("Processing {} total resources for graph", allResources.size());
+                        List<Map<String, Object>> elements = new ArrayList<>();
+                        List<ResourceDto> relevantResources;
 
-                    for (ResourceDto resource : relevantResources) {
-                        String parent = getParent(resource);
-                        elements.add(createNode(resource.getId(), resource.getName(), resource.getType(), parent, resource.getDetails()));
-                    }
+                        try {
+                            if (vpcId != null && !vpcId.isEmpty()) {
+                                // --- VPC-specific view ---
+                                logger.info("Building VPC-specific graph for VPC: {}", vpcId);
+                                Ec2Client ec2Client = awsClientProvider.getEc2Client(account, region);
+                                addVpcAndSubnetNodes(elements, ec2Client, vpcId);
 
-                    createAllEdges(elements, relevantResources);
-                    return elements;
-                });
+                                relevantResources = allResources.stream()
+                                        .filter(r -> r != null && (vpcId.equals(getDetail(r, "VPC ID")) || vpcId.equals(r.getId())))
+                                        .collect(Collectors.toList());
+                            } else {
+                                // --- Global view (non-VPC resources) ---
+                                logger.info("Building global resource graph");
+                                relevantResources = allResources.stream()
+                                        .filter(r -> r != null && getDetail(r, "VPC ID") == null && !"Subnet".equals(r.getType()))
+                                        .collect(Collectors.toList());
+                            }
+
+                            logger.info("Found {} relevant resources for the graph", relevantResources.size());
+
+                            for (ResourceDto resource : relevantResources) {
+                                try {
+                                    String parent = getParent(resource);
+                                    elements.add(createNode(resource.getId(), resource.getName(), resource.getType(), parent, resource.getDetails()));
+                                } catch (Exception e) {
+                                    logger.warn("Failed to create node for resource {}: {}", resource.getId(), e.getMessage());
+                                }
+                            }
+
+                            createAllEdges(elements, relevantResources);
+                            logger.info("Successfully created graph with {} elements", elements.size());
+
+                        } catch (Exception e) {
+                            logger.error("Error processing resources for graph: {}", e.getMessage(), e);
+                        }
+
+                        return elements;
+                    })
+                    .exceptionally(ex -> {
+                        logger.error("Error fetching graph data for account {}: {}", accountId, ex.getMessage(), ex);
+                        return new ArrayList<Map<String, Object>>();
+                    });
+        } catch (Exception ex) {
+            logger.error("Failed to initialize graph fetch for account {}: {}", accountId, ex.getMessage(), ex);
+            return CompletableFuture.completedFuture(new ArrayList<Map<String, Object>>());
+        }
     }
 
     private void addVpcAndSubnetNodes(List<Map<String, Object>> elements, Ec2Client ec2Client, String vpcId) {
