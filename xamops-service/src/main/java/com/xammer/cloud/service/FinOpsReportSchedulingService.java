@@ -111,29 +111,44 @@ public class FinOpsReportSchedulingService {
                 // --- STEP 1: Fetch data ONCE for the account ---
                 List<DetailedCostDto> reportData;
                 if ("AWS".equals(account.getProvider())) {
+                    logger.info("Fetching AWS cost data for account {} from {} to {}", accountId, startDate, endDate);
                     reportData = costService.getCostBreakdownByServiceAndRegion(accountId, startDate, endDate, false)
                             .join();
                 } else if ("GCP".equals(account.getProvider())) {
+                    logger.info("Fetching GCP cost data for account {} from {} to {}", accountId, startDate, endDate);
                     reportData = gcpCostService.getCostBreakdownByServiceAndRegionSync(accountId, startDate, endDate);
                 } else {
                     logger.warn("Skipping account {}: Unsupported provider {}", accountId, account.getProvider());
                     continue;
                 }
 
+                if (reportData == null || reportData.isEmpty()) {
+                    logger.warn("No cost data found for account {} for date range {} to {}. Email will still be sent with empty data message.",
+                               accountId, startDate, endDate);
+                } else {
+                    logger.info("Successfully fetched {} cost records for account {}", reportData.size(), accountId);
+                }
+
                 // --- STEP 2: Build email body ONCE ---
                 String subject = String.format("Your %s FinOps Report - %s (%s)", frequency, accountName, dateRange);
                 String htmlBody = emailBuilder.buildSimpleReportEmail(reportData, accountName, frequency, dateRange);
+                logger.debug("Generated HTML email body with {} characters", htmlBody != null ? htmlBody.length() : 0);
 
                 // --- STEP 3: Send email to all recipients for this account ---
+                logger.info("Sending {} reports for account {} to {} recipients",
+                           frequency, accountId, accountSchedules.size());
+
                 for (FinOpsReportSchedule schedule : accountSchedules) {
                     try {
+                        logger.info("Attempting to send email to {} for schedule ID {}",
+                                   schedule.getEmail(), schedule.getId());
                         emailService.sendHtmlEmail(schedule.getEmail(), subject, htmlBody);
                         updateScheduleLastSent(schedule.getId());
-                        logger.info("Successfully processed and sent report for schedule ID {} to {}", schedule.getId(),
-                                schedule.getEmail());
+                        logger.info("✓ Successfully sent {} report to {} for account {} (Schedule ID: {})",
+                                   frequency, schedule.getEmail(), accountName, schedule.getId());
                     } catch (Exception emailEx) {
-                        logger.error("Failed to send email for schedule ID {}: {}", schedule.getId(),
-                                emailEx.getMessage());
+                        logger.error("✗ Failed to send email for schedule ID {} to {}: {}",
+                                    schedule.getId(), schedule.getEmail(), emailEx.getMessage(), emailEx);
                     }
                 }
 

@@ -11,7 +11,16 @@ import Chart from 'chart.js/auto';
 window.Alpine = Alpine;
 window.Chart = Chart;
 
-// Initialize Alpine.js
-Alpine.start();
+// Don't auto-start Alpine - let pages register their components first
+// Pages should call Alpine.start() manually or we'll start it after a delay
+// to allow component registration
 
-console.log('✅ Alpine.js Initialized');
+// Wait a bit for page-specific components to register, then start Alpine
+setTimeout(() => {
+    if (!Alpine.initialised) {
+        Alpine.start();
+        console.log('✅ Alpine.js Initialized (auto-start)');
+    }
+}, 0);
+
+console.log('✅ Alpine.js loaded and ready for component registration');
