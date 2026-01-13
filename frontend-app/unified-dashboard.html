@@ -596,7 +596,7 @@
                                     <p class="text-xs text-gray-500 mt-1 font-medium">Current month breakdown</p>
                                 </div>
                             </div>
-                            <div class="relative w-full flex items-center justify-center" style="height: 350px;">
+                            <div class="relative w-full flex items-center justify-center" style="height: 200px;">
                                 <canvas id="providerDonutChart"></canvas>
                             </div>
                         </div>
@@ -968,7 +968,6 @@
                 showModal: false,
                 viewMode: 'cost', // cost, resource, waste, alerts, savings
                 activeProvider: '',
-                activeProvider: '',
                 activeAccountList: [],
                 lastUpdated: null,
                 serverTime: null,
@@ -976,9 +975,12 @@
                 init() {
                     console.log("Initializing Unified Dashboard...");
 
-                    this.fetchAll(false); // Initial fetch uses cached data
-                    this.initStackedChart();
-                    this.initProviderChart();
+                    // Wait for next tick to ensure DOM is ready
+                    this.$nextTick(() => {
+                        this.fetchAll(false); // Initial fetch uses cached data
+                        this.initStackedChart();
+                        this.initProviderChart();
+                    });
 
                     setInterval(() => this.updateTimeAgo(), 60000);
 
@@ -987,6 +989,16 @@
                         console.log("Auto-refreshing dashboard data...");
                         this.fetchAll(false); // Use cached data for auto-refresh
                     }, 60000);
+
+                    // Listen for page-loaded event (soft navigation)
+                    window.addEventListener('page-loaded', () => {
+                        console.log("Page loaded event received, reinitializing charts...");
+                        this.$nextTick(() => {
+                            this.initStackedChart();
+                            this.initProviderChart();
+                            this.fetchAll(true); // Force refresh on navigation
+                        });
+                    });
                 },
 
                 async fetchAll(force = false) {
@@ -1093,7 +1105,19 @@
 
                 // --- Charts ---
                 initStackedChart() {
-                    const ctx = document.getElementById('stackedCostChart').getContext('2d');
+                    const canvas = document.getElementById('stackedCostChart');
+                    if (!canvas) {
+                        console.warn('Stacked chart canvas not found, retrying...');
+                        setTimeout(() => this.initStackedChart(), 100);
+                        return;
+                    }
+                    const ctx = canvas.getContext('2d');
+
+                    // Destroy existing chart if it exists
+                    if (costChartInstance) {
+                        costChartInstance.destroy();
+                        costChartInstance = null;
+                    }
 
                     // Create gradients
                     const awsGradient = ctx.createLinearGradient(0, 0, 0, 400);
@@ -1209,7 +1233,19 @@
                 },
 
                 initProviderChart() {
-                    const ctx = document.getElementById('providerDonutChart').getContext('2d');
+                    const canvas = document.getElementById('providerDonutChart');
+                    if (!canvas) {
+                        console.warn('Provider chart canvas not found, retrying...');
+                        setTimeout(() => this.initProviderChart(), 100);
+                        return;
+                    }
+                    const ctx = canvas.getContext('2d');
+
+                    // Destroy existing chart if it exists
+                    if (providerDonutChartInstance) {
+                        providerDonutChartInstance.destroy();
+                        providerDonutChartInstance = null;
+                    }
 
                     providerDonutChartInstance = new Chart(ctx, {
                         type: 'doughnut',

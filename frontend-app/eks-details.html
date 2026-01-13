@@ -654,9 +654,10 @@
       <main id="main-content" class="min-h-full pb-8" x-data="eksDashboard()" x-init="init()">
         <div class="p-4 md:p-8 max-w-[1800px] mx-auto w-full">
 
-          <!-- ==================== UNIFIED PREMIUM HEADER ==================== -->
+
+          <!-- ==================== UNIFIED PREMIUM HEADER (STICKY) ==================== -->
           <div
-            class="relative bg-white rounded-2xl shadow-sm border border-gray-200 p-4 md:p-6 mb-6 md:mb-8 overflow-hidden group">
+            class="sticky top-0 z-40 bg-white/95 backdrop-blur-sm relative rounded-2xl shadow-sm border border-gray-200 p-4 md:p-6 mb-6 md:mb-8 overflow-hidden group">
             <!-- Background Decoration -->
             <div
               class="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-indigo-50 to-blue-50 rounded-full blur-3xl opacity-50 -translate-y-1/2 translate-x-1/3 pointer-events-none">
@@ -995,8 +996,25 @@
               </div>
             </div>
 
+            <!-- Development Alert (Global - Visible in all Tabs) -->
+            <div class="bg-amber-50 border-l-4 border-amber-400 p-4 mb-8 rounded shadow-sm">
+              <div class="flex">
+                <div class="flex-shrink-0">
+                  <i class="fas fa-exclamation-triangle text-amber-500"></i>
+                </div>
+                <div class="ml-3">
+                  <p class="text-sm text-amber-700">
+                    <span class="font-bold">Under Development:</span> This feature is currently being developed. Data
+                    may
+                    be inaccurate or incomplete.
+                  </p>
+                </div>
+              </div>
+            </div>
+
             <!-- ==================== OVERVIEW TAB (NEW - PHASE 1) ==================== -->
             <div x-show="activeTab === 'overview'" x-cloak class="space-y-8">
+
 
               <!-- Health Score Section -->
               <section class="bg-white rounded-2xl shadow-lg p-8 border border-gray-100">
@@ -1343,6 +1361,17 @@
                   <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
                     <i class="fas fa-rocket text-indigo-500"></i>
                     Deployments
+                    <button class="group relative ml-2">
+                      <i class="fas fa-info-circle text-gray-400 text-sm hover:text-indigo-500 transition-colors"></i>
+                      <div
+                        class="absolute left-0 bottom-8 w-72 bg-gray-900 text-white text-xs rounded-lg p-3 shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 pointer-events-none">
+                        <div class="font-bold mb-1">What are Deployments?</div>
+                        <p class="text-gray-300 leading-relaxed">Manages stateless applications (like web servers). It
+                          ensures the desired number of pods are always running by automatically replacing failed or
+                          unresponsive instances.</p>
+                        <div class="absolute -bottom-1 left-1 w-2 h-2 bg-gray-900 transform rotate-45"></div>
+                      </div>
+                    </button>
                     <span class="ml-auto px-3 py-1 bg-blue-100 text-blue-700 rounded-lg text-xs font-bold">KUBERNETES
                       API</span>
                   </h3>
@@ -1396,6 +1425,16 @@
                   <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
                     <i class="fas fa-layer-group text-purple-500"></i>
                     DaemonSets
+                    <button class="group relative ml-2">
+                      <i class="fas fa-info-circle text-gray-400 text-sm hover:text-purple-500 transition-colors"></i>
+                      <div
+                        class="absolute left-0 bottom-8 w-72 bg-gray-900 text-white text-xs rounded-lg p-3 shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 pointer-events-none">
+                        <div class="font-bold mb-1">What are DaemonSets?</div>
+                        <p class="text-gray-300 leading-relaxed">Ensures that a copy of a pod runs on all (or some)
+                          nodes in the cluster. Useful for storage daemons, logs collection, and monitoring agents.</p>
+                        <div class="absolute -bottom-1 left-1 w-2 h-2 bg-gray-900 transform rotate-45"></div>
+                      </div>
+                    </button>
                   </h3>
 
                   <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -2247,7 +2286,7 @@
             <div x-show="activeTab === 'security'" x-cloak class="space-y-8">
 
               <!-- FALCO RUNTIME SECURITY SECTION -->
-              <section class="bg-white rounded-3xl shadow-lg border border-gray-100 p-8 relative overflow-hidden">
+              <section class="bg-white rounded-3xl shadow-lg border border-gray-100 p-8 relative">
 
                 <div class="relative z-10">
                   <div class="flex items-center justify-between mb-6">
@@ -2441,7 +2480,7 @@
               </section>
 
               <!-- KUBESCAPE COMPLIANCE SECTION -->
-              <section class="bg-white rounded-3xl shadow-lg border border-gray-100 p-8 relative overflow-hidden">
+              <section class="bg-white rounded-3xl shadow-lg border border-gray-100 p-8 relative">
 
                 <div class="relative z-10">
                   <div class="flex items-center justify-between mb-6">
@@ -2544,6 +2583,17 @@
                       <h4 class="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
                         <i class="fas fa-chart-pie text-emerald-600"></i>
                         Vulnerability Distribution
+                        <button class="group relative ml-2">
+                          <i
+                            class="fas fa-info-circle text-gray-400 text-sm hover:text-emerald-500 transition-colors"></i>
+                          <div
+                            class="absolute left-0 bottom-8 w-72 bg-gray-900 text-white text-xs rounded-lg p-3 shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 pointer-events-none">
+                            <div class="font-bold mb-1">Severity Distribution</div>
+                            <p class="text-gray-300 leading-relaxed">Breakdown of security issues by severity level
+                              (Critical, High, Medium, Low). Prioritize Critical and High issues.</p>
+                            <div class="absolute -bottom-1 left-1 w-2 h-2 bg-gray-900 transform rotate-45"></div>
+                          </div>
+                        </button>
                       </h4>
                       <div class="flex items-center justify-center" style="height: 250px;">
                         <canvas x-ref="kubescapeSeverityChart"></canvas>
@@ -2655,7 +2705,7 @@
 
 
               <!-- TRIVY IMAGE SCANNING SECTION -->
-              <section class="bg-white rounded-3xl shadow-lg border border-gray-100 p-8 relative overflow-hidden">
+              <section class="bg-white rounded-3xl shadow-lg border border-gray-100 p-8 relative">
 
                 <div class="relative z-10">
                   <div class="flex items-center justify-between mb-6">
@@ -4108,9 +4158,13 @@ kubectl create token xamops-reader --duration=87600h</pre>
             // Store metric snapshot for trends
             this.storeMetricSnapshot();
 
-            // Initialize charts after data loads
+            // Initialize charts after data loads (safely)
             this.$nextTick(() => {
-              this.initializeCharts();
+              try {
+                this.initializeCharts();
+              } catch (e) {
+                console.error("Error initializing charts:", e);
+              }
             });
           } catch (err) {
             console.error('❌ Error fetching dashboard:', err);
