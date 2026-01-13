@@ -87,9 +87,20 @@ public class PrometheusService {
         String query = String.format(
                 "last_over_time(xamops_eks_kube_node_info{cluster_name=\"%s\"}[24h])",
                 clusterName);
-        return fetchMetricLabels(
+        List<Map<String, String>> nodes = fetchMetricLabels(
                 prometheusUrl, query,
                 Arrays.asList("node", "internal_ip", "os_image", "kubelet_version", "provider_id"));
+
+        // Fallback: try without cluster filter
+        if (nodes.isEmpty()) {
+            logger.warn("No nodes found with cluster_name filter, trying standard kube_node_info");
+            query = "kube_node_info";
+            nodes = fetchMetricLabels(prometheusUrl, query,
+                Arrays.asList("node", "internal_ip", "os_image", "kubelet_version", "provider_id"));
+        }
+
+        logger.info("Found {} nodes for cluster {}", nodes.size(), clusterName);
+        return nodes;
     }
 
     public Map<String, Map<String, Double>> getNodeCapacity(String prometheusUrl, String clusterName) {
@@ -289,10 +300,29 @@ public class PrometheusService {
     // ============================================================================================
 
     public List<Map<String, String>> getPodInfo(String prometheusUrl, String clusterName) {
-        String query = String.format(
-                "max by (pod, namespace, node, pod_ip) (xamops_eks_kube_pod_info{cluster_name=\"%s\"})",
-                clusterName);
-        return fetchMetricLabels(prometheusUrl, query, Arrays.asList("pod", "namespace", "node", "pod_ip"));
+        List<Map<String, String>> pods = new ArrayList<>();
+
+        // Try different metric name patterns (including double prefix xamops_eks_xamops_eks_)
+        String[] patterns = {
+            "max by (pod, namespace, node, pod_ip) (xamops_eks_kube_pod_info{cluster_name=\"%s\"})",
+            "max by (pod, namespace, node, pod_ip) (xamops_eks_xamops_eks_kube_pod_info{cluster_name=\"%s\"})",
+            "kube_pod_info{cluster_name=\"%s\"}",
+            "kube_pod_info"
+        };
+
+        for (String pattern : patterns) {
+            String query = pattern.contains("%s") ? String.format(pattern, clusterName) : pattern;
+            pods = fetchMetricLabels(prometheusUrl, query, Arrays.asList("pod", "namespace", "node", "pod_ip"));
+            if (!pods.isEmpty()) {
+                logger.info("✅ Found {} pods using: {}", pods.size(), pattern.substring(0, Math.min(50, pattern.length())));
+                break;
+            }
+        }
+
+        if (pods.isEmpty()) {
+            logger.warn("❌ No pods found for cluster {}", clusterName);
+        }
+        return pods;
     }
 
     public Map<String, String> getPodStatusPhase(String prometheusUrl, String clusterName) {
@@ -737,4 +767,444 @@ public class PrometheusService {
         }
         return finalResults;
     }
+
+    // ============================================================================================
+    // DETAILED POD/CONTAINER/NODE METRICS - Multi-tenant Safe
+    // ============================================================================================
+
+    /**
+     * Get pod owner information (Deployment/StatefulSet/DaemonSet/etc.)
+     * Returns map of pod -> {kind, name}
+     */
+    public Map<String, Map<String, String>> getPodOwner(String prometheusUrl, String clusterName) {
+        String query = String.format(
+            "max by (pod, owner_kind, owner_name) (xamops_eks_kube_pod_owner{cluster_name=\"%s\"})",
+            clusterName);
+        List<Map<String, String>> results = fetchMetricLabels(
+            prometheusUrl, query, Arrays.asList("pod", "owner_kind", "owner_name"));
+
+        Map<String, Map<String, String>> podOwners = new HashMap<>();
+        for (Map<String, String> result : results) {
+            String pod = result.get("pod");
+            if (pod != null) {
+                Map<String, String> owner = new HashMap<>();
+                owner.put("kind", result.getOrDefault("owner_kind", "Unknown"));
+                owner.put("name", result.getOrDefault("owner_name", "Unknown"));
+                podOwners.put(pod, owner);
+            }
+        }
+        logger.debug("Found {} pod owners for cluster {}", podOwners.size(), clusterName);
+        return podOwners;
+    }
+
+    /**
+     * Get detailed container information (name, image, image_id)
+     * Returns list with pod, namespace, container, image, image_id
+     */
+    public List<Map<String, String>> getContainerInfo(String prometheusUrl, String clusterName) {
+        // Try with cluster_name label first
+        String query = String.format(
+            "xamops_eks_kube_pod_container_info{cluster_name=\"%s\"}",
+            clusterName);
+        List<Map<String, String>> containers = fetchMetricLabels(prometheusUrl, query,
+            Arrays.asList("pod", "namespace", "container", "image", "image_id"));
+
+        // Fallback: try without cluster filter if no results
+        if (containers.isEmpty()) {
+            logger.warn("No containers found with cluster_name filter, trying without filter");
+            query = "kube_pod_container_info";
+            containers = fetchMetricLabels(prometheusUrl, query,
+                Arrays.asList("pod", "namespace", "container", "image", "image_id"));
+        }
+
+        logger.info("Found {} containers for cluster {}", containers.size(), clusterName);
+        return containers;
+    }
+
+    /**
+     * Get CPU requests per pod (sum across all containers)
+     * Returns map of pod -> CPU cores requested
+     */
+    public Map<String, Double> getPodCpuRequests(String prometheusUrl, String clusterName) {
+        String query = String.format(
+            "sum by (pod) (xamops_eks_kube_pod_container_resource_requests{cluster_name=\"%s\", resource=\"cpu\"})",
+            clusterName);
+        return fetchMetricMap(prometheusUrl, query, "pod");
+    }
+
+    /**
+     * Get memory requests per pod in MB (sum across all containers)
+     */
+    public Map<String, Double> getPodMemoryRequests(String prometheusUrl, String clusterName) {
+        String query = String.format(
+            "sum by (pod) (xamops_eks_kube_pod_container_resource_requests{cluster_name=\"%s\", resource=\"memory\"}) / 1024 / 1024",
+            clusterName);
+        return fetchMetricMap(prometheusUrl, query, "pod");
+    }
+
+    /**
+     * Get CPU limits per pod (sum across all containers)
+     */
+    public Map<String, Double> getPodCpuLimits(String prometheusUrl, String clusterName) {
+        String query = String.format(
+            "sum by (pod) (xamops_eks_kube_pod_container_resource_limits{cluster_name=\"%s\", resource=\"cpu\"})",
+            clusterName);
+        return fetchMetricMap(prometheusUrl, query, "pod");
+    }
+
+    /**
+     * Get memory limits per pod in MB (sum across all containers)
+     */
+    public Map<String, Double> getPodMemoryLimits(String prometheusUrl, String clusterName) {
+        String query = String.format(
+            "sum by (pod) (xamops_eks_kube_pod_container_resource_limits{cluster_name=\"%s\", resource=\"memory\"}) / 1024 / 1024",
+            clusterName);
+        return fetchMetricMap(prometheusUrl, query, "pod");
+    }
+
+    /**
+     * Get container count per pod
+     */
+    public Map<String, Double> getContainerCountPerPod(String prometheusUrl, String clusterName) {
+        String query = String.format(
+            "count by (pod) (xamops_eks_kube_pod_container_info{cluster_name=\"%s\"})",
+            clusterName);
+        return fetchMetricMap(prometheusUrl, query, "pod");
+    }
+
+    /**
+     * Get container running state (true if running)
+     * Returns map of "pod/container" -> boolean
+     */
+    public Map<String, Boolean> getContainerRunningState(String prometheusUrl, String clusterName) {
+        String query = String.format(
+            "xamops_eks_kube_pod_container_status_running{cluster_name=\"%s\"} == 1",
+            clusterName);
+        List<Map<String, String>> results = fetchMetricLabels(
+            prometheusUrl, query, Arrays.asList("pod", "container"));
+
+        Map<String, Boolean> containerStates = new HashMap<>();
+        for (Map<String, String> result : results) {
+            String pod = result.get("pod");
+            String container = result.get("container");
+            if (pod != null && container != null) {
+                containerStates.put(pod + "/" + container, true);
+            }
+        }
+        return containerStates;
+    }
+
+    /**
+     * Get container restart count
+     * Returns map of "pod/container" -> restart count
+     */
+    public Map<String, Double> getContainerRestarts(String prometheusUrl, String clusterName) {
+        String query = String.format(
+            "sum by (pod, container) (xamops_eks_kube_pod_container_status_restarts_total{cluster_name=\"%s\"})",
+            clusterName);
+        return fetchMetricMapMultiLabel(prometheusUrl, query, "pod", "container");
+    }
+
+    /**
+     * Get all node conditions (Ready, DiskPressure, MemoryPressure, PIDPressure)
+     * Returns map of node -> list of active conditions
+     */
+    public Map<String, List<String>> getNodeAllConditions(String prometheusUrl, String clusterName) {
+        String query = String.format(
+            "xamops_eks_kube_node_status_condition{cluster_name=\"%s\"} == 1",
+            clusterName);
+        List<Map<String, String>> results = fetchMetricLabels(
+            prometheusUrl, query, Arrays.asList("node", "condition", "status"));
+
+        Map<String, List<String>> nodeConditions = new HashMap<>();
+        for (Map<String, String> result : results) {
+            String node = result.get("node");
+            String condition = result.get("condition");
+            String status = result.get("status");
+            if (node != null && condition != null && "true".equals(status)) {
+                nodeConditions.computeIfAbsent(node, k -> new ArrayList<>()).add(condition);
+            }
+        }
+        logger.debug("Found conditions for {} nodes in cluster {}", nodeConditions.size(), clusterName);
+        return nodeConditions;
+    }
+
+    /**
+     * Get pod count by phase (Running/Pending/Failed/etc.)
+     */
+    public Map<String, Integer> getPodCountByPhase(String prometheusUrl, String clusterName) {
+        String query = String.format(
+            "count by (phase) (xamops_eks_kube_pod_status_phase{cluster_name=\"%s\"} == 1)",
+            clusterName);
+        Map<String, Double> result = fetchMetricMap(prometheusUrl, query, "phase");
+
+        Map<String, Integer> counts = new HashMap<>();
+        for (Map.Entry<String, Double> entry : result.entrySet()) {
+            counts.put(entry.getKey(), entry.getValue().intValue());
+        }
+        return counts;
+    }
+
+    /**
+     * Get pod CPU usage in millicores (aggregated from containers)
+     * More accurate than k8s_pod_cpu_usage for multi-container pods
+     */
+    public Map<String, Double> getPodCpuUsageFromContainers(String prometheusUrl, String clusterName) {
+        String query = String.format(
+            "sum by (pod) (rate(xamops_eks_container_cpu_usage{cluster_name=\"%s\"}[5m])) * 1000",
+            clusterName);
+        return fetchMetricMap(prometheusUrl, query, "pod");
+    }
+
+    // ============================================================================================
+    // ✅ NEW: METRICS FOR DEDICATED PODS/CONTAINERS/NODES TABS
+    // These methods are ADDITIVE - they don't modify existing functionality
+    // ============================================================================================
+
+    /**
+     * Get pod status phase counts (Running, Pending, Failed, Succeeded)
+     */
+    public Map<String, Integer> getPodStatusPhaseCounts(String prometheusUrl, String clusterName) {
+        // FIX: Use max by (pod, namespace) to deduplicate pods (same logic as getClusterPodCount)
+        String query = String.format(
+            "count by (phase) (max by (pod, namespace, phase) (xamops_eks_kube_pod_status_phase{cluster_name=\"%s\"}))",
+            clusterName);
+        Map<String, Double> result = fetchMetricMap(prometheusUrl, query, "phase");
+        Map<String, Integer> counts = new HashMap<>();
+        for (Map.Entry<String, Double> entry : result.entrySet()) {
+            counts.put(entry.getKey(), entry.getValue().intValue());
+        }
+        logger.debug("Pod status phase counts: {}", counts);
+        return counts;
+    }
+
+    /**
+     * Get pod QoS class counts (Guaranteed, Burstable, BestEffort)
+     */
+    public Map<String, Integer> getPodQosClassCounts(String prometheusUrl, String clusterName) {
+        // FIX: Use max by (pod, namespace) to deduplicate pods
+        String query = String.format(
+            "count by (qos_class) (max by (pod, namespace, qos_class) (xamops_eks_kube_pod_status_qos_class{cluster_name=\"%s\"}))",
+            clusterName);
+        Map<String, Double> result = fetchMetricMap(prometheusUrl, query, "qos_class");
+        Map<String, Integer> counts = new HashMap<>();
+        for (Map.Entry<String, Double> entry : result.entrySet()) {
+            counts.put(entry.getKey(), entry.getValue().intValue());
+        }
+        logger.debug("Pod QoS class counts: {}", counts);
+        return counts;
+    }
+
+    /**
+     * Get container state counts (Running, Waiting, Terminated)
+     */
+    public Map<String, Integer> getContainerStateCounts(String prometheusUrl, String clusterName) {
+        Map<String, Integer> counts = new HashMap<>();
+
+        // Running containers
+        String runningQuery = String.format(
+            "count(xamops_eks_kube_pod_container_status_running{cluster_name=\"%s\"} == 1)",
+            clusterName);
+        Double running = fetchScalarValue(prometheusUrl, runningQuery);
+        counts.put("Running", running != null ? running.intValue() : 0);
+
+        // Waiting containers
+        String waitingQuery = String.format(
+            "count(xamops_eks_kube_pod_container_status_waiting{cluster_name=\"%s\"} == 1)",
+            clusterName);
+        Double waiting = fetchScalarValue(prometheusUrl, waitingQuery);
+        counts.put("Waiting", waiting != null ? waiting.intValue() : 0);
+
+        // Terminated containers
+        String terminatedQuery = String.format(
+            "count(xamops_eks_kube_pod_container_status_terminated{cluster_name=\"%s\"} == 1)",
+            clusterName);
+        Double terminated = fetchScalarValue(prometheusUrl, terminatedQuery);
+        counts.put("Terminated", terminated != null ? terminated.intValue() : 0);
+
+        return counts;
+    }
+
+    /**
+     * Get total container restarts across the cluster
+     */
+    public Double getTotalContainerRestarts(String prometheusUrl, String clusterName) {
+        String query = String.format(
+            "sum(xamops_eks_kube_pod_container_status_restarts_total{cluster_name=\"%s\"})",
+            clusterName);
+        return fetchScalarValue(prometheusUrl, query);
+    }
+
+    /**
+     * Get pod restart counts (for pods with restarts > 0)
+     */
+    public Map<String, Integer> getPodRestartCounts(String prometheusUrl, String clusterName) {
+        String query = String.format(
+            "sum by (pod, namespace) (xamops_eks_kube_pod_container_status_restarts_total{cluster_name=\"%s\"})",
+            clusterName);
+
+        Map<String, Integer> restarts = new HashMap<>();
+        try {
+            String url = normalizeUrl(prometheusUrl) + "/api/v1/query?query=" +
+                        java.net.URLEncoder.encode(query, "UTF-8");
+            String response = restTemplate.getForObject(url, String.class);
+            JsonNode root = objectMapper.readTree(response);
+            JsonNode results = root.path("data").path("result");
+
+            for (JsonNode entry : results) {
+                JsonNode metric = entry.path("metric");
+                String pod = metric.path("pod").asText();
+                String namespace = metric.path("namespace").asText();
+                String key = namespace + "/" + pod;
+                int value = entry.path("value").get(1).asInt();
+                if (value > 0) {  // Only include pods with restarts
+                    restarts.put(key, value);
+                }
+            }
+        } catch (Exception e) {
+            logger.error("Error fetching pod restart counts: {}", e.getMessage());
+        }
+        return restarts;
+    }
+
+    /**
+     * Get node condition counts (Ready, DiskPressure, MemoryPressure, PIDPressure)
+     */
+    public Map<String, Integer> getNodeConditionCounts(String prometheusUrl, String clusterName) {
+        Map<String, Integer> counts = new HashMap<>();
+
+        // Ready nodes
+        String readyQuery = String.format(
+            "count(xamops_eks_kube_node_status_condition{cluster_name=\"%s\", condition=\"Ready\", status=\"true\"})",
+            clusterName);
+        Double ready = fetchScalarValue(prometheusUrl, readyQuery);
+        counts.put("Ready", ready != null ? ready.intValue() : 0);
+
+        // DiskPressure
+        String diskQuery = String.format(
+            "count(xamops_eks_kube_node_status_condition{cluster_name=\"%s\", condition=\"DiskPressure\", status=\"true\"})",
+            clusterName);
+        Double disk = fetchScalarValue(prometheusUrl, diskQuery);
+        counts.put("DiskPressure", disk != null ? disk.intValue() : 0);
+
+        // MemoryPressure
+        String memQuery = String.format(
+            "count(xamops_eks_kube_node_status_condition{cluster_name=\"%s\", condition=\"MemoryPressure\", status=\"true\"})",
+            clusterName);
+        Double mem = fetchScalarValue(prometheusUrl, memQuery);
+        counts.put("MemoryPressure", mem != null ? mem.intValue() : 0);
+
+        // PIDPressure
+        String pidQuery = String.format(
+            "count(xamops_eks_kube_node_status_condition{cluster_name=\"%s\", condition=\"PIDPressure\", status=\"true\"})",
+            clusterName);
+        Double pid = fetchScalarValue(prometheusUrl, pidQuery);
+        counts.put("PIDPressure", pid != null ? pid.intValue() : 0);
+
+        return counts;
+    }
+
+    /**
+     * Get container memory breakdown (Working Set, RSS, Available)
+     */
+    public Map<String, Double> getContainerMemoryBreakdown(String prometheusUrl, String clusterName) {
+        Map<String, Double> breakdown = new HashMap<>();
+
+        // Working Set
+        String workingSetQuery = String.format(
+            "sum(xamops_eks_container_memory_working_set_bytes{cluster_name=\"%s\"}) / 1024 / 1024",
+            clusterName);
+        Double workingSet = fetchScalarValue(prometheusUrl, workingSetQuery);
+        breakdown.put("workingSet", workingSet != null ? workingSet : 0.0);
+
+        // RSS
+        String rssQuery = String.format(
+            "sum(xamops_eks_container_memory_rss{cluster_name=\"%s\"}) / 1024 / 1024",
+            clusterName);
+        Double rss = fetchScalarValue(prometheusUrl, rssQuery);
+        breakdown.put("rss", rss != null ? rss : 0.0);
+
+        // Available (from node metrics)
+        String availableQuery = String.format(
+            "sum(xamops_eks_node_memory_MemAvailable_bytes{cluster_name=\"%s\"}) / 1024 / 1024",
+            clusterName);
+        Double available = fetchScalarValue(prometheusUrl, availableQuery);
+        breakdown.put("available", available != null ? available : 0.0);
+
+        return breakdown;
+    }
+
+    /**
+     * Get detailed container info with metrics
+     */
+    public List<Map<String, Object>> getDetailedContainerMetrics(String prometheusUrl, String clusterName) {
+        List<Map<String, Object>> containers = new ArrayList<>();
+
+        // Get container info first
+        List<Map<String, String>> containerInfo = getContainerInfo(prometheusUrl, clusterName);
+
+        // Get CPU usage
+        Map<String, Double> cpuUsage = getContainerCpuUsage(prometheusUrl, clusterName);
+
+        // Get Memory usage
+        Map<String, Double> memoryUsage = getContainerMemoryUsage(prometheusUrl, clusterName);
+
+        // Get FS usage
+        Map<String, Double> fsUsage = getContainerFsUsage(prometheusUrl, clusterName);
+
+        // Get running status
+        Map<String, Boolean> runningStatus = getContainerRunningStatus(prometheusUrl, clusterName);
+
+        for (Map<String, String> info : containerInfo) {
+            Map<String, Object> container = new HashMap<>();
+            String pod = info.get("pod");
+            String containerName = info.get("container");
+            String key = pod + "/" + containerName;
+
+            container.put("id", key);
+            container.put("name", containerName);
+            container.put("pod", pod);
+            container.put("namespace", info.get("namespace"));
+            container.put("image", info.get("image"));
+            container.put("cpuUsage", cpuUsage.getOrDefault(key, 0.0));
+            container.put("memoryUsage", memoryUsage.getOrDefault(key, 0.0));
+            container.put("fsUsage", fsUsage.getOrDefault(key, 0.0));
+            container.put("running", runningStatus.getOrDefault(key, false));
+
+            containers.add(container);
+        }
+
+        return containers;
+    }
+
+    /**
+     * Get container running status
+     */
+    private Map<String, Boolean> getContainerRunningStatus(String prometheusUrl, String clusterName) {
+        String query = String.format(
+            "xamops_eks_kube_pod_container_status_running{cluster_name=\"%s\"}",
+            clusterName);
+
+        Map<String, Boolean> status = new HashMap<>();
+        try {
+            String url = normalizeUrl(prometheusUrl) + "/api/v1/query?query=" +
+                        java.net.URLEncoder.encode(query, "UTF-8");
+            String response = restTemplate.getForObject(url, String.class);
+            JsonNode root = objectMapper.readTree(response);
+            JsonNode results = root.path("data").path("result");
+
+            for (JsonNode entry : results) {
+                JsonNode metric = entry.path("metric");
+                String pod = metric.path("pod").asText();
+                String container = metric.path("container").asText();
+                String key = pod + "/" + container;
+                double value = entry.path("value").get(1).asDouble();
+                status.put(key, value == 1.0);
+            }
+        } catch (Exception e) {
+            logger.error("Error fetching container running status: {}", e.getMessage());
+        }
+        return status;
+    }
+
 }

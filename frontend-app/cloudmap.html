@@ -22,6 +22,11 @@
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
+        /* Hide elements with x-cloak until Alpine is ready */
+        [x-cloak] {
+            display: none !important;
+        }
+
         :root {
             --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             --glass-bg: rgba(255, 255, 255, 0.95);
@@ -37,15 +42,16 @@
 
         /* Layout & Panels */
         .header-gradient {
-            background: rgba(255, 255, 255, 0.9);
+            background: rgba(255, 255, 255, 0.95);
             backdrop-filter: blur(10px);
-            border-bottom: 1px solid rgba(229, 231, 235, 0.8);
+            border-bottom: 1px solid #e5e7eb;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
         }
 
         #cy {
             width: 100%;
             height: 100%;
-            background: #f8fafc;
+            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
         }
 
         /* Sidebar Palette (Design Mode) */
@@ -69,16 +75,36 @@
             cursor: grabbing;
         }
 
-        /* Tabs */
+        /* Tabs - Enhanced CSS-based Styling */
         .tab-btn {
-            border-bottom: 2px solid transparent;
-            transition: all 0.3s;
+            position: relative;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            color: #6b7280;
+            font-weight: 700;
+            background: transparent;
+            border: none;
+        }
+
+        .tab-btn:hover:not(.active) {
+            color: #374151;
+            background: rgba(255, 255, 255, 0.5);
         }
 
         .tab-btn.active {
-            border-color: #667eea;
             color: #4f46e5;
-            background: #eff6ff;
+            background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+            box-shadow: 0 2px 8px rgba(79, 70, 229, 0.15), 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .tab-btn.active::before {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            border-radius: 3px 3px 0 0;
         }
 
         /* Info Panel */
@@ -93,11 +119,12 @@
 
         /* Legend & Toolbar */
         .legend {
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--glass-border);
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(229, 231, 235, 0.8);
             border-radius: 12px;
             padding: 16px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
             margin: 16px;
             position: absolute;
             bottom: 0;
@@ -125,11 +152,11 @@
         }
 
         .toolbar {
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--glass-border);
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(229, 231, 235, 0.8);
             border-radius: 12px;
-            padding: 8px;
+            padding: 6px;
             margin: 16px;
             position: absolute;
             top: 0;
@@ -137,21 +164,26 @@
             z-index: 5;
             display: flex;
             gap: 4px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
         }
 
         .toolbar-button {
-            background: rgba(255, 255, 255, 0.8);
+            background: rgba(255, 255, 255, 0.9);
             border: 1px solid #e5e7eb;
-            border-radius: 6px;
-            padding: 6px 10px;
-            font-size: 12px;
-            transition: all 0.2s;
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 13px;
+            color: #4b5563;
+            font-weight: 600;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         .toolbar-button:hover {
             background: white;
-            transform: translateY(-1px);
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+            color: #6366f1;
+            border-color: #c7d2fe;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(99, 102, 241, 0.15);
         }
 
         /* Node Badges */
@@ -183,57 +215,60 @@
     <div class="flex h-screen bg-white">
         <include file="/_sidebar.html"></include>
 
-        <main class="flex-1 flex flex-col pl-64 h-full relative">
-            <header class="header-gradient px-6 py-3 flex-none z-10">
+        <main id="main-content" class="flex-1 flex flex-col pl-64 h-full relative">
+            <header class="header-gradient px-6 py-4 flex-none z-10">
                 <div class="flex items-center justify-between">
                     <div class="flex items-center space-x-6">
                         <div class="flex items-center space-x-3">
                             <div
-                                class="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center">
+                                class="w-11 h-11 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-md">
                                 <i class="fas fa-project-diagram text-white text-lg"></i>
                             </div>
-                            <h1 class="text-xl font-bold text-gray-800">Cloudmap</h1>
+                            <div>
+                                <h1 class="text-xl font-black text-gray-900 tracking-tight">CloudMap</h1>
+                                <p class="text-xs text-gray-500 font-medium">Network Visualization</p>
+                            </div>
                         </div>
-                        <div class="flex bg-gray-100 p-1 rounded-lg">
+                        <div class="flex bg-gray-100 p-1 rounded-xl shadow-sm">
                             <button onclick="switchMode('live')" id="tab-live"
-                                class="tab-btn active px-4 py-2 text-sm font-semibold rounded-md flex items-center gap-2">
-                                <i class="fas fa-network-wired"></i> Live View
+                                class="tab-btn active px-4 py-2 text-sm font-bold rounded-lg flex items-center gap-2 transition-all">
+                                <i class="fas fa-network-wired text-sm"></i> Live View
                             </button>
                             <button onclick="switchMode('design')" id="tab-design"
-                                class="tab-btn px-4 py-2 text-sm font-semibold rounded-md text-gray-500 hover:text-gray-700 flex items-center gap-2">
-                                <i class="fas fa-pencil-ruler"></i> Design Studio
+                                class="tab-btn px-4 py-2 text-sm font-bold rounded-lg text-gray-500 hover:text-gray-700 flex items-center gap-2 transition-all">
+                                <i class="fas fa-pencil-ruler text-sm"></i> Design Studio
                             </button>
                         </div>
                     </div>
 
-                    <div class="flex items-center space-x-4">
+                    <div class="flex items-center space-x-3">
                         <div id="controls-live" class="flex items-center gap-3">
                             <div
-                                class="flex items-center space-x-2 text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded border border-gray-200">
-                                <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                                <span>Monitoring AWS</span>
+                                class="flex items-center space-x-2 text-xs font-semibold text-green-700 bg-green-50 px-3 py-2 rounded-lg border border-green-200 shadow-sm">
+                                <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse shadow-md"></div>
+                                <span>Live Monitoring</span>
                             </div>
                             <select id="vpc-selector"
-                                class="border border-gray-300 rounded-md text-sm px-3 py-1.5 focus:ring-2 focus:ring-blue-500">
+                                class="border-2 border-gray-200 rounded-lg text-sm px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-medium hover:border-gray-300 transition-colors">
                                 <option value="">Loading...</option>
                             </select>
                             <button id="save-btn-live"
-                                class="bg-blue-600 text-white px-3 py-1.5 rounded text-sm hover:bg-blue-700 shadow-sm">
-                                <i class="fas fa-download"></i>
+                                class="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-md hover:shadow-lg transition-all active:scale-95">
+                                <i class="fas fa-download mr-1"></i> Export
                             </button>
                         </div>
 
                         <div id="controls-design" class="hidden flex items-center gap-3">
                             <select id="blueprint-selector"
-                                class="border border-gray-300 rounded-md text-sm px-3 py-1.5 w-48">
+                                class="border-2 border-gray-200 rounded-lg text-sm px-4 py-2 w-52 font-medium focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
                                 <option value="">-- New Design --</option>
                             </select>
                             <button onclick="saveDesign()"
-                                class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-md text-sm font-medium flex items-center gap-2 shadow-sm">
+                                class="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-md hover:shadow-lg transition-all">
                                 <i class="fas fa-save"></i> Save
                             </button>
                             <button onclick="clearCanvas()"
-                                class="text-red-600 hover:bg-red-50 px-3 py-1.5 rounded-md text-sm font-medium transition">
+                                class="text-red-600 hover:bg-red-50 px-4 py-2 rounded-lg text-sm font-semibold transition-all border-2 border-transparent hover:border-red-200">
                                 <i class="fas fa-trash"></i> Clear
                             </button>
                         </div>
@@ -353,13 +388,15 @@
         };
 
         // --- 2. Initialization ---
-        document.addEventListener('DOMContentLoaded', function () {
+        function initializeCloudMap() {
             cytoscape.use(cytoscapeDagre);
 
             // 2.1 Drag & Drop Events for Canvas
             const wrapper = document.getElementById('canvas-wrapper');
-            wrapper.addEventListener('dragover', e => e.preventDefault());
-            wrapper.addEventListener('drop', handleCanvasDrop);
+            if (wrapper) {
+                wrapper.addEventListener('dragover', e => e.preventDefault());
+                wrapper.addEventListener('drop', handleCanvasDrop);
+            }
 
             // 2.2 Account ID Logic
             const urlParams = new URLSearchParams(window.location.search);
@@ -368,7 +405,14 @@
             // 2.3 Start in Live Mode
             initLiveMode();
             populatePalette();
-        });
+        }
+
+        // Initialize on page load or immediately if already loaded (for soft navigation)
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeCloudMap);
+        } else {
+            initializeCloudMap();
+        }
 
         // --- 3. Mode Switching ---
         window.switchMode = function (mode) {
@@ -390,8 +434,8 @@
 
             if (mode === 'live') {
                 // UI Toggles: LIVE
-                liveTab.className = "tab-btn active px-4 py-2 text-sm font-semibold rounded-md flex items-center gap-2";
-                designTab.className = "tab-btn px-4 py-2 text-sm font-semibold rounded-md text-gray-500 hover:text-gray-700 flex items-center gap-2";
+                liveTab.className = "tab-btn active px-4 py-2 text-sm font-bold rounded-lg flex items-center gap-2 transition-all";
+                designTab.className = "tab-btn px-4 py-2 text-sm font-bold rounded-lg flex items-center gap-2 transition-all";
 
                 liveControls.classList.remove('hidden');
                 designControls.classList.add('hidden');
@@ -403,8 +447,8 @@
                 initLiveMode();
             } else {
                 // UI Toggles: DESIGN
-                liveTab.className = "tab-btn px-4 py-2 text-sm font-semibold rounded-md text-gray-500 hover:text-gray-700 flex items-center gap-2";
-                designTab.className = "tab-btn active px-4 py-2 text-sm font-semibold rounded-md flex items-center gap-2";
+                liveTab.className = "tab-btn px-4 py-2 text-sm font-bold rounded-lg flex items-center gap-2 transition-all";
+                designTab.className = "tab-btn active px-4 py-2 text-sm font-bold rounded-lg flex items-center gap-2 transition-all";
 
                 liveControls.classList.add('hidden');
                 designControls.classList.remove('hidden');
@@ -560,11 +604,11 @@
             const style = [
                 {
                     selector: 'node',
-                    style: { 'shape': 'rectangle', 'label': 'data(label)', 'font-size': '11px', 'font-weight': '600', 'text-valign': 'bottom', 'text-halign': 'center', 'color': '#374151', 'text-margin-y': 8, 'width': 60, 'height': 60, 'background-opacity': 0, 'background-image': (node) => icons[node.data('type')] || '/icons/default.png', 'background-fit': 'contain', 'background-clip': 'none', 'border-width': 2, 'border-color': '#e5e7eb', 'border-opacity': 0.8 }
+                    style: { 'shape': 'rectangle', 'label': 'data(label)', 'font-size': '10px', 'font-weight': '600', 'text-valign': 'bottom', 'text-halign': 'center', 'color': '#374151', 'text-margin-y': 6, 'width': 50, 'height': 50, 'background-opacity': 0, 'background-image': (node) => icons[node.data('type')] || '/icons/default.png', 'background-fit': 'contain', 'background-clip': 'none', 'border-width': 2, 'border-color': '#e5e7eb', 'border-opacity': 0.8 }
                 },
-                { selector: 'node:selected', style: { 'border-color': '#667eea', 'border-width': 4 } },
+                { selector: 'node:selected', style: { 'border-color': '#667eea', 'border-width': 3 } },
                 { selector: 'edge', style: { 'width': 2, 'line-color': '#9ca3af', 'target-arrow-color': '#9ca3af', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', 'opacity': 0.8, 'label': 'data(label)', 'font-size': '9px', 'color': '#555' } },
-                { selector: ':parent', style: { 'text-valign': 'top', 'text-halign': 'center', 'font-weight': 'bold', 'color': '#1f2937', 'background-opacity': 1 } },
+                { selector: ':parent', style: { 'text-valign': 'top', 'text-halign': 'center', 'font-weight': 'bold', 'font-size': '11px', 'color': '#1f2937', 'background-opacity': 0.95, 'padding': '40px', 'border-width': 2, 'border-style': 'dashed' } },
 
                 // Edge Handles specific styles
                 { selector: '.eh-handle', style: { 'background-color': '#667eea', 'width': 12, 'height': 12, 'shape': 'ellipse', 'overlay-opacity': 0, 'border-width': 12, 'border-opacity': 0 } },
