@@ -1,7 +1,9 @@
 package com.xammer.billops.controller;
 
+import com.xammer.billops.dto.RcaRequestDto;
 import com.xammer.billops.dto.TicketDto;
 import com.xammer.billops.dto.TicketReplyDto;
+import com.xammer.billops.service.RcaService;
 import com.xammer.billops.service.TicketService;
 import com.xammer.cloud.security.ClientUserDetails;
 import org.slf4j.Logger;
@@ -22,9 +24,12 @@ public class TicketController {
 
     private static final Logger logger = LoggerFactory.getLogger(TicketController.class);
     private final TicketService ticketService;
+    private final RcaService rcaService; // --- ADDED ---
 
-    public TicketController(TicketService ticketService) {
+    // --- UPDATED CONSTRUCTOR ---
+    public TicketController(TicketService ticketService, RcaService rcaService) {
         this.ticketService = ticketService;
+        this.rcaService = rcaService;
     }
 
     @PostMapping("/tickets")
@@ -71,6 +76,32 @@ public class TicketController {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
     }
+
+    // --- NEW ENDPOINT: GENERATE AND SUBMIT RCA ---
+    @PostMapping("/tickets/{id}/rca")
+    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
+    public ResponseEntity<Void> submitRcaAndClose(
+            @PathVariable Long id,
+            @RequestBody RcaRequestDto rcaDto,
+            Authentication authentication) {
+        try {
+            if (authentication == null || !(authentication.getPrincipal() instanceof ClientUserDetails)) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+            }
+
+            ClientUserDetails userDetails = (ClientUserDetails) authentication.getPrincipal();
+            rcaDto.setTicketId(id);
+
+            // Delegate to service to generate PDF, upload to S3, save DB, update status, and add chat msg
+            rcaService.generateAndSubmitRca(id, rcaDto, userDetails.getId());
+
+            return ResponseEntity.ok().build();
+        } catch (Exception e) {
+            logger.error("Error generating RCA for ticket {}: {}", id, e.getMessage(), e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+    // ---------------------------------------------
 
     // --- UPDATED: FILE ATTACHMENT ENDPOINT ---
     @PostMapping(value = "/tickets/{id}/replies", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)

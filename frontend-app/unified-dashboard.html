@@ -15,6 +15,9 @@
     <script src="https://code.highcharts.com/maps/modules/exporting.js"></script>
     <script src="https://code.highcharts.com/mapdata/custom/world.js"></script>
 
+    <script src="https://cdn.jsdelivr.net/npm/driver.js@1.0.1/dist/driver.js.iife.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/driver.js@1.0.1/dist/driver.css" />
+
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
 
@@ -189,6 +192,79 @@
         .custom-scrollbar::-webkit-scrollbar-thumb:hover {
             background: #94a3b8;
         }
+
+        /* --- TOUR THEME & RESTART BUTTON --- */
+        .driver-popover.driverjs-theme {
+            background-color: #ffffff;
+            color: #1f2937;
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+            border: 1px solid #e5e7eb;
+            max-width: 350px;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .driver-popover.driverjs-theme .driver-popover-title {
+            font-size: 1.125rem;
+            font-weight: 700;
+            color: #111827;
+            margin-bottom: 8px;
+        }
+
+        .driver-popover.driverjs-theme .driver-popover-description {
+            font-size: 0.95rem;
+            line-height: 1.5;
+            color: #4b5563;
+            margin-bottom: 16px;
+        }
+
+        .driver-popover.driverjs-theme button.driver-popover-next-btn {
+            background-color: #7c3aed;
+            /* Violet-600 */
+            color: #ffffff;
+            border: 1px solid #7c3aed;
+            border-radius: 6px;
+            padding: 6px 12px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            text-shadow: none;
+        }
+
+        .driver-popover.driverjs-theme button.driver-popover-next-btn:hover {
+            background-color: #6d28d9;
+        }
+
+        .driver-popover.driverjs-theme button.driver-popover-prev-btn {
+            background-color: #ffffff;
+            border: 1px solid #d1d5db;
+            color: #4b5563;
+            border-radius: 6px;
+            padding: 6px 12px;
+        }
+
+        #restart-tour-btn {
+            /* Removed fixed positioning so it sits in the header */
+            background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            /* Reduced padding to fit header */
+            border-radius: 50px;
+            font-weight: 600;
+            box-shadow: 0 4px 15px rgba(124, 58, 237, 0.4);
+            cursor: pointer;
+            display: none;
+            /* Kept hidden by default */
+            transition: all 0.3s ease;
+            font-size: 0.875rem;
+            /* Match header text size */
+        }
+
+        #restart-tour-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(124, 58, 237, 0.6);
+        }
     </style>
     <!-- Usability Improvements -->
     <link rel="stylesheet" href="/src/usability-improvements.css">
@@ -254,7 +330,12 @@
                             <span x-show="!$store.dashboard.serverTime"
                                 x-text="$store.dashboard.lastUpdatedText">...</span>
                         </div>
-                        <button @click="$dispatch('refresh-all')"
+
+                        <button id="restart-tour-btn" onclick="window.startXamOpsTour()">
+                            <i class="fas fa-rocket fa-fw mr-2"></i> App Tour
+                        </button>
+
+                        <button id="tour-refresh-btn" @click="$dispatch('refresh-all')"
                             class="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 shadow-md hover:shadow-lg rounded-lg transition-all active:scale-95 transform"
                             :disabled="$store.dashboard.isLoading.summary">
                             <i class="fas fa-sync-alt"
@@ -1540,6 +1621,125 @@
             }));
         });
     </script>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const driver = window.driver.js.driver;
+            let tourDriver;
+
+            // 1. Function to Save Status to Database
+            async function markTourSeenInDb() {
+                try {
+                    await fetch('/api/xamops/user/tour-seen', { method: 'POST' });
+                    console.log("Tour marked as seen in Database.");
+                } catch (e) {
+                    console.error("Failed to mark tour as seen", e);
+                }
+            }
+
+            // Helper to Toggle Dropdowns
+            function toggleDropdown(id, forceState) {
+                const btn = document.getElementById(id);
+                if (!btn) return;
+                const dropdown = btn.nextElementSibling;
+                if (forceState === 'open') {
+                    if (!dropdown || dropdown.style.display === 'none' || !dropdown.offsetParent) {
+                        btn.click();
+                    }
+                } else if (forceState === 'close') {
+                    if (dropdown && dropdown.style.display !== 'none') {
+                        btn.click();
+                    }
+                }
+            }
+
+            async function initTour() {
+                try {
+                    // 2. Fetch Profile from Backend
+                    const response = await fetch('/api/xamops/user/profile');
+                    if (!response.ok) return;
+                    const user = await response.json();
+
+                    const hasRole = (user.roles && user.roles.includes('ROLE_XAMOPS')) ||
+                        (user.authorities && user.authorities.some(a => a.authority === 'ROLE_XAMOPS'));
+
+                    if (hasRole) {
+                        // Show Restart Button
+                        const btn = document.getElementById('restart-tour-btn');
+                        if (btn) btn.style.display = 'block';
+
+                        // 3. CHECK DATABASE FLAG (user.tourSeen)
+                        // Only start if FALSE (not seen yet)
+                        if (user.tourSeen === false) {
+                            startXamOpsTour();
+                        }
+                    }
+                } catch (error) { console.error('Tour Init Error:', error); }
+            }
+
+            window.startXamOpsTour = function () {
+                // Define Steps
+                const steps = [
+                    { popover: { title: 'Welcome to XamOps! 🚀', description: 'Let\'s get you started with your new Unified Command Center.', align: 'center' } },
+
+                    // REMOVED: Unified Command Center specific step since it's the default view now.
+
+                    { element: '#tour-refresh-btn', popover: { title: 'Real-time Data', description: 'Refresh to load latest metrics.', side: 'left', align: 'start' } },
+                    { element: '#tour-sidebar', popover: { title: 'Navigation Sidebar', description: 'This is where you find all features.', side: 'right', align: 'center' } },
+                    { element: '#tour-account-selector', popover: { title: 'Account Selector', description: 'Click here to switch between accounts.', side: 'right', align: 'start' } },
+
+                    { element: '#tour-link-dashboard', popover: { title: 'Account Dashboard', description: 'Here you see the metrics for your selected cloud account.', side: 'right', align: 'center' } },
+
+                    // --- FINOPS MODULE ---
+                    { element: '#tour-nav-finops-toggle', popover: { title: 'FinOps Module', description: 'Manage cost allocation and optimization.', side: 'right', align: 'center' }, onHighlightStarted: () => toggleDropdown('tour-nav-finops-toggle', 'open') },
+                    { element: '#tour-nav-finops-report', popover: { title: 'FinOps Report', description: 'View detailed financial reports.', side: 'right', align: 'center' } },
+                    { element: '#tour-nav-finops-cost', popover: { title: 'Costs Overview', description: 'Track your cloud spend.', side: 'right', align: 'center' } },
+                    { element: '#tour-nav-finops-spot', popover: { title: 'Spot Automation', description: 'Leverage spot instances for savings (AWS only).', side: 'right', align: 'center' } },
+                    { element: '#tour-nav-finops-cloudsitter', popover: { title: 'Cloudsitter', description: 'Automated cost optimization (AWS only).', side: 'right', align: 'center' }, onDeselected: () => toggleDropdown('tour-nav-finops-toggle', 'close') },
+
+                    // --- CLOUDOPS MODULE ---
+                    { element: '#tour-nav-cloudops-toggle', popover: { title: 'CloudOps Module', description: 'Monitor operational health.', side: 'right', align: 'center' }, onHighlightStarted: () => toggleDropdown('tour-nav-cloudops-toggle', 'open') },
+                    { element: '#tour-nav-cloudops-grafana', popover: { title: 'Grafana', description: 'Visual metrics dashboards.', side: 'right', align: 'center' } },
+                    { element: '#tour-nav-cloudops-devops', popover: { title: 'DevOps In The Box', description: 'Complete DevOps toolchain.', side: 'right', align: 'center' } },
+                    { element: '#tour-nav-cloudops-k8s', popover: { title: 'CloudK8s', description: 'Kubernetes cluster management.', side: 'right', align: 'center' } },
+                    { element: '#tour-nav-cloudops-cicd', popover: { title: 'CI/CD Pipelines', description: 'Continuous integration and deployment.', side: 'right', align: 'center' } },
+
+                    // --- SECOPS MODULE ---
+                    { element: '#tour-nav-secops-toggle', popover: { title: 'SecOps Module', description: 'Security and Compliance.', side: 'right', align: 'center' }, onHighlightStarted: () => toggleDropdown('tour-nav-secops-toggle', 'open') },
+
+                    // --- BILLOPS MODULE ---
+                    { element: '#tour-nav-billops-toggle', popover: { title: 'BillOps Module', description: 'Billing and Invoicing.', side: 'right', align: 'center' }, onHighlightStarted: () => toggleDropdown('tour-nav-billops-toggle', 'open') },
+
+                    // --- MANAGEMENT (SETTINGS) ---
+                    {
+                        element: '#tour-nav-settings-toggle',
+                        popover: { title: 'Settings', description: 'Configure accounts and user access.', side: 'right', align: 'center' },
+                        onHighlightStarted: () => toggleDropdown('tour-nav-settings-toggle', 'open')
+                    },
+                ];
+
+                tourDriver = driver({
+                    showProgress: true,
+                    animate: true,
+                    steps: steps,
+                    popoverClass: 'driverjs-theme',
+                    nextBtnText: 'Next',
+                    prevBtnText: 'Back',
+                    doneBtnText: 'Finish',
+                    allowClose: true,
+                    // 4. Update Database on Completion
+                    onDestroyed: () => {
+                        markTourSeenInDb();
+                    }
+                });
+
+                tourDriver.drive();
+            };
+
+            initTour();
+        });
+    </script>
+
 </body>
 
 </html>
