@@ -16,7 +16,26 @@
         <include file="/_sidebar.html"></include>
 
         <div class="flex-1 ml-64 flex flex-col h-screen overflow-hidden">
-            <main id="main-content" class="flex-1 flex items-center justify-center p-8" x-data="thirdPartyTools()">
+            <main id="main-content" class="flex-1 flex flex-col min-h-screen" x-data="thirdPartyTools()">
+
+                <!-- Header Bar -->
+                <header class="bg-white border-b border-gray-100 sticky top-0 z-20 px-8 py-5 flex items-center justify-between shadow-sm backdrop-blur-sm bg-white/95">
+                    <div class="flex items-center gap-4">
+                        <div class="w-12 h-12 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center shadow-md">
+                            <i class="fas fa-plug text-white text-xl"></i>
+                        </div>
+                        <div>
+                            <h1 class="text-2xl font-black text-gray-900 tracking-tight">Thirdparty Tools Tracker</h1>
+                            <p class="text-xs text-gray-500 font-semibold mt-1 flex items-center gap-2">
+                                <i class="fas fa-link text-cyan-500 text-[10px]"></i>
+                                External tool integration monitoring and management
+                            </p>
+                        </div>
+                    </div>
+                </header>
+
+                <!-- Main Content -->
+                <div class="flex-1 flex items-center justify-center p-8">
 
                 <style>
                     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
@@ -119,6 +138,7 @@
                             </div>
                         </div>
                     </div>
+                </div>
                 </div>
 
                 <script>
