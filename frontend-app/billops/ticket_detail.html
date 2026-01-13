@@ -117,7 +117,7 @@
             <header class="bg-white shadow-sm z-10 border-b border-gray-200 px-6 py-4">
                 <div class="max-w-5xl mx-auto flex justify-between items-center">
                     <div class="flex items-center gap-4">
-                        <a href="/billops/tickets.html" class="text-gray-500 hover:text-indigo-600 transition">
+                        <a @click.prevent="goBackToTickets()" href="/billops/tickets.html" class="text-gray-500 hover:text-indigo-600 transition cursor-pointer">
                             <i class="fas fa-arrow-left"></i> Back to Tickets
                         </a>
                         <div>
@@ -510,6 +510,21 @@
                             } else {
                                 window.location.href = '/billops/tickets.html';
                             }
+
+                            // Listen for browser back/forward navigation (soft navigation)
+                            window.addEventListener('popstate', (event) => {
+                                console.log('[Ticket Detail] Popstate event detected, reloading ticket details');
+                                const urlParams = new URLSearchParams(window.location.search);
+                                const newTicketId = urlParams.get('id');
+
+                                if (newTicketId && newTicketId !== this.ticketId) {
+                                    this.ticketId = newTicketId;
+                                    this.loading = true;
+                                    this.fetchTicketDetails();
+                                } else if (!newTicketId) {
+                                    window.location.href = '/billops/tickets.html';
+                                }
+                            });
                         },
 
                         // --- NEW: Role Check ---
@@ -739,6 +754,16 @@
                                 alert("An error occurred while submitting the RCA.");
                             } finally {
                                 this.rcaSubmitting = false;
+                            }
+                        },
+
+                        goBackToTickets() {
+                            // Check if we can go back in history
+                            if (window.history.length > 1 && document.referrer.includes('/billops/tickets.html')) {
+                                window.history.back();
+                            } else {
+                                // Fallback: navigate directly to tickets page
+                                window.location.href = '/billops/tickets.html';
                             }
                         }
                     };

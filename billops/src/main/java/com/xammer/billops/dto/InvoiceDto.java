@@ -30,6 +30,7 @@ public class InvoiceDto {
     private BigDecimal discountAmount;
     private BigDecimal taxAmount;
     private BigDecimal amount;
+    private long lastUpdated;
     private List<LineItemDto> lineItems;
     private List<DiscountDto> discounts;
 
@@ -216,6 +217,14 @@ public class InvoiceDto {
 
     public void setAmount(BigDecimal amount) {
         this.amount = amount;
+    }
+
+    public long getLastUpdated() {
+        return lastUpdated;
+    }
+
+    public void setLastUpdated(long lastUpdated) {
+        this.lastUpdated = lastUpdated;
     }
 
     public List<LineItemDto> getLineItems() {
