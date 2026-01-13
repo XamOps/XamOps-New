@@ -63,29 +63,30 @@
                         </div>
                     </div>
 
-                    <div class="mb-6 border-b border-gray-200">
-                        <ul class="flex flex-wrap -mb-px text-sm font-medium text-center">
+                    <!-- Soft Nav Container -->
+                    <div class="mb-8">
+                        <ul class="flex flex-wrap text-sm font-medium text-center bg-gray-100 p-1.5 rounded-xl inline-flex shadow-inner">
 
                             <li class="mr-2" x-show="isBillOps">
                                 <button @click="activeTab = 'clients'"
-                                    class="inline-block p-4 rounded-t-lg border-b-2 hover:text-gray-600 hover:border-gray-300"
-                                    :class="activeTab === 'clients' ? 'text-blue-600 border-blue-600' : 'border-transparent'">
+                                    class="inline-block px-5 py-2.5 rounded-lg transition-all duration-200 ease-in-out"
+                                    :class="activeTab === 'clients' ? 'bg-white text-blue-600 shadow ring-1 ring-black/5' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200/50'">
                                     <i class="fas fa-briefcase mr-2"></i>Business Clients
                                 </button>
                             </li>
 
                             <li class="mr-2">
                                 <button @click="activeTab = 'tenants'"
-                                    class="inline-block p-4 rounded-t-lg border-b-2 hover:text-gray-600 hover:border-gray-300"
-                                    :class="activeTab === 'tenants' ? 'text-blue-600 border-blue-600' : 'border-transparent'">
+                                    class="inline-block px-5 py-2.5 rounded-lg transition-all duration-200 ease-in-out"
+                                    :class="activeTab === 'tenants' ? 'bg-white text-blue-600 shadow ring-1 ring-black/5' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200/50'">
                                     <i class="fas fa-server mr-2"></i>Technical Tenants (DB)
                                 </button>
                             </li>
 
-                            <li class="mr-2">
+                            <li>
                                 <button @click="activeTab = 'users'"
-                                    class="inline-block p-4 rounded-t-lg border-b-2 hover:text-gray-600 hover:border-gray-300"
-                                    :class="activeTab === 'users' ? 'text-blue-600 border-blue-600' : 'border-transparent'">
+                                    class="inline-block px-5 py-2.5 rounded-lg transition-all duration-200 ease-in-out"
+                                    :class="activeTab === 'users' ? 'bg-white text-blue-600 shadow ring-1 ring-black/5' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200/50'">
                                     <i class="fas fa-users mr-2"></i>Global Users
                                 </button>
                             </li>
