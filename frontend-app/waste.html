@@ -382,6 +382,21 @@
                                 }
 
                                 if (this.selectedAccountId) {
+                                    // Load cached data immediately to prevent blank screen
+                                    const cacheKey = `waste_data_${this.selectedAccountId}`;
+                                    const cachedData = sessionStorage.getItem(cacheKey);
+                                    if (cachedData) {
+                                        try {
+                                            this.wastedResources = JSON.parse(cachedData);
+                                            this.isLoading = false;
+                                            console.log('[Waste] Loaded cached data:', this.wastedResources.length, 'resources');
+                                            this.renderSavingsChart();
+                                        } catch (e) {
+                                            console.error('[Waste] Failed to parse cached data:', e);
+                                        }
+                                    }
+
+                                    // Fetch fresh data in background
                                     this.loadWastedResources(false);
                                 } else {
                                     this.isLoading = false;
@@ -404,10 +419,10 @@
                             loadWastedResources(forceRefresh = false) {
                                 if (!this.selectedAccountId) return;
 
-                                // Set loading states
+                                // Set loading states only if we don't have cached data
                                 if (forceRefresh) {
                                     this.isRefreshing = true;
-                                } else {
+                                } else if (this.wastedResources.length === 0) {
                                     this.isLoading = true;
                                 }
 
@@ -418,6 +433,15 @@
                                     .then(data => {
                                         this.wastedResources = Array.isArray(data) ? data : [];
                                         console.log('[Waste] Loaded', this.wastedResources.length, 'waste resources');
+
+                                        // Cache the data in sessionStorage
+                                        const cacheKey = `waste_data_${this.selectedAccountId}`;
+                                        try {
+                                            sessionStorage.setItem(cacheKey, JSON.stringify(this.wastedResources));
+                                        } catch (e) {
+                                            console.error('[Waste] Failed to cache data:', e);
+                                        }
+
                                         this.renderSavingsChart();
                                     })
                                     .catch(err => {

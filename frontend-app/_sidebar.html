@@ -481,6 +481,12 @@
             if (window.location.pathname === '/cloudshell.html') {
                 targetPage = '/cloudshell.html';
             }
+
+            // Exception: If on unified dashboard, navigate to provider-specific dashboard when account selected
+            if (window.location.pathname === '/unified-dashboard.html') {
+                // Use the provider-specific dashboard based on selected account
+                // targetPage is already set above based on provider
+            }
         }
         console.log('[Sidebar] Target Page:', targetPage);
 
@@ -531,6 +537,13 @@
     },
 
     get selectedAccountDisplay() {
+        // Check if on unified dashboard - show Unified only if no specific account selected
+        const currentPath = window.location.pathname;
+        if (currentPath === '/unified-dashboard.html' && this.selectedAccountIds.length === 0) {
+            return { name: 'Unified', id: 'All Providers', provider: 'Unified' };
+        }
+
+        // For all other cases, show the actual selected account(s) from sessionStorage
         if (this.selectedAccountIds.length === 0) {
             return { name: 'Select Accounts', id: this.accounts.length === 0 && !this.isLoading ? 'No accounts connected' : 'No account selected' };
         }
@@ -538,7 +551,7 @@
             const account = this.accounts.find(a => a.id === this.selectedAccountIds[0]);
             return { name: account?.name || 'Loading...', id: account?.id || '', provider: account?.provider || 'AWS' };
         }
-       
+
         // Multi-Account Display
         const firstAccount = this.accounts.find(a => a.id === this.selectedAccountIds[0]);
         const provider = firstAccount ? firstAccount.provider : 'AWS';
@@ -560,6 +573,7 @@
 
     getProviderIcon(provider) {
         switch(provider) {
+            case 'Unified': return '/icons/XamOps.png';
             case 'GCP': return '/icons/gcp-icon.png';
             case 'Azure': return '/icons/azure-icon.png';
             case 'AWS': default: return '/icons/default-icon.png';
@@ -953,12 +967,12 @@
                             :class="openDropdown === 'cloudops' && 'rotate-180'"></i>
                     </button>
                     <div x-show="openDropdown === 'cloudops'" class="ml-6 mt-2 space-y-1">
-                        <a :href="getLink('/grafana-dashboard.html')"
-                            :class="{'text-indigo-600 font-bold bg-indigo-50': isActive('/grafana-dashboard.html')}"
-                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-indigo-600">Grafana</a>
                         <a :href="getLink('/xamops_tickets.html')"
                             :class="{'text-indigo-600 font-bold bg-indigo-50': isActive('/xamops_tickets.html')}"
                             class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-indigo-600">Tickets</a>
+                        <a :href="getLink('/grafana-dashboard.html')"
+                            :class="{'text-indigo-600 font-bold bg-indigo-50': isActive('/grafana-dashboard.html')}"
+                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-indigo-600">Grafana</a>
                         <a :href="getLink('/devops_in_the_box.html')"
                             :class="{'text-red-600 font-bold bg-red-50': isActive('/devops_in_the_box.html')}"
                             class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-cyan-600">DevOps
