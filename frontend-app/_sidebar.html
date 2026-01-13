@@ -1033,7 +1033,8 @@
 
             <div class="sidebar-section" :class="{'active': isActive('/finops')}">
                 <div x-init="if (isActive('/finops')) openDropdown = 'finops'">
-                    <button id="tour-nav-finops-toggle" @click="openDropdown = openDropdown === 'finops' ? null : 'finops'"
+                    <button id="tour-nav-finops-toggle"
+                        @click="openDropdown = openDropdown === 'finops' ? null : 'finops'"
                         class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold"
                         :class="isActive('/finops') ? 'bg-gradient-to-r from-green-500 to-teal-600 text-white shadow-lg' : 'text-gray-600 hover:bg-green-50'">
                         <div class="flex items-center gap-3">
@@ -1061,11 +1062,13 @@
                         <a :href="getLink('/reservation.html')"
                             :class="{'text-green-600 font-bold bg-green-50': isActive('/reservation.html')}"
                             class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-green-600">Reservations</a>
-                        <a id="tour-nav-finops-spot" :href="getLink('/spot-automation.html')" x-show="selectedAccountDisplay.provider === 'AWS'"
+                        <a id="tour-nav-finops-spot" :href="getLink('/spot-automation.html')"
+                            x-show="selectedAccountDisplay.provider === 'AWS'"
                             :class="{'text-green-600 font-bold bg-green-50': isActive('/spot-automation.html')}"
                             class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-green-600">Spot
                             Automation</a>
-                        <a id="tour-nav-finops-cloudsitter" :href="getLink('/cloudsitter.html')" x-show="selectedAccountDisplay.provider === 'AWS'"
+                        <a id="tour-nav-finops-cloudsitter" :href="getLink('/cloudsitter.html')"
+                            x-show="selectedAccountDisplay.provider === 'AWS'"
                             :class="{'text-green-600 font-bold bg-green-50': isActive('/cloudsitter.html')}"
                             class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-green-600">Cloudsitter</a>
                     </div>
@@ -1074,7 +1077,8 @@
 
             <div class="sidebar-section" :class="{'active': isActive('/cloudops')}">
                 <div x-init="if (isActive('/cloudops')) openDropdown = 'cloudops'">
-                    <button id="tour-nav-cloudops-toggle" @click="openDropdown = openDropdown === 'cloudops' ? null : 'cloudops'"
+                    <button id="tour-nav-cloudops-toggle"
+                        @click="openDropdown = openDropdown === 'cloudops' ? null : 'cloudops'"
                         class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold"
                         :class="isActive('/cloudops') ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg' : 'text-gray-600 hover:bg-indigo-50'">
                         <div class="flex items-center gap-3">
@@ -1118,7 +1122,8 @@
 
             <div class="sidebar-section" :class="{'active': isActive('/security')}">
                 <div x-init="if (isActive('/security')) openDropdown = 'security'">
-                    <button id="tour-nav-secops-toggle" @click="openDropdown = openDropdown === 'security' ? null : 'security'"
+                    <button id="tour-nav-secops-toggle"
+                        @click="openDropdown = openDropdown === 'security' ? null : 'security'"
                         class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold"
                         :class="isActive('/security') ? 'bg-gradient-to-r from-red-500 to-orange-600 text-white shadow-lg' : 'text-gray-600 hover:bg-red-50'">
                         <div class="flex items-center gap-3">
@@ -1150,7 +1155,8 @@
         <div x-show="hasAnyRole(['ROLE_XAMOPS', 'ROLE_BILLOPS', 'ROLE_SUPER_ADMIN'])" x-cloak>
             <div class="sidebar-section" :class="{'active': isActive('/billops/')}">
                 <div x-init="if (isActive('/billops/')) openDropdown = 'billops'">
-                    <button id="tour-nav-billops-toggle" @click="openDropdown = openDropdown === 'billops' ? null : 'billops'"
+                    <button id="tour-nav-billops-toggle"
+                        @click="openDropdown = openDropdown === 'billops' ? null : 'billops'"
                         class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold"
                         :class="isActive('/billops/') ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg' : 'text-gray-600 hover:bg-cyan-50'">
                         <div class="flex items-center gap-3">
@@ -1279,6 +1285,18 @@
         </div>
     </nav>
 
+    <!-- Super Admin Section for ROLE_SUPER_ADMIN -->
+    <div x-show="hasAnyRole('ROLE_SUPER_ADMIN')" x-cloak class="px-3 pb-2">
+        <div class="sidebar-section" :class="{'active': isActive('/superadmin_customers.html')}">
+            <a :href="getLink('/superadmin_customers.html')"
+                class="nav-item flex items-center gap-3 rounded-xl px-4 py-3 font-semibold"
+                :class="isActive('/superadmin_customers.html') ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg' : 'text-gray-600 hover:bg-purple-50'">
+                <i class="fas fa-user-astronaut fa-fw w-5 text-center"></i>
+                <span>Super Admin</span>
+            </a>
+        </div>
+    </div>
+
     <div class="flex-shrink-0 border-t bg-white">
 
 
@@ -1314,7 +1332,8 @@
                         </div>
                     </div>
 
-                    <button id="tour-nav-settings-toggle" @click="openDropdown = openDropdown === 'settings' ? null : 'settings'"
+                    <button id="tour-nav-settings-toggle"
+                        @click="openDropdown = openDropdown === 'settings' ? null : 'settings'"
                         class="nav-item w-full flex items-center justify-between rounded-xl px-7 py-3 font-semibold"
                         :class="isActive('/account-manager') || isActive('/user-manager') || isActive('/Xamops_User_management') || isActive('/superadmin_customers') ? 'bg-gradient-to-r from-gray-500 to-gray-600 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-50'">
                         <div class="flex items-center">
@@ -1646,7 +1665,7 @@
 
         // --- TOUR HELPER FUNCTION ---
         // This allows the Tour Driver to open/close sidebar menus programmatically
-        window.toggleDropdown = function(elementId, action) {
+        window.toggleDropdown = function (elementId, action) {
             const sidebar = document.getElementById('tour-sidebar');
 
             // Safety check: ensure sidebar and Alpine data exist
