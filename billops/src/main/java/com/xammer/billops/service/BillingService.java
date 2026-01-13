@@ -74,6 +74,7 @@ public class BillingService {
                 .reduce(new BillingDashboardDto(), this::mergeBillingDashboards);
 
         // 4. Update Cache
+        aggregatedData.setLastUpdated(System.currentTimeMillis());
         redisCache.put(cacheKey, aggregatedData, CACHE_TTL_MINUTES);
 
         return aggregatedData;
