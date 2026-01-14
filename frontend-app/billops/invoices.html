@@ -677,9 +677,51 @@
                                     // 🔄 2. Background Refresh
                                     this.fetchData(false);
                                 } else {
-                                    this.error = "No account selected. Please choose an account from the sidebar.";
+                                    console.warn('[Invoices] No account ID in URL, waiting for sidebar to apply selection...');
+                                    this.error = "Select an account to view invoices";
                                     this.listLoading = false;
                                 }
+
+                                // Listen for account changes from sidebar
+                                window.addEventListener('account-changed', (event) => {
+                                    console.log('[Invoices] Account changed event received:', event.detail);
+                                    const newAccountId = event.detail.accountIds ? event.detail.accountIds.join(',') : event.detail.accountId;
+
+                                    // Handle both single string ID or comma-separated list
+                                    // For invoices, we currently filter by the first ID or specific match logic
+                                    // The existing code at line 672 uses .split(',')[0], so we should be consistent
+                                    // But actually, update the whole property and let filterAndDisplayInvoices handle it?
+                                    // Line 672: this.selectedAccountId = accountIds.split(',')[0];
+
+                                    if (newAccountId) {
+                                        const newSelectedId = newAccountId.split(',')[0];
+
+                                        if (newSelectedId !== this.selectedAccountId) {
+                                            console.log('[Invoices] Updating account ID to:', newSelectedId);
+                                            this.selectedAccountId = newSelectedId;
+                                            this.selectedAccountName = ''; // Reset name so it updates from new data
+                                            this.error = null;
+                                            this.listLoading = true;
+
+                                            // Check cache first for new account
+                                            // Note: current cache key is generic 'invoices_list_admin' so it might contain mixed data
+                                            // The fetchData implementation fetches ALL invoices for admin (?) or filters on backend?
+                                            // fetch(`/api/admin/invoices?forceRefresh=${forceRefresh}`) logic at 722 implies it fetches list.
+                                            // The filtering happens in Frontend at 768.
+
+                                            // So we just need to re-filter if we already have data, or fetch if we don't?
+                                            // If we have data, we can just re-filter.
+
+                                            if (this.hasData) {
+                                                console.log('[Invoices] Data exists, re-filtering for new account.');
+                                                this.filterAndDisplayInvoices();
+                                                this.listLoading = false;
+                                            } else {
+                                                this.fetchData(false);
+                                            }
+                                        }
+                                    }
+                                });
                             },
 
                             loadFromCache() {
