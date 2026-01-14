@@ -1573,8 +1573,14 @@
                 document.title = doc.title;
 
                 // --- FIX: Update Body Attributes (for Theme/Bg changes) ---
+                // IMPORTANT: Reset body styles first to prevent page-specific styles from persisting
+                // This fixes the issue where CloudMap's "overflow: hidden" breaks other pages
+                document.body.removeAttribute('style');
                 document.body.className = doc.body.className;
-                document.body.style.cssText = doc.body.style.cssText;
+                // Only apply inline styles if the new page explicitly sets them
+                if (doc.body.style.cssText) {
+                    document.body.style.cssText = doc.body.style.cssText;
+                }
 
                 // --- FIX 1: Load Head Scripts (Critical Libs) FIRST ---
                 const newHeadScripts = doc.head.querySelectorAll('script[src]');
