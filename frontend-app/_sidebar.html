@@ -719,6 +719,12 @@
         if (path === '/dashboard.html') {
             return currentPath === '/dashboard.html' || currentPath === '/gcp_dashboard.html' || currentPath === '/azure_dashboard.html';
         }
+        if (path === '/account-manager.html') {
+            return currentPath === '/account-manager.html' ||
+                   currentPath === '/add-account.html' ||
+                   currentPath === '/add-gcp-account.html' ||
+                   currentPath === '/add-github-config.html';
+        }
         if (path === '/finops.html') {
             return currentPath === '/finops.html' || currentPath === '/gcp_finops.html' || currentPath === '/azure-finops-report.html';
         }
