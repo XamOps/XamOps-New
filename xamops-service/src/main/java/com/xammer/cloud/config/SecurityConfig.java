@@ -33,7 +33,7 @@ public class SecurityConfig {
     private final CustomLogoutSuccessHandler logoutSuccessHandler;
 
     public SecurityConfig(CustomAuthenticationSuccessHandler authenticationSuccessHandler,
-                          CustomLogoutSuccessHandler logoutSuccessHandler) {
+            CustomLogoutSuccessHandler logoutSuccessHandler) {
         this.authenticationSuccessHandler = authenticationSuccessHandler;
         this.logoutSuccessHandler = logoutSuccessHandler;
     }
@@ -42,7 +42,7 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
 
-             .cors(withDefaults())
+                .cors(withDefaults())
                 .csrf(csrf -> csrf.disable())
                 .exceptionHandling(exceptions -> exceptions
                         .defaultAuthenticationEntryPointFor(
@@ -78,6 +78,8 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("actions-history.html"),
                                 // ✅ YOUR CODE: Preserved missing pages
                                 new AntPathRequestMatcher("/cloudsitter.html"),
+                                new AntPathRequestMatcher("billops/dashboard_user.html"),
+                                new AntPathRequestMatcher("billops/dashboard_admin.html"),
 
                                 // Connectivity
                                 new AntPathRequestMatcher("/ws/**"),
@@ -96,8 +98,7 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("/api/autospotting/**"),
                                 new AntPathRequestMatcher("/api/dev_ops_script/**"),
                                 // ✅ TEAM CODE: Preserved AWS Calculator API
-                                new AntPathRequestMatcher("/api/aws/**")
-                        )
+                                new AntPathRequestMatcher("/api/aws/**"))
                         .permitAll()
                         .anyRequest().authenticated())
                 .formLogin((form) -> form
@@ -118,10 +119,9 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(Arrays.asList(
-            "http://localhost:5173",
-            "https://live.xamops.com",
-            "https://uat.xamops.com"
-        ));
+                "http://localhost:5173",
+                "https://live.xamops.com",
+                "https://uat.xamops.com"));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("*"));
         configuration.setAllowCredentials(true);
