@@ -7,14 +7,18 @@ import com.azure.identity.ClientSecretCredentialBuilder;
 import com.azure.resourcemanager.AzureResourceManager;
 import com.xammer.billops.domain.CloudAccount;
 import com.xammer.billops.repository.CloudAccountRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import javax.annotation.PostConstruct;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class AzureClientProvider {
 
+    private static final Logger logger = LoggerFactory.getLogger(AzureClientProvider.class);
     private final Map<String, AzureResourceManager> clientCache = new ConcurrentHashMap<>();
     private final CloudAccountRepository cloudAccountRepository;
 
@@ -22,12 +26,19 @@ public class AzureClientProvider {
         this.cloudAccountRepository = cloudAccountRepository;
     }
 
+    @PostConstruct
+    public void init() {
+        logger.info("✅ AzureClientProvider initialized");
+    }
+
     public AzureResourceManager getAzureClient(String subscriptionId) {
         return clientCache.computeIfAbsent(subscriptionId, id -> {
             CloudAccount account = cloudAccountRepository.findByAzureSubscriptionId(id)
-                    .orElseThrow(() -> new IllegalArgumentException("Azure account not found for Subscription ID: " + id));
+                    .orElseThrow(
+                            () -> new IllegalArgumentException("Azure account not found for Subscription ID: " + id));
 
-            AzureProfile profile = new AzureProfile(account.getAzureTenantId(), account.getAzureSubscriptionId(), AzureEnvironment.AZURE);
+            AzureProfile profile = new AzureProfile(account.getAzureTenantId(), account.getAzureSubscriptionId(),
+                    AzureEnvironment.AZURE);
             TokenCredential credential = buildCredential(account);
 
             return AzureResourceManager.authenticate(credential, profile).withSubscription(id);
@@ -36,7 +47,8 @@ public class AzureClientProvider {
 
     public TokenCredential getCredential(String subscriptionId) {
         CloudAccount account = cloudAccountRepository.findByAzureSubscriptionId(subscriptionId)
-                .orElseThrow(() -> new IllegalArgumentException("Azure account not found for Subscription ID: " + subscriptionId));
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Azure account not found for Subscription ID: " + subscriptionId));
         return buildCredential(account);
     }
 

@@ -1209,10 +1209,10 @@
                             :class="{'text-gray-800 font-bold bg-gray-100': isActive('/billops/admin_invoices')}"
                             class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-gray-800">Invoice
                             Admin</a>
-                        <a :href="getLink('/billops/admin_cloudfront_billing.html')"
+                        <!-- <a :href="getLink('/billops/admin_cloudfront_billing.html')"
                             :class="{'text-gray-800 font-bold bg-gray-100': isActive('/billops/admin_cloudfront_billing')}"
                             class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-gray-800">CloudFront
-                            Billing</a>
+                            Billing</a> -->
                         <a :href="getLink('/billops/admin_credits.html')"
                             :class="{'text-gray-800 font-bold bg-gray-100': isActive('/billops/admin_credits')}"
                             class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-gray-800">Credit
@@ -1271,7 +1271,7 @@
             </div>
 
             <div class="sidebar-section mt-2">
-                <div x-init="if (isActive('/billops/licenses_')) openDropdown = 'billops-licenses'">
+                <!-- <div x-init="if (isActive('/billops/licenses_')) openDropdown = 'billops-licenses'">
                     <button @click="openDropdown = openDropdown === 'billops-licenses' ? null : 'billops-licenses'"
                         class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold"
                         :class="isActive('/billops/licenses_') ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg' : 'text-gray-600 hover:bg-cyan-50'">
@@ -1303,7 +1303,7 @@
                             class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-cyan-600">Thirdparty
                             Tools</a>
                     </div>
-                </div>
+                </div> -->
             </div>
         </div>
     </nav>

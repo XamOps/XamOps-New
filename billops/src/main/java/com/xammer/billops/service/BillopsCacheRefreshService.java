@@ -9,6 +9,8 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 
+import javax.annotation.PostConstruct;
+
 @Service
 public class BillopsCacheRefreshService {
 
@@ -24,6 +26,11 @@ public class BillopsCacheRefreshService {
         this.adminDashboardService = adminDashboardService;
         this.userDashboardService = userDashboardService;
         this.appUserRepository = appUserRepository;
+    }
+
+    @PostConstruct
+    public void init() {
+        logger.info("✅ BillopsCacheRefreshService initialized");
     }
 
     /**
