@@ -1,6 +1,8 @@
 package com.xammer.billops.service;
 
+import com.xammer.billops.config.BillopsSchedulingEnvironmentConfig;
 import com.xammer.billops.domain.CloudAccount;
+
 import com.xammer.billops.repository.CloudAccountRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,18 +27,20 @@ public class ProactiveCacheRefreshService {
     private final InvoiceManagementService invoiceManagementService;
     private final TicketService ticketService;
     private final DashboardService dashboardService; // [New]
-    private final CostService costService;           // [New]
-    private final CacheManager cacheManager;         // [New]
+    private final CostService costService;
+    private final CacheManager cacheManager;
+    private final BillopsSchedulingEnvironmentConfig envConfig;
 
     @Autowired
     public ProactiveCacheRefreshService(
-            CloudAccountRepository cloudAccountRepository, 
+            CloudAccountRepository cloudAccountRepository,
             BillingService billingService,
             InvoiceManagementService invoiceManagementService,
             TicketService ticketService,
             DashboardService dashboardService,
             CostService costService,
-            CacheManager cacheManager) {
+            CacheManager cacheManager,
+            BillopsSchedulingEnvironmentConfig envConfig) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.billingService = billingService;
         this.invoiceManagementService = invoiceManagementService;
@@ -44,6 +48,10 @@ public class ProactiveCacheRefreshService {
         this.dashboardService = dashboardService;
         this.costService = costService;
         this.cacheManager = cacheManager;
+        this.envConfig = envConfig;
+
+        // Log configuration on startup
+        envConfig.logConfiguration();
     }
 
     private List<CloudAccount> getAllAccounts() {
@@ -55,33 +63,42 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     @Scheduled(cron = "0 0 2 * * ?")
     public void refreshDashboardCache() {
+        if (!envConfig.isSchedulingEnabled()) {
+            return;
+        }
         logger.info("--- [2:00 AM] Starting Dashboard Cache Refresh ---");
+
         LocalDate now = LocalDate.now();
         int currentYear = now.getYear();
         int currentMonth = now.getMonthValue();
 
         for (CloudAccount account : getAllAccounts()) {
-            if (account.getAwsAccountId() == null) continue;
+            if (account.getAwsAccountId() == null)
+                continue;
             String accountId = account.getAwsAccountId();
 
             try {
                 // 1. Evict specific dashboard cache manually to ensure fresh fetch
-                // Note: The cache key in DashboardService is: { #account.awsAccountId, #year, #month }
+                // Note: The cache key in DashboardService is: { #account.awsAccountId, #year,
+                // #month }
                 // Constructing key manually or using clear() if keys are complex
                 Cache dashboardCache = cacheManager.getCache("dashboardData");
                 if (dashboardCache != null) {
                     // We simply evict all to be safe, or we could construct the key if needed.
                     // dashboardCache.evict(Arrays.asList(accountId, currentYear, currentMonth));
-                    // For simplicity in this batch job, specific eviction might be tricky without key generator access.
-                    // However, calling the method with @Cacheable will refresh it if expired/missing.
-                    // To force refresh, we can explicitly call the service. 
+                    // For simplicity in this batch job, specific eviction might be tricky without
+                    // key generator access.
+                    // However, calling the method with @Cacheable will refresh it if
+                    // expired/missing.
+                    // To force refresh, we can explicitly call the service.
                 }
 
                 // 2. Fetch Data (This will populate the cache)
                 // We rely on Redis TTL (1 hour in your config) or manual refresh here.
-                // Since your CacheConfig sets 1h TTL, we are essentially "warming" it for the morning.
+                // Since your CacheConfig sets 1h TTL, we are essentially "warming" it for the
+                // morning.
                 dashboardService.getDashboardData(account, currentYear, currentMonth);
-                
+
                 logger.info(" > Dashboard data refreshed for {}", accountId);
             } catch (Exception e) {
                 logger.error("Failed to refresh Dashboard data for account {}", accountId, e);
@@ -95,8 +112,11 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     @Scheduled(cron = "0 30 2 * * ?")
     public void refreshBillingAndCostCache() {
+        if (!envConfig.isSchedulingEnabled()) {
+            return;
+        }
         logger.info("--- [2:30 AM] Starting Billing & Cost Cache Refresh ---");
-        
+
         LocalDate now = LocalDate.now();
         int currentYear = now.getYear();
         int currentMonth = now.getMonthValue();
@@ -127,14 +147,15 @@ public class ProactiveCacheRefreshService {
                     .map(CloudAccount::getAwsAccountId)
                     .collect(Collectors.toList());
 
-            if (accountIds.isEmpty()) continue;
+            if (accountIds.isEmpty())
+                continue;
 
             logger.info("Refreshing aggregated billing for Client ID: {}", clientId);
             try {
                 // Refresh Aggregate View
                 billingService.getBillingData(accountIds, currentYear, currentMonth, true);
                 billingService.getDetailedBillingReport(accountIds, currentYear, currentMonth, true);
-                
+
                 // Refresh Individual Account Views within Billing Service
                 for (String accountId : accountIds) {
                     billingService.getBillingData(List.of(accountId), currentYear, currentMonth, true);
@@ -152,9 +173,14 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     @Scheduled(cron = "0 30 3 * * ?")
     public void refreshInvoicesCache() {
+        if (!envConfig.isSchedulingEnabled()) {
+            return;
+        }
         logger.info("--- [3:30 AM] Starting Invoices Cache Refresh ---");
+
         try {
-            // Fetches all invoices from DB and updates the Redis cache used by the Admin/List view
+            // Fetches all invoices from DB and updates the Redis cache used by the
+            // Admin/List view
             invoiceManagementService.getAllInvoicesAndCache();
             logger.info("Successfully refreshed all invoices cache.");
         } catch (Exception e) {
@@ -167,15 +193,19 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     @Scheduled(cron = "0 0 4 * * ?")
     public void refreshTicketsCache() {
+        if (!envConfig.isSchedulingEnabled()) {
+            return;
+        }
         logger.info("--- [4:00 AM] Starting Tickets Cache Refresh ---");
+
         try {
             // 1. Refresh the main "All Tickets" list
             ticketService.getAllTickets(true);
-            
+
             // 2. Refresh specific categories
             ticketService.getTicketsByCategory("Technical", true);
             ticketService.getTicketsByCategory("Account and Billing", true);
-            
+
             logger.info("Successfully refreshed ticket caches.");
         } catch (Exception e) {
             logger.error("Failed to refresh tickets cache", e);

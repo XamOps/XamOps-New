@@ -30,6 +30,8 @@ import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import javax.annotation.PostConstruct;
+
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
@@ -99,6 +101,11 @@ public class InvoiceManagementService {
         this.privateRateRepository = privateRateRepository;
         this.clientRepository = clientRepository;
         this.redisCache = redisCache;
+    }
+
+    @PostConstruct
+    public void init() {
+        logger.info("✅ InvoiceManagementService initialized");
     }
 
     private void evictInvoiceListCache() {

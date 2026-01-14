@@ -11,6 +11,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import javax.annotation.PostConstruct;
+
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
@@ -35,6 +37,11 @@ public class BillingService {
         this.costService = costService;
         this.cloudAccountRepository = cloudAccountRepository;
         this.redisCache = redisCache;
+    }
+
+    @PostConstruct
+    public void init() {
+        logger.info("✅ BillingService initialized");
     }
 
     /**

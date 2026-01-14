@@ -16,6 +16,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import javax.annotation.PostConstruct;
+
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.YearMonth;
@@ -27,6 +29,11 @@ import java.util.Optional;
 public class UserDashboardService {
 
     private static final Logger logger = LoggerFactory.getLogger(UserDashboardService.class);
+
+    @PostConstruct
+    public void init() {
+        logger.info("✅ UserDashboardService initialized");
+    }
 
     private final CloudAccountRepository cloudAccountRepository;
     private final InvoiceRepository invoiceRepository;

@@ -38,7 +38,7 @@ public class TicketController {
             if (authentication != null && authentication.getPrincipal() instanceof ClientUserDetails) {
                 ClientUserDetails userDetails = (ClientUserDetails) authentication.getPrincipal();
                 ticketDto.setCreatorId(userDetails.getId());
-                
+
                 if (ticketDto.getClientId() == null) {
                     ticketDto.setClientId(userDetails.getClientId());
                 }
@@ -92,7 +92,8 @@ public class TicketController {
             ClientUserDetails userDetails = (ClientUserDetails) authentication.getPrincipal();
             rcaDto.setTicketId(id);
 
-            // Delegate to service to generate PDF, upload to S3, save DB, update status, and add chat msg
+            // Delegate to service to generate PDF, upload to S3, save DB, update status,
+            // and add chat msg
             rcaService.generateAndSubmitRca(id, rcaDto, userDetails.getId());
 
             return ResponseEntity.ok().build();
@@ -107,12 +108,12 @@ public class TicketController {
     @PostMapping(value = "/tickets/{id}/replies", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<TicketDto> addTicketReply(
             @PathVariable Long id,
-            // CHANGE 1: Made message optional
-            @RequestPart(value = "message", required = false) String message, 
-            @RequestPart(value = "file", required = false) MultipartFile file,
+            @RequestParam(value = "message", required = false) String message,
+            @RequestParam(value = "file", required = false) MultipartFile file,
             Authentication authentication) {
         try {
-            if (authentication == null || !authentication.isAuthenticated() || "anonymousUser".equals(authentication.getPrincipal())) {
+            if (authentication == null || !authentication.isAuthenticated()
+                    || "anonymousUser".equals(authentication.getPrincipal())) {
                 return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
             }
 
@@ -120,21 +121,18 @@ public class TicketController {
 
             TicketReplyDto replyDto = new TicketReplyDto();
             replyDto.setAuthorUsername(username);
-            
+
             // CHANGE 2: Handle null message gracefully
             String safeMessage = (message != null) ? message : "";
             replyDto.setMessage(safeMessage);
-            
+
             if (authentication.getPrincipal() instanceof ClientUserDetails) {
                 replyDto.setAuthorId(((ClientUserDetails) authentication.getPrincipal()).getId());
             }
 
-            // CHANGE 3: Allow if EITHER message has text OR file is attached
-            boolean hasMessage = !safeMessage.isBlank();
-            boolean hasFile = file != null && !file.isEmpty();
-
-            if (!hasMessage && !hasFile) {
-                return ResponseEntity.badRequest().build();
+            if (file != null) {
+                logger.info("Received file for ticket reply: {}, size: {}, type: {}",
+                        file.getOriginalFilename(), file.getSize(), file.getContentType());
             }
 
             return ResponseEntity.ok(ticketService.addReplyToTicket(id, replyDto, file));

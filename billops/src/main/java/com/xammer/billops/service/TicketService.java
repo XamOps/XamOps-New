@@ -18,6 +18,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import javax.annotation.PostConstruct;
+
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -27,6 +29,12 @@ import java.util.stream.Collectors;
 public class TicketService {
 
     private static final Logger logger = LoggerFactory.getLogger(TicketService.class);
+
+    @PostConstruct
+    public void init() {
+        logger.info("✅ TicketService initialized");
+    }
+
     private static final String ADMIN_TECHNICAL_EMAIL = "sahil@xammer.in";
     private static final String ADMIN_BILLING_EMAIL = "nirbhay@xammer.in";
 
@@ -349,6 +357,11 @@ public class TicketService {
         if (reply.getAuthor() != null) {
             dto.setAuthorId(reply.getAuthor().getId());
             dto.setAuthorUsername(reply.getAuthor().getUsername());
+
+            // Map admin status
+            boolean isAdmin = reply.getAuthor().getRole() != null &&
+                    (reply.getAuthor().getRole().contains("ADMIN"));
+            dto.setAdmin(isAdmin);
         }
 
         if (reply.getAttachmentKey() != null) {

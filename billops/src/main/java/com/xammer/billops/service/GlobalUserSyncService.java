@@ -17,10 +17,17 @@ import javax.sql.DataSource;
 import java.util.List;
 import java.util.Optional;
 
+import javax.annotation.PostConstruct;
+
 @Service
 public class GlobalUserSyncService {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalUserSyncService.class);
+
+    @PostConstruct
+    public void init() {
+        log.info("✅ GlobalUserSyncService initialized");
+    }
 
     @Autowired
     private MasterDatabaseService masterDatabaseService;

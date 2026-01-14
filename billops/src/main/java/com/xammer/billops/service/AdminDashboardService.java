@@ -18,6 +18,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
+import javax.annotation.PostConstruct;
+
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.YearMonth;
@@ -29,6 +31,11 @@ import java.util.Optional;
 public class AdminDashboardService {
 
     private static final Logger logger = LoggerFactory.getLogger(AdminDashboardService.class);
+
+    @PostConstruct
+    public void init() {
+        logger.info("✅ AdminDashboardService initialized");
+    }
 
     private final CloudAccountRepository cloudAccountRepository;
     private final InvoiceRepository invoiceRepository;
