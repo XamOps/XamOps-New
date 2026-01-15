@@ -41,9 +41,44 @@ public class GcpBillingDataIngestionService {
     public void runDailyBillingIngestion() {
         log.info("🔄 [Scheduler] Starting Global Scheduled Job: Ingest GCP billing data...");
 
+        // Check if we're in prod profile
+        String[] activeProfiles = new org.springframework.core.env.StandardEnvironment().getActiveProfiles();
+        boolean isProd = java.util.Arrays.asList(activeProfiles).contains("prod");
+
+        if (!isProd) {
+            // In local/UAT, process current database only (no multi-tenancy)
+            log.info("🔓 LOCAL/UAT MODE: Processing current database only");
+            try {
+                // Process accounts in current database without tenant context switching
+                List<CloudAccount> allAccounts = cloudAccountRepository.findAll();
+                log.info("📊 Found {} total accounts in database.", allAccounts.size());
+
+                List<CloudAccount> gcpAccounts = allAccounts.stream()
+                        .filter(this::isConfiguredGcpAccount)
+                        .toList();
+
+                if (gcpAccounts.isEmpty()) {
+                    log.warn("⚠️ No configured GCP accounts found. Skipping.");
+                    return;
+                }
+
+                log.info("✅ Found {} GCP accounts eligible for ingestion.", gcpAccounts.size());
+
+                for (CloudAccount account : gcpAccounts) {
+                    ingestDataForAccount(account);
+                }
+
+                log.info("✅ [Scheduler] Local GCP Billing Ingestion Completed.");
+            } catch (Exception e) {
+                log.error("💥 [Scheduler] Failed to ingest GCP billing data", e);
+            }
+            return;
+        }
+
+        // PROD MODE: Multi-tenant processing
+        log.info("🔒 PROD MODE: Multi-tenant processing");
+
         // 1. Fetch all active tenant IDs from the Master DB
-        // We use JdbcTemplate directly on masterDataSource because we are outside any
-        // tenant context here.
         List<String> activeTenants;
         try {
             activeTenants = getAllActiveTenantIds();
