@@ -84,7 +84,7 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("/terminal"),
 
                                 // Public APIs
-                                new AntPathRequestMatcher("/api/ai/**"),
+                              //  new AntPathRequestMatcher("/api/ai/**"),
                                 new AntPathRequestMatcher("/api/cicd/github/runs"),
                                 new AntPathRequestMatcher("/api/cicd/config/**"),
                                 new AntPathRequestMatcher("/api/cicd/**"),
