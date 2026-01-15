@@ -43,18 +43,27 @@ public class GlobalUserSyncService {
 
     /**
      * Runs automatically every 60 seconds to ensure Global Directory is up to date.
+     * ONLY runs in PROD profile (local/UAT use single DB, no tenant sync needed)
      */
     @Scheduled(fixedDelay = 60000) // Run every 1 minute
     public void syncAllUsersToGlobalDirectory() {
+        // Skip in local/UAT - only run in prod
+        String[] activeProfiles = new org.springframework.core.env.StandardEnvironment().getActiveProfiles();
+        boolean isProd = java.util.Arrays.asList(activeProfiles).contains("prod");
+        if (!isProd) {
+            log.debug("Skipping Global User Sync - not in prod profile");
+            return;
+        }
+
         log.info("↻ Starting Global User Synchronization...");
 
         // 1. Get all Active Tenants directly from DB (Bypassing Controller Security)
         JdbcTemplate jdbcTemplate = new JdbcTemplate(masterDataSource);
-        List<TenantDto> tenants = jdbcTemplate.query(
+        List<TenantDto> tenants = new java.util.ArrayList<>(jdbcTemplate.query(
                 "SELECT tenant_id, company_name FROM tenant_config WHERE active = true",
                 (rs, rowNum) -> new TenantDto(
                         rs.getString("tenant_id"),
-                        rs.getString("company_name")));
+                        rs.getString("company_name"))));
 
         // Add "default" manually to sync SuperAdmins from Master DB
         tenants.add(new TenantDto("default", "System Master"));
