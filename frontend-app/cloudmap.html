@@ -107,6 +107,16 @@
             border-radius: 3px 3px 0 0;
         }
 
+        /* Design Studio Grid Background */
+        .design-mode-bg {
+            background-color: #f8fafc;
+            background-image:
+                linear-gradient(#e2e8f0 1px, transparent 1px),
+                linear-gradient(90deg, #e2e8f0 1px, transparent 1px);
+            background-size: 20px 20px;
+            background-position: -1px -1px;
+        }
+
         /* Info Panel */
         #info-panel {
             transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -259,17 +269,29 @@
                         </div>
 
                         <div id="controls-design" class="hidden flex items-center gap-3">
+                            <input type="text" id="design-name" placeholder="Untitled Design"
+                                class="border-2 border-gray-200 rounded-lg text-sm px-3 py-2 w-48 font-medium focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors" />
+
+                            <div class="h-6 w-px bg-gray-300 mx-1"></div>
+
                             <select id="blueprint-selector"
-                                class="border-2 border-gray-200 rounded-lg text-sm px-4 py-2 w-52 font-medium focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
-                                <option value="">-- New Design --</option>
+                                class="border-2 border-gray-200 rounded-lg text-sm px-4 py-2 w-40 font-medium focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                                <option value="">-- Load --</option>
                             </select>
+
                             <button onclick="saveDesign()"
-                                class="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-md hover:shadow-lg transition-all">
-                                <i class="fas fa-save"></i> Save
+                                class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-sm hover:shadow-md transition-all">
+                                <i class="fas fa-save mr-1"></i> Save
                             </button>
+
+                            <button onclick="exportGraphAsPng()"
+                                class="bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 px-3 py-2 rounded-lg text-sm font-semibold shadow-sm hover:shadow-md transition-all">
+                                <i class="fas fa-file-image mr-1"></i> PNG
+                            </button>
+
                             <button onclick="clearCanvas()"
-                                class="text-red-600 hover:bg-red-50 px-4 py-2 rounded-lg text-sm font-semibold transition-all border-2 border-transparent hover:border-red-200">
-                                <i class="fas fa-trash"></i> Clear
+                                class="text-red-600 hover:bg-red-50 px-3 py-2 rounded-lg text-sm font-semibold transition-all border border-transparent hover:border-red-200">
+                                <i class="fas fa-trash-alt"></i>
                             </button>
                         </div>
                     </div>
@@ -310,20 +332,26 @@
                         class="absolute inset-0 flex items-center justify-center z-10 bg-gradient-to-br from-gray-50 to-gray-100"
                         style="display: none;">
                         <div class="text-center max-w-md px-6">
-                            <div class="w-20 h-20 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg">
+                            <div
+                                class="w-20 h-20 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg">
                                 <i class="fas fa-project-diagram text-white text-3xl"></i>
                             </div>
                             <h3 class="text-2xl font-bold text-gray-800 mb-2">No Resources Found</h3>
-                            <p class="text-gray-600 mb-4">Your cloud infrastructure visualization will appear here once resources are detected.</p>
+                            <p class="text-gray-600 mb-4">Your cloud infrastructure visualization will appear here once
+                                resources are detected.</p>
                             <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 text-left">
                                 <h4 class="font-semibold text-blue-800 mb-2 flex items-center gap-2">
                                     <i class="fas fa-info-circle"></i> What to check:
                                 </h4>
                                 <ul class="text-sm text-blue-700 space-y-1">
-                                    <li><i class="fas fa-check-circle text-blue-500"></i> Verify your AWS account has resources</li>
-                                    <li><i class="fas fa-check-circle text-blue-500"></i> Check if credentials are properly configured</li>
-                                    <li><i class="fas fa-check-circle text-blue-500"></i> Try selecting a different VPC or region</li>
-                                    <li><i class="fas fa-check-circle text-blue-500"></i> Refresh the page to reload data</li>
+                                    <li><i class="fas fa-check-circle text-blue-500"></i> Verify your AWS account has
+                                        resources</li>
+                                    <li><i class="fas fa-check-circle text-blue-500"></i> Check if credentials are
+                                        properly configured</li>
+                                    <li><i class="fas fa-check-circle text-blue-500"></i> Try selecting a different VPC
+                                        or region</li>
+                                    <li><i class="fas fa-check-circle text-blue-500"></i> Refresh the page to reload
+                                        data</li>
                                 </ul>
                             </div>
                         </div>
@@ -407,8 +435,45 @@
         };
 
         const nodeTypeData = {
-            'VPC': { icon: 'cloud', color: 'green', style: 'solid', category: 'Network' }, 'Availability Zone': { icon: 'layer-group', color: 'blue', style: 'dashed', category: 'Network' }, 'Subnet': { icon: 'network-wired', color: 'emerald', style: 'solid', category: 'Network' }, 'Security Group': { icon: 'shield-alt', color: 'yellow', style: 'solid', category: 'Security' }, 'Internet Gateway': { icon: 'globe', color: 'cyan', style: 'solid', category: 'Network' }, 'NAT Gateway': { icon: 'exchange-alt', color: 'indigo', style: 'solid', category: 'Network' }, 'Route 53 Zone': { icon: 'route', color: 'orange', style: 'solid', category: 'Network' }, 'EC2 Instance': { icon: 'server', color: 'orange', style: 'solid', category: 'Compute' }, 'Lambda Function': { icon: 'bolt', color: 'amber', style: 'solid', category: 'Compute' }, 'Auto Scaling Group': { icon: 'expand-arrows-alt', color: 'rose', style: 'solid', category: 'Compute' }, 'EKS Cluster': { icon: 'cubes', color: 'indigo', style: 'solid', category: 'Compute' }, 'Lightsail Instance': { icon: 'lightbulb', color: 'yellow', style: 'solid', category: 'Compute' }, 'SSM Managed Instance': { icon: 'tasks', color: 'slate', style: 'solid', category: 'Management' }, 'S3 Bucket': { icon: 'archive', color: 'teal', style: 'solid', category: 'Storage' }, 'EBS Volume': { icon: 'compact-disc', color: 'gray', style: 'solid', category: 'Storage' }, 'EFS File System': { icon: 'folder-open', color: 'lime', style: 'solid', category: 'Storage' }, 'RDS Instance': { icon: 'database', color: 'sky', style: 'solid', category: 'Database' }, 'DynamoDB Table': { icon: 'table', color: 'blue', style: 'solid', category: 'Database' }, 'ElastiCache Cluster': { icon: 'memory', color: 'red', style: 'solid', category: 'Database' }, 'Load Balancer': { icon: 'balance-scale', color: 'purple', style: 'solid', category: 'Network' }, 'SNS Topic': { icon: 'bullhorn', color: 'pink', style: 'solid', category: 'Messaging' }, 'SQS Queue': { icon: 'list-ol', color: 'fuchsia', style: 'solid', category: 'Messaging' }, 'Amplify App': { icon: 'mobile-alt', color: 'violet', style: 'solid', category: 'Application' }, 'AWS Step Functions': { icon: 'project-diagram', color: 'purple', style: 'solid', category: 'Application' }, 'Pinpoint Application': { icon: 'map-pin', color: 'red', style: 'solid', category: 'Application' }, 'CloudWatch Log Group': { icon: 'file-alt', color: 'gray', style: 'solid', category: 'Management' }, 'CloudTrail': { icon: 'shoe-prints', color: 'gray', style: 'solid', category: 'Management' }, 'Certificate Manager': { icon: 'certificate', color: 'green', style: 'solid', category: 'Security' }, 'AWS Config': { icon: 'cogs', color: 'slate', style: 'solid', category: 'Management' }, 'Security Hub': { icon: 'shield-virus', color: 'red', style: 'solid', category: 'Security' }, 'KMS': { icon: 'key', color: 'amber', style: 'solid', category: 'Security' }, 'AWS Glue': { icon: 'puzzle-piece', color: 'cyan', style: 'solid', category: 'Analytics' }, 'Amazon Athena': { icon: 'feather-alt', color: 'indigo', style: 'solid', category: 'Analytics' }, 'Bedrock': { icon: 'brain', color: 'violet', style: 'solid', category: 'AI/ML' }, 'SageMaker': { icon: 'flask', color: 'emerald', style: 'solid', category: 'AI/ML' }, 'Amazon Cognito': { icon: 'users-cog', color: 'orange', style: 'solid', category: 'Security' }, 'CloudFront': { icon: 'rocket', color: 'blue', style: 'solid', category: 'Network' }, 'ECR Repository': { icon: 'box', color: 'slate', style: 'solid', category: 'Storage' },
-            'CloudFormation Stack': { icon: 'cubes', color: 'orange', style: 'solid', category: 'Management' }, 'DataZone Domain': { icon: 'sitemap', color: 'teal', style: 'solid', category: 'Analytics' }, 'Textract Project': { icon: 'file-invoice', color: 'indigo', style: 'solid', category: 'AI/ML' }, 'EventBridge Bus': { icon: 'bus', color: 'rose', style: 'solid', category: 'Application' }, 'Kinesis Stream': { icon: 'stream', color: 'cyan', style: 'solid', category: 'Analytics' }, 'CodePipeline': { icon: 'road', color: 'blue', style: 'solid', category: 'DevOps' }, 'CodeBuild Project': { icon: 'hammer', color: 'slate', style: 'solid', category: 'DevOps' }, 'CodeCommit Repository': { icon: 'code-branch', color: 'gray', style: 'solid', category: 'DevOps' }, 'AWS Shield Protection': { icon: 'shield-alt', color: 'green', style: 'solid', category: 'Security' }, 'Organization Account': { icon: 'sitemap', color: 'indigo', style: 'solid', category: 'Management' }, 'Control Tower Control': { icon: 'university', color: 'purple', style: 'solid', category: 'Management' }, 'Elastic Beanstalk Environment': { icon: 'seedling', color: 'lime', style: 'solid', category: 'Compute' }, 'API Gateway': { icon: 'server', color: 'amber', style: 'solid', category: 'Network' }
+            // AWS
+            'VPC': { icon: 'cloud', color: 'green', style: 'solid', category: 'AWS Network', provider: 'aws' },
+            'Subnet': { icon: 'network-wired', color: 'emerald', style: 'solid', category: 'AWS Network', provider: 'aws' },
+            'Security Group': { icon: 'shield-alt', color: 'red', style: 'dashed', category: 'AWS Security', provider: 'aws' },
+            'EC2 Instance': { icon: 'server', color: 'orange', style: 'solid', category: 'AWS Compute', provider: 'aws' },
+            'Lambda Function': { icon: 'bolt', color: 'amber', style: 'solid', category: 'AWS Compute', provider: 'aws' },
+            'S3 Bucket': { icon: 'cube', color: 'green', style: 'solid', category: 'AWS Storage', provider: 'aws' },
+            'RDS Instance': { icon: 'database', color: 'blue', style: 'solid', category: 'AWS Database', provider: 'aws' },
+            'Load Balancer': { icon: 'balance-scale', color: 'purple', style: 'solid', category: 'AWS Network', provider: 'aws' },
+            'Internet Gateway': { icon: 'globe', color: 'blue', style: 'solid', category: 'AWS Network', provider: 'aws' },
+            'NAT Gateway': { icon: 'exchange-alt', color: 'indigo', style: 'solid', category: 'AWS Network', provider: 'aws' },
+            'Route 53 Zone': { icon: 'route', color: 'amber', style: 'solid', category: 'AWS Network', provider: 'aws' },
+            'Auto Scaling Group': { icon: 'expand-arrows-alt', color: 'orange', style: 'dashed', category: 'AWS Compute', provider: 'aws' },
+            'EKS Cluster': { icon: 'cubes', color: 'blue', style: 'solid', category: 'AWS Compute', provider: 'aws' },
+            'DynamoDB Table': { icon: 'table', color: 'blue', style: 'solid', category: 'AWS Database', provider: 'aws' },
+
+            // Azure
+            'Azure VNet': { icon: 'cloud', color: 'blue', style: 'solid', category: 'Azure Network', provider: 'azure' },
+            'Azure Subnet': { icon: 'network-wired', color: 'blue', style: 'solid', category: 'Azure Network', provider: 'azure' },
+            'Azure VM': { icon: 'desktop', color: 'blue', style: 'solid', category: 'Azure Compute', provider: 'azure' },
+            'Azure Function': { icon: 'bolt', color: 'amber', style: 'solid', category: 'Azure Compute', provider: 'azure' },
+            'Azure Storage Account': { icon: 'hdd', color: 'green', style: 'solid', category: 'Azure Storage', provider: 'azure' },
+            'Azure SQL Database': { icon: 'database', color: 'blue', style: 'solid', category: 'Azure Database', provider: 'azure' },
+            'Azure Load Balancer': { icon: 'balance-scale', color: 'blue', style: 'solid', category: 'Azure Network', provider: 'azure' },
+            'Azure AKS': { icon: 'cubes', color: 'blue', style: 'solid', category: 'Azure Compute', provider: 'azure' },
+
+            // GCP
+            'GCP VPC': { icon: 'cloud', color: 'blue', style: 'solid', category: 'GCP Network', provider: 'gcp' },
+            'GCP Subnet': { icon: 'network-wired', color: 'blue', style: 'solid', category: 'GCP Network', provider: 'gcp' },
+            'GCP VM Instance': { icon: 'server', color: 'blue', style: 'solid', category: 'GCP Compute', provider: 'gcp' },
+            'GCP Cloud Function': { icon: 'bolt', color: 'blue', style: 'solid', category: 'GCP Compute', provider: 'gcp' },
+            'GCP Cloud Storage': { icon: 'archive', color: 'gray', style: 'solid', category: 'GCP Storage', provider: 'gcp' },
+            'GCP Cloud SQL': { icon: 'database', color: 'blue', style: 'solid', category: 'GCP Database', provider: 'gcp' },
+            'GCP Load Balancer': { icon: 'balance-scale', color: 'gray', style: 'solid', category: 'GCP Network', provider: 'gcp' },
+            'GCP GKE Cluster': { icon: 'cubes', color: 'blue', style: 'solid', category: 'GCP Compute', provider: 'gcp' },
+
+            // Generic / Other
+            'User': { icon: 'user', color: 'gray', style: 'solid', category: 'General', provider: 'general' },
+            'Internet': { icon: 'globe', color: 'gray', style: 'solid', category: 'General', provider: 'general' }
         };
 
         // --- 2. Initialization ---
@@ -429,6 +494,45 @@
             // 2.3 Start in Live Mode
             initLiveMode();
             populatePalette();
+
+            // 2.4 Cleanup on navigation away from CloudMap
+            // This prevents layout corruption when navigating to other pages
+            window.addEventListener('beforeunload', cleanupCloudMap);
+
+            // Also cleanup on soft navigation (when clicking sidebar links)
+            const sidebarLinks = document.querySelectorAll('a[href]');
+            sidebarLinks.forEach(link => {
+                link.addEventListener('click', (e) => {
+                    // Only cleanup if navigating away from cloudmap
+                    const href = link.getAttribute('href');
+                    if (href && !href.includes('cloudmap.html') && !href.startsWith('#')) {
+                        cleanupCloudMap();
+                    }
+                });
+            });
+        }
+
+        // Cleanup function to prevent layout corruption
+        function cleanupCloudMap() {
+            console.log('🧹 Cleaning up CloudMap resources...');
+
+            // Destroy Cytoscape instance
+            if (cy) {
+                try {
+                    if (eh) {
+                        eh.destroy();
+                        eh = null;
+                    }
+                    cy.destroy();
+                    cy = null;
+                } catch (error) {
+                    console.error('Error destroying Cytoscape:', error);
+                }
+            }
+
+            // Clear any pending fetch requests by removing event listeners
+            // This prevents 401 errors from affecting other pages
+            window.removeEventListener('beforeunload', cleanupCloudMap);
         }
 
         // Initialize on page load or immediately if already loaded (for soft navigation)
@@ -448,6 +552,7 @@
             const designPalette = document.getElementById('design-palette');
             const legend = document.getElementById('legend');
             const infoPanel = document.getElementById('info-panel');
+            const cyContainer = document.getElementById('cy');
 
             // Reset UI state
             infoPanel.classList.add('translate-x-full');
@@ -464,6 +569,7 @@
                 liveControls.classList.remove('hidden');
                 designControls.classList.add('hidden');
                 designPalette.classList.add('hidden');
+                cyContainer.classList.remove('design-mode-bg'); // Remove grid
 
                 // CHANGE 1: HIDE Legend in Live Mode
                 legend.classList.add('hidden');
@@ -477,6 +583,7 @@
                 liveControls.classList.add('hidden');
                 designControls.classList.remove('hidden');
                 designPalette.classList.remove('hidden');
+                cyContainer.classList.add('design-mode-bg'); // Add grid
 
                 // CHANGE 2: SHOW Legend in Design Mode
                 legend.classList.remove('hidden');
@@ -502,6 +609,10 @@
             fetch(`/api/xamops/cloudmap/vpcs?accountId=${selectedAccountId}`)
                 .then(r => {
                     if (!r.ok) {
+                        // Special handling for 401 errors
+                        if (r.status === 401) {
+                            throw new Error('AUTHENTICATION_REQUIRED');
+                        }
                         throw new Error(`HTTP error! status: ${r.status}`);
                     }
                     return r.json();
@@ -530,15 +641,33 @@
                 })
                 .catch(err => {
                     console.error('Error loading VPCs:', err);
+
+                    // Handle authentication errors specially
+                    if (err.message === 'AUTHENTICATION_REQUIRED') {
+                        vpcSelector.innerHTML = '<option value="">Authentication Required</option>';
+                        const messageDiv = document.getElementById('message-overlay');
+                        messageDiv.style.display = 'flex';
+                        document.getElementById('spinner').style.display = 'none';
+                        document.getElementById('msg-title').textContent = 'Session Expired';
+                        document.getElementById('msg-subtitle').innerHTML = 'Your session has expired. Please <a href="/login" class="text-blue-600 underline">log in again</a> to continue.';
+                        return;
+                    }
+
                     vpcSelector.innerHTML = '<option value="">🌐 Global & S3 (Retry)</option>';
-                    showMessage(true, `Failed to load VPCs: ${err.message}. Click Export to retry.`);
+                    showMessage(true, `Failed to load VPCs: ${err.message}. Click Retry to try again.`);
 
                     // Add retry button
-                    const retryBtn = document.createElement('button');
-                    retryBtn.className = 'bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-xs ml-2';
-                    retryBtn.innerHTML = '<i class="fas fa-sync-alt mr-1"></i> Retry';
-                    retryBtn.onclick = () => initLiveMode();
-                    document.getElementById('controls-live').appendChild(retryBtn);
+                    const existingRetryBtn = document.querySelector('.retry-vpc-btn');
+                    if (!existingRetryBtn) {
+                        const retryBtn = document.createElement('button');
+                        retryBtn.className = 'retry-vpc-btn bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-xs ml-2';
+                        retryBtn.innerHTML = '<i class="fas fa-sync-alt mr-1"></i> Retry';
+                        retryBtn.onclick = () => {
+                            retryBtn.remove();
+                            initLiveMode();
+                        };
+                        document.getElementById('controls-live').appendChild(retryBtn);
+                    }
                 });
 
             vpcSelector.onchange = (e) => loadLiveGraph(e.target.value);
@@ -551,6 +680,10 @@
             fetch(`/api/xamops/cloudmap/graph?accountId=${selectedAccountId}&vpcId=${vpcId || ''}&region=${region || ''}`)
                 .then(r => {
                     if (!r.ok) {
+                        // Special handling for 401 errors
+                        if (r.status === 401) {
+                            throw new Error('AUTHENTICATION_REQUIRED');
+                        }
                         throw new Error(`HTTP error! status: ${r.status}`);
                     }
                     return r.json();
@@ -567,6 +700,18 @@
                 })
                 .catch(err => {
                     console.error('Error loading graph:', err);
+
+                    // Handle authentication errors specially
+                    if (err.message === 'AUTHENTICATION_REQUIRED') {
+                        const messageDiv = document.getElementById('message-overlay');
+                        messageDiv.style.display = 'flex';
+                        document.getElementById('spinner').style.display = 'none';
+                        document.getElementById('msg-title').textContent = 'Session Expired';
+                        document.getElementById('msg-subtitle').innerHTML = 'Your session has expired. Please <a href="/login" class="text-blue-600 underline">log in again</a> to continue.';
+                        renderGraph([], false); // Render empty graph
+                        return;
+                    }
+
                     showMessage(true, `Failed to load graph: ${err.message}. Please try again or select a different VPC.`);
                     renderGraph([], false); // Render empty graph on error
                 });
@@ -582,24 +727,45 @@
             const container = document.getElementById('palette-container');
             container.innerHTML = '';
 
-            Object.entries(nodeTypeData).forEach(([type, data]) => {
-                const div = document.createElement('div');
-                div.className = 'palette-item bg-white p-2 rounded flex flex-col items-center justify-center text-center h-20';
-                div.draggable = true;
+            // Group by provider
+            const providers = {
+                'aws': 'AWS',
+                'azure': 'Azure',
+                'gcp': 'Google Cloud',
+                'general': 'General'
+            };
 
-                const color = tailwindColors[data.color]?.[500] || '#6b7280';
+            Object.entries(providers).forEach(([providerKey, providerName]) => {
+                // Header
+                const items = Object.entries(nodeTypeData).filter(([_, data]) => data.provider === providerKey);
+                if (items.length === 0) return;
 
-                div.innerHTML = `
-                <div class="w-8 h-8 rounded-full flex items-center justify-center mb-1" style="background-color: ${color}20; color: ${color}">
-                    <i class="fas fa-${data.icon}"></i>
-                </div>
-                <span class="text-[10px] font-medium text-gray-600 leading-tight">${type}</span>
-            `;
+                const header = document.createElement('h4');
+                header.className = "col-span-2 text-xs font-bold text-gray-700 mt-2 mb-1 px-1 uppercase border-b border-gray-100 pb-1";
+                header.textContent = providerName;
+                container.appendChild(header);
 
-                div.addEventListener('dragstart', (e) => {
-                    e.dataTransfer.setData('type', type);
+                items.forEach(([type, data]) => {
+                    const div = document.createElement('div');
+                    div.className = 'palette-item bg-white p-2 rounded flex flex-col items-center justify-center text-center h-20 shadow-sm hover:shadow-md border border-gray-100';
+                    div.draggable = true;
+
+                    const color = tailwindColors[data.color]?.[500] || '#6b7280';
+                    const iconUrl = icons[type]; // Use specific image if available, else font awesome
+
+                    div.innerHTML = `
+                    <div class="w-8 h-8 rounded-full flex items-center justify-center mb-1" style="background-color: ${color}15; color: ${color}">
+                        ${iconUrl ? `<img src="${iconUrl}" class="w-6 h-6 object-contain" onerror="this.style.display='none';this.nextElementSibling.style.display='block'">` : ''}
+                        <i class="fas fa-${data.icon} ${iconUrl ? 'hidden' : ''}"></i>
+                    </div>
+                    <span class="text-[9px] font-medium text-gray-600 leading-tight">${type}</span>
+                `;
+
+                    div.addEventListener('dragstart', (e) => {
+                        e.dataTransfer.setData('type', type);
+                    });
+                    container.appendChild(div);
                 });
-                container.appendChild(div);
             });
         }
 
@@ -666,7 +832,7 @@
                 },
                 { selector: 'node:selected', style: { 'border-color': '#667eea', 'border-width': 3 } },
                 { selector: 'edge', style: { 'width': 2, 'line-color': '#9ca3af', 'target-arrow-color': '#9ca3af', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', 'opacity': 0.8, 'label': 'data(label)', 'font-size': '9px', 'color': '#555' } },
-                { selector: ':parent', style: { 'text-valign': 'top', 'text-halign': 'center', 'font-weight': 'bold', 'font-size': '11px', 'color': '#1f2937', 'background-opacity': 0.95, 'padding': '40px', 'border-width': 2, 'border-style': 'dashed' } },
+                { selector: ':parent', style: { 'text-valign': 'top', 'text-halign': 'center', 'font-weight': 'bold', 'font-size': '11px', 'color': '#1f2937', 'background-opacity': 0.05, 'background-color': '#94a3b8', 'padding': '10px', 'border-width': 1, 'border-style': 'solid', 'border-color': '#cbd5e1' } },
 
                 // Edge Handles specific styles
                 { selector: '.eh-handle', style: { 'background-color': '#667eea', 'width': 12, 'height': 12, 'shape': 'ellipse', 'overlay-opacity': 0, 'border-width': 12, 'border-opacity': 0 } },
@@ -717,6 +883,7 @@
                 .then(r => r.json())
                 .then(bp => {
                     currentBlueprintId = bp.id;
+                    document.getElementById('design-name').value = bp.name || '';
                     cy.elements().remove();
                     if (bp.graphData) {
                         cy.add(JSON.parse(bp.graphData));
@@ -727,8 +894,8 @@
         }
 
         window.saveDesign = function () {
-            const name = prompt("Name your design:", "My Cloud Architecture");
-            if (!name) return;
+            const nameInput = document.getElementById('design-name');
+            const name = nameInput.value.trim() || "My Cloud Architecture";
 
             const payload = {
                 id: currentBlueprintId, // If ID exists, backend updates it
@@ -743,7 +910,8 @@
             })
                 .then(r => r.json())
                 .then(data => {
-                    alert('Design saved successfully!');
+                    showMessage(true, 'Design Saved!');
+                    setTimeout(() => showMessage(false), 1500);
                     currentBlueprintId = data.id;
                     loadBlueprintsList(); // Refresh dropdown
                 })
@@ -755,6 +923,7 @@
                 cy.elements().remove();
                 currentBlueprintId = null;
                 document.getElementById('blueprint-selector').value = "";
+                document.getElementById('design-name').value = "";
             }
         };
 
