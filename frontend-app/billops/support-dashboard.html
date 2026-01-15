@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>BillOps Support Console</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background: #f3f4f6; }
+        
+        /* Custom Scrollbar */
+        .custom-scrollbar::-webkit-scrollbar { width: 5px; height: 5px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        /* Glass Effect */
+        .glass-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+        }
+    </style>
+</head>
+
+<body class="bg-gray-100 text-gray-800" x-data="supportDashboard()">
+
+    <div class="flex h-screen overflow-hidden">
+        
+        <include file="/_sidebar.html"></include>
+
+        <div class="flex-1 flex flex-col pl-64 h-screen overflow-hidden">
+            
+            <header class="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 shadow-sm z-10 flex-shrink-0">
+                <div class="flex items-center gap-3">
+                    <div class="w-8 h-8 bg-indigo-100 text-indigo-600 rounded-lg flex items-center justify-center">
+                        <i class="fas fa-headset"></i>
+                    </div>
+                    <h1 class="text-xl font-bold text-gray-800">Support Inbox</h1>
+                </div>
+                <div class="flex items-center gap-4">
+                    <button @click="fetchInbox()" class="text-gray-400 hover:text-indigo-600 transition p-2" title="Refresh Inbox">
+                        <i class="fas fa-sync-alt" :class="{'animate-spin': loading}"></i>
+                    </button>
+                    <span class="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-1 rounded-full border border-gray-200">
+                        <span class="w-2 h-2 rounded-full bg-green-500 inline-block mr-1 animate-pulse"></span> Live System
+                    </span>
+                </div>
+            </header>
+
+            <div class="flex flex-1 overflow-hidden p-6 gap-6">
+                
+                <div class="w-1/3 flex flex-col glass-card rounded-xl overflow-hidden h-full border-l-4 border-l-indigo-500">
+                    
+                    <div class="p-5 border-b border-gray-100 bg-white/60 space-y-4">
+                        
+                        <div class="relative group">
+                            <i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 group-focus-within:text-indigo-500 transition-colors"></i>
+                            <input type="text" x-model="searchQuery" 
+                                   class="w-full pl-10 pr-4 py-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all shadow-sm" 
+                                   placeholder="Search accounts...">
+                        </div>
+                        
+                        <div class="flex items-center justify-between" x-data="{ open: false }">
+                            <span class="text-xs font-bold text-gray-400 uppercase tracking-wide">Filter Cloud</span>
+                            
+                            <div class="relative">
+                                <button @click="open = !open" @click.outside="open = false" 
+                                        class="flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 transition-all shadow-sm min-w-[120px] justify-between text-gray-700">
+                                    <span x-text="providerFilter === '' ? 'All Providers' : providerFilter"></span>
+                                    <i class="fas fa-chevron-down text-[10px] text-gray-400 transition-transform" :class="open ? 'rotate-180' : ''"></i>
+                                </button>
+
+                                <div x-show="open" 
+                                     x-transition:enter="transition ease-out duration-100"
+                                     x-transition:enter-start="opacity-0 scale-95"
+                                     x-transition:enter-end="opacity-100 scale-100"
+                                     x-transition:leave="transition ease-in duration-75"
+                                     x-transition:leave-start="opacity-100 scale-100"
+                                     x-transition:leave-end="opacity-0 scale-95"
+                                     class="absolute right-0 mt-2 w-36 bg-white rounded-xl shadow-xl border border-gray-100 py-1 z-50 overflow-hidden ring-1 ring-black ring-opacity-5">
+                                    
+                                    <a @click="providerFilter = ''; open = false" class="block px-4 py-2 text-xs text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 cursor-pointer transition-colors font-medium">
+                                        <i class="fas fa-globe w-4 text-center mr-1 text-gray-400"></i> All Clouds
+                                    </a>
+                                    <a @click="providerFilter = 'AWS'; open = false" class="block px-4 py-2 text-xs text-gray-700 hover:bg-[#FF9900]/10 hover:text-[#FF9900] cursor-pointer transition-colors font-medium">
+                                        <i class="fab fa-aws w-4 text-center mr-1 text-[#FF9900]"></i> AWS
+                                    </a>
+                                    <a @click="providerFilter = 'GCP'; open = false" class="block px-4 py-2 text-xs text-gray-700 hover:bg-[#34A853]/10 hover:text-[#34A853] cursor-pointer transition-colors font-medium">
+                                        <i class="fab fa-google w-4 text-center mr-1 text-[#34A853]"></i> GCP
+                                    </a>
+                                    <a @click="providerFilter = 'Azure'; open = false" class="block px-4 py-2 text-xs text-gray-700 hover:bg-[#0078D4]/10 hover:text-[#0078D4] cursor-pointer transition-colors font-medium">
+                                        <i class="fab fa-microsoft w-4 text-center mr-1 text-[#0078D4]"></i> Azure
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex-1 overflow-y-auto custom-scrollbar bg-white/40">
+                        <template x-for="conv in filteredConversations" :key="conv.accountId">
+                            <div @click="selectConversation(conv)" 
+                                 class="p-4 border-b border-gray-50 cursor-pointer transition-all hover:bg-white hover:shadow-sm group relative"
+                                 :class="activeAccount?.accountId === conv.accountId ? 'bg-indigo-50/80 border-l-4 border-l-indigo-600' : 'border-l-4 border-l-transparent'">
+                                
+                                <div class="flex justify-between items-start mb-1">
+                                    <h3 class="font-bold text-gray-800 text-sm truncate pr-2 group-hover:text-indigo-700 transition-colors" x-text="conv.accountName"></h3>
+                                    <span class="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider text-white shadow-sm"
+                                          :class="{
+                                            'bg-[#FF9900]': conv.provider === 'AWS',
+                                            'bg-[#0072C6]': conv.provider === 'Azure',
+                                            'bg-[#34A853]': conv.provider === 'GCP'
+                                          }" x-text="conv.provider">
+                                    </span>
+                                </div>
+                                
+                                <div class="flex items-center justify-between mt-2">
+                                    <div class="text-xs text-gray-400 font-mono bg-gray-100 px-1.5 py-0.5 rounded" x-text="conv.accountId"></div>
+                                    <div class="text-[10px] text-indigo-500 font-semibold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                                        Open <i class="fas fa-chevron-right"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                        
+                        <div x-show="filteredConversations.length === 0" class="flex flex-col items-center justify-center h-48 text-gray-400">
+                            <div class="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mb-2">
+                                <i class="fas fa-search text-lg"></i>
+                            </div>
+                            <p class="text-xs font-medium">No accounts found.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex-1 flex flex-col glass-card rounded-xl shadow-sm overflow-hidden relative border-t-4 border-t-purple-500">
+                    
+                    <div class="h-16 bg-white/80 border-b border-gray-100 px-6 flex items-center justify-between flex-shrink-0 backdrop-blur-sm" x-show="activeAccount">
+                        <div>
+                            <h2 class="font-bold text-gray-800 text-lg flex items-center gap-2">
+                                <span x-text="activeAccount?.accountName"></span>
+                                <span class="text-xs font-mono text-gray-500 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded" x-text="activeAccount?.accountId"></span>
+                            </h2>
+                        </div>
+                        <button @click="refreshChat()" class="text-gray-400 hover:text-indigo-600 transition p-2 rounded-full hover:bg-gray-100">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
+                    </div>
+
+                    <div id="chat-box" class="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar bg-gray-50/30" x-show="activeAccount">
+                        <template x-for="msg in messages" :key="msg.id">
+                            <div class="flex flex-col" :class="msg.userMessage ? 'items-start' : 'items-end'">
+                                <div class="max-w-[75%] rounded-2xl px-5 py-3 shadow-sm text-sm relative group transition-transform"
+                                     :class="msg.userMessage ? 'bg-white text-gray-800 rounded-tl-none border border-gray-200' : 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-tr-none shadow-indigo-200'">
+                                    
+                                    <p x-text="msg.content" class="leading-relaxed whitespace-pre-wrap"></p>
+                                    
+                                    <span class="text-[10px] mt-1 block opacity-70 font-medium"
+                                          :class="msg.userMessage ? 'text-gray-400' : 'text-indigo-100 text-right'"
+                                          x-text="formatTime(msg.timestamp)">
+                                    </span>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+
+                    <div x-show="!activeAccount" class="absolute inset-0 flex flex-col items-center justify-center text-gray-400 bg-white/50 backdrop-blur-sm z-10">
+                        <div class="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mb-4 shadow-inner">
+                            <i class="fas fa-comments text-3xl text-gray-300"></i>
+                        </div>
+                        <p class="font-medium text-sm text-gray-500">Select a conversation to start messaging</p>
+                    </div>
+
+                    <div class="p-4 bg-white border-t border-gray-100 flex-shrink-0" x-show="activeAccount">
+                        <div class="flex gap-3">
+                            <input type="text" x-model="replyText" @keydown.enter="sendReply()"
+                                   class="flex-1 border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-inner bg-gray-50 focus:bg-white transition-all"
+                                   placeholder="Type your reply here...">
+                            <button @click="sendReply()" 
+                                    class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-xl font-bold text-sm shadow-md hover:shadow-lg transition-all active:scale-95 flex items-center gap-2">
+                                <span>Send</span>
+                                <i class="fas fa-paper-plane text-xs"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function supportDashboard() {
+            return {
+                conversations: [],
+                messages: [],
+                activeAccount: null,
+                replyText: '',
+                searchQuery: '',
+                providerFilter: '',
+                loading: false,
+                
+                init() {
+                    this.fetchInbox();
+                    setInterval(() => this.fetchInbox(true), 10000); 
+                    setInterval(() => { if(this.activeAccount) this.refreshChat(); }, 3000); 
+                },
+
+                get filteredConversations() {
+                    return this.conversations.filter(c => {
+                        const term = this.searchQuery.toLowerCase();
+                        const matchesSearch = (c.accountName && c.accountName.toLowerCase().includes(term)) || 
+                                              (c.accountId && c.accountId.toLowerCase().includes(term));
+                        const matchesProvider = this.providerFilter === '' || c.provider === this.providerFilter;
+                        return matchesSearch && matchesProvider;
+                    });
+                },
+
+                async fetchInbox(silent = false) {
+                    if(!silent) this.loading = true;
+                    try {
+                        const res = await fetch('/api/billops/support/inbox');
+                        if(res.ok) this.conversations = await res.json();
+                    } catch(e) { console.error("Inbox Error", e); }
+                    finally { if(!silent) this.loading = false; }
+                },
+
+                async selectConversation(account) {
+                    this.activeAccount = account;
+                    this.messages = [];
+                    await this.refreshChat();
+                },
+
+                async refreshChat() {
+                    if(!this.activeAccount) return;
+                    try {
+                        const res = await fetch(`/api/billops/support/chat/${this.activeAccount.accountId}`);
+                        if(res.ok) {
+                            const newMessages = await res.json();
+                            if (newMessages.length > this.messages.length) {
+                                this.messages = newMessages;
+                                this.scrollToBottom();
+                            } else {
+                                this.messages = newMessages;
+                            }
+                        }
+                    } catch(e) { console.error("Chat Error", e); }
+                },
+
+                async sendReply() {
+                    if (!this.replyText.trim()) return;
+                    
+                    const payload = {
+                        accountId: this.activeAccount.accountId,
+                        message: this.replyText
+                    };
+
+                    try {
+                        await fetch('/api/billops/support/reply', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+                        this.replyText = '';
+                        this.refreshChat();
+                    } catch(e) { alert("Failed to send"); }
+                },
+
+                scrollToBottom() {
+                    this.$nextTick(() => {
+                        const box = document.getElementById('chat-box');
+                        if(box) box.scrollTop = box.scrollHeight;
+                    });
+                },
+
+                formatTime(isoString) {
+                    if(!isoString) return '';
+                    const date = new Date(isoString);
+                    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + 
+                           ' (' + date.toLocaleDateString() + ')';
+                }
+            }
+        }
+    </script>
+</body>
+</html>
