@@ -125,21 +125,33 @@ public class TicketService {
     }
 
     /**
+     * Helper to generate tenant-aware cache key
+     */
+    private String getTenantCacheKey(String key) {
+        String tenantId = com.xammer.billops.config.multitenancy.TenantContext.getCurrentTenant();
+        if (tenantId == null)
+            tenantId = "default";
+        return key + ":" + tenantId;
+    }
+
+    /**
      * Unified method to get all tickets.
      */
     @Transactional(readOnly = true)
     public List<TicketDto> getAllTickets(boolean forceRefresh) {
+        String cacheKey = getTenantCacheKey(TICKETS_ALL_CACHE_KEY);
+
         if (!forceRefresh) {
-            Optional<List<TicketDto>> cached = redisCache.get(TICKETS_ALL_CACHE_KEY,
+            Optional<List<TicketDto>> cached = redisCache.get(cacheKey,
                     new TypeReference<List<TicketDto>>() {
                     });
             if (cached.isPresent()) {
-                logger.debug("Returning CACHED all tickets");
+                logger.debug("Returning CACHED all tickets for tenant: {}", cacheKey);
                 return cached.get();
             }
         }
 
-        logger.debug("Fetching FRESH all tickets and updating cache");
+        logger.debug("Fetching FRESH all tickets and updating cache for tenant: {}", cacheKey);
         long now = System.currentTimeMillis();
         List<TicketDto> freshData = ticketRepository.findAllWithRepliesAndAuthors().stream()
                 .map(t -> {
@@ -149,7 +161,7 @@ public class TicketService {
                 })
                 .collect(Collectors.toList());
 
-        redisCache.put(TICKETS_ALL_CACHE_KEY, freshData, CACHE_TTL_MINUTES);
+        redisCache.put(cacheKey, freshData, CACHE_TTL_MINUTES);
         return freshData;
     }
 
@@ -167,18 +179,18 @@ public class TicketService {
      */
     @Transactional(readOnly = true)
     public List<TicketDto> getTicketsByCategory(String category, boolean forceRefresh) {
-        String cacheKey = TICKETS_CATEGORY_PREFIX + category;
+        String cacheKey = getTenantCacheKey(TICKETS_CATEGORY_PREFIX + category);
 
         if (!forceRefresh) {
             Optional<List<TicketDto>> cached = redisCache.get(cacheKey, new TypeReference<List<TicketDto>>() {
             });
             if (cached.isPresent()) {
-                logger.debug("Returning CACHED tickets for category: {}", category);
+                logger.debug("Returning CACHED tickets for category: {}", cacheKey);
                 return cached.get();
             }
         }
 
-        logger.debug("Fetching FRESH tickets for category: {} and updating cache", category);
+        logger.debug("Fetching FRESH tickets for category: {} and updating cache", cacheKey);
         long now = System.currentTimeMillis();
         List<TicketDto> freshData = ticketRepository.findAllByCategoryWithRepliesAndAuthors(category).stream()
                 .map(t -> {
@@ -216,7 +228,6 @@ public class TicketService {
         reply.setTicket(ticket);
         reply.setAuthor(author);
 
-        // FIX: Ensure non-null message for DB
         String message = replyDto.getMessage() != null ? replyDto.getMessage() : "";
         reply.setMessage(message);
 
@@ -243,7 +254,6 @@ public class TicketService {
             User ticketCreator = ticket.getCreator();
             String subject = String.format("New Reply on Ticket [ID: %d]: %s", ticket.getId(), ticket.getSubject());
 
-            // FIX: Handle empty message gracefully in email
             String displayMessage = (reply.getMessage() == null || reply.getMessage().isBlank())
                     ? "(Attachment only)"
                     : reply.getMessage();
@@ -292,8 +302,6 @@ public class TicketService {
         return convertToDto(updatedTicket);
     }
 
-    // --- Helper Methods ---
-
     /**
      * Evicts the global "All Tickets" list (for Admins) AND the specific category
      * cache (for Users).
@@ -303,18 +311,16 @@ public class TicketService {
      */
     public void evictTicketCaches(String category) {
         // 1. Evict Admin List (Always)
-        redisCache.evict(TICKETS_ALL_CACHE_KEY);
+        String allTicketsKey = getTenantCacheKey(TICKETS_ALL_CACHE_KEY);
+        redisCache.evict(allTicketsKey);
 
         // 2. Evict Specific Category Cache (If known)
         if (category != null && !category.isEmpty()) {
-            // RedisCacheService typically expects exact keys unless pattern deletion is
-            // implemented.
-            // Assuming we match the key format used in getTicketsByCategory:
-            String categoryKey = TICKETS_CATEGORY_PREFIX + category;
+            String categoryKey = getTenantCacheKey(TICKETS_CATEGORY_PREFIX + category);
             redisCache.evict(categoryKey);
-            logger.info("Evicted ticket caches: {} AND {}", TICKETS_ALL_CACHE_KEY, categoryKey);
+            logger.info("Evicted ticket caches: {} AND {}", allTicketsKey, categoryKey);
         } else {
-            logger.info("Evicted ticket cache: {}", TICKETS_ALL_CACHE_KEY);
+            logger.info("Evicted ticket cache: {}", allTicketsKey);
         }
     }
 

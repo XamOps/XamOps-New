@@ -76,10 +76,14 @@ public class CustomUserDetailsService implements UserDetailsService {
 
         GlobalUserDto globalUser = globalUserOpt.get();
         String tenantId = globalUser.getTenantId();
-        log.info("✓ User found in Global Directory. Tenant: {}", tenantId);
+        if (!globalUser.isEnabled()) {
+            log.error("✗ User account is DISABLED in Global Directory: {}", username);
+            throw new UsernameNotFoundException("Account is disabled");
+        }
 
         // 2. CONTEXT SWITCH: Force the application to talk to the correct Tenant DB
         TenantContext.setCurrentTenant(tenantId);
+        log.info("↔ Context Switched to Tenant: {}", tenantId);
 
         // 3. TENANT LOOKUP: Now fetch the full user details from their specific
         // database
@@ -90,6 +94,12 @@ public class CustomUserDetailsService implements UserDetailsService {
                 });
 
         log.info("✓ User profile loaded from Tenant DB ({})", tenantId);
+        log.info("Profile Details - Role: {}, Password Format: {}", user.getRole(),
+                (user.getPassword() != null && user.getPassword().startsWith("$2a$")) ? "BCrypt" : "Unknown/Plain");
+
+        if (user.getPassword() == null || user.getPassword().isEmpty()) {
+            log.error("✗ Password is NULL or EMPTY in Tenant DB for user: {}", username);
+        }
 
         return buildUserDetails(user);
     }

@@ -63,12 +63,21 @@ public class AdminDashboardService {
         this.billingService = billingService;
     }
 
+    private String getCacheKey() {
+        String tenantId = com.xammer.billops.config.multitenancy.TenantContext.getCurrentTenant();
+        if (tenantId == null)
+            tenantId = "default";
+        return CACHE_KEY + ":" + tenantId;
+    }
+
     public AdminDashboardDto getAdminDashboardSummary(boolean forceRefresh) {
+        String tenantCacheKey = getCacheKey();
+
         // Check cache first
         if (!forceRefresh) {
-            Optional<AdminDashboardDto> cached = redisCache.get(CACHE_KEY, AdminDashboardDto.class);
+            Optional<AdminDashboardDto> cached = redisCache.get(tenantCacheKey, AdminDashboardDto.class);
             if (cached.isPresent()) {
-                logger.info("Returning cached admin dashboard data");
+                logger.info("Returning cached admin dashboard data for tenant: {}", tenantCacheKey);
                 return cached.get();
             }
         }
@@ -184,8 +193,8 @@ public class AdminDashboardService {
 
         // Cache the result
         dashboard.setLastUpdated(System.currentTimeMillis());
-        redisCache.put(CACHE_KEY, dashboard, CACHE_TTL_MINUTES);
-        logger.info("Admin dashboard data cached for {} minutes", CACHE_TTL_MINUTES);
+        redisCache.put(tenantCacheKey, dashboard, CACHE_TTL_MINUTES);
+        logger.info("Admin dashboard data cached for tenant {} for {} minutes", tenantCacheKey, CACHE_TTL_MINUTES);
 
         return dashboard;
     }
