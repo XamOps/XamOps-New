@@ -24,3 +24,13 @@ setTimeout(() => {
 }, 0);
 
 console.log('✅ Alpine.js loaded and ready for component registration');
+
+// --- Soft Navigation Handler ---
+import { handleSoftNavigation } from './soft-nav-handler.js';
+
+document.addEventListener('click', (e) => {
+    const link = e.target.closest('.soft-nav-link');
+    if (link) {
+        handleSoftNavigation(e);
+    }
+});

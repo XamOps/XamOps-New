@@ -267,7 +267,8 @@
                                window.location.pathname.includes('admin_invoice_detail.html') ||
                                window.location.pathname.includes('invoice_detail.html') ||
                                window.location.pathname.includes('ticket_detail.html') ||
-                               window.location.pathname.includes('admin_ticket_detail.html');
+                               window.location.pathname.includes('admin_ticket_detail.html') ||
+                               window.location.pathname.includes('cloudlist.html');
 
         if (!hasUrlParams && this.selectedAccountIds.length > 0 && !isExcludedPage) {
             console.log('🔄 Auto-applying saved account selection...');
@@ -367,8 +368,10 @@
                                            window.location.pathname.includes('/billops/dashboard_admin.html') ||
                                            window.location.pathname.includes('admin_invoice_detail.html') ||
                                            window.location.pathname.includes('invoice_detail.html') ||
+                                           window.location.pathname.includes('invoice_detail.html') ||
                                            window.location.pathname.includes('ticket_detail.html') ||
-                                           window.location.pathname.includes('admin_ticket_detail.html');
+                                           window.location.pathname.includes('admin_ticket_detail.html') ||
+                                           window.location.pathname.includes('cloudlist.html');
 
                     if (!urlParams.get('accountId') && !urlParams.get('accountIds') && !isExcludedPage) {
                         console.log('🔄 Auto-applying first account selection...');
@@ -626,6 +629,13 @@
             // Exception: Allow CloudShell to stay on page (supports soft nav)
             if (window.location.pathname === '/cloudshell.html') {
                 targetPage = '/cloudshell.html';
+            }
+            // Exception: Allow CloudList to stay on page (supports soft nav via account-changed event)
+            if (window.location.pathname.includes('cloudlist.html')) {
+                // Determine the correct cloudlist page based on provider
+                if (provider === 'GCP') targetPage = '/gcp_cloudlist.html';
+                else if (provider === 'Azure') targetPage = '/azure_cloudlist.html';
+                else targetPage = '/cloudlist.html';
             }
         }
         console.log('[Sidebar] Target Page:', targetPage);
