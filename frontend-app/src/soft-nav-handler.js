@@ -128,6 +128,15 @@ export async function handleSoftNavigation(event) {
             console.warn('[SoftNav] Alpine.js not found');
         }
 
+        // 10. Dispatch page-loaded event after a short delay to allow DOM updates to settle
+        // This allows pages like unified-dashboard to re-initialize charts
+        setTimeout(() => {
+            console.log('[SoftNav] Dispatching page-loaded event');
+            window.dispatchEvent(new CustomEvent('page-loaded', {
+                detail: { url: url, timestamp: Date.now() }
+            }));
+        }, 200);
+
     } catch (error) {
         console.error('[SoftNav] Failed, falling back to hard navigation:', error);
         window.location.href = url;
