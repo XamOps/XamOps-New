@@ -19,6 +19,7 @@
     [x-cloak] {
       display: none !important;
     }
+
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
 
     * {
@@ -31,9 +32,9 @@
       border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     }
   </style>
-    <!-- Usability Improvements -->
-    <link rel="stylesheet" href="/src/usability-improvements.css">
-    <script type="module" src="/src/usability-utils.js"></script>
+  <!-- Usability Improvements -->
+  <link rel="stylesheet" href="/src/usability-improvements.css">
+  <script type="module" src="/src/usability-utils.js"></script>
 </head>
 
 <body class="bg-gray-900 text-white h-screen overflow-hidden">
@@ -48,11 +49,12 @@
         <!-- Page Header -->
         <header class="bg-white border-b px-8 py-4 flex items-center justify-between sticky top-0 z-20 shadow-sm">
           <div class="flex items-center gap-4">
-            <button onclick="history.back()"
+            <button type="button" onclick="window.location.href='/dashboard.html'"
               class="flex items-center justify-center w-10 h-10 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 hover:text-gray-900 transition-all">
               <i class="fas fa-arrow-left"></i>
             </button>
-            <div class="w-12 h-12 bg-gradient-to-br from-orange-500 to-amber-600 rounded-xl flex items-center justify-center">
+            <div
+              class="w-12 h-12 bg-gradient-to-br from-orange-500 to-amber-600 rounded-xl flex items-center justify-center">
               <i class="fas fa-terminal text-white text-xl"></i>
             </div>
             <div>
@@ -170,7 +172,7 @@
                   status.textContent = "Disconnected";
                   status.className = "px-3 py-1 rounded text-xs font-medium bg-red-600";
                 }
-                if (term) term.writeln("\r\n\x1b[31mConnection closed. Select a different account or refresh.\x1b[0m");
+                // Removed connection closed message for cleaner UI
               };
 
               socket.onerror = (error) => {
@@ -248,9 +250,10 @@
               };
               window.addEventListener("resize", resizeListener);
 
-              term.writeln("\x1b[1;36mXamOps CloudShell v2.0\x1b[0m");
-              term.writeln(`Target Account: \x1b[1;33m${accountId}\x1b[0m`);
-              term.writeln("Initializing secure connection...\r\n");
+              // Removed startup messages for cleaner UI as requested
+              // term.writeln("\x1b[1;36mXamOps CloudShell v2.0\x1b[0m");
+              // term.writeln(`Target Account: \x1b[1;33m${accountId}\x1b[0m`);
+              // term.writeln("Initializing secure connection...\r\n");
 
               term.onData((data) => {
                 if (socket && socket.readyState === WebSocket.OPEN) {
