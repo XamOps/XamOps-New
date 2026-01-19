@@ -39,18 +39,19 @@ public class EksController {
         return accounts.get(0);
     }
 
-    // ✅ NEW: Unified Dashboard Endpoint
+    // ✅ NEW: Unified Dashboard Endpoint with Caching Support
     @GetMapping("/{clusterName}/dashboard")
     public CompletableFuture<ResponseEntity<EksCompleteDashboardDto>> getCompleteDashboard(
             @PathVariable String clusterName,
             @RequestParam String accountId,
             @RequestParam String region,
             @RequestParam(required = false, defaultValue = "1.28") String version,
-            @RequestParam(required = false, defaultValue = "ACTIVE") String status) {
+            @RequestParam(required = false, defaultValue = "ACTIVE") String status,
+            @RequestParam(required = false, defaultValue = "false") boolean forceRefresh) {
 
         CloudAccount account = getAccount(accountId);
 
-        return dashboardService.getCompleteDashboard(account, clusterName, region, version, status)
+        return dashboardService.getCompleteDashboard(account, clusterName, region, version, status, forceRefresh)
                 .thenApply(ResponseEntity::ok)
                 .exceptionally(ex -> {
                     ex.printStackTrace();
