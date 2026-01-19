@@ -35,6 +35,7 @@ public class CloudGuardService {
     private final CloudListService cloudListService;
     private final FinOpsService finOpsService;
     private final EmailService emailService;
+    private final DashboardDataService dashboardDataService;
 
     @Autowired
     public CloudGuardService(
@@ -43,7 +44,8 @@ public class CloudGuardService {
             RedisCacheService redisCache,
             @Lazy CloudListService cloudListService,
             FinOpsService finOpsService,
-            EmailService emailService
+            EmailService emailService,
+            @Lazy DashboardDataService dashboardDataService
     ) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
@@ -51,6 +53,7 @@ public class CloudGuardService {
         this.cloudListService = cloudListService;
         this.finOpsService = finOpsService;
         this.emailService = emailService;
+        this.dashboardDataService = dashboardDataService;
     }
 
     private CloudAccount getAccount(String accountId) {
@@ -158,6 +161,20 @@ public class CloudGuardService {
     public CompletableFuture<List<AlertDto>> getAlerts(String accountId, boolean forceRefresh) {
         logger.info("🔍 Fetching alerts for account: {}", accountId);
 
+        if (!forceRefresh) {
+            // 1. Check database cache first (persistent, survives restarts)
+            String dbKey = "alerts-" + accountId;
+            List<AlertDto> cachedAlerts = (List<AlertDto>) dashboardDataService.getAlertsSnapshot(
+                dbKey, new TypeReference<List<AlertDto>>() {});
+            if (cachedAlerts != null && !cachedAlerts.isEmpty()) {
+                logger.info("✅ Serving {} alerts from database cache for account {}",
+                    cachedAlerts.size(), accountId);
+                return CompletableFuture.completedFuture(cachedAlerts);
+            }
+        }
+
+        // 2. Fetch fresh data from AWS API
+        logger.info("Fetching fresh alerts from AWS API for account {}", accountId);
         CloudAccount account = getAccount(accountId);
 
         // Eagerly fetch email before async

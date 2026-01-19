@@ -228,8 +228,9 @@ public class ReservationService {
         return CompletableFuture.supplyAsync(() -> {
             CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
             try {
-                LocalDate endDate = LocalDate.now();
-                LocalDate startDate = endDate.minusMonths(6).withDayOfMonth(1);
+                // Get 6 full months of historical data (not including current partial month)
+                LocalDate endDate = LocalDate.now().withDayOfMonth(1); // Start of current month
+                LocalDate startDate = endDate.minusMonths(6); // 6 months before current month
                 DateInterval period = DateInterval.builder().start(startDate.toString()).end(endDate.toString())
                         .build();
 
@@ -275,7 +276,13 @@ public class ReservationService {
                     }
 
                     if (dateStr != null) {
-                        labels.add(LocalDate.parse(dateStr).format(DateTimeFormatter.ofPattern("MMM uuuu")));
+                        try {
+                            // Parse the date string (format: YYYY-MM-DD) and format as "MMM yyyy"
+                            LocalDate date = LocalDate.parse(dateStr);
+                            labels.add(date.format(DateTimeFormatter.ofPattern("MMM yyyy")));
+                        } catch (Exception e) {
+                            logger.warn("Failed to parse date string: {}", dateStr);
+                        }
                     }
 
                     // Extract Utilization Values

@@ -458,14 +458,33 @@ public class CloudListService {
             boolean forceRefresh) {
         String cacheKey = "regionStatus-" + account.getAwsAccountId();
         if (!forceRefresh) {
+            // 1. Check database cache first (persistent, survives restarts)
+            try {
+                String dbKey = "CLOUD_LIST::" + account.getAwsAccountId() + "::" + LocalDate.now();
+                Optional<CachedData> dbCache = cachedDataRepository.findById(dbKey);
+                if (dbCache.isPresent()) {
+                    List<DashboardData.RegionStatus> data = objectMapper.readValue(
+                        dbCache.get().getJsonData(),
+                        new TypeReference<List<DashboardData.RegionStatus>>() {});
+                    logger.info("✅ Serving cloud list region data from database cache for account {}",
+                        account.getAwsAccountId());
+                    return CompletableFuture.completedFuture(data);
+                }
+            } catch (Exception e) {
+                logger.warn("Failed to read cloud list data from database cache: {}", e.getMessage());
+            }
+
+            // 2. Fallback to Redis cache
             Optional<List<DashboardData.RegionStatus>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {
             });
             if (cachedData.isPresent()) {
+                logger.info("Serving cloud list region data from Redis cache for account {}", account.getAwsAccountId());
                 return CompletableFuture.completedFuture(cachedData.get());
             }
         }
 
-        logger.info("Fetching status for all available and active AWS regions for account {}...",
+        // 3. Fetch fresh data from AWS API
+        logger.info("Fetching status for all available and active AWS regions from AWS API for account {}...",
                 account.getAwsAccountId());
         Ec2Client ec2 = awsClientProvider.getEc2Client(account, configuredRegion);
         try {
