@@ -205,6 +205,9 @@ public class BillopsController {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
             }
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+        } catch (IllegalStateException e) {
+            logger.error("Configuration Error fetching GCP billing data: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(null);
         } catch (IOException | InterruptedException e) {
             logger.error("Error fetching GCP billing data (Server Error): " + e.getMessage(), e);
             Thread.currentThread().interrupt();

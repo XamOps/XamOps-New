@@ -12,9 +12,12 @@ public class DashboardStartupRunner implements ApplicationListener<ApplicationRe
     private static final Logger logger = LoggerFactory.getLogger(DashboardStartupRunner.class);
 
     private final DashboardDataService dashboardDataService;
+    private final ProactiveCacheRefreshService proactiveCacheRefreshService;
 
-    public DashboardStartupRunner(DashboardDataService dashboardDataService) {
+    public DashboardStartupRunner(DashboardDataService dashboardDataService,
+            ProactiveCacheRefreshService proactiveCacheRefreshService) {
         this.dashboardDataService = dashboardDataService;
+        this.proactiveCacheRefreshService = proactiveCacheRefreshService;
     }
 
     @Override
@@ -27,6 +30,7 @@ public class DashboardStartupRunner implements ApplicationListener<ApplicationRe
                 // Initial delay to allow other services to fully initialize if needed
                 Thread.sleep(5000);
                 dashboardDataService.runBackgroundAggregation();
+                // Note: BillOps dashboards now have their own startup cache warming in billops module
             } catch (Exception e) {
                 logger.error("❌ [DashboardStartup] Failed to run initial aggregation", e);
             }

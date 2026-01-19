@@ -4,7 +4,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.time.LocalDateTime;
-import java.util.List; 
+import java.util.List;
 
 @Setter
 @Getter
@@ -17,6 +17,7 @@ public class TicketDto {
     private String status;
     private LocalDateTime createdAt;
     private Long clientId;
+    private long lastUpdated;
 
     // NEW FIELDS
     private String category;
@@ -26,7 +27,7 @@ public class TicketDto {
     private String region;
 
     // --- START: MODIFIED SECTION ---
-    private List<TicketReplyDto> replies; 
+    private List<TicketReplyDto> replies;
 
     private Long creatorId; // Added to pass the creator's ID
     // --- END: MODIFIED SECTION ---

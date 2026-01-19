@@ -18,6 +18,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import javax.annotation.PostConstruct;
+
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -27,9 +29,15 @@ import java.util.stream.Collectors;
 public class TicketService {
 
     private static final Logger logger = LoggerFactory.getLogger(TicketService.class);
+
+    @PostConstruct
+    public void init() {
+        logger.info("✅ TicketService initialized");
+    }
+
     private static final String ADMIN_TECHNICAL_EMAIL = "sahil@xammer.in";
     private static final String ADMIN_BILLING_EMAIL = "nirbhay@xammer.in";
-    
+
     // Cache Keys
     private static final String TICKETS_ALL_CACHE_KEY = "tickets:all";
     private static final String TICKETS_CATEGORY_PREFIX = "tickets:category:";
@@ -48,7 +56,7 @@ public class TicketService {
     @Autowired
     private FileStorageService fileStorageService;
     @Autowired
-    private RedisCacheService redisCache; 
+    private RedisCacheService redisCache;
 
     @Transactional
     public TicketDto createTicket(TicketDto ticketDto) {
@@ -88,29 +96,28 @@ public class TicketService {
 
         // 4. Send Email
         try {
-            String adminEmail = "Account and Billing".equalsIgnoreCase(savedTicket.getCategory()) ? 
-                                ADMIN_BILLING_EMAIL : ADMIN_TECHNICAL_EMAIL;
-            
+            String adminEmail = "Account and Billing".equalsIgnoreCase(savedTicket.getCategory()) ? ADMIN_BILLING_EMAIL
+                    : ADMIN_TECHNICAL_EMAIL;
+
             String subject = String.format("New Ticket [ID: %d]: %s", savedTicket.getId(), savedTicket.getSubject());
             String text = String.format(
-                "A new ticket has been created by %s (Client: %s).\n\n" +
-                "Category: %s\n" +
-                "Service: %s\n" +
-                "Severity: %s\n\n" +
-                "Description:\n%s",
-                creator.getUsername(),
-                client.getName(),
-                ticket.getCategory(),
-                ticket.getService(),
-                ticket.getSeverity(),
-                ticket.getDescription()
-            );
-            
+                    "A new ticket has been created by %s (Client: %s).\n\n" +
+                            "Category: %s\n" +
+                            "Service: %s\n" +
+                            "Severity: %s\n\n" +
+                            "Description:\n%s",
+                    creator.getUsername(),
+                    client.getName(),
+                    ticket.getCategory(),
+                    ticket.getService(),
+                    ticket.getSeverity(),
+                    ticket.getDescription());
+
             emailService.sendSimpleMessage(adminEmail, subject, text);
         } catch (Exception e) {
             logger.error("Failed to send new ticket notification email for ticket {}", savedTicket.getId(), e);
         }
-        
+
         // 5. Evict Cache (Includes the specific category)
         evictTicketCaches(savedTicket.getCategory());
 
@@ -123,7 +130,9 @@ public class TicketService {
     @Transactional(readOnly = true)
     public List<TicketDto> getAllTickets(boolean forceRefresh) {
         if (!forceRefresh) {
-            Optional<List<TicketDto>> cached = redisCache.get(TICKETS_ALL_CACHE_KEY, new TypeReference<List<TicketDto>>() {});
+            Optional<List<TicketDto>> cached = redisCache.get(TICKETS_ALL_CACHE_KEY,
+                    new TypeReference<List<TicketDto>>() {
+                    });
             if (cached.isPresent()) {
                 logger.debug("Returning CACHED all tickets");
                 return cached.get();
@@ -131,8 +140,13 @@ public class TicketService {
         }
 
         logger.debug("Fetching FRESH all tickets and updating cache");
+        long now = System.currentTimeMillis();
         List<TicketDto> freshData = ticketRepository.findAllWithRepliesAndAuthors().stream()
-                .map(this::convertToDto)
+                .map(t -> {
+                    TicketDto dto = this.convertToDto(t);
+                    dto.setLastUpdated(now);
+                    return dto;
+                })
                 .collect(Collectors.toList());
 
         redisCache.put(TICKETS_ALL_CACHE_KEY, freshData, CACHE_TTL_MINUTES);
@@ -147,16 +161,17 @@ public class TicketService {
         }
         return convertToDto(ticket);
     }
-    
+
     /**
      * Unified method to get tickets by category.
      */
     @Transactional(readOnly = true)
     public List<TicketDto> getTicketsByCategory(String category, boolean forceRefresh) {
         String cacheKey = TICKETS_CATEGORY_PREFIX + category;
-        
+
         if (!forceRefresh) {
-            Optional<List<TicketDto>> cached = redisCache.get(cacheKey, new TypeReference<List<TicketDto>>() {});
+            Optional<List<TicketDto>> cached = redisCache.get(cacheKey, new TypeReference<List<TicketDto>>() {
+            });
             if (cached.isPresent()) {
                 logger.debug("Returning CACHED tickets for category: {}", category);
                 return cached.get();
@@ -164,8 +179,13 @@ public class TicketService {
         }
 
         logger.debug("Fetching FRESH tickets for category: {} and updating cache", category);
+        long now = System.currentTimeMillis();
         List<TicketDto> freshData = ticketRepository.findAllByCategoryWithRepliesAndAuthors(category).stream()
-                .map(this::convertToDto)
+                .map(t -> {
+                    TicketDto dto = this.convertToDto(t);
+                    dto.setLastUpdated(now);
+                    return dto;
+                })
                 .collect(Collectors.toList());
 
         redisCache.put(cacheKey, freshData, CACHE_TTL_MINUTES);
@@ -184,10 +204,10 @@ public class TicketService {
         User author;
         if (replyDto.getAuthorId() != null) {
             author = userRepository.findById(replyDto.getAuthorId())
-                .orElseThrow(() -> new RuntimeException("Author (user) not found"));
+                    .orElseThrow(() -> new RuntimeException("Author (user) not found"));
         } else if (replyDto.getAuthorUsername() != null) {
             author = userRepository.findByUsername(replyDto.getAuthorUsername())
-                .orElseThrow(() -> new RuntimeException("Author (user) not found"));
+                    .orElseThrow(() -> new RuntimeException("Author (user) not found"));
         } else {
             throw new RuntimeException("Author details missing");
         }
@@ -195,11 +215,11 @@ public class TicketService {
         TicketReply reply = new TicketReply();
         reply.setTicket(ticket);
         reply.setAuthor(author);
-        
+
         // FIX: Ensure non-null message for DB
         String message = replyDto.getMessage() != null ? replyDto.getMessage() : "";
         reply.setMessage(message);
-        
+
         reply.setCreatedAt(java.time.LocalDateTime.now());
 
         if (file != null && !file.isEmpty()) {
@@ -222,40 +242,39 @@ public class TicketService {
         try {
             User ticketCreator = ticket.getCreator();
             String subject = String.format("New Reply on Ticket [ID: %d]: %s", ticket.getId(), ticket.getSubject());
-            
+
             // FIX: Handle empty message gracefully in email
-            String displayMessage = (reply.getMessage() == null || reply.getMessage().isBlank()) 
-                                    ? "(Attachment only)" 
-                                    : reply.getMessage();
+            String displayMessage = (reply.getMessage() == null || reply.getMessage().isBlank())
+                    ? "(Attachment only)"
+                    : reply.getMessage();
 
             String text = String.format(
-                "%s has replied to ticket %d:\n\n---\n%s\n---",
-                author.getUsername(),
-                ticket.getId(),
-                displayMessage
-            );
+                    "%s has replied to ticket %d:\n\n---\n%s\n---",
+                    author.getUsername(),
+                    ticket.getId(),
+                    displayMessage);
 
             if (reply.getAttachmentName() != null) {
                 text += "\n\n[Attachment: " + reply.getAttachmentName() + "]";
             }
 
-            boolean isAdminReply = author.getRole() != null && (author.getRole().contains("ADMIN"));            
+            boolean isAdminReply = author.getRole() != null && (author.getRole().contains("ADMIN"));
             if (isAdminReply) {
                 if (ticketCreator != null && ticketCreator.getEmail() != null) {
                     emailService.sendSimpleMessage(ticketCreator.getEmail(), subject, text);
                 }
             } else {
-                String adminEmail = "Account and Billing".equalsIgnoreCase(ticket.getCategory()) ? 
-                                    ADMIN_BILLING_EMAIL : ADMIN_TECHNICAL_EMAIL;
+                String adminEmail = "Account and Billing".equalsIgnoreCase(ticket.getCategory()) ? ADMIN_BILLING_EMAIL
+                        : ADMIN_TECHNICAL_EMAIL;
                 emailService.sendSimpleMessage(adminEmail, subject, text);
             }
         } catch (Exception e) {
             logger.error("Failed to send reply notification email for ticket {}", ticket.getId(), e);
         }
-        
+
         // Evict Cache for this specific category + Admin list
         evictTicketCaches(updatedTicket.getCategory());
-        
+
         return convertToDto(updatedTicket);
     }
 
@@ -266,26 +285,30 @@ public class TicketService {
 
         ticket.setStatus("CLOSED");
         Ticket updatedTicket = ticketRepository.save(ticket);
-        
+
         // Evict Cache for this specific category + Admin list
         evictTicketCaches(updatedTicket.getCategory());
-        
+
         return convertToDto(updatedTicket);
     }
 
     // --- Helper Methods ---
-    
+
     /**
-     * Evicts the global "All Tickets" list (for Admins) AND the specific category cache (for Users).
-     * @param category The category of the ticket that was modified. Can be null if unknown.
+     * Evicts the global "All Tickets" list (for Admins) AND the specific category
+     * cache (for Users).
+     * 
+     * @param category The category of the ticket that was modified. Can be null if
+     *                 unknown.
      */
     public void evictTicketCaches(String category) {
         // 1. Evict Admin List (Always)
         redisCache.evict(TICKETS_ALL_CACHE_KEY);
-        
+
         // 2. Evict Specific Category Cache (If known)
         if (category != null && !category.isEmpty()) {
-            // RedisCacheService typically expects exact keys unless pattern deletion is implemented.
+            // RedisCacheService typically expects exact keys unless pattern deletion is
+            // implemented.
             // Assuming we match the key format used in getTicketsByCategory:
             String categoryKey = TICKETS_CATEGORY_PREFIX + category;
             redisCache.evict(categoryKey);
@@ -334,6 +357,11 @@ public class TicketService {
         if (reply.getAuthor() != null) {
             dto.setAuthorId(reply.getAuthor().getId());
             dto.setAuthorUsername(reply.getAuthor().getUsername());
+
+            // Map admin status
+            boolean isAdmin = reply.getAuthor().getRole() != null &&
+                    (reply.getAuthor().getRole().contains("ADMIN"));
+            dto.setAdmin(isAdmin);
         }
 
         if (reply.getAttachmentKey() != null) {

@@ -59,7 +59,7 @@ public class ProactiveCacheRefreshService {
             OptimizationService optimizationService,
             JobExecutionHistoryRepository jobExecutionHistoryRepository,
             @Qualifier("masterDataSource") DataSource masterDataSource,
-            com.xammer.cloud.config.SchedulingEnvironmentConfig envConfig) {
+            com.xammer.cloud.config.SchedulingEnvironmentConfig envConfig) { // Added arg
         this.cloudAccountRepository = cloudAccountRepository;
         this.cacheManager = cacheManager;
         this.cloudListService = cloudListService;
@@ -146,6 +146,51 @@ public class ProactiveCacheRefreshService {
     // DISABLED: Redundant - The 5-minute job in DashboardDataService handles all
     // refreshes
     // ===================================================================================
+    // ===================================================================================
+    // 2:00 AM -> BillOps Dashboard Refresh (User & Admin)
+    // ===================================================================================
+    // @Scheduled(cron = "0 0 2 * * ?")
+    // public void refreshBillOpsDashboards() {
+    // logger.info("--- [2:00 AM] Starting BillOps Dashboard Refresh ---");
+
+    // // 1. Refresh Global Admin Dashboard
+    // try {
+    // billOpsDashboardService.refreshAdminDashboard();
+    // } catch (Exception e) {
+    // logger.error("Failed to refresh Admin Dashboard", e);
+    // }
+
+    // // 2. Refresh User Dashboards for each active tenant
+    // List<String> tenants = fetchActiveTenants();
+
+    // for (String tenantId : tenants) {
+    // JobExecutionHistory jobHistory = new
+    // JobExecutionHistory("REFRESH_BILLOPS_DASHBOARD", tenantId,
+    // LocalDateTime.now(), "RUNNING");
+    // try {
+    // TenantContext.setCurrentTenant(tenantId);
+    // jobHistory = jobExecutionHistoryRepository.save(jobHistory);
+
+    // billOpsDashboardService.refreshUserDashboardForTenant(tenantId);
+
+    // jobHistory.setStatus("SUCCESS");
+    // jobHistory.setEndTime(LocalDateTime.now());
+    // jobExecutionHistoryRepository.save(jobHistory);
+
+    // } catch (Exception e) {
+    // logger.error("❌ Failed BillOps refresh for tenant {}", tenantId, e);
+    // if (jobHistory.getId() != null) {
+    // jobHistory.setStatus("FAILURE");
+    // jobHistory.setErrorMessage(e.getMessage());
+    // jobHistory.setEndTime(LocalDateTime.now());
+    // jobExecutionHistoryRepository.save(jobHistory);
+    // }
+    // } finally {
+    // TenantContext.clear();
+    // }
+    // }
+    // }
+
     // @Scheduled(cron = "0 0 2 * * ?")
     public void refreshDashboardAndFinOps_DISABLED() {
         logger.info("--- [2:00 AM] Starting Dashboard & FinOps Refresh ---");

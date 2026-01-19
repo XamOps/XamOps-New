@@ -11,16 +11,19 @@ public class BillingDashboardDto {
 
     private List<CostHistory> costHistory;
     private List<ServiceBreakdown> serviceBreakdown;
+    private long lastUpdated;
 
-    public BillingDashboardDto() {}
+    public BillingDashboardDto() {
+    }
 
     @Getter
     @Setter
     public static class CostHistory {
         private String date;
         private double cost;
-        
-        public CostHistory() {}
+
+        public CostHistory() {
+        }
 
         public CostHistory(String date, double cost) {
             this.date = date;
@@ -34,7 +37,8 @@ public class BillingDashboardDto {
         private String name;
         private double cost;
 
-        public ServiceBreakdown() {} // Add this no-argument constructor
+        public ServiceBreakdown() {
+        } // Add this no-argument constructor
 
         public ServiceBreakdown(String name, double cost) {
             this.name = name;

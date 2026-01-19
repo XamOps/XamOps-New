@@ -224,10 +224,19 @@ public class DashboardDataService {
             }
 
             String currentTenant = envConfig.getCurrentTenantId();
+            String activeProfile = envConfig.getActiveProfile();
             logger.info("🔒 Environment filter: Only processing tenant '{}' (environment: {})",
-                    currentTenant, envConfig.getActiveProfile());
+                    currentTenant, activeProfile);
 
-            // Only return the current environment's tenant
+            // In local/UAT, there's no tenant_config table - just return the configured
+            // tenant
+            if ("local".equals(activeProfile) || "uat".equals(activeProfile)) {
+                logger.info("✅ Using configured tenant '{}' for {} environment (no tenant_config query)",
+                        currentTenant, activeProfile);
+                return java.util.Arrays.asList(currentTenant);
+            }
+
+            // In prod, query tenant_config from master DB
             List<String> tenants = masterJdbcTemplate.queryForList(
                     "SELECT tenant_id FROM tenant_config WHERE active = true AND tenant_id = ?",
                     String.class,

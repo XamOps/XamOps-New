@@ -8,6 +8,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
+
+import javax.annotation.PostConstruct;
+
 import software.amazon.awssdk.services.costexplorer.CostExplorerClient;
 import software.amazon.awssdk.services.costexplorer.model.*;
 
@@ -23,6 +26,11 @@ public class CostService {
     private final AwsClientProvider awsClientProvider;
     private final CloudAccountRepository cloudAccountRepository;
     private static final Logger logger = LoggerFactory.getLogger(CostService.class);
+
+    @PostConstruct
+    public void init() {
+        logger.info("✅ CostService initialized");
+    }
 
     public CostService(AwsClientProvider awsClientProvider, CloudAccountRepository cloudAccountRepository) {
         this.awsClientProvider = awsClientProvider;
@@ -43,12 +51,12 @@ public class CostService {
                         "Xammer_PvC_Credits",
                         LocalDate.of(2025, 10, 31),
                         new BigDecimal("94.27"),
-                        new BigDecimal("4900.73")
-                )
-        );
+                        new BigDecimal("4900.73")));
 
-        BigDecimal totalUsed = mockCredits.stream().map(CreditDetailDto::getAmountUsed).reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal totalRemaining = mockCredits.stream().map(CreditDetailDto::getAmountRemaining).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalUsed = mockCredits.stream().map(CreditDetailDto::getAmountUsed).reduce(BigDecimal.ZERO,
+                BigDecimal::add);
+        BigDecimal totalRemaining = mockCredits.stream().map(CreditDetailDto::getAmountRemaining)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         return new AwsCreditDto(totalRemaining, totalUsed, mockCredits);
     }
@@ -57,7 +65,8 @@ public class CostService {
     public List<Map<String, Object>> getCostHistory(CloudAccount account, Integer year, Integer month) {
         try {
             CostExplorerClient client = awsClientProvider.getCostExplorerClient(account);
-            LocalDate end = (year != null && month != null) ? YearMonth.of(year, month).atEndOfMonth() : LocalDate.now();
+            LocalDate end = (year != null && month != null) ? YearMonth.of(year, month).atEndOfMonth()
+                    : LocalDate.now();
             LocalDate start = end.minusMonths(5).withDayOfMonth(1);
 
             GetCostAndUsageRequest request = GetCostAndUsageRequest.builder()
@@ -75,13 +84,15 @@ public class CostService {
                 return dataPoint;
             }).collect(Collectors.toList());
         } catch (CostExplorerException e) {
-            logger.warn("Could not fetch cost history for account {}. Error: {}", account.getAccountName(), e.getMessage());
+            logger.warn("Could not fetch cost history for account {}. Error: {}", account.getAccountName(),
+                    e.getMessage());
             return Collections.emptyList();
         }
     }
 
     @Cacheable(value = "costByDimension", key = "#account.id + '-' + #dimension + '-' + #year + '-' + #month")
-    public List<Map<String, Object>> getCostByDimension(CloudAccount account, String dimension, Integer year, Integer month) {
+    public List<Map<String, Object>> getCostByDimension(CloudAccount account, String dimension, Integer year,
+            Integer month) {
         try {
             CostExplorerClient client = awsClientProvider.getCostExplorerClient(account);
             LocalDate startDate;
@@ -124,13 +135,15 @@ public class CostService {
                     .filter(map -> (double) map.get("cost") > 0.01)
                     .collect(Collectors.toList());
         } catch (CostExplorerException e) {
-            logger.warn("Could not fetch cost by dimension for account {}. Error: {}", account.getAccountName(), e.getMessage());
+            logger.warn("Could not fetch cost by dimension for account {}. Error: {}", account.getAccountName(),
+                    e.getMessage());
             return Collections.emptyList();
         }
     }
 
     @Cacheable(value = "costForServiceInRegion", key = "#account.id + '-' + #serviceName + '-' + #year + '-' + #month")
-    public List<Map<String, Object>> getCostForServiceInRegion(CloudAccount account, String serviceName, Integer year, Integer month) {
+    public List<Map<String, Object>> getCostForServiceInRegion(CloudAccount account, String serviceName, Integer year,
+            Integer month) {
         try {
             CostExplorerClient client = awsClientProvider.getCostExplorerClient(account);
             LocalDate startDate;
@@ -179,13 +192,15 @@ public class CostService {
                     .collect(Collectors.toList());
 
         } catch (CostExplorerException e) {
-            logger.warn("Could not fetch cost for service '{}' in account {}. Error: {}", serviceName, account.getAccountName(), e.getMessage());
+            logger.warn("Could not fetch cost for service '{}' in account {}. Error: {}", serviceName,
+                    account.getAccountName(), e.getMessage());
             return Collections.emptyList();
         }
     }
 
     @Cacheable(value = "costByResource", key = "#account.id + '-' + #serviceName + '-' + #region + '-' + #year + '-' + #month")
-    public List<Map<String, Object>> getCostByResource(CloudAccount account, String serviceName, String region, Integer year, Integer month) {
+    public List<Map<String, Object>> getCostByResource(CloudAccount account, String serviceName, String region,
+            Integer year, Integer month) {
         logger.info("Fetching resource costs for service '{}' in region '{}'", serviceName, region);
         try {
             CostExplorerClient client = awsClientProvider.getCostExplorerClient(account);
@@ -206,7 +221,8 @@ public class CostService {
                     .build();
 
             GetCostAndUsageRequest.Builder requestBuilder = GetCostAndUsageRequest.builder()
-                    .timePeriod(DateInterval.builder().start(startDate.toString()).end(endDate.plusDays(1).toString()).build())
+                    .timePeriod(DateInterval.builder().start(startDate.toString()).end(endDate.plusDays(1).toString())
+                            .build())
                     .granularity(Granularity.MONTHLY)
                     .metrics("UnblendedCost", "UsageQuantity") // MODIFIED: Added UsageQuantity
                     .groupBy(GroupDefinition.builder().type(GroupDefinitionType.DIMENSION).key("USAGE_TYPE").build());
@@ -248,7 +264,8 @@ public class CostService {
                     .collect(Collectors.toList());
 
         } catch (CostExplorerException e) {
-            logger.warn("Could not fetch resource costs for service '{}' in region '{}'. Error: {}", serviceName, region, e.getMessage());
+            logger.warn("Could not fetch resource costs for service '{}' in region '{}'. Error: {}", serviceName,
+                    region, e.getMessage());
             return Collections.emptyList();
         }
     }

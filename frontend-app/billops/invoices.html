@@ -317,9 +317,18 @@
                                 <span x-show="isUpdating" class="updating-spinner"
                                     title="Refreshing data in background..."></span>
                             </h1>
-                            <p class="text-gray-600"
-                                x-text="selectedAccountName ? `Account: ${selectedAccountName} (${selectedAccountId})` : 'No account selected'">
-                            </p>
+                            <div class="flex items-center space-x-2 mt-1">
+                                <p class="text-gray-600"
+                                    x-text="selectedAccountName ? `Account: ${selectedAccountName} (${selectedAccountId})` : 'No account selected'">
+                                </p>
+                                <template x-if="lastUpdated">
+                                    <span
+                                        class="text-xs text-gray-400 font-medium bg-gray-100 px-2 py-0.5 rounded flex items-center">
+                                        <i class="far fa-clock mr-1"></i>
+                                        Last Updated: <span class="ml-1" x-text="lastUpdatedDisplay"></span>
+                                    </span>
+                                </template>
+                            </div>
                         </div>
                     </div>
 
@@ -644,6 +653,8 @@
 
                             error: null,
                             updateError: null,
+                            lastUpdated: null,
+                            lastUpdatedDisplay: '',
 
                             detailedBreakdown: [],
                             expandedServices: {},
@@ -659,50 +670,126 @@
 
                                 if (accountIds) {
                                     this.selectedAccountId = accountIds.split(',')[0];
-                                    // Unified Fetch: Initial load (forceRefresh = false)
+
+                                    // ⚡ 1. Instant Load from Cache
+                                    this.loadFromCache();
+
+                                    // 🔄 2. Background Refresh
                                     this.fetchData(false);
                                 } else {
-                                    this.error = "No account selected. Please choose an account from the sidebar.";
+                                    console.warn('[Invoices] No account ID in URL, waiting for sidebar to apply selection...');
+                                    this.error = "Select an account to view invoices";
                                     this.listLoading = false;
                                 }
+
+                                // Listen for account changes from sidebar
+                                window.addEventListener('account-changed', (event) => {
+                                    console.log('[Invoices] Account changed event received:', event.detail);
+                                    const newAccountId = event.detail.accountIds ? event.detail.accountIds.join(',') : event.detail.accountId;
+
+                                    // Handle both single string ID or comma-separated list
+                                    // For invoices, we currently filter by the first ID or specific match logic
+                                    // The existing code at line 672 uses .split(',')[0], so we should be consistent
+                                    // But actually, update the whole property and let filterAndDisplayInvoices handle it?
+                                    // Line 672: this.selectedAccountId = accountIds.split(',')[0];
+
+                                    if (newAccountId) {
+                                        const newSelectedId = newAccountId.split(',')[0];
+
+                                        if (newSelectedId !== this.selectedAccountId) {
+                                            console.log('[Invoices] Updating account ID to:', newSelectedId);
+                                            this.selectedAccountId = newSelectedId;
+                                            this.selectedAccountName = ''; // Reset name so it updates from new data
+                                            this.error = null;
+                                            this.listLoading = true;
+
+                                            // Check cache first for new account
+                                            // Note: current cache key is generic 'invoices_list_admin' so it might contain mixed data
+                                            // The fetchData implementation fetches ALL invoices for admin (?) or filters on backend?
+                                            // fetch(`/api/admin/invoices?forceRefresh=${forceRefresh}`) logic at 722 implies it fetches list.
+                                            // The filtering happens in Frontend at 768.
+
+                                            // So we just need to re-filter if we already have data, or fetch if we don't?
+                                            // If we have data, we can just re-filter.
+
+                                            if (this.hasData) {
+                                                console.log('[Invoices] Data exists, re-filtering for new account.');
+                                                this.filterAndDisplayInvoices();
+                                                this.listLoading = false;
+                                            } else {
+                                                this.fetchData(false);
+                                            }
+                                        }
+                                    }
+                                });
+                            },
+
+                            loadFromCache() {
+                                const cacheKey = `invoices_list_admin`; // Using shared key for simplicity or could be user-specific
+                                const cached = localStorage.getItem(cacheKey);
+                                if (cached) {
+                                    try {
+                                        const { data, timestamp } = JSON.parse(cached);
+                                        if (data && Array.isArray(data)) {
+                                            console.log("⚡ [Invoices] Loaded from cache.");
+                                            this.allInvoices = data;
+                                            this.lastUpdated = timestamp;
+                                            this.updateLastUpdatedDisplay();
+                                            this.filterAndDisplayInvoices();
+                                            this.listLoading = false; // Stop initial spinner if cache exists
+                                        }
+                                    } catch (e) {
+                                        console.warn("Failed to parse cached invoices", e);
+                                    }
+                                }
+                            },
+
+                            updateLastUpdatedDisplay() {
+                                if (!this.lastUpdated) return;
+                                const date = new Date(this.lastUpdated);
+                                this.lastUpdatedDisplay = date.toLocaleString();
                             },
 
                             // Unified function handling both Initial Load and Force Refresh
                             fetchData(forceRefresh = false) {
-                                if (forceRefresh) {
+                                // If forceRefresh is manually triggered, or if we have no data yet
+                                if (forceRefresh || !this.hasData) {
                                     this.isUpdating = true;
                                     this.updateError = null;
-                                    console.log("🔄 Refreshing invoice list...");
                                 } else {
-                                    this.listLoading = true;
-                                    this.error = null;
-                                    console.log("📥 Initial load for invoice list...");
+                                    // Hidden background refresh
+                                    this.isUpdating = true;
                                 }
 
-                                // Using Admin endpoint for now as per requirements. 
-                                // Ideally this should be a user-scoped endpoint like /api/billops/invoices
                                 fetch(`/api/admin/invoices?forceRefresh=${forceRefresh}`)
                                     .then(res => {
                                         if (!res.ok) throw new Error('Failed to load invoice list.');
                                         return res.json();
                                     })
                                     .then(data => {
-                                        console.log('✅ Invoice list received.');
+                                        console.log('✅ [Invoices] Fresh data received.');
                                         this.allInvoices = data;
+
+                                        // Update Cache & Timestamp
+                                        const now = Date.now();
+                                        this.lastUpdated = now;
+                                        this.updateLastUpdatedDisplay();
+
+                                        localStorage.setItem('invoices_list_admin', JSON.stringify({
+                                            data: data,
+                                            timestamp: now
+                                        }));
+
                                         this.filterAndDisplayInvoices();
                                     })
                                     .catch(error => {
                                         console.error('Error fetching invoice list:', error);
-                                        const msg = 'Failed to load invoice data.';
+                                        const msg = 'Failed to load fresh invoice data.';
 
-                                        if (forceRefresh) {
-                                            this.updateError = msg;
+                                        if (forceRefresh || !this.hasData) {
+                                            this.error = msg;
                                         } else {
-                                            if (!this.hasData) {
-                                                this.error = msg;
-                                            } else {
-                                                this.updateError = msg + " Showing cached data.";
-                                            }
+                                            this.updateError = msg + " (Showing cached data)";
                                         }
                                     })
                                     .finally(() => {
