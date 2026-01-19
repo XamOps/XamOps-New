@@ -227,7 +227,7 @@ public class ProactiveCacheRefreshService {
                         if (cacheManager.getCache("finOpsReport") != null) {
                             cacheManager.getCache("finOpsReport").evict(accountId);
                         }
-                        finOpsService.getFinOpsReport(accountId, true).join();
+                        finOpsService.getFinOpsReport(accountId, true, null, null).join();
                         count++;
                     } catch (Exception e) {
                         logger.error("Failed Dashboard/FinOps refresh for {}", accountId, e);

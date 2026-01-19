@@ -31,7 +31,7 @@ public class FinOpsRefreshService {
             cacheService.evictFinOpsReportCache(accountId);
 
             // Fetch the full FinOps report data in the background
-            FinOpsReportDto freshReport = finOpsService.getFinOpsReport(accountId, true).join();
+            FinOpsReportDto freshReport = finOpsService.getFinOpsReport(accountId, true, null, null).join();
 
             // Send the complete report object over a specific WebSocket topic
             dashboardUpdateService.sendUpdate(accountId, freshReport);
