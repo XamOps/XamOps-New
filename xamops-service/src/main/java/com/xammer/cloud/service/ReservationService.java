@@ -254,56 +254,66 @@ public class ReservationService {
                 List<SavingsPlansCoverage> spCovList = ce
                         .getSavingsPlansCoverage(spCovReq).savingsPlansCoverages();
 
-                // 3. Build Result Arrays (Merge RI and SP)
+                // 3. Data Processing: Use a Map to aggregate and SORT by Date
+                // Key: LocalDate (Start of month), Value: double[4] -> {RI Util, RI Cov, SP
+                // Util, SP Cov}
+                Map<LocalDate, double[]> dataMap = new TreeMap<>();
+
+                // Helper to populate map
+                for (UtilizationByTime u : riUtilList) {
+                    if (u.timePeriod() != null && u.total() != null) {
+                        try {
+                            LocalDate date = LocalDate.parse(u.timePeriod().start());
+                            dataMap.computeIfAbsent(date, k -> new double[4])[0] = Double
+                                    .parseDouble(u.total().utilizationPercentage());
+                        } catch (Exception ignored) {
+                        }
+                    }
+                }
+                for (CoverageByTime c : riCovList) {
+                    if (c.timePeriod() != null && c.total() != null) {
+                        try {
+                            LocalDate date = LocalDate.parse(c.timePeriod().start());
+                            dataMap.computeIfAbsent(date, k -> new double[4])[1] = Double
+                                    .parseDouble(c.total().coverageHours().coverageHoursPercentage());
+                        } catch (Exception ignored) {
+                        }
+                    }
+                }
+                for (SavingsPlansUtilizationByTime u : spUtilList) {
+                    if (u.timePeriod() != null && u.utilization() != null) {
+                        try {
+                            LocalDate date = LocalDate.parse(u.timePeriod().start());
+                            dataMap.computeIfAbsent(date, k -> new double[4])[2] = Double
+                                    .parseDouble(u.utilization().utilizationPercentage());
+                        } catch (Exception ignored) {
+                        }
+                    }
+                }
+                for (SavingsPlansCoverage c : spCovList) {
+                    if (c.timePeriod() != null && c.coverage() != null) {
+                        try {
+                            LocalDate date = LocalDate.parse(c.timePeriod().start());
+                            dataMap.computeIfAbsent(date, k -> new double[4])[3] = Double
+                                    .parseDouble(c.coverage().coveragePercentage());
+                        } catch (Exception ignored) {
+                        }
+                    }
+                }
+
+                // 4. Build Final Sorted Lists
                 List<String> labels = new ArrayList<>();
                 List<Double> utilPercentages = new ArrayList<>();
                 List<Double> covPercentages = new ArrayList<>();
 
-                int size = Math.max(Math.max(riUtilList.size(), spUtilList.size()),
-                        Math.max(riCovList.size(), spCovList.size()));
+                for (Map.Entry<LocalDate, double[]> entry : dataMap.entrySet()) {
+                    // Format Date: "MMM yyyy"
+                    labels.add(entry.getKey().format(DateTimeFormatter.ofPattern("MMM yyyy")));
 
-                for (int i = 0; i < size; i++) {
-                    // Extract Date Label - prefer SP coverage data for date as it has timePeriod
-                    String dateStr = null;
-                    if (i < spCovList.size() && spCovList.get(i).timePeriod() != null) {
-                        dateStr = spCovList.get(i).timePeriod().start();
-                    } else if (i < spUtilList.size() && spUtilList.get(i).timePeriod() != null) {
-                        dateStr = spUtilList.get(i).timePeriod().start();
-                    } else if (i < riUtilList.size() && riUtilList.get(i).timePeriod() != null) {
-                        dateStr = riUtilList.get(i).timePeriod().start();
-                    } else if (i < riCovList.size() && riCovList.get(i).timePeriod() != null) {
-                        dateStr = riCovList.get(i).timePeriod().start();
-                    }
-
-                    if (dateStr != null) {
-                        try {
-                            // Parse the date string (format: YYYY-MM-DD) and format as "MMM yyyy"
-                            LocalDate date = LocalDate.parse(dateStr);
-                            labels.add(date.format(DateTimeFormatter.ofPattern("MMM yyyy")));
-                        } catch (Exception e) {
-                            logger.warn("Failed to parse date string: {}", dateStr);
-                        }
-                    }
-
-                    // Extract Utilization Values
-                    double rUtil = (i < riUtilList.size() && riUtilList.get(i).total() != null)
-                            ? Double.parseDouble(riUtilList.get(i).total().utilizationPercentage())
-                            : 0.0;
-                    double sUtil = (i < spUtilList.size() && spUtilList.get(i).utilization() != null)
-                            ? Double.parseDouble(spUtilList.get(i).utilization().utilizationPercentage())
-                            : 0.0;
-
-                    // Extract Coverage Values
-                    double rCov = (i < riCovList.size() && riCovList.get(i).total() != null)
-                            ? Double.parseDouble(riCovList.get(i).total().coverageHours().coverageHoursPercentage())
-                            : 0.0;
-                    double sCov = (i < spCovList.size() && spCovList.get(i).coverage() != null)
-                            ? Double.parseDouble(spCovList.get(i).coverage().coveragePercentage())
-                            : 0.0;
-
-                    // Merge logic: use whichever is higher to show "Optimization Activity"
-                    utilPercentages.add(Math.max(rUtil, sUtil));
-                    covPercentages.add(Math.max(rCov, sCov));
+                    double[] vals = entry.getValue();
+                    // Merge logic: max of RI vs SP
+                    utilPercentages.add(Math.max(vals[0], vals[2]));
+                    covPercentages.add(Math.max(vals[1], vals[3]));
                 }
 
                 HistoricalReservationDataDto result = new HistoricalReservationDataDto(labels, utilPercentages,

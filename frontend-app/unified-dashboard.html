@@ -1057,30 +1057,74 @@
                 init() {
                     console.log("Initializing Unified Dashboard...");
 
-                    // Wait for next tick to ensure DOM is ready
-                    this.$nextTick(() => {
-                        this.fetchAll(false); // Initial fetch uses cached data
+                    // Cleanup any existing chart instances first
+                    if (costChartInstance) {
+                        costChartInstance.destroy();
+                        costChartInstance = null;
+                    }
+                    if (providerDonutChartInstance) {
+                        providerDonutChartInstance.destroy();
+                        providerDonutChartInstance = null;
+                    }
+
+                    // Use requestAnimationFrame for more reliable DOM timing
+                    const initAllCharts = (retryCount = 0) => {
+                        const stackedCanvas = document.getElementById('stackedCostChart');
+                        const donutCanvas = document.getElementById('providerDonutChart');
+
+                        if (!stackedCanvas || !donutCanvas) {
+                            if (retryCount < 20) { // Retry up to 20 times (2 seconds total)
+                                console.log(`[Unified Dashboard] Canvas elements not found, retrying... (${retryCount + 1}/20)`);
+                                setTimeout(() => initAllCharts(retryCount + 1), 100);
+                            } else {
+                                console.error('[Unified Dashboard] Failed to find chart canvas elements after 20 retries');
+                            }
+                            return;
+                        }
+
+                        console.log('[Unified Dashboard] Canvas elements found, initializing charts...');
                         this.initStackedChart();
                         this.initProviderChart();
+                        this.fetchAll(false); // Initial fetch uses cached data
+                    };
+
+                    // Wait for next tick to ensure DOM is ready, then use RAF for paint timing
+                    this.$nextTick(() => {
+                        requestAnimationFrame(() => {
+                            initAllCharts();
+                        });
                     });
 
-                    setInterval(() => this.updateTimeAgo(), 60000);
+                    // Clear any existing intervals to prevent duplicates
+                    if (this._timeAgoInterval) clearInterval(this._timeAgoInterval);
+                    if (this._autoRefreshInterval) clearInterval(this._autoRefreshInterval);
+
+                    this._timeAgoInterval = setInterval(() => this.updateTimeAgo(), 60000);
 
                     // Auto-Refresh Logic (Every 60 seconds)
-                    setInterval(() => {
+                    this._autoRefreshInterval = setInterval(() => {
                         console.log("Auto-refreshing dashboard data...");
                         this.fetchAll(false); // Use cached data for auto-refresh
                     }, 60000);
 
                     // Listen for page-loaded event (soft navigation)
-                    window.addEventListener('page-loaded', () => {
+                    // Remove old listener if exists
+                    if (this._pageLoadedHandler) {
+                        window.removeEventListener('page-loaded', this._pageLoadedHandler);
+                    }
+                    this._pageLoadedHandler = () => {
                         console.log("Page loaded event received, reinitializing charts...");
+                        // Cleanup and reinitialize
+                        if (costChartInstance) { costChartInstance.destroy(); costChartInstance = null; }
+                        if (providerDonutChartInstance) { providerDonutChartInstance.destroy(); providerDonutChartInstance = null; }
+
                         this.$nextTick(() => {
-                            this.initStackedChart();
-                            this.initProviderChart();
-                            this.fetchAll(true); // Force refresh on navigation
+                            requestAnimationFrame(() => {
+                                initAllCharts();
+                            });
                         });
-                    });
+                    };
+                    window.addEventListener('page-loaded', this._pageLoadedHandler);
                 },
 
                 async fetchAll(force = false) {
