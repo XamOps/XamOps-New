@@ -357,7 +357,7 @@ public class DashboardDataService {
                 // ⭐ NEW: Cache FinOps data for AWS accounts
                 if ("AWS".equalsIgnoreCase(account.getProvider())) {
                     try {
-                        FinOpsReportDto finopsData = finOpsService.getFinOpsReport(accountId, true).join();
+                        FinOpsReportDto finopsData = finOpsService.getFinOpsReport(accountId, true, null, null).join();
                         String finopsKey = "finops-" + accountId;
                         saveFinOpsSnapshot(finopsKey, finopsData);
                         logger.info("✓ FinOps cached for {} (AWS)", accountId);
@@ -1034,7 +1034,7 @@ public class DashboardDataService {
 
         DashboardData.ResourceInventory aggregatedInventory = new DashboardData.ResourceInventory();
         DashboardData.IamResources aggregatedIam = new DashboardData.IamResources(0, 0, 0, 0);
-        Set<String> uniqueRegions = new HashSet<>();
+        Map<String, DashboardData.RegionStatus> uniqueRegionsMap = new HashMap<>();
         Map<String, Double> costHistoryMap = new LinkedHashMap<>();
         Map<String, Double> billingSummaryMap = new HashMap<>();
         Map<String, DashboardData.SecurityInsight> securityInsightMap = new HashMap<>();
@@ -1095,7 +1095,10 @@ public class DashboardDataService {
             }
 
             if (data.getRegionStatus() != null) {
-                data.getRegionStatus().forEach(r -> uniqueRegions.add(r.getRegionId()));
+                data.getRegionStatus().forEach(region -> {
+                    // Store complete region data with coordinates, not just regionId
+                    uniqueRegionsMap.putIfAbsent(region.getRegionId(), region);
+                });
             }
 
             if (data.getCostHistory() != null) {
@@ -1136,9 +1139,8 @@ public class DashboardDataService {
         aggregatedAccount
                 .setSavingsSummary(new DashboardData.SavingsSummary(totalPotentialSavings, savingsSuggestions));
 
-        List<DashboardData.RegionStatus> regionStatusList = uniqueRegions.stream()
-                .map(regionId -> new DashboardData.RegionStatus(regionId, true))
-                .collect(Collectors.toList());
+        // Collect all unique regions with complete data (including coordinates)
+        List<DashboardData.RegionStatus> regionStatusList = new ArrayList<>(uniqueRegionsMap.values());
         aggregatedAccount.setRegionStatus(regionStatusList);
 
         List<String> costLabels = new ArrayList<>(costHistoryMap.keySet());
@@ -1296,7 +1298,7 @@ public class DashboardDataService {
         int totalUsers = 0, totalGroups = 0, totalPolicies = 0, totalRoles = 0;
         int totalAlarms = 0, totalMetrics = 0, totalLogs = 0;
 
-        Set<String> uniqueRegions = new HashSet<>();
+        Map<String, DashboardData.RegionStatus> uniqueRegionsMap = new HashMap<>();
         Map<String, Double> costHistoryMap = new LinkedHashMap<>();
         Map<String, Double> billingSummaryMap = new HashMap<>();
 
@@ -1344,7 +1346,10 @@ public class DashboardDataService {
             }
 
             if (account.getRegionStatus() != null) {
-                account.getRegionStatus().forEach(region -> uniqueRegions.add(region.getRegionId()));
+                account.getRegionStatus().forEach(region -> {
+                    // Store complete region data with coordinates, not just regionId
+                    uniqueRegionsMap.putIfAbsent(region.getRegionId(), region);
+                });
             }
 
             if (account.getCostHistory() != null && account.getCostHistory().getLabels() != null) {
@@ -1388,9 +1393,8 @@ public class DashboardDataService {
 
         aggregatedAccount.setCloudWatchStatus(new DashboardData.CloudWatchStatus(totalAlarms, totalMetrics, totalLogs));
 
-        List<DashboardData.RegionStatus> regionStatusList = uniqueRegions.stream()
-                .map(regionId -> new DashboardData.RegionStatus(regionId, true))
-                .collect(Collectors.toList());
+        // Collect all unique regions with complete data (including coordinates)
+        List<DashboardData.RegionStatus> regionStatusList = new ArrayList<>(uniqueRegionsMap.values());
         aggregatedAccount.setRegionStatus(regionStatusList);
 
         List<String> costLabels = new ArrayList<>(costHistoryMap.keySet());
@@ -1687,14 +1691,14 @@ public class DashboardDataService {
                     });
 
             CompletableFuture<DashboardData.CostHistory> costHistoryFuture = finOpsService
-                    .getCostHistory(account, forceRefresh)
+                    .getCostHistory(account, forceRefresh, null, null)
                     .exceptionally(ex -> {
                         logger.error("Cost history failed", ex);
                         return new DashboardData.CostHistory();
                     });
 
             CompletableFuture<List<DashboardData.BillingSummary>> billingFuture = finOpsService
-                    .getBillingSummary(account, forceRefresh)
+                    .getBillingSummary(account, forceRefresh, null, null)
                     .exceptionally(ex -> {
                         logger.error("Billing summary failed", ex);
                         return Collections.emptyList();
@@ -2201,7 +2205,7 @@ public class DashboardDataService {
             if ("AWS".equalsIgnoreCase(account.getProvider())) {
                 // Fetch KPI data including cost history for sparklines and optimization summary
                 CompletableFuture<DashboardData.CostHistory> costHistoryFuture = finOpsService.getCostHistory(account,
-                        forceRefresh);
+                        forceRefresh, null, null);
 
                 // Fetch optimization data for potential savings KPI
                 List<DashboardData.RegionStatus> activeRegions = cloudListService
@@ -2340,9 +2344,9 @@ public class DashboardDataService {
                 mainAccount.setName(account.getAccountName());
 
                 CompletableFuture<DashboardData.CostHistory> costHistoryFuture = finOpsService.getCostHistory(account,
-                        forceRefresh);
+                        forceRefresh, null, null);
                 CompletableFuture<List<DashboardData.BillingSummary>> billingFuture = finOpsService
-                        .getBillingSummary(account, forceRefresh);
+                        .getBillingSummary(account, forceRefresh, null, null);
 
                 DashboardData.CostHistory ch = costHistoryFuture.join();
                 mainAccount.setCostHistory(ch);
