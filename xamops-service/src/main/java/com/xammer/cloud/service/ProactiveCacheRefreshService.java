@@ -38,6 +38,7 @@ public class ProactiveCacheRefreshService {
     private final PerformanceInsightsService performanceService;
     private final ReservationService reservationService;
     private final OptimizationService optimizationService;
+    private final CloudGuardService cloudGuardService; // For alerts
 
     private final JobExecutionHistoryRepository jobExecutionHistoryRepository;
     private final JdbcTemplate masterJdbcTemplate;
@@ -57,6 +58,7 @@ public class ProactiveCacheRefreshService {
             PerformanceInsightsService performanceService,
             ReservationService reservationService,
             OptimizationService optimizationService,
+            CloudGuardService cloudGuardService,
             JobExecutionHistoryRepository jobExecutionHistoryRepository,
             @Qualifier("masterDataSource") DataSource masterDataSource,
             com.xammer.cloud.config.SchedulingEnvironmentConfig envConfig) { // Added arg
@@ -70,6 +72,7 @@ public class ProactiveCacheRefreshService {
         this.performanceService = performanceService;
         this.reservationService = reservationService;
         this.optimizationService = optimizationService;
+        this.cloudGuardService = cloudGuardService;
         this.jobExecutionHistoryRepository = jobExecutionHistoryRepository;
         this.masterJdbcTemplate = new JdbcTemplate(masterDataSource);
         this.envConfig = envConfig;
@@ -80,10 +83,8 @@ public class ProactiveCacheRefreshService {
 
     /**
      * Helper to fetch active tenants from Master DB - ENVIRONMENT AWARE
-     * Only returns the tenant associated with the current environment:
-     * - local -> customer1
-     * - uat -> customer2
-     * - prod -> customer3
+     * - Local/UAT: Returns single configured tenant (uses local/uat DB)
+     * - Prod: Returns ALL active tenants from master DB (tenant_config table)
      */
     private List<String> fetchActiveTenants() {
         try {
@@ -92,20 +93,26 @@ public class ProactiveCacheRefreshService {
                 return Collections.emptyList();
             }
 
-            String currentTenant = envConfig.getCurrentTenantId();
-            logger.info("🔒 Environment filter active: Only processing tenant '{}' (environment: {})",
-                    currentTenant, envConfig.getActiveProfile());
+            String activeProfile = envConfig.getActiveProfile();
+            logger.info("🔒 Environment: {}", activeProfile);
 
-            // Only return the current environment's tenant
+            // In local/UAT, there's no tenant_config table - just return the configured tenant
+            if ("local".equals(activeProfile) || "uat".equals(activeProfile)) {
+                String currentTenant = envConfig.getCurrentTenantId();
+                logger.info("✅ Using configured tenant '{}' for {} environment (no tenant_config query)",
+                        currentTenant, activeProfile);
+                return Collections.singletonList(currentTenant);
+            }
+
+            // In prod, query tenant_config from master DB - GET ALL ACTIVE TENANTS
             List<String> tenants = masterJdbcTemplate.queryForList(
-                    "SELECT tenant_id FROM tenant_config WHERE active = true AND tenant_id = ?",
-                    String.class,
-                    currentTenant);
+                    "SELECT tenant_id FROM tenant_config WHERE active = true",
+                    String.class);
 
             if (tenants.isEmpty()) {
-                logger.warn("⚠️ No active tenant found for tenant_id: {}", currentTenant);
+                logger.warn("⚠️ No active tenants found in tenant_config table");
             } else {
-                logger.info("✅ Found tenant '{}' for processing", currentTenant);
+                logger.info("✅ Found {} active tenants for processing: {}", tenants.size(), tenants);
             }
 
             return tenants;
@@ -473,6 +480,63 @@ public class ProactiveCacheRefreshService {
 
             } catch (Exception e) {
                 logger.error("❌ Failed reservation refresh for tenant {}", tenantId, e);
+                if (jobHistory.getId() != null) {
+                    jobHistory.setStatus("FAILURE");
+                    jobHistory.setErrorMessage(e.getMessage());
+                    jobHistory.setEndTime(LocalDateTime.now());
+                    jobExecutionHistoryRepository.save(jobHistory);
+                }
+            } finally {
+                TenantContext.clear();
+            }
+        }
+    }
+
+    // ===================================================================================
+    // 3:00 AM -> Alerts (Quota & Cost Anomalies)
+    // SCHEDULED: Tuesday, Thursday, Saturday
+    // ===================================================================================
+    @Scheduled(cron = "0 0 3 * * TUE,THU,SAT")
+    public void refreshAlerts() {
+        logger.info("--- [3:00 AM] Starting Alerts Refresh (Tue/Thu/Sat) ---");
+        List<String> tenants = fetchActiveTenants();
+
+        for (String tenantId : tenants) {
+            JobExecutionHistory jobHistory = new JobExecutionHistory("REFRESH_ALERTS", tenantId,
+                    LocalDateTime.now(), "RUNNING");
+            try {
+                TenantContext.setCurrentTenant(tenantId);
+                jobHistory = jobExecutionHistoryRepository.save(jobHistory);
+
+                int count = 0;
+                for (CloudAccount account : getAllAccounts()) {
+                    String accountId = getAccountId(account);
+                    if (accountId == null)
+                        continue;
+
+                    try {
+                        // Fetch alerts and cache them
+                        var alertsFuture = cloudGuardService.getAlerts(accountId, true);
+                        var alerts = alertsFuture.join();
+
+                        // Save to database
+                        String alertsKey = "alerts-" + accountId;
+                        dashboardDataService.saveAlertsSnapshot(alertsKey, alerts);
+                        logger.info("✓ Alerts cached for {} (database) - {} alerts", accountId, alerts.size());
+
+                        count++;
+                    } catch (Exception e) {
+                        logger.error("Failed Alerts refresh for {}", accountId, e);
+                    }
+                }
+
+                jobHistory.setStatus("SUCCESS");
+                jobHistory.setItemsProcessed(count);
+                jobHistory.setEndTime(LocalDateTime.now());
+                jobExecutionHistoryRepository.save(jobHistory);
+
+            } catch (Exception e) {
+                logger.error("❌ Failed alerts refresh for tenant {}", tenantId, e);
                 if (jobHistory.getId() != null) {
                     jobHistory.setStatus("FAILURE");
                     jobHistory.setErrorMessage(e.getMessage());
