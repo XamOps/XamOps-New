@@ -48,13 +48,14 @@ public class GcpCostService {
     public Optional<GcpBillingDashboardDto> getCachedGcpBillingDashboardDto(String accountIdentifier) {
         logger.info("Attempting to retrieve CACHED GCP dashboard for: '{}'", accountIdentifier);
         // Spring AOP replaces this with a cache lookup.
-        return Optional.empty(); 
+        return Optional.empty();
     }
 
     // --- MODIFIED METHOD (Fetch & Cache-Write) ---
     @Transactional(readOnly = true)
     @CachePut(value = "gcpDashboard", key = "#accountIdentifier")
-    public Optional<GcpBillingDashboardDto> getGcpBillingDashboardDtoAndCache(String accountIdentifier) throws IOException, InterruptedException {
+    public Optional<GcpBillingDashboardDto> getGcpBillingDashboardDtoAndCache(String accountIdentifier)
+            throws IOException, InterruptedException {
         // Renamed from getGcpBillingDashboardDto
         logger.info("Attempting to find GCP account with identifier: '{}'", accountIdentifier);
 
@@ -68,17 +69,20 @@ public class GcpCostService {
         CloudAccount account = accountOpt.get();
         logger.info("Successfully found account with ID: {}", account.getId());
 
-        BigQuery bigquery = gcpClientProvider.createBigQueryClient(account.getGcpProjectId(), new String(account.getGcpServiceAccountKey()));
+        BigQuery bigquery = gcpClientProvider.createBigQueryClient(account.getGcpProjectId(),
+                account.getGcpServiceAccountKey());
 
         Optional<String> tableNameOpt = getBillingTableName(bigquery, account.getGcpProjectId());
         if (tableNameOpt.isEmpty()) {
-            throw new IllegalStateException("Could not find a valid BigQuery billing export table for project: " + account.getGcpProjectId());
+            throw new IllegalStateException(
+                    "Could not find a valid BigQuery billing export table for project: " + account.getGcpProjectId());
         }
         String tableName = "`" + tableNameOpt.get() + "`";
         LocalDate today = LocalDate.now();
 
         List<GcpBillingDashboardDto.CostHistory> costHistory = getCostHistory(bigquery, tableName, today);
-        List<GcpBillingDashboardDto.ServiceBreakdown> serviceBreakdown = getServiceBreakdown(bigquery, tableName, today);
+        List<GcpBillingDashboardDto.ServiceBreakdown> serviceBreakdown = getServiceBreakdown(bigquery, tableName,
+                today);
 
         BigDecimal totalCost = getMonthToDateSpend(bigquery, tableName, today);
         BigDecimal lastMonthSpend = getLastMonthSpend(costHistory);
@@ -93,15 +97,18 @@ public class GcpCostService {
     // --- NEW METHOD (Cache-Only) ---
     @Transactional(readOnly = true)
     @Cacheable(value = "gcpResourceCosts", key = "{#accountIdentifier, #serviceName}")
-    public Optional<List<GcpResourceCostDto>> getCachedResourceCostsForService(String accountIdentifier, String serviceName) {
-        logger.info("Attempting to retrieve CACHED GCP resource costs for: '{}', service: '{}'", accountIdentifier, serviceName);
+    public Optional<List<GcpResourceCostDto>> getCachedResourceCostsForService(String accountIdentifier,
+            String serviceName) {
+        logger.info("Attempting to retrieve CACHED GCP resource costs for: '{}', service: '{}'", accountIdentifier,
+                serviceName);
         return Optional.empty(); // Spring AOP handles this
     }
 
     // --- MODIFIED METHOD (Fetch & Cache-Write) ---
     @Transactional(readOnly = true)
     @CachePut(value = "gcpResourceCosts", key = "{#accountIdentifier, #serviceName}")
-    public Optional<List<GcpResourceCostDto>> getResourceCostsForServiceAndCache(String accountIdentifier, String serviceName) throws IOException, InterruptedException {
+    public Optional<List<GcpResourceCostDto>> getResourceCostsForServiceAndCache(String accountIdentifier,
+            String serviceName) throws IOException, InterruptedException {
         // Renamed from getResourceCostsForService
         logger.info("Fetching resource costs for service '{}' in account '{}'", serviceName, accountIdentifier);
         Optional<CloudAccount> accountOpt = findAccount(accountIdentifier);
@@ -111,7 +118,8 @@ public class GcpCostService {
         }
 
         CloudAccount account = accountOpt.get();
-        BigQuery bigquery = gcpClientProvider.createBigQueryClient(account.getGcpProjectId(), new String(account.getGcpServiceAccountKey()));
+        BigQuery bigquery = gcpClientProvider.createBigQueryClient(account.getGcpProjectId(),
+                account.getGcpServiceAccountKey());
 
         Optional<String> tableNameOpt = getBillingTableName(bigquery, account.getGcpProjectId());
         if (tableNameOpt.isEmpty()) {
@@ -123,10 +131,10 @@ public class GcpCostService {
 
         String query = String.format(
                 "SELECT resource.name as resource_name, SUM(cost) as total_cost " +
-                "FROM %s " +
-                "WHERE service.description = '%s' AND resource.name IS NOT NULL " +
-                "AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
-                "GROUP BY 1 HAVING total_cost > 0.01 ORDER BY total_cost DESC LIMIT 50",
+                        "FROM %s " +
+                        "WHERE service.description = '%s' AND resource.name IS NOT NULL " +
+                        "AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
+                        "GROUP BY 1 HAVING total_cost > 0.01 ORDER BY total_cost DESC LIMIT 50",
                 tableName,
                 serviceName,
                 startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
@@ -134,21 +142,22 @@ public class GcpCostService {
 
         // --- ADDED LOGGING ---
         // This is the MOST IMPORTANT log. It shows the exact query.
-        // You can copy this query and run it directly in the BigQuery console to test it.
+        // You can copy this query and run it directly in the BigQuery console to test
+        // it.
         logger.debug("Executing BigQuery query for resource costs:\n{}", query);
         // --- END LOGGING ---
 
         return Optional.of(executeResourceCostQuery(bigquery, query)); // MODIFIED: Return as Optional
     }
 
-    @CacheEvict(value = {"gcpDashboard", "gcpResourceCosts"}, allEntries = true)
+    @CacheEvict(value = { "gcpDashboard", "gcpResourceCosts" }, allEntries = true)
     public void evictGcpCaches() {
         logger.info("Evicting all GCP cost-related caches.");
     }
 
     private List<GcpResourceCostDto> executeResourceCostQuery(BigQuery bq, String query) throws InterruptedException {
         QueryJobConfiguration queryConfig = QueryJobConfiguration.newBuilder(query).build();
-        
+
         // --- ADDED LOGGING ---
         logger.debug("BigQuery job configured. Executing query...");
         // --- END LOGGING ---
@@ -157,7 +166,8 @@ public class GcpCostService {
 
         // --- ADDED LOGGING ---
         // This tells us exactly how many rows BigQuery returned, before any processing.
-        // If this is 0, the query is correct but returned no data (e.g., no costs for that service).
+        // If this is 0, the query is correct but returned no data (e.g., no costs for
+        // that service).
         long totalRows = results.getTotalRows();
         logger.debug("Query executed. Total rows returned: {}", totalRows);
         // --- END LOGGING ---
@@ -174,7 +184,7 @@ public class GcpCostService {
         // This confirms how many rows were processed into the final list.
         logger.debug("Finished processing {} resource cost rows.", resourceCosts.size());
         // --- END LOGGING ---
-        
+
         return resourceCosts;
     }
 
@@ -198,7 +208,8 @@ public class GcpCostService {
             if (byGcpProjectId.isPresent()) {
                 return byGcpProjectId;
             }
-            logger.warn("Account not found by gcpProjectId: '{}'. Falling back to search by awsAccountId.", accountIdentifier);
+            logger.warn("Account not found by gcpProjectId: '{}'. Falling back to search by awsAccountId.",
+                    accountIdentifier);
             return cloudAccountRepository.findByAwsAccountId(accountIdentifier).stream().findFirst();
         }
     }
@@ -224,7 +235,9 @@ public class GcpCostService {
             logger.error("Failed to discover BigQuery billing table for project {}: {}", gcpProjectId, e.getMessage());
         }
 
-        logger.warn("Could not find a GCP billing export table for project {}. Please configure gcp.billing.export-table-name.", gcpProjectId);
+        logger.warn(
+                "Could not find a GCP billing export table for project {}. Please configure gcp.billing.export-table-name.",
+                gcpProjectId);
         return Optional.empty();
     }
 
@@ -240,23 +253,25 @@ public class GcpCostService {
         }
     }
 
-    private List<GcpBillingDashboardDto.CostHistory> getCostHistory(BigQuery bq, String tableName, LocalDate today) throws InterruptedException {
+    private List<GcpBillingDashboardDto.CostHistory> getCostHistory(BigQuery bq, String tableName, LocalDate today)
+            throws InterruptedException {
         String startDate = today.minusMonths(6).withDayOfMonth(1).format(DateTimeFormatter.ISO_LOCAL_DATE);
         String endDate = today.format(DateTimeFormatter.ISO_LOCAL_DATE);
 
         String query = String.format(
                 "WITH MonthlyCosts AS (" +
-                "  SELECT FORMAT_DATE('%%%%Y-%%%%m', usage_start_time) as name, SUM(cost) as total_cost " +
-                "  FROM %s " +
-                "  WHERE DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
-                "  GROUP BY 1" +
-                "), " +
-                "MonthlyCostsWithLag AS (" +
-                "  SELECT name, total_cost, LAG(total_cost, 1, 0) OVER (ORDER BY name) as prev_month_cost " +
-                "  FROM MonthlyCosts" +
-                ") " +
-                "SELECT name, total_cost, (total_cost > prev_month_cost * 1.2 AND prev_month_cost > 10) as is_anomaly " +
-                "FROM MonthlyCostsWithLag ORDER BY name",
+                        "  SELECT FORMAT_DATE('%%%%Y-%%%%m', usage_start_time) as name, SUM(cost) as total_cost " +
+                        "  FROM %s " +
+                        "  WHERE DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
+                        "  GROUP BY 1" +
+                        "), " +
+                        "MonthlyCostsWithLag AS (" +
+                        "  SELECT name, total_cost, LAG(total_cost, 1, 0) OVER (ORDER BY name) as prev_month_cost " +
+                        "  FROM MonthlyCosts" +
+                        ") " +
+                        "SELECT name, total_cost, (total_cost > prev_month_cost * 1.2 AND prev_month_cost > 10) as is_anomaly "
+                        +
+                        "FROM MonthlyCostsWithLag ORDER BY name",
                 tableName, startDate, endDate);
 
         QueryJobConfiguration queryConfig = QueryJobConfiguration.newBuilder(query).build();
@@ -271,14 +286,15 @@ public class GcpCostService {
         return costHistory;
     }
 
-    private List<GcpBillingDashboardDto.ServiceBreakdown> getServiceBreakdown(BigQuery bq, String tableName, LocalDate today) throws InterruptedException {
+    private List<GcpBillingDashboardDto.ServiceBreakdown> getServiceBreakdown(BigQuery bq, String tableName,
+            LocalDate today) throws InterruptedException {
         LocalDate startDate = today.withDayOfMonth(1);
 
         String query = String.format(
                 "SELECT service.description as service_name, SUM(cost) as total_cost " +
-                "FROM %s " +
-                "WHERE DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
-                "GROUP BY 1 HAVING total_cost > 0 ORDER BY total_cost DESC",
+                        "FROM %s " +
+                        "WHERE DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
+                        "GROUP BY 1 HAVING total_cost > 0 ORDER BY total_cost DESC",
                 tableName,
                 startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
                 today.format(DateTimeFormatter.ISO_LOCAL_DATE));
@@ -294,14 +310,14 @@ public class GcpCostService {
         return serviceBreakdown;
     }
 
-    private BigDecimal getMonthToDateSpend(BigQuery bigquery, String tableName, LocalDate today) throws InterruptedException {
+    private BigDecimal getMonthToDateSpend(BigQuery bigquery, String tableName, LocalDate today)
+            throws InterruptedException {
         LocalDate startDate = today.withDayOfMonth(1);
         String query = String.format(
                 "SELECT SUM(cost) as total_cost FROM %s WHERE DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s'",
                 tableName,
                 startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
-                today.format(DateTimeFormatter.ISO_LOCAL_DATE)
-        );
+                today.format(DateTimeFormatter.ISO_LOCAL_DATE));
 
         TableResult results = bigquery.query(QueryJobConfiguration.newBuilder(query).build());
         FieldValueList row = results.getValues().iterator().next();

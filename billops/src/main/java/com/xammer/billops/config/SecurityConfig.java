@@ -7,6 +7,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -22,6 +23,7 @@ import static org.springframework.security.config.Customizer.withDefaults;
 
 @Configuration
 @EnableWebSecurity
+@EnableMethodSecurity(prePostEnabled = true)
 public class SecurityConfig {
 
     private final CustomAuthenticationSuccessHandler authenticationSuccessHandler;
@@ -61,6 +63,14 @@ public class SecurityConfig {
                     // Add public API endpoints if needed
                     new AntPathRequestMatcher("/api/admin/cloudfront/**")
                 ).permitAll()
+                // BillOps Admin Dashboard - only ROLE_BILLOPS_ADMIN
+                .requestMatchers(new AntPathRequestMatcher("/billops/dashboard_admin.html")).hasAuthority("ROLE_BILLOPS_ADMIN")
+                // BillOps User Dashboard - ROLE_BILLOPS and ROLE_BILLOPS_ADMIN
+                .requestMatchers(new AntPathRequestMatcher("/billops/dashboard_user.html")).hasAnyAuthority("ROLE_BILLOPS", "ROLE_BILLOPS_ADMIN")
+                // Unified Dashboard - ROLE_XAMOPS
+                .requestMatchers(new AntPathRequestMatcher("/unified-dashboard.html")).hasAuthority("ROLE_XAMOPS")
+                // All other BillOps pages - ROLE_BILLOPS and ROLE_BILLOPS_ADMIN
+                .requestMatchers(new AntPathRequestMatcher("/billops/**")).hasAnyAuthority("ROLE_BILLOPS", "ROLE_BILLOPS_ADMIN")
                 .anyRequest().authenticated()
             )
             .formLogin((form) -> form

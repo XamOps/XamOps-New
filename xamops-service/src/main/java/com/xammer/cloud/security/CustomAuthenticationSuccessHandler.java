@@ -51,14 +51,20 @@ public class CustomAuthenticationSuccessHandler extends SimpleUrlAuthenticationS
         List<CloudAccount> accounts = cloudAccountRepository.findByClientId(clientId);
 
         // 1. Determine Redirect URL based on Roles and Accounts
-        if (roles.contains("ROLE_XAMOPS")) {
+        if (roles.contains("ROLE_BILLOPS_ADMIN")) {
+            // BillOps Admin users go to admin dashboard
+            targetUrl = frontendUrl + "/billops/dashboard_admin.html";
+        } else if (roles.contains("ROLE_BILLOPS")) {
+            // BillOps regular users go to user dashboard
+            targetUrl = frontendUrl + "/billops/dashboard_user.html";
+        } else if (roles.contains("ROLE_XAMOPS")) {
+            // XamOps users go to unified dashboard
             targetUrl = frontendUrl + "/unified-dashboard.html";
-        } else if (roles.contains("ROLE_BILLOPS_ADMIN")) {
-            targetUrl = frontendUrl + "/billops/billing.html";
         } else if (accounts.isEmpty()) {
+            // Users with no accounts go to account manager
             targetUrl = frontendUrl + "/account-manager.html";
         } else {
-            // Default to Unified Dashboard for all users with accounts
+            // Default fallback for other users with accounts
             targetUrl = frontendUrl + "/unified-dashboard.html";
         }
 

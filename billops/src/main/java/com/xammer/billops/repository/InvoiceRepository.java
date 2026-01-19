@@ -10,6 +10,9 @@ import java.util.Optional;
 @Repository
 public interface InvoiceRepository extends JpaRepository<Invoice, Long> {
     // --- FIX: Changed return type from Optional<Invoice> to List<Invoice> ---
-    List<Invoice> findByCloudAccountIdAndBillingPeriodAndStatus(Long cloudAccountId, String billingPeriod, Invoice.InvoiceStatus status);
+    List<Invoice> findByCloudAccountIdAndBillingPeriodAndStatus(Long cloudAccountId, String billingPeriod,
+            Invoice.InvoiceStatus status);
+
+    List<Invoice> findByCloudAccountIdAndBillingPeriod(Long cloudAccountId, String billingPeriod);
     // --- END FIX ---
 }

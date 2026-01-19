@@ -14,6 +14,7 @@ public class AdminDashboardDto {
     private Long finalizedInvoices;
     private Long openTickets;
     private Long totalClients;
+    private Long lastUpdated;
 
     private List<AccountSummaryDto> topSpendingAccounts;
     private Map<String, BigDecimal> spendingByProvider;
@@ -95,6 +96,14 @@ public class AdminDashboardDto {
 
     public void setTotalClients(Long totalClients) {
         this.totalClients = totalClients;
+    }
+
+    public Long getLastUpdated() {
+        return lastUpdated;
+    }
+
+    public void setLastUpdated(Long lastUpdated) {
+        this.lastUpdated = lastUpdated;
     }
 
     public List<AccountSummaryDto> getTopSpendingAccounts() {

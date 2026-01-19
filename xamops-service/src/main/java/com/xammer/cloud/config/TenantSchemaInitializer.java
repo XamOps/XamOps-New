@@ -20,6 +20,7 @@ import java.util.List;
  */
 @Configuration
 @Order(2) // Run after DataInitializer
+@org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(name = "spring.profiles.active", havingValue = "prod")
 public class TenantSchemaInitializer implements CommandLineRunner {
 
     private static final Logger logger = LoggerFactory.getLogger(TenantSchemaInitializer.class);

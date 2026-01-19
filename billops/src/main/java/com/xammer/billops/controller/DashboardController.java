@@ -61,6 +61,7 @@ public class DashboardController {
      * Accessible by users with ROLE_BILLOPS or ROLE_BILLOPS_ADMIN
      */
     @GetMapping("/user")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS', 'ROLE_BILLOPS_ADMIN')")
     public ResponseEntity<UserDashboardDto> getUserDashboard(
             @RequestParam(required = false, defaultValue = "false") boolean forceRefresh,
             Authentication authentication) {

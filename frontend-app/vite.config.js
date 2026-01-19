@@ -185,6 +185,9 @@ export default defineConfig({
         'ticket_detail': resolve(__dirname, 'billops/ticket_detail.html'),
         'credits': resolve(__dirname, 'billops/credits.html'),
         'invoices': resolve(__dirname, 'billops/invoices.html'),
+        'dashboard_admin': resolve(__dirname, 'billops/dashboard_admin.html'),
+        'dashboard_user': resolve(__dirname, 'billops/dashboard_user.html'),
+        'admin_dashboard.html': resolve(__dirname, 'billops/admin_dashboard.html'),
         'admin_cloudfront_billing': resolve(__dirname, 'billops/admin_cloudfront_billing.html'),
         'marketplace-purchases': resolve(__dirname, 'billops/marketplace-purchases.html'),
         'thirdparty-tools': resolve(__dirname, 'billops/thirdparty-tools.html'),
@@ -211,10 +214,8 @@ export default defineConfig({
         // Azure files
         'azure_cloudlist': resolve(__dirname, 'azure_cloudlist.html'),
         'azure_dashboard': resolve(__dirname, 'azure_dashboard.html'),
-        'azure-finops-report': resolve(__dirname, 'azure-finops-report.html')
-
-
-
+        'azure-finops-report': resolve(__dirname, 'azure-finops-report.html'),
+        'superadmin_customers': resolve(__dirname, 'superadmin_customers.html')
       },
     },
   },

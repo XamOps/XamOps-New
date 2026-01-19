@@ -1,8 +1,11 @@
 package com.xammer.cloud.config.multitenancy;
 
 import com.zaxxer.hikari.HikariDataSource;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -18,17 +21,19 @@ import java.util.Map;
 @Configuration
 public class MultiTenantDataSourceConfig {
 
+    private static final Logger logger = LoggerFactory.getLogger(MultiTenantDataSourceConfig.class);
+
     @Value("${spring.datasource.url}")
-    private String masterUrl;
+    private String dataSourceUrl;
 
     @Value("${spring.datasource.username}")
-    private String masterUsername;
+    private String dataSourceUsername;
 
     @Value("${spring.datasource.password}")
-    private String masterPassword;
+    private String dataSourcePassword;
 
     @Value("${spring.datasource.driver-class-name}")
-    private String masterDriver;
+    private String dataSourceDriver;
 
     // --- Inject Hikari Configurations ---
     @Value("${spring.datasource.hikari.connection-timeout:20000}")
@@ -46,6 +51,9 @@ public class MultiTenantDataSourceConfig {
     @Value("${spring.datasource.hikari.minimum-idle:5}")
     private int minimumIdle;
 
+    @Value("${spring.datasource.hikari.maximum-pool-size:10}")
+    private int maximumPoolSize;
+
     @Value("${spring.datasource.hikari.validation-timeout:3000}")
     private long validationTimeout;
 
@@ -53,54 +61,160 @@ public class MultiTenantDataSourceConfig {
     private String connectionTestQuery;
 
     /**
-     * 1. Master Data Source (Direct Access)
-     * Used for Global User Lookups and Tenant Config loading.
+     * Helper method to create a DriverManagerDataSource for master DB access
+     * Used ONLY in PROD for querying tenant_config table
      */
-    @Bean(name = "masterDataSource")
-    public DataSource createMasterDataSource() {
+    private DataSource createMasterDataSourceForLookup() {
         DriverManagerDataSource dataSource = new DriverManagerDataSource();
-        dataSource.setUrl(masterUrl);
-        dataSource.setUsername(masterUsername);
-        dataSource.setPassword(masterPassword);
-        dataSource.setDriverClassName(masterDriver);
+        dataSource.setUrl("jdbc:postgresql://3.110.102.128:5432/production_db");
+        dataSource.setUsername("app_user");
+        dataSource.setPassword("AppPassword123");
+        dataSource.setDriverClassName("org.postgresql.Driver");
         return dataSource;
     }
 
     /**
-     * 2. Routing Data Source (The "Smart" Router)
-     * Used by the main application (JPA/Repositories) to switch databases
-     * dynamically.
+     * Helper method to apply Hikari settings to a datasource
+     */
+    private void applyHikariSettings(HikariDataSource ds, String poolName) {
+        ds.setPoolName(poolName);
+        ds.setMaximumPoolSize(maximumPoolSize);
+        ds.setMinimumIdle(minimumIdle);
+        ds.setConnectionTimeout(connectionTimeout);
+        ds.setIdleTimeout(idleTimeout);
+        ds.setMaxLifetime(maxLifetime);
+        ds.setKeepaliveTime(keepaliveTime);
+        ds.setValidationTimeout(validationTimeout);
+        ds.setConnectionTestQuery(connectionTestQuery);
+    }
+
+    /**
+     * ========================================================================
+     * LOCAL PROFILE: Simple Single-Database DataSource
+     * ========================================================================
+     * Used in local development environment.
+     * Connects to: jdbc:postgresql://13.204.166.9:5432/xamops_local_db
+     * No multi-tenancy, no routing.
      */
     @Bean
     @Primary
-    public DataSource dataSource(@Autowired Environment env) {
-        DataSource masterDs = createMasterDataSource();
+    @ConditionalOnProperty(name = "spring.profiles.active", havingValue = "local")
+    public DataSource localDataSource() {
+        logger.info("========================================");
+        logger.info("PROFILE: LOCAL - Single Database Mode");
+        logger.info("========================================");
+        logger.info("Database URL: {}", dataSourceUrl);
+
+        HikariDataSource ds = new HikariDataSource();
+        ds.setJdbcUrl(dataSourceUrl);
+        ds.setUsername(dataSourceUsername);
+        ds.setPassword(dataSourcePassword);
+        ds.setDriverClassName(dataSourceDriver);
+
+        applyHikariSettings(ds, "LocalPool");
+
+        logger.info("Local datasource initialized successfully (No Multi-Tenancy)");
+        return ds;
+    }
+
+    /**
+     * Master DataSource for Local Profile
+     * Points to the same local DB - used for global_users table lookups
+     */
+    @Bean(name = "masterDataSource")
+    @ConditionalOnProperty(name = "spring.profiles.active", havingValue = "local")
+    public DataSource localMasterDataSource() {
+        logger.info("Creating masterDataSource bean pointing to local DB for global_users lookups");
+        DriverManagerDataSource dataSource = new DriverManagerDataSource();
+        dataSource.setUrl(dataSourceUrl);
+        dataSource.setUsername(dataSourceUsername);
+        dataSource.setPassword(dataSourcePassword);
+        dataSource.setDriverClassName(dataSourceDriver);
+        return dataSource;
+    }
+
+    /**
+     * ========================================================================
+     * UAT PROFILE: Simple Single-Database DataSource
+     * ========================================================================
+     * Used in UAT environment.
+     * Connects to: jdbc:postgresql://40.192.7.127:5432/xamops_db_uat
+     * No multi-tenancy, no routing.
+     */
+    @Bean
+    @Primary
+    @ConditionalOnProperty(name = "spring.profiles.active", havingValue = "uat")
+    public DataSource uatDataSource() {
+        logger.info("========================================");
+        logger.info("PROFILE: UAT - Single Database Mode");
+        logger.info("========================================");
+        logger.info("Database URL: {}", dataSourceUrl);
+
+        HikariDataSource ds = new HikariDataSource();
+        ds.setJdbcUrl(dataSourceUrl);
+        ds.setUsername(dataSourceUsername);
+        ds.setPassword(dataSourcePassword);
+        ds.setDriverClassName(dataSourceDriver);
+
+        applyHikariSettings(ds, "UATPool");
+
+        logger.info("UAT datasource initialized successfully (No Multi-Tenancy)");
+        return ds;
+    }
+
+    /**
+     * Master DataSource for UAT Profile
+     * Points to the same UAT DB - used for global_users table lookups
+     */
+    @Bean(name = "masterDataSource")
+    @ConditionalOnProperty(name = "spring.profiles.active", havingValue = "uat")
+    public DataSource uatMasterDataSource() {
+        logger.info("Creating masterDataSource bean pointing to UAT DB for global_users lookups");
+        DriverManagerDataSource dataSource = new DriverManagerDataSource();
+        dataSource.setUrl(dataSourceUrl);
+        dataSource.setUsername(dataSourceUsername);
+        dataSource.setPassword(dataSourcePassword);
+        dataSource.setDriverClassName(dataSourceDriver);
+        return dataSource;
+    }
+
+    /**
+     * ========================================================================
+     * PRODUCTION PROFILE: Multi-Tenant Routing DataSource
+     * ========================================================================
+     * Used in production environment.
+     * Reads tenant_config from master DB (production_db) and creates:
+     * - Connection pool for System DB (tenant_id = "system" or "default")
+     * - Connection pools for Customer DBs (SISL, etc.)
+     * 
+     * Uses TenantRoutingDataSource to dynamically switch between tenants
+     * based on TenantContext.
+     */
+    @Bean
+    @Primary
+    @ConditionalOnProperty(name = "spring.profiles.active", havingValue = "prod")
+    public DataSource prodRoutingDataSource() {
+        logger.info("========================================");
+        logger.info("PROFILE: PROD - Multi-Tenant Routing Mode");
+        logger.info("========================================");
+        logger.info("Master DB URL: {}", dataSourceUrl);
+
+        // Create a datasource to query tenant_config table
+        DataSource masterDs = createMasterDataSourceForLookup();
         JdbcTemplate jdbcTemplate = new JdbcTemplate(masterDs);
 
-        // Load active tenants from the config table
+        // Load ALL active tenants (no filtering - master DB is clean now)
+        logger.info("Loading tenant configurations from master DB...");
         List<Map<String, Object>> tenantRows = jdbcTemplate
                 .queryForList("SELECT * FROM tenant_config WHERE active = true");
 
-        // Filter based on active profile
-        String[] activeProfiles = env.getActiveProfiles();
-        String activeProfile = activeProfiles.length > 0 ? activeProfiles[0] : "local"; // Default to local
-
-        String targetTenantId = null;
-        if ("local".equalsIgnoreCase(activeProfile)) {
-            targetTenantId = "customer1";
-        } else if ("uat".equalsIgnoreCase(activeProfile)) {
-            targetTenantId = "customer2";
-        } else if ("prod".equalsIgnoreCase(activeProfile)) {
-            targetTenantId = "customer3";
-        }
-
-        // Apply filter if a target tenant is determined
-        if (targetTenantId != null) {
-            final String filterId = targetTenantId;
-            tenantRows.removeIf(row -> !filterId.equalsIgnoreCase((String) row.get("tenant_id")));
+        if (tenantRows.isEmpty()) {
+            logger.warn("WARNING: No active tenants found in tenant_config table!");
+            logger.warn("Please ensure master DB has entries for system and customer tenants");
         }
 
         Map<Object, Object> targetDataSources = new HashMap<>();
+        String defaultTenantId = null;
 
         for (Map<String, Object> row : tenantRows) {
             String tenantId = (String) row.get("tenant_id");
@@ -109,31 +223,55 @@ public class MultiTenantDataSourceConfig {
             String password = (String) row.get("db_password");
             String driver = (String) row.get("driver_class_name");
 
+            logger.info("Initializing datasource for tenant: {} ({})", tenantId, url);
+
             HikariDataSource tenantDs = new HikariDataSource();
             tenantDs.setJdbcUrl(url);
             tenantDs.setUsername(username);
             tenantDs.setPassword(password);
             tenantDs.setDriverClassName(driver);
-            tenantDs.setPoolName("TenantPool-" + tenantId);
 
-            // --- Apply Optimized Settings ---
-            tenantDs.setMaximumPoolSize(10);
-            tenantDs.setMinimumIdle(minimumIdle);
-            tenantDs.setConnectionTimeout(connectionTimeout);
-            tenantDs.setIdleTimeout(idleTimeout);
-            tenantDs.setMaxLifetime(maxLifetime);
-            tenantDs.setKeepaliveTime(keepaliveTime);
-            tenantDs.setValidationTimeout(validationTimeout);
-            tenantDs.setConnectionTestQuery(connectionTestQuery);
+            applyHikariSettings(tenantDs, "TenantPool-" + tenantId);
 
             targetDataSources.put(tenantId, tenantDs);
+
+            // Set default tenant (prefer "system", fallback to "default", or first entry)
+            if (defaultTenantId == null || "system".equalsIgnoreCase(tenantId) ||
+                    "default".equalsIgnoreCase(tenantId)) {
+                defaultTenantId = tenantId;
+            }
         }
+
+        logger.info("Initialized {} tenant datasources", targetDataSources.size());
+        logger.info("Tenant IDs: {}", targetDataSources.keySet());
+        logger.info("Default tenant: {}", defaultTenantId);
 
         TenantRoutingDataSource routingDataSource = new TenantRoutingDataSource();
         routingDataSource.setTargetDataSources(targetDataSources);
-        routingDataSource.setDefaultTargetDataSource(masterDs); // Fallback to Master
+
+        if (defaultTenantId != null && targetDataSources.containsKey(defaultTenantId)) {
+            routingDataSource.setDefaultTargetDataSource(targetDataSources.get(defaultTenantId));
+            logger.info("Default datasource set to tenant: {}", defaultTenantId);
+        } else {
+            logger.error("ERROR: Could not set default datasource - no tenants found!");
+        }
 
         routingDataSource.afterPropertiesSet();
+        logger.info("Multi-tenant routing datasource initialized successfully");
+        logger.info("========================================");
+
         return routingDataSource;
+    }
+
+    /**
+     * Master DataSource Bean for PROD Profile
+     * (exposed for services that need to query master DB directly)
+     * Points to production_db for tenant_config and global_users lookups
+     */
+    @Bean(name = "masterDataSource")
+    @ConditionalOnProperty(name = "spring.profiles.active", havingValue = "prod")
+    public DataSource prodMasterDataSource() {
+        logger.info("Creating masterDataSource bean pointing to production_db for global_users lookups");
+        return createMasterDataSourceForLookup();
     }
 }

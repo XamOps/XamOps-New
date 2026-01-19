@@ -8,6 +8,7 @@ public class UserDashboardDto {
     private Long userId;
     private String username;
     private String clientName;
+    private Long lastUpdated;
 
     private BigDecimal totalSpending;
     private BigDecimal currentMonthSpending;
@@ -53,6 +54,14 @@ public class UserDashboardDto {
 
     public void setClientName(String clientName) {
         this.clientName = clientName;
+    }
+
+    public Long getLastUpdated() {
+        return lastUpdated;
+    }
+
+    public void setLastUpdated(Long lastUpdated) {
+        this.lastUpdated = lastUpdated;
     }
 
     public BigDecimal getTotalSpending() {

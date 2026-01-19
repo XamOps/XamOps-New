@@ -5,6 +5,7 @@ import com.xammer.billops.dto.AccountSummaryDto;
 import com.xammer.billops.dto.InvoiceDto;
 import com.xammer.billops.dto.TicketDto;
 import com.xammer.billops.dto.UserDashboardDto;
+import com.xammer.billops.dto.BillingDashboardDto;
 import com.xammer.billops.repository.CloudAccountRepository;
 import com.xammer.billops.repository.InvoiceRepository;
 import com.xammer.billops.repository.TicketRepository;
@@ -13,9 +14,9 @@ import com.xammer.cloud.domain.Invoice;
 import com.xammer.cloud.domain.Ticket;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+
+import javax.annotation.PostConstruct;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -29,22 +30,31 @@ public class UserDashboardService {
 
     private static final Logger logger = LoggerFactory.getLogger(UserDashboardService.class);
 
+    @PostConstruct
+    public void init() {
+        logger.info("✅ UserDashboardService initialized");
+    }
+
     private final CloudAccountRepository cloudAccountRepository;
     private final InvoiceRepository invoiceRepository;
     private final TicketRepository ticketRepository;
     private final RedisCacheService redisCache;
 
     private static final String CACHE_KEY_PREFIX = "billops:user:dashboard:";
-    private static final long CACHE_TTL_MINUTES = 15;
+    private static final long CACHE_TTL_MINUTES = 1440; // 24 hours
+
+    private final BillingService billingService;
 
     public UserDashboardService(CloudAccountRepository cloudAccountRepository,
-                               InvoiceRepository invoiceRepository,
-                               TicketRepository ticketRepository,
-                               RedisCacheService redisCache) {
+            InvoiceRepository invoiceRepository,
+            TicketRepository ticketRepository,
+            RedisCacheService redisCache,
+            BillingService billingService) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.invoiceRepository = invoiceRepository;
         this.ticketRepository = ticketRepository;
         this.redisCache = redisCache;
+        this.billingService = billingService;
     }
 
     public UserDashboardDto getUserDashboardSummary(AppUser user, boolean forceRefresh) {
@@ -118,8 +128,8 @@ public class UserDashboardService {
         spendingByProvider.put("Azure", BigDecimal.ZERO);
 
         for (AccountSummaryDto account : accountSummaries) {
-            BigDecimal spending = account.getCurrentMonthSpending() != null ?
-                                 account.getCurrentMonthSpending() : BigDecimal.ZERO;
+            BigDecimal spending = account.getCurrentMonthSpending() != null ? account.getCurrentMonthSpending()
+                    : BigDecimal.ZERO;
             spendingByProvider.merge(account.getProvider(), spending, BigDecimal::add);
         }
         dashboard.setSpendingByProvider(spendingByProvider);
@@ -171,6 +181,7 @@ public class UserDashboardService {
         dashboard.setRecentTickets(recentTickets);
 
         // Cache the result
+        dashboard.setLastUpdated(System.currentTimeMillis());
         redisCache.put(cacheKey, dashboard, CACHE_TTL_MINUTES);
         logger.info("User dashboard data cached for {} minutes", CACHE_TTL_MINUTES);
 
@@ -179,15 +190,20 @@ public class UserDashboardService {
 
     private BigDecimal calculateAccountSpending(CloudAccount account, YearMonth month) {
         try {
-            List<Invoice> invoices = invoiceRepository.findByCloudAccountIdAndBillingPeriodAndStatus(
-                account.getId(),
-                month.toString(),
-                Invoice.InvoiceStatus.FINALIZED
-            );
+            // Use BillingService to get accurate spend (matches Billing Page logic)
+            BillingDashboardDto billingData = billingService.getAccountBillingSummary(
+                    account,
+                    month.getYear(),
+                    month.getMonthValue());
 
-            return invoices.stream()
-                    .map(Invoice::getAmount)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            // Sum up costs from service breakdown
+            if (billingData.getServiceBreakdown() != null) {
+                return billingData.getServiceBreakdown().stream()
+                        .map(s -> BigDecimal.valueOf(s.getCost()))
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+            }
+
+            return BigDecimal.ZERO;
         } catch (Exception e) {
             logger.warn("Error calculating spending for account {}: {}", account.getAccountName(), e.getMessage());
             return BigDecimal.ZERO;
@@ -230,7 +246,8 @@ public class UserDashboardService {
     private LocalDate getLastInvoiceDate(CloudAccount account) {
         try {
             List<Invoice> invoices = invoiceRepository.findAll().stream()
-                    .filter(inv -> inv.getCloudAccount() != null && inv.getCloudAccount().getId().equals(account.getId()))
+                    .filter(inv -> inv.getCloudAccount() != null
+                            && inv.getCloudAccount().getId().equals(account.getId()))
                     .sorted((i1, i2) -> i2.getInvoiceDate().compareTo(i1.getInvoiceDate()))
                     .limit(1)
                     .collect(Collectors.toList());
@@ -245,7 +262,7 @@ public class UserDashboardService {
     }
 
     private AccountSummaryDto convertToAccountSummary(CloudAccount account, BigDecimal currentMonthSpending,
-                                                     BigDecimal lastMonthSpending, LocalDate lastInvoiceDate) {
+            BigDecimal lastMonthSpending, LocalDate lastInvoiceDate) {
         AccountSummaryDto dto = new AccountSummaryDto();
         dto.setId(account.getId());
         dto.setAccountName(account.getAccountName());
