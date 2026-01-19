@@ -103,6 +103,8 @@ public class EksCompleteDashboardDto {
         private Integer totalPods;
         private Integer totalNamespaces;
         private Double cpuUsagePercent;
+        private Double cpuUsageMillicores;
+        private Double cpuCapacityMillicores;
         private Double memoryUsagePercent;
 
         // Getters and Setters
@@ -168,6 +170,22 @@ public class EksCompleteDashboardDto {
 
         public void setCpuUsagePercent(Double cpuUsagePercent) {
             this.cpuUsagePercent = cpuUsagePercent;
+        }
+
+        public Double getCpuUsageMillicores() {
+            return cpuUsageMillicores;
+        }
+
+        public void setCpuUsageMillicores(Double cpuUsageMillicores) {
+            this.cpuUsageMillicores = cpuUsageMillicores;
+        }
+
+        public Double getCpuCapacityMillicores() {
+            return cpuCapacityMillicores;
+        }
+
+        public void setCpuCapacityMillicores(Double cpuCapacityMillicores) {
+            this.cpuCapacityMillicores = cpuCapacityMillicores;
         }
 
         public Double getMemoryUsagePercent() {
@@ -373,6 +391,7 @@ public class EksCompleteDashboardDto {
             private String zone;
             private String condition;
             private Double cpuUsagePercent;
+            private Double cpuUsageMillicores;
             private Double memoryUsagePercent;
             private Double cpuCapacity;
             private Double memoryCapacity;
@@ -422,6 +441,14 @@ public class EksCompleteDashboardDto {
 
             public void setCpuUsagePercent(Double cpuUsagePercent) {
                 this.cpuUsagePercent = cpuUsagePercent;
+            }
+
+            public Double getCpuUsageMillicores() {
+                return cpuUsageMillicores;
+            }
+
+            public void setCpuUsageMillicores(Double cpuUsageMillicores) {
+                this.cpuUsageMillicores = cpuUsageMillicores;
             }
 
             public Double getMemoryUsagePercent() {
@@ -596,8 +623,8 @@ public class EksCompleteDashboardDto {
             private Integer restarts;
             private Double cpuUsage;
             private Double memoryUsage;
-            private Map<String, ContainerMetrics> containers;
-            private List<ContainerStatus> containerStatuses;  // NEW: Container lifecycle states from K8s API
+            private List<ContainerMetrics> containers;
+            private List<ContainerStatus> containerStatuses; // NEW: Container lifecycle states from K8s API
 
             public static class ContainerMetrics {
                 private String name;
@@ -641,7 +668,7 @@ public class EksCompleteDashboardDto {
 
             public static class ContainerStatus {
                 private String name;
-                private String state;  // "running", "waiting", or "terminated"
+                private String state; // "running", "waiting", or "terminated"
                 private Integer restartCount;
                 private String image;
                 private Boolean ready;
@@ -753,11 +780,11 @@ public class EksCompleteDashboardDto {
                 this.memoryUsage = memoryUsage;
             }
 
-            public Map<String, ContainerMetrics> getContainers() {
+            public List<ContainerMetrics> getContainers() {
                 return containers;
             }
 
-            public void setContainers(Map<String, ContainerMetrics> containers) {
+            public void setContainers(List<ContainerMetrics> containers) {
                 this.containers = containers;
             }
 
@@ -1247,6 +1274,7 @@ public class EksCompleteDashboardDto {
         private Double memoryAllocatable;
         private Integer podsAllocatable;
         private Double cpuUsagePercent;
+        private Double cpuUsageMillicores;
         private Double memoryUsagePercent;
         private List<String> conditions;
         private List<String> pods;
@@ -1387,6 +1415,14 @@ public class EksCompleteDashboardDto {
 
         public void setCpuUsagePercent(Double cpuUsagePercent) {
             this.cpuUsagePercent = cpuUsagePercent;
+        }
+
+        public Double getCpuUsageMillicores() {
+            return cpuUsageMillicores;
+        }
+
+        public void setCpuUsageMillicores(Double cpuUsageMillicores) {
+            this.cpuUsageMillicores = cpuUsageMillicores;
         }
 
         public Double getMemoryUsagePercent() {
@@ -1794,6 +1830,7 @@ public class EksCompleteDashboardDto {
             private Double cpuCapacity;
             private Double cpuAllocatable;
             private Double cpuUsage;
+            private Double cpuUsageMillicores;
             private Double memoryCapacity;
             private Double memoryAllocatable;
             private Double memoryUsage;
@@ -1850,6 +1887,14 @@ public class EksCompleteDashboardDto {
 
             public void setCpuUsage(Double cpuUsage) {
                 this.cpuUsage = cpuUsage;
+            }
+
+            public Double getCpuUsageMillicores() {
+                return cpuUsageMillicores;
+            }
+
+            public void setCpuUsageMillicores(Double cpuUsageMillicores) {
+                this.cpuUsageMillicores = cpuUsageMillicores;
             }
 
             public Double getMemoryCapacity() {
