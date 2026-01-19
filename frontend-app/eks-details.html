@@ -667,7 +667,7 @@
             <div class="relative flex items-center justify-between">
               <!-- Left: Back button + Cluster Info -->
               <div class="flex items-center gap-6">
-                <a href="/cloudk8s.html"
+                <a :href="`/cloudk8s.html?accountIds=${selectedAccountId}`"
                   class="w-10 h-10 bg-white border border-gray-200 rounded-lg flex items-center justify-center text-gray-500 hover:text-indigo-600 hover:border-indigo-300 transition-all shadow-sm">
                   <i class="fas fa-arrow-left"></i>
                 </a>
@@ -825,19 +825,6 @@
                   <div class="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center">
                     <i class="fas fa-server text-blue-600 text-lg"></i>
                   </div>
-                  <button class="group relative">
-                    <div
-                      class="w-6 h-6 bg-gray-50 hover:bg-gray-100 rounded-full flex items-center justify-center transition-all">
-                      <i class="fas fa-info text-gray-500 text-[10px]"></i>
-                    </div>
-                    <div
-                      class="absolute right-0 top-8 w-64 bg-gray-900 text-white text-xs rounded-lg p-3 shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
-                      <div class="font-bold mb-1">What are Nodes?</div>
-                      <p class="text-gray-300 text-[11px] leading-relaxed">Worker machines (EC2 instances) that run your
-                        containerized applications.</p>
-                      <div class="absolute -top-1 right-2 w-2 h-2 bg-gray-900 transform rotate-45"></div>
-                    </div>
-                  </button>
                 </div>
                 <h3 class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">Active Nodes</h3>
                 <p class="text-2xl font-black text-gray-900 mb-1" x-text="dashboard?.clusterOverview?.totalNodes || 0">2
@@ -852,19 +839,6 @@
                   <div class="w-10 h-10 bg-purple-50 rounded-lg flex items-center justify-center">
                     <i class="fas fa-cubes text-purple-600 text-lg"></i>
                   </div>
-                  <button class="group relative">
-                    <div
-                      class="w-6 h-6 bg-gray-50 hover:bg-gray-100 rounded-full flex items-center justify-center transition-all">
-                      <i class="fas fa-info text-gray-500 text-[10px]"></i>
-                    </div>
-                    <div
-                      class="absolute right-0 top-8 w-64 bg-gray-900 text-white text-xs rounded-lg p-3 shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
-                      <div class="font-bold mb-1">What are Pods?</div>
-                      <p class="text-gray-300 text-[11px] leading-relaxed">Smallest deployable units that contain
-                        containers representing your running applications.</p>
-                      <div class="absolute -top-1 right-2 w-2 h-2 bg-gray-900 transform rotate-45"></div>
-                    </div>
-                  </button>
                 </div>
                 <h3 class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">Total Pods</h3>
                 <p class="text-2xl font-black text-gray-900 mb-1" x-text="getTotalPodsCount()">28
@@ -882,28 +856,17 @@
                   <div class="w-10 h-10 bg-orange-50 rounded-lg flex items-center justify-center">
                     <i class="fas fa-microchip text-orange-600 text-lg"></i>
                   </div>
-                  <button class="group relative">
-                    <div
-                      class="w-6 h-6 bg-gray-50 hover:bg-gray-100 rounded-full flex items-center justify-center transition-all">
-                      <i class="fas fa-info text-gray-500 text-[10px]"></i>
-                    </div>
-                    <div
-                      class="absolute right-0 top-8 w-64 bg-gray-900 text-white text-xs rounded-lg p-3 shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
-                      <div class="font-bold mb-1">What is CPU Usage?</div>
-                      <p class="text-gray-300 text-[11px] leading-relaxed">Processing power your applications consume.
-                        Low = wasted resources. High (>80%) = performance issues.</p>
-                      <div class="absolute -top-1 right-2 w-2 h-2 bg-gray-900 transform rotate-45"></div>
-                    </div>
-                  </button>
                 </div>
-                <h3 class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">CPU Usage</h3>
-                <p class="text-2xl font-black text-gray-900 mb-2"
-                  x-text="`${(dashboard?.clusterOverview?.cpuUsagePercent || 0).toFixed(1)}%`">2.8%</p>
+                <h3 class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">Cluster CPU Usage</h3>
+                <p class="text-2xl font-black text-gray-900 mb-1"
+                  x-text="`${(dashboard?.clusterOverview?.cpuUsageMillicores || 0).toFixed(0)}mc / ${(dashboard?.clusterOverview?.cpuCapacityMillicores || 0).toFixed(0)}mc`">
+                  0mc / 0mc</p>
+                <p class="text-xs text-gray-500 mb-2">total capacity</p>
                 <div class="flex items-center gap-2">
                   <div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
                     <div
                       class="h-full bg-gradient-to-r from-orange-400 to-orange-500 rounded-full transition-all duration-1000"
-                      :style="`width: ${dashboard?.clusterOverview?.cpuUsagePercent || 0}%`"></div>
+                      :style="`width: ${Math.min(100, dashboard?.clusterOverview?.cpuUsagePercent || 0)}%`"></div>
                   </div>
                   <span class="text-[10px] font-semibold text-gray-500">USAGE</span>
                 </div>
@@ -916,21 +879,9 @@
                   <div class="w-10 h-10 bg-pink-50 rounded-lg flex items-center justify-center">
                     <i class="fas fa-memory text-pink-600 text-lg"></i>
                   </div>
-                  <button class="group relative">
-                    <div
-                      class="w-6 h-6 bg-gray-50 hover:bg-gray-100 rounded-full flex items-center justify-center transition-all">
-                      <i class="fas fa-info text-gray-500 text-[10px]"></i>
-                    </div>
-                    <div
-                      class="absolute right-0 top-8 w-64 bg-gray-900 text-white text-xs rounded-lg p-3 shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
-                      <div class="font-bold mb-1">What is Memory Usage?</div>
-                      <p class="text-gray-300 text-[11px] leading-relaxed">RAM your applications use. Low = wasted
-                        money. High (>85%) risks pod evictions and crashes.</p>
-                      <div class="absolute -top-1 right-2 w-2 h-2 bg-gray-900 transform rotate-45"></div>
-                    </div>
-                  </button>
                 </div>
-                <h3 class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">Memory Usage</h3>
+                <h3 class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">Cluster Memory Usage
+                </h3>
                 <p class="text-2xl font-black text-gray-900 mb-2"
                   x-text="`${(dashboard?.clusterOverview?.memoryUsagePercent || 0).toFixed(1)}%`">25.8%</p>
                 <div class="flex items-center gap-2">
@@ -989,7 +940,7 @@
                   Nodes
                 </button>
                 <button @click="activeTab = 'karpenter'" class="tab-button whitespace-nowrap"
-                  :class="{'active': activeTab === 'karpenter'}" x-show="dashboard?.karpenter?.installed">
+                  :class="{'active': activeTab === 'karpenter'}">
                   <i class="fas fa-rocket mr-2"></i>
                   Karpenter
                 </button>
@@ -1115,7 +1066,7 @@
                         CPU Utilization
                       </span>
                       <span class="font-semibold text-gray-900"
-                        x-text="`${(dashboard?.clusterOverview?.cpuUsagePercent || 0).toFixed(0)}%`">65%</span>
+                        x-text="`${(dashboard?.clusterOverview?.cpuUsageMillicores || 0).toFixed(0)}mc`">1200mc</span>
                       <span class="text-xs px-2 py-1 rounded-full font-semibold"
                         :class="(dashboard?.clusterOverview?.cpuUsagePercent || 0) >= 40 && (dashboard?.clusterOverview?.cpuUsagePercent || 0) <= 75 ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'">
                         <span
@@ -1311,9 +1262,15 @@
                           transform="rotate(-90 100 100)"></circle>
                       </svg>
                       <div class="absolute inset-0 flex flex-col items-center justify-center">
-                        <span class="text-5xl font-black text-gray-900"
-                          x-text="`${(dashboard?.clusterOverview?.cpuUsagePercent || 0).toFixed(1)}%`">2.8%</span>
-                        <span class="text-xs text-gray-500 font-semibold uppercase">Usage</span>
+                        <span class="text-4xl font-black text-gray-900"
+                          x-text="`${(dashboard?.clusterOverview?.cpuUsageMillicores || 0).toFixed(0)}mc`">0mc</span>
+                        <div class="flex flex-col items-center mt-1">
+                          <span class="text-xs text-gray-500 font-semibold">out of <span class="font-bold text-gray-700"
+                              x-text="`${(dashboard?.clusterOverview?.cpuCapacityMillicores || 0).toFixed(0)}mc`">0mc</span></span>
+                          <span class="text-[10px] text-gray-400 font-medium"
+                            x-text="`${(dashboard?.clusterOverview?.cpuUsagePercent || 0).toFixed(1)}% utilized`">0%
+                            utilized</span>
+                        </div>
                       </div>
                     </div>
                     <p class="mt-4 text-sm text-gray-600">
@@ -1361,17 +1318,18 @@
                   <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
                     <i class="fas fa-rocket text-indigo-500"></i>
                     Deployments
-                    <button class="group relative ml-2">
-                      <i class="fas fa-info-circle text-gray-400 text-sm hover:text-indigo-500 transition-colors"></i>
-                      <div
-                        class="absolute left-0 bottom-8 w-72 bg-gray-900 text-white text-xs rounded-lg p-3 shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 pointer-events-none">
+                    <span class="relative inline-block" x-data="{ open: false }">
+                      <i @click="open = !open"
+                        class="fas fa-info-circle text-gray-400 text-sm hover:text-indigo-500 transition-colors cursor-pointer ml-2"></i>
+                      <div x-show="open" x-cloak @click.away="open = false" x-transition
+                        class="absolute left-0 bottom-8 w-72 bg-gray-900 text-white text-xs rounded-lg p-3 shadow-xl z-50 font-normal">
                         <div class="font-bold mb-1">What are Deployments?</div>
                         <p class="text-gray-300 leading-relaxed">Manages stateless applications (like web servers). It
                           ensures the desired number of pods are always running by automatically replacing failed or
                           unresponsive instances.</p>
                         <div class="absolute -bottom-1 left-1 w-2 h-2 bg-gray-900 transform rotate-45"></div>
                       </div>
-                    </button>
+                    </span>
                     <span class="ml-auto px-3 py-1 bg-blue-100 text-blue-700 rounded-lg text-xs font-bold">KUBERNETES
                       API</span>
                   </h3>
@@ -1387,9 +1345,13 @@
                             <h4 class="font-bold text-gray-900 truncate" x-text="deployment.name">deployment-name</h4>
                             <p class="text-xs text-gray-500 font-mono" x-text="deployment.namespace">namespace</p>
                           </div>
-                          <div class="w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0 ml-2"
-                            :class="deployment.readyReplicas === deployment.replicas ? 'bg-green-100 text-green-600' : 'bg-amber-100 text-amber-600'">
-                            <span class="text-xl font-black" x-text="deployment.healthScore || 100">98</span>
+                          <div class="flex flex-col items-center flex-shrink-0 ml-2">
+                            <div class="w-14 h-14 rounded-lg flex items-center justify-center"
+                              :class="deployment.readyReplicas === deployment.replicas ? 'bg-green-100 text-green-600' : 'bg-amber-100 text-amber-600'">
+                              <span class="text-xl font-black"
+                                x-text="(deployment.healthScore || 100).toFixed(0)">100</span>
+                            </div>
+                            <span class="text-[10px] text-gray-500 font-semibold mt-1 uppercase">Health Score</span>
                           </div>
                         </div>
 
@@ -1401,9 +1363,10 @@
                         </div>
 
                         <div class="h-2 bg-gray-200 rounded-full overflow-hidden">
-                          <div
-                            class="h-full bg-gradient-to-r from-green-400 to-green-500 rounded-full transition-all duration-500"
-                            :style="`width: ${(deployment.readyReplicas / deployment.replicas * 100)}%`"></div>
+                          <div class="h-full rounded-full transition-all duration-500"
+                            :class="deployment.readyReplicas === deployment.replicas ? 'bg-gradient-to-r from-green-400 to-green-500' : 'bg-gradient-to-r from-amber-400 to-amber-500'"
+                            :style="`width: ${deployment.replicas > 0 ? (deployment.readyReplicas / deployment.replicas * 100) : 0}%`">
+                          </div>
                         </div>
 
                         <div class="mt-3 pt-3 border-t border-gray-200">
@@ -1447,9 +1410,13 @@
                             <h4 class="font-bold text-gray-900 truncate" x-text="daemonset.name">daemonset-name</h4>
                             <p class="text-xs text-gray-500 font-mono" x-text="daemonset.namespace">namespace</p>
                           </div>
-                          <div class="w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0 ml-2"
-                            :class="daemonset.numberReady === daemonset.currentNumberScheduled ? 'bg-green-100 text-green-600' : 'bg-amber-100 text-amber-600'">
-                            <span class="text-xl font-black" x-text="daemonset.healthScore || 100">100</span>
+                          <div class="flex flex-col items-center flex-shrink-0 ml-2">
+                            <div class="w-14 h-14 rounded-lg flex items-center justify-center"
+                              :class="daemonset.numberReady === daemonset.currentNumberScheduled ? 'bg-green-100 text-green-600' : 'bg-amber-100 text-amber-600'">
+                              <span class="text-xl font-black"
+                                x-text="(daemonset.healthScore || 100).toFixed(0)">100</span>
+                            </div>
+                            <span class="text-[10px] text-gray-500 font-semibold mt-1 uppercase">Health Score</span>
                           </div>
                         </div>
 
@@ -1461,9 +1428,9 @@
                         </div>
 
                         <div class="h-2 bg-gray-200 rounded-full overflow-hidden">
-                          <div
-                            class="h-full bg-gradient-to-r from-purple-400 to-purple-500 rounded-full transition-all duration-500"
-                            :style="`width: ${(daemonset.numberReady / daemonset.currentNumberScheduled * 100)}%`">
+                          <div class="h-full rounded-full transition-all duration-500"
+                            :class="daemonset.numberReady === daemonset.currentNumberScheduled ? 'bg-gradient-to-r from-purple-400 to-purple-500' : 'bg-gradient-to-r from-amber-400 to-amber-500'"
+                            :style="`width: ${daemonset.currentNumberScheduled > 0 ? (daemonset.numberReady / daemonset.currentNumberScheduled * 100) : 0}%`">
                           </div>
                         </div>
 
@@ -1541,12 +1508,12 @@
 
                 <!-- ✅ NEW: Pod Resource Details with Container-level Metrics -->
                 <div class="bg-white rounded-2xl shadow-lg p-8 border border-gray-100" x-data="{
-                selectedNamespace: 'all',
+                selectedNamespace: 'kubescape',
                 searchQuery: '',
-                sortBy: 'name',
-                sortOrder: 'asc',
+                sortBy: 'cpuUsage',
+                sortOrder: 'desc',
                 get filteredPods() {
-                  let pods = dashboard?.workloadHealth?.pods || [];
+                  let pods = dashboard?.podDetails || [];
 
                   // Filter by namespace
                   if (this.selectedNamespace !== 'all') {
@@ -1561,13 +1528,19 @@
                     );
                   }
 
-                  // Sort
+                  // Sort - calculate total container CPU/Memory for each pod
                   pods = [...pods].sort((a, b) => {
-                    let valA = a[this.sortBy];
-                    let valB = b[this.sortBy];
-                    if (this.sortBy === 'cpuUsage' || this.sortBy === 'memoryUsage') {
-                      valA = parseFloat(valA) || 0;
-                      valB = parseFloat(valB) || 0;
+                    let valA, valB;
+                    if (this.sortBy === 'cpuUsage') {
+                      // Sum container CPU usage if pod-level is 0
+                      valA = (a.cpuUsage || 0) > 0 ? a.cpuUsage : (a.containers || []).reduce((sum, c) => sum + (c.cpuUsage || 0), 0);
+                      valB = (b.cpuUsage || 0) > 0 ? b.cpuUsage : (b.containers || []).reduce((sum, c) => sum + (c.cpuUsage || 0), 0);
+                    } else if (this.sortBy === 'memoryUsage') {
+                      valA = (a.memoryUsage || 0) > 0 ? a.memoryUsage : (a.containers || []).reduce((sum, c) => sum + (c.memoryUsage || 0), 0);
+                      valB = (b.memoryUsage || 0) > 0 ? b.memoryUsage : (b.containers || []).reduce((sum, c) => sum + (c.memoryUsage || 0), 0);
+                    } else {
+                      valA = a[this.sortBy];
+                      valB = b[this.sortBy];
                     }
                     if (this.sortOrder === 'asc') {
                       return valA > valB ? 1 : -1;
@@ -1581,6 +1554,16 @@
                 get namespaces() {
                   const ns = new Set((dashboard?.podDetails || []).map(p => p.namespace));
                   return ['all', ...Array.from(ns).sort()];
+                },
+                getPodCpuUsage(pod) {
+                  // Return pod-level CPU if available, otherwise sum container CPU
+                  if ((pod.cpuUsage || 0) > 0) return pod.cpuUsage;
+                  return (pod.containers || []).reduce((sum, c) => sum + (c.cpuUsage || 0), 0);
+                },
+                getPodMemoryUsage(pod) {
+                  // Return pod-level memory if available, otherwise sum container memory
+                  if ((pod.memoryUsage || 0) > 0) return pod.memoryUsage;
+                  return (pod.containers || []).reduce((sum, c) => sum + (c.memoryUsage || 0), 0);
                 }
               }">
                   <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
@@ -1663,12 +1646,13 @@
                                 <div class="flex items-center justify-between text-xs mb-1">
                                   <span class="text-gray-600">CPU</span>
                                   <span class="font-bold text-gray-900"
-                                    x-text="(pod.cpuUsage || 0).toFixed(1) + 'm'"></span>
+                                    x-text="getPodCpuUsage(pod).toFixed(2) + 'm'"></span>
                                 </div>
                                 <div class="h-2 bg-gray-200 rounded-full overflow-hidden">
                                   <div
                                     class="h-full bg-gradient-to-r from-blue-400 to-blue-600 rounded-full transition-all"
-                                    :style="`width: ${Math.min(100, (pod.cpuUsage / pod.cpuLimit * 100))}%`"></div>
+                                    :style="`width: ${pod.cpuLimit > 0 ? Math.min(100, (getPodCpuUsage(pod) / pod.cpuLimit * 100)) : (getPodCpuUsage(pod) > 0 ? 50 : 0)}%`">
+                                  </div>
                                 </div>
                               </div>
 
@@ -1677,12 +1661,12 @@
                                 <div class="flex items-center justify-between text-xs mb-1">
                                   <span class="text-gray-600">Memory</span>
                                   <span class="font-bold text-gray-900"
-                                    x-text="(pod.memoryUsage || 0).toFixed(0) + ' Mi'"></span>
+                                    x-text="getPodMemoryUsage(pod).toFixed(0) + ' Mi'"></span>
                                 </div>
                                 <div class="h-2 bg-gray-200 rounded-full overflow-hidden">
                                   <div
                                     class="h-full bg-gradient-to-r from-purple-400 to-purple-600 rounded-full transition-all"
-                                    :style="`width: ${Math.min(100, (pod.memoryUsage / pod.memoryLimit * 100))}%`">
+                                    :style="`width: ${pod.memoryLimit > 0 ? Math.min(100, (getPodMemoryUsage(pod) / pod.memoryLimit * 100)) : (getPodMemoryUsage(pod) > 0 ? 50 : 0)}%`">
                                   </div>
                                 </div>
                               </div>
@@ -1727,7 +1711,8 @@
                                 </div>
                                 <div>
                                   <span class="text-gray-500">Owner:</span>
-                                  <span class="font-semibold ml-2" x-text="`${pod.ownerKind}/${pod.ownerName}`"></span>
+                                  <span class="font-semibold ml-2"
+                                    x-text="(pod.ownerKind && pod.ownerName) ? `${pod.ownerKind}/${pod.ownerName}` : 'N/A'"></span>
                                 </div>
                                 <div>
                                   <span class="text-gray-500">Age:</span>
@@ -1748,22 +1733,24 @@
                                 <div class="flex items-center justify-between text-xs mb-2">
                                   <span class="text-gray-600">CPU</span>
                                   <span class="text-gray-900">
-                                    <span class="font-bold" x-text="(pod.cpuUsage || 0).toFixed(1)"></span>m /
+                                    <span class="font-bold" x-text="getPodCpuUsage(pod).toFixed(2)"></span>m /
                                     <span class="text-gray-500" x-text="(pod.cpuLimit || 0).toFixed(0)"></span>m limit
                                   </span>
                                 </div>
                                 <div class="h-3 bg-gray-200 rounded-full overflow-hidden">
                                   <div class="h-full flex">
                                     <div class="bg-blue-500 transition-all"
-                                      :style="`width: ${Math.min(100, (pod.cpuUsage / pod.cpuLimit * 100))}%`"></div>
+                                      :style="`width: ${pod.cpuLimit > 0 ? Math.min(100, (getPodCpuUsage(pod) / pod.cpuLimit * 100)) : (getPodCpuUsage(pod) > 0 ? 30 : 0)}%`">
+                                    </div>
                                     <div class="bg-blue-300 transition-all"
-                                      :style="`width: ${Math.max(0, ((pod.cpuRequest - pod.cpuUsage) / pod.cpuLimit * 100))}%`">
+                                      :style="`width: ${pod.cpuLimit > 0 ? Math.max(0, (((pod.cpuRequest || 0) - getPodCpuUsage(pod)) / pod.cpuLimit * 100)) : 0}%`">
                                     </div>
                                   </div>
                                 </div>
                                 <div class="flex items-center justify-between text-xs mt-1 text-gray-500">
                                   <span>Request: <span x-text="(pod.cpuRequest || 0).toFixed(0)"></span>m</span>
-                                  <span x-text="((pod.cpuUsage / pod.cpuLimit * 100) || 0).toFixed(1) + '%'"></span>
+                                  <span
+                                    x-text="(pod.cpuLimit > 0 ? (getPodCpuUsage(pod) / pod.cpuLimit * 100) : 0).toFixed(1) + '%'"></span>
                                 </div>
                               </div>
                               <!-- Memory Usage -->
@@ -1771,7 +1758,7 @@
                                 <div class="flex items-center justify-between text-xs mb-2">
                                   <span class="text-gray-600">Memory</span>
                                   <span class="text-gray-900">
-                                    <span class="font-bold" x-text="(pod.memoryUsage || 0).toFixed(0)"></span> Mi /
+                                    <span class="font-bold" x-text="getPodMemoryUsage(pod).toFixed(0)"></span> Mi /
                                     <span class="text-gray-500" x-text="(pod.memoryLimit || 0).toFixed(0)"></span> Mi
                                     limit
                                   </span>
@@ -1779,17 +1766,17 @@
                                 <div class="h-3 bg-gray-200 rounded-full overflow-hidden">
                                   <div class="h-full flex">
                                     <div class="bg-purple-500 transition-all"
-                                      :style="`width: ${Math.min(100, (pod.memoryUsage / pod.memoryLimit * 100))}%`">
+                                      :style="`width: ${pod.memoryLimit > 0 ? Math.min(100, (getPodMemoryUsage(pod) / pod.memoryLimit * 100)) : (getPodMemoryUsage(pod) > 0 ? 30 : 0)}%`">
                                     </div>
                                     <div class="bg-purple-300 transition-all"
-                                      :style="`width: ${Math.max(0, ((pod.memoryRequest - pod.memoryUsage) / pod.memoryLimit * 100))}%`">
+                                      :style="`width: ${pod.memoryLimit > 0 ? Math.max(0, (((pod.memoryRequest || 0) - getPodMemoryUsage(pod)) / pod.memoryLimit * 100)) : 0}%`">
                                     </div>
                                   </div>
                                 </div>
                                 <div class="flex items-center justify-between text-xs mt-1 text-gray-500">
                                   <span>Request: <span x-text="(pod.memoryRequest || 0).toFixed(0)"></span> Mi</span>
                                   <span
-                                    x-text="((pod.memoryUsage / pod.memoryLimit * 100) || 0).toFixed(1) + '%'"></span>
+                                    x-text="(pod.memoryLimit > 0 ? (getPodMemoryUsage(pod) / pod.memoryLimit * 100) : 0).toFixed(1) + '%'"></span>
                                 </div>
                               </div>
                             </div>
@@ -2295,26 +2282,26 @@
                         <i class="fas fa-shield-virus text-red-600 text-3xl"></i>
                       </div>
                       <div>
-                        <h3 class="text-3xl font-black tracking-tight text-gray-900">Falco Runtime Security</h3>
+                        <h3 class="text-3xl font-black tracking-tight text-gray-900">Runtime Security</h3>
                         <p class="text-gray-600 text-sm mt-1">Real-time threat detection and behavioral monitoring</p>
                       </div>
                     </div>
-                    <button class="group relative">
-                      <div
-                        class="w-8 h-8 bg-gray-50 hover:bg-gray-100 rounded-full flex items-center justify-center transition-all">
+                    <div class="relative" x-data="{ open: false }">
+                      <button @click="open = !open"
+                        class="w-8 h-8 bg-gray-50 hover:bg-gray-100 rounded-full flex items-center justify-center transition-all cursor-pointer">
                         <i class="fas fa-info text-gray-600 text-sm"></i>
-                      </div>
-                      <div
-                        class="absolute right-0 top-10 w-80 bg-gray-900 text-white text-xs rounded-xl p-4 shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
-                        <div class="font-bold mb-2">What is Falco?</div>
-                        <p class="text-gray-300 leading-relaxed">Falco detects unexpected behavior, intrusions, and data
+                      </button>
+                      <div x-show="open" x-cloak @click.away="open = false" x-transition
+                        class="absolute right-0 top-10 w-80 bg-gray-900 text-white text-xs rounded-xl p-4 shadow-2xl z-50">
+                        <div class="font-bold mb-2">What is real time threat detection?</div>
+                        <p class="text-gray-300 leading-relaxed">It detects unexpected behavior, intrusions, and data
                           theft in real-time by monitoring system calls. It alerts you to security policy violations
                           like
                           unauthorized file access, privilege escalation, or suspicious network activity in your
                           containers.</p>
                         <div class="absolute -top-2 right-4 w-4 h-4 bg-gray-900 transform rotate-45"></div>
                       </div>
-                    </button>
+                    </div>
                   </div>
 
                   <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -2489,27 +2476,28 @@
                         <i class="fas fa-shield-check text-emerald-600 text-3xl"></i>
                       </div>
                       <div>
-                        <h3 class="text-3xl font-black tracking-tight text-gray-900">Kubescape Security & Compliance
+                        <h3 class="text-3xl font-black tracking-tight text-gray-900">Security & Compliance
                         </h3>
                         <p class="text-gray-600 text-sm mt-1">Kubernetes configuration scanning and compliance
                           validation</p>
                       </div>
                     </div>
-                    <button class="group relative">
-                      <div
-                        class="w-8 h-8 bg-gray-50 hover:bg-gray-100 rounded-full flex items-center justify-center transition-all">
+                    <div class="relative" x-data="{ open: false }">
+                      <button @click="open = !open"
+                        class="w-8 h-8 bg-gray-50 hover:bg-gray-100 rounded-full flex items-center justify-center transition-all cursor-pointer">
                         <i class="fas fa-info text-gray-600 text-sm"></i>
-                      </div>
-                      <div
-                        class="absolute right-0 top-10 w-80 bg-gray-900 text-white text-xs rounded-xl p-4 shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
-                        <div class="font-bold mb-2">What is Kubescape?</div>
-                        <p class="text-gray-300 leading-relaxed">Kubescape scans your Kubernetes configurations against
+                      </button>
+                      <div x-show="open" x-cloak @click.away="open = false" x-transition
+                        class="absolute right-0 top-10 w-80 bg-gray-900 text-white text-xs rounded-xl p-4 shadow-2xl z-50">
+                        <div class="font-bold mb-2">Security & Compliance?</div>
+                        <p class="text-gray-300 leading-relaxed">In Security & Compliance Section, it scans your
+                          Kubernetes configurations against
                           security best practices and compliance frameworks (NSA, MITRE ATT&CK). It identifies
                           misconfigurations, excessive permissions, and vulnerabilities in your workloads before they
                           become security issues.</p>
                         <div class="absolute -top-2 right-4 w-4 h-4 bg-gray-900 transform rotate-45"></div>
                       </div>
-                    </button>
+                    </div>
                   </div>
 
                   <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -2583,20 +2571,27 @@
                       <h4 class="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
                         <i class="fas fa-chart-pie text-emerald-600"></i>
                         Vulnerability Distribution
-                        <button class="group relative ml-2">
-                          <i
-                            class="fas fa-info-circle text-gray-400 text-sm hover:text-emerald-500 transition-colors"></i>
-                          <div
-                            class="absolute left-0 bottom-8 w-72 bg-gray-900 text-white text-xs rounded-lg p-3 shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 pointer-events-none">
+                        <span class="relative inline-block" x-data="{ open: false }">
+                          <i @click="open = !open"
+                            class="fas fa-info-circle text-gray-400 text-sm hover:text-emerald-500 transition-colors cursor-pointer ml-1"></i>
+                          <div x-show="open" x-cloak @click.away="open = false" x-transition
+                            class="absolute left-0 bottom-8 w-72 bg-gray-900 text-white text-xs rounded-lg p-3 shadow-xl z-50">
                             <div class="font-bold mb-1">Severity Distribution</div>
                             <p class="text-gray-300 leading-relaxed">Breakdown of security issues by severity level
                               (Critical, High, Medium, Low). Prioritize Critical and High issues.</p>
                             <div class="absolute -bottom-1 left-1 w-2 h-2 bg-gray-900 transform rotate-45"></div>
                           </div>
-                        </button>
+                        </span>
                       </h4>
-                      <div class="flex items-center justify-center" style="height: 250px;">
+                      <div class="flex items-center justify-center relative" style="height: 250px;">
                         <canvas x-ref="kubescapeSeverityChart"></canvas>
+                        <!-- Fallback when no vulnerabilities -->
+                        <div
+                          x-show="!((dashboard?.kubescape?.totalCritical || 0) + (dashboard?.kubescape?.totalHigh || 0) + (dashboard?.kubescape?.totalMedium || 0) + (dashboard?.kubescape?.totalLow || 0))"
+                          class="absolute inset-0 flex flex-col items-center justify-center text-gray-400">
+                          <i class="fas fa-shield-check text-4xl mb-2 text-green-400"></i>
+                          <p class="text-sm font-medium">No vulnerabilities detected</p>
+                        </div>
                       </div>
                     </div>
 
@@ -2714,26 +2709,27 @@
                         <i class="fas fa-search-plus text-purple-600 text-3xl"></i>
                       </div>
                       <div>
-                        <h3 class="text-3xl font-black tracking-tight text-gray-900">Trivy Container Image Scanning</h3>
+                        <h3 class="text-3xl font-black tracking-tight text-gray-900">Container Image Scanning</h3>
                         <p class="text-gray-600 text-sm mt-1">Deep vulnerability analysis of container images and
                           dependencies</p>
                       </div>
                     </div>
-                    <button class="group relative">
-                      <div
-                        class="w-8 h-8 bg-gray-50 hover:bg-gray-100 rounded-full flex items-center justify-center transition-all">
+                    <div class="relative" x-data="{ open: false }">
+                      <button @click="open = !open"
+                        class="w-8 h-8 bg-gray-50 hover:bg-gray-100 rounded-full flex items-center justify-center transition-all cursor-pointer">
                         <i class="fas fa-info text-gray-600 text-sm"></i>
-                      </div>
-                      <div
-                        class="absolute right-0 top-10 w-80 bg-gray-900 text-white text-xs rounded-xl p-4 shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
-                        <div class="font-bold mb-2">What is Trivy?</div>
-                        <p class="text-gray-300 leading-relaxed">Trivy scans your container images for known
+                      </button>
+                      <div x-show="open" x-cloak @click.away="open = false" x-transition
+                        class="absolute right-0 top-10 w-80 bg-gray-900 text-white text-xs rounded-xl p-4 shadow-2xl z-50">
+                        <div class="font-bold mb-2">What is Container Image Scanning?</div>
+                        <p class="text-gray-300 leading-relaxed">Container Image Scanning scans your container images
+                          for known
                           vulnerabilities (CVEs) in OS packages and application dependencies. It checks against multiple
                           vulnerability databases to identify security issues in your images before they're deployed,
                           helping you maintain a secure supply chain.</p>
                         <div class="absolute -top-2 right-4 w-4 h-4 bg-gray-900 transform rotate-45"></div>
                       </div>
-                    </button>
+                    </div>
                   </div>
 
                   <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -2801,8 +2797,15 @@
                         <i class="fas fa-chart-bar text-purple-600"></i>
                         Vulnerability Severity Breakdown
                       </h4>
-                      <div class="flex items-center justify-center" style="height: 250px;">
-                        <canvas x-ref="trivyVulnChart"></canvas>
+                      <div class="relative" style="height: 280px; width: 100%;">
+                        <canvas x-ref="trivyVulnChart" style="max-height: 280px;"></canvas>
+                        <!-- Fallback when no vulnerabilities -->
+                        <div
+                          x-show="!((dashboard?.trivy?.summary?.totalCritical || 0) + (dashboard?.trivy?.summary?.totalHigh || 0) + (dashboard?.trivy?.summary?.totalMedium || 0) + (dashboard?.trivy?.summary?.totalLow || 0))"
+                          class="absolute inset-0 flex flex-col items-center justify-center text-gray-400">
+                          <i class="fas fa-shield-check text-4xl mb-2 text-green-400"></i>
+                          <p class="text-sm font-medium">No vulnerabilities detected</p>
+                        </div>
                       </div>
                     </div>
 
@@ -2929,8 +2932,7 @@
             </div>
 
             <!-- ==================== PODS TAB (NEW - COMPREHENSIVE) ==================== -->
-            <div x-show="activeTab === 'pods'" x-cloak class="space-y-8"
-              @click.once="$nextTick(() => { initPodStatusChart(); initPodCpuChart(); initPodMemoryChart(); })">
+            <div x-show="activeTab === 'pods'" x-cloak class="space-y-8">
 
               <!-- Pods Overview Stats -->
               <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -3131,20 +3133,79 @@
 
               <!-- Pod Resource Requests vs Limits -->
               <section class="bg-white rounded-2xl shadow-lg p-8 border border-gray-100">
-                <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
+                <h3 class="text-2xl font-bold text-gray-900 mb-4 flex items-center gap-3">
                   <i class="fas fa-sliders-h text-teal-500"></i>
                   Resource Requests vs Limits Overview
                 </h3>
+                <!-- Legend -->
+                <div class="flex items-center justify-center gap-6 mb-6 text-sm">
+                  <div class="flex items-center gap-2">
+                    <span class="w-4 h-4 rounded bg-blue-500"></span>
+                    <span class="text-gray-700 font-medium">Requests</span>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span class="w-4 h-4 rounded bg-amber-500"></span>
+                    <span class="text-gray-700 font-medium">Limits</span>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span class="w-4 h-4 rounded bg-green-500"></span>
+                    <span class="text-gray-700 font-medium">Actual Usage</span>
+                  </div>
+                </div>
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   <!-- CPU Chart -->
                   <div class="bg-gray-50 rounded-xl p-6">
-                    <h4 class="text-lg font-semibold text-gray-900 mb-4">CPU Distribution (millicores)</h4>
-                    <canvas id="podCpuChart" height="200"></canvas>
+                    <h4 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                      <i class="fas fa-microchip text-blue-500"></i>
+                      CPU Distribution
+                    </h4>
+                    <div class="h-64">
+                      <canvas x-ref="podCpuChart" id="podCpuChart"></canvas>
+                    </div>
+                    <div class="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
+                      <div class="bg-blue-50 rounded-lg p-2">
+                        <div class="font-bold text-blue-700"
+                          x-text="`${((dashboard?.podMetrics?.totalCpuRequested || 0) * 1000).toFixed(0)}m`">0m</div>
+                        <div class="text-gray-500">Requested</div>
+                      </div>
+                      <div class="bg-amber-50 rounded-lg p-2">
+                        <div class="font-bold text-amber-700"
+                          x-text="`${((dashboard?.podMetrics?.totalCpuLimited || 0) * 1000).toFixed(0)}m`">0m</div>
+                        <div class="text-gray-500">Limited</div>
+                      </div>
+                      <div class="bg-green-50 rounded-lg p-2">
+                        <div class="font-bold text-green-700"
+                          x-text="`${(dashboard?.podMetrics?.totalCpuUsed || 0).toFixed(0)}m`">0m</div>
+                        <div class="text-gray-500">Used</div>
+                      </div>
+                    </div>
                   </div>
                   <!-- Memory Chart -->
                   <div class="bg-gray-50 rounded-xl p-6">
-                    <h4 class="text-lg font-semibold text-gray-900 mb-4">Memory Distribution (Mi)</h4>
-                    <canvas id="podMemoryChart" height="200"></canvas>
+                    <h4 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                      <i class="fas fa-memory text-purple-500"></i>
+                      Memory Distribution
+                    </h4>
+                    <div class="h-64">
+                      <canvas x-ref="podMemoryChart" id="podMemoryChart"></canvas>
+                    </div>
+                    <div class="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
+                      <div class="bg-blue-50 rounded-lg p-2">
+                        <div class="font-bold text-blue-700"
+                          x-text="`${(dashboard?.podMetrics?.totalMemoryRequested || 0).toFixed(0)} Mi`">0 Mi</div>
+                        <div class="text-gray-500">Requested</div>
+                      </div>
+                      <div class="bg-amber-50 rounded-lg p-2">
+                        <div class="font-bold text-amber-700"
+                          x-text="`${(dashboard?.podMetrics?.totalMemoryLimited || 0).toFixed(0)} Mi`">0 Mi</div>
+                        <div class="text-gray-500">Limited</div>
+                      </div>
+                      <div class="bg-green-50 rounded-lg p-2">
+                        <div class="font-bold text-green-700"
+                          x-text="`${(dashboard?.podMetrics?.totalMemoryUsed || 0).toFixed(0)} Mi`">0 Mi</div>
+                        <div class="text-gray-500">Used</div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </section>
@@ -3426,12 +3487,33 @@
 
               <!-- Node Capacity vs Allocatable -->
               <section class="bg-white rounded-2xl shadow-lg p-8 border border-gray-100">
-                <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
+                <h3 class="text-2xl font-bold text-gray-900 mb-4 flex items-center gap-3">
                   <i class="fas fa-chart-bar text-indigo-500"></i>
                   Capacity vs Allocatable Resources
                 </h3>
-                <div class="space-y-8">
-                  <template x-for="node in (dashboard?.nodeMetrics?.nodes || []).slice(0, 10)" :key="node.name">
+                <!-- Legend -->
+                <div class="flex items-center justify-start gap-6 mb-6 text-xs">
+                  <div class="flex items-center gap-2">
+                    <span class="w-3 h-3 rounded bg-blue-500"></span>
+                    <span class="text-gray-600">CPU (Allocatable)</span>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span class="w-3 h-3 rounded bg-purple-500"></span>
+                    <span class="text-gray-600">Memory (Allocatable)</span>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span class="w-3 h-3 rounded bg-teal-500"></span>
+                    <span class="text-gray-600">Pod Utilization</span>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span class="w-3 h-3 rounded bg-gray-300"></span>
+                    <span class="text-gray-600">Reserved by System</span>
+                  </div>
+                </div>
+                <div class="space-y-6">
+                  <template
+                    x-for="node in [...(dashboard?.nodeMetrics?.nodes || [])].sort((a, b) => (b.podCount || 0) - (a.podCount || 0)).slice(0, 10)"
+                    :key="node.name">
                     <div class="border border-gray-200 rounded-xl p-6 hover:shadow-md transition-shadow">
                       <div class="flex items-center justify-between mb-4">
                         <div>
@@ -3445,69 +3527,92 @@
                         </span>
                       </div>
 
-                      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                         <!-- CPU -->
                         <div>
                           <div class="flex items-center justify-between mb-2">
-                            <span class="text-sm font-semibold text-gray-700">CPU</span>
-                            <span class="text-xs text-gray-600">
-                              <span x-text="(node.cpuAllocatable || 0).toFixed(1)"></span> /
-                              <span x-text="(node.cpuCapacity || 0).toFixed(1)"></span> cores
+                            <span class="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                              <i class="fas fa-microchip text-blue-500"></i> CPU
                             </span>
+                            <span class="text-xs font-bold text-gray-700"
+                              x-text="(node.cpuAllocatable || 0).toFixed(1) + ' / ' + (node.cpuCapacity || 0).toFixed(1) + ' cores'"></span>
                           </div>
-                          <div class="h-3 bg-gray-200 rounded-full overflow-hidden">
-                            <div class="h-full bg-gradient-to-r from-blue-400 to-blue-600"
-                              :style="`width: ${((node.cpuAllocatable / node.cpuCapacity) * 100).toFixed(1)}%`"></div>
+                          <div class="h-4 bg-gray-200 rounded-full overflow-hidden">
+                            <div
+                              class="h-full bg-gradient-to-r from-blue-400 to-blue-600 rounded-full transition-all duration-500"
+                              :style="`width: ${(node.cpuCapacity || 0) > 0 ? Math.min(100, ((node.cpuAllocatable || 0) / (node.cpuCapacity || 1) * 100)) : 0}%`">
+                            </div>
                           </div>
-                          <div class="flex items-center justify-between mt-1">
-                            <span class="text-xs text-gray-500">Usage:</span>
-                            <span class="text-xs font-bold" x-text="(node.cpuUsage || 0).toFixed(1) + '%'"></span>
+                          <div class="flex items-center justify-between mt-2 text-xs text-gray-500">
+                            <span>Allocatable: <span class="font-semibold text-blue-600"
+                                x-text="((node.cpuAllocatable || 0) / (node.cpuCapacity || 1) * 100).toFixed(0) + '%'"></span></span>
+                            <span x-show="(node.cpuUsageMillicores || 0) > 0">Usage: <span
+                                class="font-semibold text-green-600"
+                                x-text="(node.cpuUsageMillicores || 0).toFixed(0) + 'mc'"></span></span>
                           </div>
                         </div>
 
                         <!-- Memory -->
                         <div>
                           <div class="flex items-center justify-between mb-2">
-                            <span class="text-sm font-semibold text-gray-700">Memory</span>
-                            <span class="text-xs text-gray-600">
-                              <span x-text="(node.memoryAllocatable || 0).toFixed(1)"></span> /
-                              <span x-text="(node.memoryCapacity || 0).toFixed(1)"></span> GB
+                            <span class="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                              <i class="fas fa-memory text-purple-500"></i> Memory
                             </span>
+                            <span class="text-xs font-bold text-gray-700"
+                              x-text="(node.memoryAllocatable || 0).toFixed(1) + ' / ' + (node.memoryCapacity || 0).toFixed(1) + ' GB'"></span>
                           </div>
-                          <div class="h-3 bg-gray-200 rounded-full overflow-hidden">
-                            <div class="h-full bg-gradient-to-r from-purple-400 to-purple-600"
-                              :style="`width: ${((node.memoryAllocatable / node.memoryCapacity) * 100).toFixed(1)}%`">
+                          <div class="h-4 bg-gray-200 rounded-full overflow-hidden">
+                            <div
+                              class="h-full bg-gradient-to-r from-purple-400 to-purple-600 rounded-full transition-all duration-500"
+                              :style="`width: ${(node.memoryCapacity || 0) > 0 ? Math.min(100, ((node.memoryAllocatable || 0) / (node.memoryCapacity || 1) * 100)) : 0}%`">
                             </div>
                           </div>
-                          <div class="flex items-center justify-between mt-1">
-                            <span class="text-xs text-gray-500">Usage:</span>
-                            <span class="text-xs font-bold" x-text="(node.memoryUsage || 0).toFixed(1) + '%'"></span>
+                          <div class="flex items-center justify-between mt-2 text-xs text-gray-500">
+                            <span>Allocatable: <span class="font-semibold text-purple-600"
+                                x-text="((node.memoryAllocatable || 0) / (node.memoryCapacity || 1) * 100).toFixed(0) + '%'"></span></span>
+                            <span x-show="(node.memoryUsage || 0) > 0">Usage: <span class="font-semibold text-green-600"
+                                x-text="(node.memoryUsage || 0).toFixed(1) + '%'"></span></span>
                           </div>
                         </div>
 
                         <!-- Pods -->
                         <div>
                           <div class="flex items-center justify-between mb-2">
-                            <span class="text-sm font-semibold text-gray-700">Pods</span>
-                            <span class="text-xs text-gray-600">
-                              <span x-text="node.podCount || 0"></span> /
-                              <span x-text="node.podCapacity || 110"></span>
+                            <span class="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                              <i class="fas fa-cubes text-teal-500"></i> Pods
                             </span>
+                            <span class="text-xs font-bold px-2 py-1 rounded"
+                              :class="((node.podCount || 0) / (node.podCapacity || 110) * 100) > 80 ? 'bg-red-100 text-red-700' : ((node.podCount || 0) / (node.podCapacity || 110) * 100) > 60 ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'"
+                              x-text="(node.podCount || 0) + ' / ' + (node.podCapacity || 110)"></span>
                           </div>
-                          <div class="h-3 bg-gray-200 rounded-full overflow-hidden">
-                            <div class="h-full bg-gradient-to-r from-teal-400 to-teal-600"
-                              :style="`width: ${((node.podCount / node.podCapacity) * 100).toFixed(1)}%`"></div>
+                          <div class="h-4 bg-gray-200 rounded-full overflow-hidden">
+                            <div class="h-full rounded-full transition-all duration-500"
+                              :class="((node.podCount || 0) / (node.podCapacity || 110) * 100) > 80 ? 'bg-gradient-to-r from-red-400 to-red-600' : ((node.podCount || 0) / (node.podCapacity || 110) * 100) > 60 ? 'bg-gradient-to-r from-amber-400 to-amber-600' : 'bg-gradient-to-r from-teal-400 to-teal-600'"
+                              :style="`width: ${(node.podCapacity || 110) > 0 ? Math.min(100, ((node.podCount || 0) / (node.podCapacity || 110) * 100)) : 0}%`">
+                            </div>
+                          </div>
+                          <div class="flex items-center justify-between mt-2 text-xs text-gray-500">
+                            <span>Running: <span class="font-semibold text-teal-600"
+                                x-text="node.podCount || 0"></span></span>
+                            <span>Capacity: <span class="font-semibold text-gray-700"
+                                x-text="node.podCapacity || 110"></span></span>
                           </div>
                         </div>
+                      </div>
 
-                        <!-- Node Info -->
-                        <div class="text-xs text-gray-600 space-y-1">
-                          <div><i class="fas fa-tag text-gray-400 w-4"></i> <span
-                              x-text="node.kubeletVersion || 'N/A'"></span></div>
-                          <div><i class="fas fa-map-marker-alt text-gray-400 w-4"></i> <span
-                              x-text="node.zone || 'N/A'"></span></div>
-                          <div><i class="fas fa-server text-gray-400 w-4"></i> <span
-                              x-text="node.instanceId || 'N/A'"></span></div>
+                      <!-- Node Info -->
+                      <div class="mt-4 pt-4 border-t border-gray-200 flex flex-wrap gap-4 text-xs text-gray-600">
+                        <div class="flex items-center gap-1">
+                          <i class="fas fa-tag text-gray-400"></i>
+                          <span x-text="node.kubeletVersion || 'N/A'"></span>
+                        </div>
+                        <div class="flex items-center gap-1">
+                          <i class="fas fa-map-marker-alt text-gray-400"></i>
+                          <span x-text="node.zone || 'N/A'"></span>
+                        </div>
+                        <div class="flex items-center gap-1">
+                          <i class="fas fa-server text-gray-400"></i>
+                          <span x-text="node.instanceId || 'N/A'"></span>
                         </div>
                       </div>
                     </div>
@@ -3520,317 +3625,362 @@
             <!-- ==================== KARPENTER TAB (NEW) ==================== -->
             <div x-show="activeTab === 'karpenter'" x-cloak class="space-y-8">
 
-              <!-- Controller Status -->
-              <section class="bg-white rounded-2xl shadow-lg p-8 border border-gray-100">
-                <div class="flex items-center justify-between mb-6">
-                  <div class="flex items-center gap-4">
-                    <div class="w-16 h-16 bg-orange-50 rounded-2xl flex items-center justify-center">
-                      <i class="fas fa-rocket text-orange-600 text-3xl"></i>
-                    </div>
-                    <div>
-                      <h3 class="text-3xl font-black tracking-tight text-gray-900">Karpenter Autoscaler</h3>
-                      <p class="text-gray-600 text-sm mt-1">Just-in-time node provisioning for Kubernetes</p>
-                    </div>
-                  </div>
-                  <div class="flex items-center gap-3">
-                    <!-- Controller Health Status -->
-                    <div class="bg-white border border-gray-200 rounded-lg px-3 py-2">
-                      <div class="flex items-center gap-2">
-                        <span class="text-xs text-gray-500 font-medium">Controller:</span>
-                        <span class="px-2 py-1 rounded text-xs font-bold"
-                          :class="getKarpenterControllerHealth() ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'">
-                          <i :class="getKarpenterControllerHealth() ? 'fas fa-check-circle' : 'fas fa-times-circle'"
-                            class="mr-1"></i>
-                          <span x-text="getKarpenterControllerHealth() ? 'Healthy' : 'Down'"></span>
-                        </span>
-                      </div>
-                    </div>
-
-                    <!-- Provisioning Status -->
-                    <div class="bg-white border border-gray-200 rounded-lg px-3 py-2">
-                      <div class="flex items-center gap-2">
-                        <span class="text-xs text-gray-500 font-medium">Provisioning:</span>
-                        <span class="px-2 py-1 rounded text-xs font-bold"
-                          :class="getKarpenterProvisioningStatus().canProvision ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'">
-                          <i :class="getKarpenterProvisioningStatus().canProvision ? 'fas fa-check-circle' : 'fas fa-exclamation-triangle'"
-                            class="mr-1"></i>
-                          <span x-text="getKarpenterProvisioningStatus().canProvision ? 'Ready' : 'Blocked'"></span>
-                        </span>
-                      </div>
-                    </div>
-
-                    <!-- Version Badge -->
-                    <span class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold">
-                      <i class="fas fa-tag mr-2"></i>
-                      v<span x-text="dashboard?.karpenter?.version || 'Unknown'"></span>
-                    </span>
-                  </div>
-                </div>
-
-                <!-- Summary Cards -->
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
-                  <div class="bg-gray-50 rounded-2xl p-6 border border-gray-100">
-                    <div class="flex items-center justify-between mb-3">
-                      <span class="text-gray-600 text-sm font-semibold uppercase tracking-wide">NodePools</span>
-                      <div class="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
-                        <i class="fas fa-layer-group text-orange-600"></i>
-                      </div>
-                    </div>
-                    <p class="text-5xl font-black text-gray-900" x-text="dashboard?.karpenter?.totalNodePools || 0">0
-                    </p>
-                  </div>
-
-                  <div class="bg-gray-50 rounded-2xl p-6 border border-gray-100">
-                    <div class="flex items-center justify-between mb-3">
-                      <span class="text-gray-600 text-sm font-semibold uppercase tracking-wide">EC2NodeClasses</span>
-                      <div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                        <i class="fab fa-aws text-blue-600"></i>
-                      </div>
-                    </div>
-                    <p class="text-5xl font-black text-gray-900"
-                      x-text="dashboard?.karpenter?.totalEC2NodeClasses || 0">0
-                    </p>
-                  </div>
-
-                  <div class="bg-gray-50 rounded-2xl p-6 border border-gray-100">
-                    <div class="flex items-center justify-between mb-3">
-                      <span class="text-gray-600 text-sm font-semibold uppercase tracking-wide">Node Claims</span>
-                      <div class="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-                        <i class="fas fa-server text-green-600"></i>
-                      </div>
-                    </div>
-                    <p class="text-5xl font-black text-gray-900" x-text="dashboard?.karpenter?.totalNodeClaims || 0">0
-                    </p>
-                  </div>
-
-                  <div class="bg-gray-50 rounded-2xl p-6 border border-gray-100">
-                    <div class="flex items-center justify-between mb-3">
-                      <span class="text-gray-600 text-sm font-semibold uppercase tracking-wide">Karpenter Nodes</span>
-                      <div class="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
-                        <i class="fas fa-network-wired text-purple-600"></i>
-                      </div>
-                    </div>
-                    <p class="text-5xl font-black text-gray-900"
-                      x-text="dashboard?.karpenter?.nodesProvisionedByKarpenter || 0">0</p>
-                  </div>
-                </div>
-
-                <!-- Warnings/Errors -->
-                <template x-if="dashboard?.karpenter?.conditions?.length > 0">
-                  <div class="space-y-3 mb-6">
-                    <template x-for="condition in dashboard?.karpenter?.conditions" :key="condition.type">
-                      <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
-                        <i class="fas fa-exclamation-triangle text-amber-600 mt-0.5"></i>
-                        <div>
-                          <p class="font-bold text-amber-800" x-text="condition.reason || condition.type"></p>
-                          <p class="text-amber-700 text-sm" x-text="condition.message"></p>
-                        </div>
-                      </div>
-                    </template>
-                  </div>
-                </template>
-
-                <!-- Provisioning Blocked Warning -->
-                <template x-if="getKarpenterControllerHealth() && !getKarpenterProvisioningStatus().canProvision">
-                  <div class="bg-amber-50 border-l-4 border-amber-500 rounded-lg p-5 mb-6">
-                    <div class="flex items-start gap-4">
-                      <div class="flex-shrink-0">
-                        <i class="fas fa-exclamation-circle text-amber-600 text-2xl"></i>
-                      </div>
-                      <div class="flex-1">
-                        <h4 class="text-lg font-bold text-amber-900 mb-2">
-                          <i class="fas fa-ban mr-2"></i>Provisioning Blocked
-                        </h4>
-                        <p class="text-amber-800 mb-2">
-                          The Karpenter controller is running, but it cannot provision new nodes due to EC2NodeClass
-                          issues.
-                        </p>
-                        <div class="bg-white rounded-md p-3 border border-amber-200">
-                          <p class="text-sm font-mono text-amber-900" x-text="getKarpenterProvisioningStatus().reason">
-                          </p>
-                        </div>
-                        <p class="text-sm text-amber-700 mt-3">
-                          <i class="fas fa-lightbulb mr-1"></i>
-                          <strong>Impact:</strong> Autoscaling is effectively disabled. Karpenter cannot launch new EC2
-                          instances.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </template>
-              </section>
-
-              <!-- NodePools Table -->
-              <section class="bg-white rounded-2xl shadow-lg p-8 border border-gray-100">
-                <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
-                  <i class="fas fa-layer-group text-orange-500"></i>
-                  NodePools
-                </h3>
-
-                <template x-if="dashboard?.karpenter?.nodePools?.length > 0">
-                  <div class="overflow-x-auto">
-                    <table class="data-table">
-                      <thead>
-                        <tr>
-                          <th>Name</th>
-                          <th>CPU Limit</th>
-                          <th>Memory Limit</th>
-                          <th>Instance Types</th>
-                          <th>Capacity Type</th>
-                          <th>Consolidation</th>
-                          <th>Expire After</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <template x-for="pool in dashboard?.karpenter?.nodePools" :key="pool.name">
-                          <tr>
-                            <td class="font-bold text-gray-900" x-text="pool.name"></td>
-                            <td><span class="px-2 py-1 bg-blue-100 text-blue-700 rounded font-semibold text-sm"
-                                x-text="pool.cpuLimit || 'N/A'"></span></td>
-                            <td><span class="px-2 py-1 bg-purple-100 text-purple-700 rounded font-semibold text-sm"
-                                x-text="pool.memoryLimit || 'N/A'"></span></td>
-                            <td x-text="(pool.instanceTypes || []).join(', ') || 'Any'"></td>
-                            <td>
-                              <span class="px-2 py-1 rounded font-semibold text-sm"
-                                :class="(pool.capacityTypes || []).includes('spot') ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'"
-                                x-text="(pool.capacityTypes || []).join(', ') || 'N/A'"></span>
-                            </td>
-                            <td x-text="pool.consolidationPolicy || 'N/A'"></td>
-                            <td x-text="pool.expireAfter || 'N/A'"></td>
-                          </tr>
-                        </template>
-                      </tbody>
-                    </table>
-                  </div>
-                </template>
-
-                <template x-if="!dashboard?.karpenter?.nodePools?.length">
-                  <div class="text-center py-12 text-gray-500">
-                    <i class="fas fa-inbox text-4xl mb-4"></i>
-                    <p class="font-semibold">No NodePools configured</p>
-                  </div>
-                </template>
-              </section>
-
-              <!-- EC2NodeClasses Table -->
-              <section class="bg-white rounded-2xl shadow-lg p-8 border border-gray-100">
-                <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
-                  <i class="fab fa-aws text-blue-500"></i>
-                  EC2NodeClasses
-                </h3>
-
-                <template x-if="dashboard?.karpenter?.ec2NodeClasses?.length > 0">
-                  <div class="space-y-6">
-                    <template x-for="nc in dashboard?.karpenter?.ec2NodeClasses" :key="nc.name">
-                      <div class="bg-gray-50 rounded-xl p-6 border border-gray-200">
-                        <div class="flex items-center justify-between mb-4">
-                          <h4 class="text-xl font-bold text-gray-900" x-text="nc.name"></h4>
-                          <span class="px-3 py-1 rounded-lg font-semibold text-sm"
-                            :class="nc.ready ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'">
-                            <i :class="nc.ready ? 'fas fa-check-circle' : 'fas fa-times-circle'" class="mr-1"></i>
-                            <span x-text="nc.ready ? 'Ready' : 'Not Ready'"></span>
-                          </span>
-                        </div>
-
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                          <div>
-                            <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">AMI Family</p>
-                            <p class="font-semibold text-gray-900" x-text="nc.amiFamily || 'N/A'"></p>
-                          </div>
-                          <div>
-                            <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">IAM Role</p>
-                            <p class="font-semibold text-gray-900 truncate" x-text="nc.role || 'N/A'"></p>
-                          </div>
-                          <div>
-                            <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Instance Profile</p>
-                            <p class="font-semibold text-gray-900 truncate" x-text="nc.instanceProfile || 'N/A'"></p>
-                          </div>
-                        </div>
-
-                        <!-- Subnets -->
-                        <div class="mb-4" x-show="nc.subnets?.length > 0">
-                          <p class="text-xs text-gray-500 uppercase tracking-wide mb-2">Subnets</p>
-                          <div class="flex flex-wrap gap-2">
-                            <template x-for="subnet in nc.subnets" :key="subnet.id">
-                              <span class="px-3 py-1 bg-blue-50 text-blue-700 rounded-lg text-xs font-semibold">
-                                <span x-text="subnet.id"></span> (<span x-text="subnet.zone"></span>)
-                              </span>
-                            </template>
-                          </div>
-                        </div>
-
-                        <!-- Security Groups -->
-                        <div x-show="nc.securityGroups?.length > 0">
-                          <p class="text-xs text-gray-500 uppercase tracking-wide mb-2">Security Groups</p>
-                          <div class="flex flex-wrap gap-2">
-                            <template x-for="sg in nc.securityGroups" :key="sg.id">
-                              <span class="px-3 py-1 bg-green-50 text-green-700 rounded-lg text-xs font-semibold"
-                                x-text="sg.id"></span>
-                            </template>
-                          </div>
-                        </div>
-
-                        <!-- Error Message -->
-                        <div x-show="!nc.ready && nc.readyMessage"
-                          class="mt-4 bg-red-50 border border-red-200 rounded-lg p-3">
-                          <p class="text-red-700 text-sm"><i class="fas fa-exclamation-triangle mr-2"></i><span
-                              x-text="nc.readyMessage"></span></p>
-                        </div>
-                      </div>
-                    </template>
-                  </div>
-                </template>
-
-                <template x-if="!dashboard?.karpenter?.ec2NodeClasses?.length">
-                  <div class="text-center py-12 text-gray-500">
-                    <i class="fas fa-inbox text-4xl mb-4"></i>
-                    <p class="font-semibold">No EC2NodeClasses configured</p>
-                  </div>
-                </template>
-              </section>
-
-              <!-- NodeClaims Table (if any exist) -->
-              <template x-if="dashboard?.karpenter?.nodeClaims?.length > 0">
+              <!-- Karpenter Not Installed Message -->
+              <template x-if="!dashboard?.karpenter?.installed">
                 <section class="bg-white rounded-2xl shadow-lg p-8 border border-gray-100">
-                  <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
-                    <i class="fas fa-server text-green-500"></i>
-                    Active Node Claims
-                  </h3>
-
-                  <div class="overflow-x-auto">
-                    <table class="data-table">
-                      <thead>
-                        <tr>
-                          <th>Name</th>
-                          <th>NodePool</th>
-                          <th>Instance Type</th>
-                          <th>Zone</th>
-                          <th>Capacity Type</th>
-                          <th>Phase</th>
-                          <th>Node</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <template x-for="claim in dashboard?.karpenter?.nodeClaims" :key="claim.name">
-                          <tr>
-                            <td class="font-bold text-gray-900" x-text="claim.name"></td>
-                            <td x-text="claim.nodePoolName || 'N/A'"></td>
-                            <td x-text="claim.instanceType || 'N/A'"></td>
-                            <td x-text="claim.zone || 'N/A'"></td>
-                            <td>
-                              <span class="px-2 py-1 rounded font-semibold text-sm"
-                                :class="claim.capacityType === 'spot' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'"
-                                x-text="claim.capacityType || 'N/A'"></span>
-                            </td>
-                            <td x-text="claim.phase || 'N/A'"></td>
-                            <td x-text="claim.nodeName || 'Pending'"></td>
-                          </tr>
-                        </template>
-                      </tbody>
-                    </table>
+                  <div class="text-center py-12">
+                    <div class="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                      <i class="fas fa-rocket text-gray-400 text-4xl"></i>
+                    </div>
+                    <h3 class="text-2xl font-bold text-gray-900 mb-3">Karpenter Not Installed</h3>
+                    <p class="text-gray-600 max-w-lg mx-auto mb-6">
+                      Karpenter is not installed on this cluster. Karpenter is a Kubernetes node autoscaler that
+                      provisions just-in-time compute resources that precisely fit the needs of your workloads.
+                    </p>
+                    <div class="bg-blue-50 border border-blue-200 rounded-xl p-6 max-w-2xl mx-auto">
+                      <h4 class="font-semibold text-blue-900 mb-3">
+                        <i class="fas fa-info-circle mr-2"></i>How to Install Karpenter
+                      </h4>
+                      <div class="text-left text-sm text-blue-800 space-y-2">
+                        <p>1. Install Karpenter using Helm:</p>
+                        <code class="block bg-blue-100 p-2 rounded text-xs font-mono">
+                          helm install karpenter oci://public.ecr.aws/karpenter/karpenter --version 0.37.0 -n karpenter --create-namespace
+                        </code>
+                        <p class="mt-3">2. Create a NodePool and EC2NodeClass to define your scaling configuration.</p>
+                        <a href="https://karpenter.sh/docs/getting-started/" target="_blank"
+                          class="inline-flex items-center gap-2 text-blue-600 hover:text-blue-800 font-semibold mt-3">
+                          <i class="fas fa-external-link-alt"></i>
+                          View Karpenter Documentation
+                        </a>
+                      </div>
+                    </div>
                   </div>
                 </section>
               </template>
+
+              <!-- Karpenter Installed Content -->
+              <template x-if="dashboard?.karpenter?.installed">
+                <div class="space-y-8">
+                  <!-- Controller Status -->
+                  <section class="bg-white rounded-2xl shadow-lg p-8 border border-gray-100">
+                    <div class="flex items-center justify-between mb-6">
+                      <div class="flex items-center gap-4">
+                        <div class="w-16 h-16 bg-orange-50 rounded-2xl flex items-center justify-center">
+                          <i class="fas fa-rocket text-orange-600 text-3xl"></i>
+                        </div>
+                        <div>
+                          <h3 class="text-3xl font-black tracking-tight text-gray-900">Karpenter Autoscaler</h3>
+                          <p class="text-gray-600 text-sm mt-1">Just-in-time node provisioning for Kubernetes</p>
+                        </div>
+                      </div>
+                      <div class="flex items-center gap-3">
+                        <!-- Controller Health Status -->
+                        <div class="bg-white border border-gray-200 rounded-lg px-3 py-2">
+                          <div class="flex items-center gap-2">
+                            <span class="text-xs text-gray-500 font-medium">Controller:</span>
+                            <span class="px-2 py-1 rounded text-xs font-bold"
+                              :class="getKarpenterControllerHealth() ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'">
+                              <i :class="getKarpenterControllerHealth() ? 'fas fa-check-circle' : 'fas fa-times-circle'"
+                                class="mr-1"></i>
+                              <span x-text="getKarpenterControllerHealth() ? 'Healthy' : 'Down'"></span>
+                            </span>
+                          </div>
+                        </div>
+
+                        <!-- Provisioning Status -->
+                        <div class="bg-white border border-gray-200 rounded-lg px-3 py-2">
+                          <div class="flex items-center gap-2">
+                            <span class="text-xs text-gray-500 font-medium">Provisioning:</span>
+                            <span class="px-2 py-1 rounded text-xs font-bold"
+                              :class="getKarpenterProvisioningStatus().canProvision ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'">
+                              <i :class="getKarpenterProvisioningStatus().canProvision ? 'fas fa-check-circle' : 'fas fa-exclamation-triangle'"
+                                class="mr-1"></i>
+                              <span x-text="getKarpenterProvisioningStatus().canProvision ? 'Ready' : 'Blocked'"></span>
+                            </span>
+                          </div>
+                        </div>
+
+                        <!-- Version Badge -->
+                        <span class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold">
+                          <i class="fas fa-tag mr-2"></i>
+                          v<span x-text="dashboard?.karpenter?.version || 'Unknown'"></span>
+                        </span>
+                      </div>
+                    </div>
+
+                    <!-- Summary Cards -->
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+                      <div class="bg-gray-50 rounded-2xl p-6 border border-gray-100">
+                        <div class="flex items-center justify-between mb-3">
+                          <span class="text-gray-600 text-sm font-semibold uppercase tracking-wide">NodePools</span>
+                          <div class="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
+                            <i class="fas fa-layer-group text-orange-600"></i>
+                          </div>
+                        </div>
+                        <p class="text-5xl font-black text-gray-900" x-text="dashboard?.karpenter?.totalNodePools || 0">
+                          0
+                        </p>
+                      </div>
+
+                      <div class="bg-gray-50 rounded-2xl p-6 border border-gray-100">
+                        <div class="flex items-center justify-between mb-3">
+                          <span
+                            class="text-gray-600 text-sm font-semibold uppercase tracking-wide">EC2NodeClasses</span>
+                          <div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                            <i class="fab fa-aws text-blue-600"></i>
+                          </div>
+                        </div>
+                        <p class="text-5xl font-black text-gray-900"
+                          x-text="dashboard?.karpenter?.totalEC2NodeClasses || 0">0
+                        </p>
+                      </div>
+
+                      <div class="bg-gray-50 rounded-2xl p-6 border border-gray-100">
+                        <div class="flex items-center justify-between mb-3">
+                          <span class="text-gray-600 text-sm font-semibold uppercase tracking-wide">Node Claims</span>
+                          <div class="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+                            <i class="fas fa-server text-green-600"></i>
+                          </div>
+                        </div>
+                        <p class="text-5xl font-black text-gray-900"
+                          x-text="dashboard?.karpenter?.totalNodeClaims || 0">0
+                        </p>
+                      </div>
+
+                      <div class="bg-gray-50 rounded-2xl p-6 border border-gray-100">
+                        <div class="flex items-center justify-between mb-3">
+                          <span class="text-gray-600 text-sm font-semibold uppercase tracking-wide">Karpenter
+                            Nodes</span>
+                          <div class="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
+                            <i class="fas fa-network-wired text-purple-600"></i>
+                          </div>
+                        </div>
+                        <p class="text-5xl font-black text-gray-900"
+                          x-text="dashboard?.karpenter?.nodesProvisionedByKarpenter || 0">0</p>
+                      </div>
+                    </div>
+
+                    <!-- Warnings/Errors -->
+                    <template x-if="dashboard?.karpenter?.conditions?.length > 0">
+                      <div class="space-y-3 mb-6">
+                        <template x-for="condition in dashboard?.karpenter?.conditions" :key="condition.type">
+                          <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+                            <i class="fas fa-exclamation-triangle text-amber-600 mt-0.5"></i>
+                            <div>
+                              <p class="font-bold text-amber-800" x-text="condition.reason || condition.type"></p>
+                              <p class="text-amber-700 text-sm" x-text="condition.message"></p>
+                            </div>
+                          </div>
+                        </template>
+                      </div>
+                    </template>
+
+                    <!-- Provisioning Blocked Warning -->
+                    <template x-if="getKarpenterControllerHealth() && !getKarpenterProvisioningStatus().canProvision">
+                      <div class="bg-amber-50 border-l-4 border-amber-500 rounded-lg p-5 mb-6">
+                        <div class="flex items-start gap-4">
+                          <div class="flex-shrink-0">
+                            <i class="fas fa-exclamation-circle text-amber-600 text-2xl"></i>
+                          </div>
+                          <div class="flex-1">
+                            <h4 class="text-lg font-bold text-amber-900 mb-2">
+                              <i class="fas fa-ban mr-2"></i>Provisioning Blocked
+                            </h4>
+                            <p class="text-amber-800 mb-2">
+                              The Karpenter controller is running, but it cannot provision new nodes due to EC2NodeClass
+                              issues.
+                            </p>
+                            <div class="bg-white rounded-md p-3 border border-amber-200">
+                              <p class="text-sm font-mono text-amber-900"
+                                x-text="getKarpenterProvisioningStatus().reason">
+                              </p>
+                            </div>
+                            <p class="text-sm text-amber-700 mt-3">
+                              <i class="fas fa-lightbulb mr-1"></i>
+                              <strong>Impact:</strong> Autoscaling is effectively disabled. Karpenter cannot launch new
+                              EC2
+                              instances.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </template>
+                  </section>
+
+                  <!-- NodePools Table -->
+                  <section class="bg-white rounded-2xl shadow-lg p-8 border border-gray-100">
+                    <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
+                      <i class="fas fa-layer-group text-orange-500"></i>
+                      NodePools
+                    </h3>
+
+                    <template x-if="dashboard?.karpenter?.nodePools?.length > 0">
+                      <div class="overflow-x-auto">
+                        <table class="data-table">
+                          <thead>
+                            <tr>
+                              <th>Name</th>
+                              <th>CPU Limit</th>
+                              <th>Memory Limit</th>
+                              <th>Instance Types</th>
+                              <th>Capacity Type</th>
+                              <th>Consolidation</th>
+                              <th>Expire After</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <template x-for="pool in dashboard?.karpenter?.nodePools" :key="pool.name">
+                              <tr>
+                                <td class="font-bold text-gray-900" x-text="pool.name"></td>
+                                <td><span class="px-2 py-1 bg-blue-100 text-blue-700 rounded font-semibold text-sm"
+                                    x-text="pool.cpuLimit || 'N/A'"></span></td>
+                                <td><span class="px-2 py-1 bg-purple-100 text-purple-700 rounded font-semibold text-sm"
+                                    x-text="pool.memoryLimit || 'N/A'"></span></td>
+                                <td x-text="(pool.instanceTypes || []).join(', ') || 'Any'"></td>
+                                <td>
+                                  <span class="px-2 py-1 rounded font-semibold text-sm"
+                                    :class="(pool.capacityTypes || []).includes('spot') ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'"
+                                    x-text="(pool.capacityTypes || []).join(', ') || 'N/A'"></span>
+                                </td>
+                                <td x-text="pool.consolidationPolicy || 'N/A'"></td>
+                                <td x-text="pool.expireAfter || 'N/A'"></td>
+                              </tr>
+                            </template>
+                          </tbody>
+                        </table>
+                      </div>
+                    </template>
+
+                    <template x-if="!dashboard?.karpenter?.nodePools?.length">
+                      <div class="text-center py-12 text-gray-500">
+                        <i class="fas fa-inbox text-4xl mb-4"></i>
+                        <p class="font-semibold">No NodePools configured</p>
+                      </div>
+                    </template>
+                  </section>
+
+                  <!-- EC2NodeClasses Table -->
+                  <section class="bg-white rounded-2xl shadow-lg p-8 border border-gray-100">
+                    <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
+                      <i class="fab fa-aws text-blue-500"></i>
+                      EC2NodeClasses
+                    </h3>
+
+                    <template x-if="dashboard?.karpenter?.ec2NodeClasses?.length > 0">
+                      <div class="space-y-6">
+                        <template x-for="nc in dashboard?.karpenter?.ec2NodeClasses" :key="nc.name">
+                          <div class="bg-gray-50 rounded-xl p-6 border border-gray-200">
+                            <div class="flex items-center justify-between mb-4">
+                              <h4 class="text-xl font-bold text-gray-900" x-text="nc.name"></h4>
+                              <span class="px-3 py-1 rounded-lg font-semibold text-sm"
+                                :class="nc.ready ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'">
+                                <i :class="nc.ready ? 'fas fa-check-circle' : 'fas fa-times-circle'" class="mr-1"></i>
+                                <span x-text="nc.ready ? 'Ready' : 'Not Ready'"></span>
+                              </span>
+                            </div>
+
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                              <div>
+                                <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">AMI Family</p>
+                                <p class="font-semibold text-gray-900" x-text="nc.amiFamily || 'N/A'"></p>
+                              </div>
+                              <div>
+                                <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">IAM Role</p>
+                                <p class="font-semibold text-gray-900 truncate" x-text="nc.role || 'N/A'"></p>
+                              </div>
+                              <div>
+                                <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Instance Profile</p>
+                                <p class="font-semibold text-gray-900 truncate" x-text="nc.instanceProfile || 'N/A'">
+                                </p>
+                              </div>
+                            </div>
+
+                            <!-- Subnets -->
+                            <div class="mb-4" x-show="nc.subnets?.length > 0">
+                              <p class="text-xs text-gray-500 uppercase tracking-wide mb-2">Subnets</p>
+                              <div class="flex flex-wrap gap-2">
+                                <template x-for="subnet in nc.subnets" :key="subnet.id">
+                                  <span class="px-3 py-1 bg-blue-50 text-blue-700 rounded-lg text-xs font-semibold">
+                                    <span x-text="subnet.id"></span> (<span x-text="subnet.zone"></span>)
+                                  </span>
+                                </template>
+                              </div>
+                            </div>
+
+                            <!-- Security Groups -->
+                            <div x-show="nc.securityGroups?.length > 0">
+                              <p class="text-xs text-gray-500 uppercase tracking-wide mb-2">Security Groups</p>
+                              <div class="flex flex-wrap gap-2">
+                                <template x-for="sg in nc.securityGroups" :key="sg.id">
+                                  <span class="px-3 py-1 bg-green-50 text-green-700 rounded-lg text-xs font-semibold"
+                                    x-text="sg.id"></span>
+                                </template>
+                              </div>
+                            </div>
+
+                            <!-- Error Message -->
+                            <div x-show="!nc.ready && nc.readyMessage"
+                              class="mt-4 bg-red-50 border border-red-200 rounded-lg p-3">
+                              <p class="text-red-700 text-sm"><i class="fas fa-exclamation-triangle mr-2"></i><span
+                                  x-text="nc.readyMessage"></span></p>
+                            </div>
+                          </div>
+                        </template>
+                      </div>
+                    </template>
+
+                    <template x-if="!dashboard?.karpenter?.ec2NodeClasses?.length">
+                      <div class="text-center py-12 text-gray-500">
+                        <i class="fas fa-inbox text-4xl mb-4"></i>
+                        <p class="font-semibold">No EC2NodeClasses configured</p>
+                      </div>
+                    </template>
+                  </section>
+
+                  <!-- NodeClaims Table (if any exist) -->
+                  <template x-if="dashboard?.karpenter?.nodeClaims?.length > 0">
+                    <section class="bg-white rounded-2xl shadow-lg p-8 border border-gray-100">
+                      <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
+                        <i class="fas fa-server text-green-500"></i>
+                        Active Node Claims
+                      </h3>
+
+                      <div class="overflow-x-auto">
+                        <table class="data-table">
+                          <thead>
+                            <tr>
+                              <th>Name</th>
+                              <th>NodePool</th>
+                              <th>Instance Type</th>
+                              <th>Zone</th>
+                              <th>Capacity Type</th>
+                              <th>Phase</th>
+                              <th>Node</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <template x-for="claim in dashboard?.karpenter?.nodeClaims" :key="claim.name">
+                              <tr>
+                                <td class="font-bold text-gray-900" x-text="claim.name"></td>
+                                <td x-text="claim.nodePoolName || 'N/A'"></td>
+                                <td x-text="claim.instanceType || 'N/A'"></td>
+                                <td x-text="claim.zone || 'N/A'"></td>
+                                <td>
+                                  <span class="px-2 py-1 rounded font-semibold text-sm"
+                                    :class="claim.capacityType === 'spot' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'"
+                                    x-text="claim.capacityType || 'N/A'"></span>
+                                </td>
+                                <td x-text="claim.phase || 'N/A'"></td>
+                                <td x-text="claim.nodeName || 'Pending'"></td>
+                              </tr>
+                            </template>
+                          </tbody>
+                        </table>
+                      </div>
+                    </section>
+                  </template>
+                </div>
+              </template> <!-- End of Karpenter Installed Content -->
 
             </div>
 
@@ -4036,7 +4186,7 @@ kubectl create token xamops-reader --duration=87600h</pre>
 
                   <!-- View Full Guide Link -->
                   <div class="text-center pt-4">
-                    <a href="integration-guide.html" target="_blank"
+                    <a href="/integration-guide.html" target="_blank"
                       class="inline-flex items-center gap-2 text-indigo-600 hover:text-indigo-700 font-semibold text-sm">
                       <i class="fas fa-external-link-alt"></i>
                       View Full Detailed Guide
@@ -4078,19 +4228,65 @@ kubectl create token xamops-reader --duration=87600h</pre>
         lastUpdateTimestamp: Date.now(),
         showIntegrationGuide: false,
         containerSearchQuery: '',
-        containerNamespaceFilter: '',
+        containerNamespaceFilter: 'falco',
+        openInfoPopover: null, // Tracks which popover is currently open
+
+        // Cache configuration
+        CACHE_TTL_MS: 2 * 60 * 1000, // 2 minutes cache TTL
+
+        getCacheKey() {
+          return `eks_dashboard_${this.selectedAccountId}_${this.clusterName}`;
+        },
+
+        getCachedDashboard() {
+          try {
+            const cached = sessionStorage.getItem(this.getCacheKey());
+            if (cached) {
+              const { data, timestamp } = JSON.parse(cached);
+              const age = Date.now() - timestamp;
+              if (age < this.CACHE_TTL_MS) {
+                console.log(`📦 Using cached dashboard (age: ${Math.round(age / 1000)}s)`);
+                return data;
+              }
+              console.log(`⏰ Cache expired (age: ${Math.round(age / 1000)}s)`);
+            }
+          } catch (e) {
+            console.warn('Cache read error:', e);
+          }
+          return null;
+        },
+
+        setCachedDashboard(data) {
+          try {
+            sessionStorage.setItem(this.getCacheKey(), JSON.stringify({
+              data,
+              timestamp: Date.now()
+            }));
+            console.log('💾 Dashboard cached in sessionStorage');
+          } catch (e) {
+            console.warn('Cache write error:', e);
+          }
+        },
 
         init() {
           console.log('[EKS Details] Initializing...');
 
+          // Add watch for tab changes to re-init charts
+          this.$watch('activeTab', value => {
+            console.log(`📑 Tab switched to: ${value}`);
+            this.$nextTick(() => {
+              // Add a slight delay to ensure tab content is fully rendered and sized
+              setTimeout(() => {
+                this.initializeCharts();
+              }, 100);
+            });
+          });
+
           // --- Handle BFCache Restoration (Back Button Fix) ---
           window.addEventListener('pageshow', (event) => {
             if (event.persisted) {
-              console.log('[EKS Details] Page restored from cache. Reloading data...');
-              this.loading = true;
-              setTimeout(() => {
-                this.fetchDashboard(false, false); // Use cached data on back navigation
-              }, 100);
+              console.log('[EKS Details] Page restored from BFCache.');
+              // Don't reload - use existing state
             }
           });
 
@@ -4119,20 +4315,33 @@ kubectl create token xamops-reader --duration=87600h</pre>
             return;
           }
 
-          console.log('[EKS Details] All params validated. Fetching dashboard...');
+          console.log('[EKS Details] All params validated.');
 
-          // Initial load with cached data
-          this.fetchDashboard(false, false);
+          // Try to load from cache first
+          const cachedData = this.getCachedDashboard();
+          if (cachedData) {
+            console.log('✅ Loading from cache - no API call needed');
+            this.dashboard = cachedData;
+            this.lastUpdateTimestamp = Date.now();
+            this.loading = false;
+            this.$nextTick(() => {
+              try {
+                this.initializeCharts();
+              } catch (e) {
+                console.error("Error initializing charts:", e);
+              }
+            });
+          } else {
+            // No cache - fetch from API
+            console.log('📡 No cache found - fetching from API...');
+            this.fetchDashboard(false, false);
+          }
 
           // Store initial snapshot
           this.storeMetricSnapshot();
 
-          // Auto-refresh every 30 seconds (use cached data)
-          setInterval(() => {
-            if (!this.loading) {
-              this.fetchDashboard(true, false); // silent = true, forceRefresh = false
-            }
-          }, 30000);
+          // NO auto-refresh - only refresh when user clicks "Sync Data"
+          // Remove the setInterval that was causing auto-sync
         },
 
         async fetchDashboard(silent = false, forceRefresh = false) {
@@ -4140,6 +4349,7 @@ kubectl create token xamops-reader --duration=87600h</pre>
           this.error = null;
 
           try {
+            console.log(`📡 Fetching dashboard (forceRefresh=${forceRefresh})...`);
             const response = await fetch(
               `/api/xamops/eks/${this.clusterName}/dashboard?accountId=${this.selectedAccountId}&region=${this.region}&version=${this.clusterVersion}&forceRefresh=${forceRefresh}`
             );
@@ -4150,10 +4360,18 @@ kubectl create token xamops-reader --duration=87600h</pre>
 
             this.dashboard = await response.json();
             this.lastUpdateTimestamp = Date.now();
+
+            // Cache the dashboard data
+            this.setCachedDashboard(this.dashboard);
+
             console.log('📊 Dashboard loaded:', this.dashboard);
             console.log('🛡️ Kubescape data:', this.dashboard.kubescape);
+            console.log('🚀 Karpenter data:', this.dashboard.karpenter);
             if (!this.dashboard.kubescape) {
               console.warn('⚠️ Kubescape is NULL in dashboard response!');
+            }
+            if (!this.dashboard.karpenter) {
+              console.warn('⚠️ Karpenter is NULL in dashboard response!');
             }
             // Store metric snapshot for trends
             this.storeMetricSnapshot();
@@ -4175,6 +4393,7 @@ kubectl create token xamops-reader --duration=87600h</pre>
         },
 
         refresh() {
+          console.log('🔄 Manual refresh triggered - forcing fresh data');
           this.fetchDashboard(false, true); // silent = false, forceRefresh = true
         },
 
@@ -4677,14 +4896,23 @@ kubectl create token xamops-reader --duration=87600h</pre>
           if (this.kubescapeSeverityChart) this.kubescapeSeverityChart.destroy();
           if (this.trivyVulnChart) this.trivyVulnChart.destroy();
 
-          // Initialize Falco Priority Distribution Chart
-          this.initFalcoChart();
+          // Security Charts (initialized only on Security tab)
+          if (this.activeTab === 'security') {
+            this.$nextTick(() => {
+              this.initFalcoChart();
+              this.initKubescapeChart();
+              this.initTrivyChart();
+            });
+          }
 
-          // Initialize Kubescape Severity Chart
-          this.initKubescapeChart();
-
-          // Initialize Trivy Vulnerability Chart
-          this.initTrivyChart();
+          // Initialize Pod/Container/Node related charts (Add these to ensure they render on load)
+          this.$nextTick(() => {
+            if (this.activeTab === 'pods') {
+              this.initPodStatusChart();
+              this.initPodCpuChart();
+              this.initPodMemoryChart();
+            }
+          });
         },
 
         initFalcoChart() {
@@ -4701,51 +4929,59 @@ kubectl create token xamops-reader --duration=87600h</pre>
           const warning = eventsByPriority['WARNING'] || eventsByPriority['3'] || 0;
           const info = eventsByPriority['INFO'] || eventsByPriority['2'] || eventsByPriority['1'] || 0;
 
-          this.falcoPriorityChart = new Chart(canvas, {
-            type: 'doughnut',
-            data: {
-              labels: ['Critical', 'Warning', 'Info'],
-              datasets: [{
-                data: [critical, warning, info],
-                backgroundColor: [
-                  '#dc2626', // Red for Critical
-                  '#f59e0b', // Amber for Warning
-                  '#3b82f6'  // Blue for Info
-                ],
-                borderWidth: 0
-              }]
-            },
-            options: {
-              responsive: true,
-              maintainAspectRatio: true,
-              plugins: {
-                legend: {
-                  position: 'bottom',
-                  labels: {
-                    font: { size: 12, family: 'Inter, sans-serif' },
-                    padding: 15,
-                    usePointStyle: true
-                  }
-                },
-                tooltip: {
-                  callbacks: {
-                    label: function (context) {
-                      const label = context.label || '';
-                      const value = context.parsed || 0;
-                      const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                      const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
-                      return `${label}: ${value} events (${percentage}%)`;
+          if (this.falcoPriorityChart) this.falcoPriorityChart.destroy();
+
+          try {
+            this.falcoPriorityChart = new Chart(canvas, {
+              type: 'doughnut',
+              data: {
+                labels: ['Critical', 'Warning', 'Info'],
+                datasets: [{
+                  data: [critical, warning, info],
+                  backgroundColor: [
+                    '#dc2626', // Red for Critical
+                    '#f59e0b', // Amber for Warning
+                    '#3b82f6'  // Blue for Info
+                  ],
+                  borderWidth: 0
+                }]
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                  legend: {
+                    position: 'bottom',
+                    labels: {
+                      font: { size: 11, family: 'Inter, sans-serif' },
+                      padding: 12,
+                      usePointStyle: true
+                    }
+                  },
+                  tooltip: {
+                    callbacks: {
+                      label: function (context) {
+                        const label = context.label || '';
+                        const value = context.parsed || 0;
+                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                        const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                        return `${label}: ${value} events (${percentage}%)`;
+                      }
                     }
                   }
                 }
               }
-            }
-          });
+            });
+          } catch (e) {
+            console.error('❌ Error initializing Falco chart:', e);
+          }
 
           console.log('✅ Falco chart initialized with data:', { critical, warning, info });
         },
 
         initKubescapeChart() {
+          console.log('🎨 Initializing Kubescape chart...');
+
           const canvas = this.$refs.kubescapeSeverityChart;
           if (!canvas) {
             console.warn('⚠️ Kubescape chart canvas not found');
@@ -4753,54 +4989,85 @@ kubectl create token xamops-reader --duration=87600h</pre>
           }
 
           const kubescape = this.dashboard?.kubescape || {};
+          console.log('📊 Kubescape data:', kubescape);
+
           const critical = kubescape.totalCritical || 0;
           const high = kubescape.totalHigh || 0;
           const medium = kubescape.totalMedium || 0;
           const low = kubescape.totalLow || 0;
 
-          this.kubescapeSeverityChart = new Chart(canvas, {
-            type: 'doughnut',
-            data: {
-              labels: ['Critical', 'High', 'Medium', 'Low'],
-              datasets: [{
-                data: [critical, high, medium, low],
-                backgroundColor: [
-                  '#dc2626', // Red
-                  '#f97316', // Orange
-                  '#f59e0b', // Amber
-                  '#3b82f6'  // Blue
-                ],
-                borderWidth: 0
-              }]
-            },
-            options: {
-              responsive: true,
-              maintainAspectRatio: true,
-              plugins: {
-                legend: {
-                  position: 'bottom',
-                  labels: {
-                    font: { size: 12, family: 'Inter, sans-serif' },
-                    padding: 15,
-                    usePointStyle: true
-                  }
-                },
-                tooltip: {
-                  callbacks: {
-                    label: function (context) {
-                      const label = context.label || '';
-                      const value = context.parsed || 0;
-                      const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                      const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
-                      return `${label}: ${value} vulnerabilities (${percentage}%)`;
+          const total = critical + high + medium + low;
+          console.log(`📈 Vulnerability counts - Critical: ${critical}, High: ${high}, Medium: ${medium}, Low: ${low}, Total: ${total}`);
+
+          // Destroy existing chart
+          if (this.kubescapeSeverityChart) {
+            console.log('🗑️ Destroying existing Kubescape chart');
+            this.kubescapeSeverityChart.destroy();
+          }
+
+          // Don't create chart if no data
+          if (total === 0) {
+            console.log('ℹ️ No vulnerability data - skipping chart creation');
+            return;
+          }
+
+          try {
+            console.log('✨ Creating Kubescape doughnut chart...');
+            this.kubescapeSeverityChart = new Chart(canvas, {
+              type: 'doughnut',
+              data: {
+                labels: ['Critical', 'High', 'Medium', 'Low'],
+                datasets: [{
+                  data: [critical, high, medium, low],
+                  backgroundColor: [
+                    '#dc2626', // Red
+                    '#f97316', // Orange
+                    '#f59e0b', // Amber
+                    '#3b82f6'  // Blue
+                  ],
+                  borderWidth: 0,
+                  borderColor: '#ffffff'
+                }]
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                  legend: {
+                    position: 'bottom',
+                    labels: {
+                      font: { size: 11, family: 'Inter, sans-serif' },
+                      padding: 12,
+                      usePointStyle: true,
+                      color: '#374151'
+                    }
+                  },
+                  tooltip: {
+                    backgroundColor: '#1f2937',
+                    titleColor: '#ffffff',
+                    bodyColor: '#ffffff',
+                    borderColor: '#374151',
+                    borderWidth: 1,
+                    padding: 12,
+                    displayColors: true,
+                    callbacks: {
+                      label: function (context) {
+                        const label = context.label || '';
+                        const value = context.parsed || 0;
+                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                        const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                        return `${label}: ${value} (${percentage}%)`;
+                      }
                     }
                   }
                 }
               }
-            }
-          });
-
-          console.log('✅ Kubescape chart initialized with data:', { critical, high, medium, low });
+            });
+            console.log('✅ Kubescape chart created successfully');
+          } catch (e) {
+            console.error('❌ Error initializing Kubescape chart:', e);
+            console.error('Stack trace:', e.stack);
+          }
         },
 
         initTrivyChart() {
@@ -4811,10 +5078,20 @@ kubectl create token xamops-reader --duration=87600h</pre>
           }
 
           const trivy = this.dashboard?.trivy || {};
-          const critical = trivy.criticalVulnerabilities || 0;
-          const high = trivy.highVulnerabilities || 0;
-          const medium = trivy.mediumVulnerabilities || 0;
-          const low = trivy.lowVulnerabilities || 0;
+          const summary = trivy.summary || {};
+          const critical = summary.totalCritical || 0;
+          const high = summary.totalHigh || 0;
+          const medium = summary.totalMedium || 0;
+          const low = summary.totalLow || 0;
+          const total = critical + high + medium + low;
+
+          if (this.trivyVulnChart) this.trivyVulnChart.destroy();
+
+          // Don't render chart if no data
+          if (total === 0) {
+            console.log('⚠️ No Trivy vulnerability data to display');
+            return;
+          }
 
           this.trivyVulnChart = new Chart(canvas, {
             type: 'bar',
@@ -4829,29 +5106,48 @@ kubectl create token xamops-reader --duration=87600h</pre>
                   '#f59e0b', // Amber
                   '#3b82f6'  // Blue
                 ],
-                borderRadius: 6,
-                borderWidth: 0
+                borderRadius: 8,
+                borderWidth: 0,
+                barThickness: 40,
+                maxBarThickness: 50
               }]
             },
             options: {
               responsive: true,
-              maintainAspectRatio: true,
+              maintainAspectRatio: false,
+              layout: {
+                padding: {
+                  top: 10,
+                  bottom: 10,
+                  left: 10,
+                  right: 10
+                }
+              },
               scales: {
                 y: {
                   beginAtZero: true,
                   ticks: {
-                    font: { size: 11, family: 'Inter, sans-serif' },
-                    stepSize: 1
+                    font: { size: 12, family: 'Inter, sans-serif', weight: '500' },
+                    stepSize: Math.max(1, Math.ceil(Math.max(critical, high, medium, low) / 5)),
+                    color: '#6b7280'
                   },
                   grid: {
-                    color: '#f3f4f6'
+                    color: '#e5e7eb',
+                    drawBorder: false
+                  },
+                  border: {
+                    display: false
                   }
                 },
                 x: {
                   ticks: {
-                    font: { size: 11, family: 'Inter, sans-serif' }
+                    font: { size: 12, family: 'Inter, sans-serif', weight: '600' },
+                    color: '#374151'
                   },
                   grid: {
+                    display: false
+                  },
+                  border: {
                     display: false
                   }
                 }
@@ -4861,9 +5157,16 @@ kubectl create token xamops-reader --duration=87600h</pre>
                   display: false
                 },
                 tooltip: {
+                  backgroundColor: '#1f2937',
+                  titleFont: { size: 13, weight: '600' },
+                  bodyFont: { size: 12 },
+                  padding: 12,
+                  cornerRadius: 8,
                   callbacks: {
                     label: function (context) {
-                      return `${context.parsed.y} vulnerabilities`;
+                      const value = context.parsed.y;
+                      const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                      return `${value} vulnerabilities (${percentage}%)`;
                     }
                   }
                 }
@@ -4871,7 +5174,7 @@ kubectl create token xamops-reader --duration=87600h</pre>
             }
           });
 
-          console.log('✅ Trivy chart initialized with data:', { critical, high, medium, low });
+          console.log('✅ Trivy chart initialized with data:', { critical, high, medium, low, total });
         },
 
         // ============================================================================================
@@ -4879,7 +5182,7 @@ kubectl create token xamops-reader --duration=87600h</pre>
         // ============================================================================================
 
         initPodStatusChart() {
-          const canvas = document.getElementById('podStatusChart');
+          const canvas = this.$refs.podStatusChart || document.getElementById('podStatusChart');
           if (!canvas) return;
 
           const running = this.getPodsCountByPhase('Running');
@@ -4889,46 +5192,50 @@ kubectl create token xamops-reader --duration=87600h</pre>
 
           if (this.podStatusChart) this.podStatusChart.destroy();
 
-          this.podStatusChart = new Chart(canvas, {
-            type: 'doughnut',
-            data: {
-              labels: ['Running', 'Pending', 'Succeeded', 'Failed'],
-              datasets: [{
-                data: [running, pending, succeeded, failed],
-                backgroundColor: ['#10b981', '#f59e0b', '#3b82f6', '#ef4444'],
-                borderWidth: 0
-              }]
-            },
-            options: {
-              responsive: true,
-              maintainAspectRatio: true,
-              plugins: {
-                legend: {
-                  position: 'bottom',
-                  labels: {
-                    font: { size: 12, family: 'Inter, sans-serif' },
-                    padding: 15,
-                    usePointStyle: true
-                  }
-                },
-                tooltip: {
-                  callbacks: {
-                    label: function (context) {
-                      const label = context.label || '';
-                      const value = context.parsed || 0;
-                      const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                      const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
-                      return `${label}: ${value} pods (${percentage}%)`;
+          try {
+            this.podStatusChart = new Chart(canvas, {
+              type: 'doughnut',
+              data: {
+                labels: ['Running', 'Pending', 'Succeeded', 'Failed'],
+                datasets: [{
+                  data: [running, pending, succeeded, failed],
+                  backgroundColor: ['#10b981', '#f59e0b', '#3b82f6', '#ef4444'],
+                  borderWidth: 0
+                }]
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                  legend: {
+                    position: 'bottom',
+                    labels: {
+                      font: { size: 11, family: 'Inter, sans-serif' },
+                      padding: 12,
+                      usePointStyle: true
+                    }
+                  },
+                  tooltip: {
+                    callbacks: {
+                      label: function (context) {
+                        const label = context.label || '';
+                        const value = context.parsed || 0;
+                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                        const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                        return `${label}: ${value} pods (${percentage}%)`;
+                      }
                     }
                   }
                 }
               }
-            }
-          });
+            });
+          } catch (e) {
+            console.error('❌ Error initializing Pod Status chart:', e);
+          }
         },
 
         initPodCpuChart() {
-          const canvas = document.getElementById('podCpuChart');
+          const canvas = this.$refs.podCpuChart || document.getElementById('podCpuChart');
           if (!canvas) return;
 
           const metrics = this.dashboard?.podMetrics || {};
@@ -4936,47 +5243,64 @@ kubectl create token xamops-reader --duration=87600h</pre>
           const limited = (metrics.totalCpuLimited || 0) * 1000;
           const used = (metrics.totalCpuUsed || 0);  // Already in millicores
 
+          // Calculate a sensible max for the y-axis (add 20% padding to the max value)
+          const maxValue = Math.max(requested, limited, used, 100);
+          const suggestedMax = Math.ceil(maxValue * 1.2 / 100) * 100; // Round up to nearest 100
+
           if (this.podCpuChart) this.podCpuChart.destroy();
 
-          this.podCpuChart = new Chart(canvas, {
-            type: 'bar',
-            data: {
-              labels: ['Requests', 'Limits', 'Usage'],
-              datasets: [{
-                label: 'CPU (millicores)',
-                data: [requested, limited, used],
-                backgroundColor: ['#3b82f6', '#f59e0b', '#10b981']
-              }]
-            },
-            options: {
-              responsive: true,
-              maintainAspectRatio: true,
-              plugins: {
-                legend: { display: false },
-                tooltip: {
-                  callbacks: {
-                    label: function (context) {
-                      return context.label + ': ' + context.parsed.y.toFixed(2) + ' m';
+          try {
+            this.podCpuChart = new Chart(canvas, {
+              type: 'bar',
+              data: {
+                labels: ['Requests', 'Limits', 'Usage'],
+                datasets: [{
+                  label: 'CPU (millicores)',
+                  data: [requested, limited, used],
+                  backgroundColor: ['#3b82f6', '#f59e0b', '#10b981'],
+                  borderRadius: 6,
+                  barThickness: 50
+                }]
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                  legend: { display: false },
+                  tooltip: {
+                    callbacks: {
+                      label: function (context) {
+                        return context.label + ': ' + context.parsed.y.toFixed(0) + ' m';
+                      }
                     }
                   }
-                }
-              },
-              scales: {
-                y: {
-                  beginAtZero: true,
-                  ticks: {
-                    callback: function (value) {
-                      return value.toFixed(0) + ' m';
-                    }
+                },
+                scales: {
+                  y: {
+                    beginAtZero: true,
+                    suggestedMax: suggestedMax,
+                    ticks: {
+                      font: { size: 11 },
+                      callback: function (value) {
+                        return value >= 1000 ? (value / 1000).toFixed(1) + ' cores' : value.toFixed(0) + ' m';
+                      }
+                    },
+                    grid: { color: '#f3f4f6' }
+                  },
+                  x: {
+                    ticks: { font: { size: 11, weight: 'bold' } },
+                    grid: { display: false }
                   }
                 }
               }
-            }
-          });
+            });
+          } catch (e) {
+            console.error('❌ Error initializing Pod CPU chart:', e);
+          }
         },
 
         initPodMemoryChart() {
-          const canvas = document.getElementById('podMemoryChart');
+          const canvas = this.$refs.podMemoryChart || document.getElementById('podMemoryChart');
           if (!canvas) return;
 
           const metrics = this.dashboard?.podMetrics || {};
@@ -4984,44 +5308,61 @@ kubectl create token xamops-reader --duration=87600h</pre>
           const limited = metrics.totalMemoryLimited || 0;
           const used = metrics.totalMemoryUsed || 0;
 
+          // Calculate a sensible max for the y-axis (add 20% padding to the max value)
+          const maxValue = Math.max(requested, limited, used, 100);
+          const suggestedMax = Math.ceil(maxValue * 1.2 / 100) * 100; // Round up to nearest 100
+
           if (this.podMemoryChart) this.podMemoryChart.destroy();
 
-          this.podMemoryChart = new Chart(canvas, {
-            type: 'bar',
-            data: {
-              labels: ['Requests', 'Limits', 'Usage'],
-              datasets: [{
-                label: 'Memory (Mi)',
-                data: [requested, limited, used],
-                backgroundColor: ['#3b82f6', '#f59e0b', '#10b981']
-              }]
-            },
-            options: {
-              responsive: true,
-              maintainAspectRatio: true,
-              plugins: {
-                legend: { display: false },
-                tooltip: {
-                  callbacks: {
-                    label: function (context) {
-                      return context.label + ': ' + context.parsed.y.toFixed(0) + ' Mi';
+          try {
+            this.podMemoryChart = new Chart(canvas, {
+              type: 'bar',
+              data: {
+                labels: ['Requests', 'Limits', 'Usage'],
+                datasets: [{
+                  label: 'Memory (Mi)',
+                  data: [requested, limited, used],
+                  backgroundColor: ['#3b82f6', '#f59e0b', '#10b981'],
+                  borderRadius: 6,
+                  barThickness: 50
+                }]
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                  legend: { display: false },
+                  tooltip: {
+                    callbacks: {
+                      label: function (context) {
+                        return context.label + ': ' + context.parsed.y.toFixed(0) + ' Mi';
+                      }
                     }
                   }
-                }
-              },
-              scales: {
-                y: {
-                  beginAtZero: true,
-                  ticks: {
-                    callback: function (value) {
-                      return value.toFixed(0) + ' Mi';
-                    }
+                },
+                scales: {
+                  y: {
+                    beginAtZero: true,
+                    suggestedMax: suggestedMax,
+                    ticks: {
+                      font: { size: 11 },
+                      callback: function (value) {
+                        return value >= 1024 ? (value / 1024).toFixed(1) + ' Gi' : value.toFixed(0) + ' Mi';
+                      }
+                    },
+                    grid: { color: '#f3f4f6' }
+                  },
+                  x: {
+                    ticks: { font: { size: 11, weight: 'bold' } },
+                    grid: { display: false }
                   }
                 }
               }
-            }
-          });
-        }
+            });
+          } catch (e) {
+            console.error('❌ Error initializing Pod Memory chart:', e);
+          }
+        },
       };
     }
   </script>

@@ -79,6 +79,7 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("actions-history.html"),
                                 // ✅ YOUR CODE: Preserved missing pages
                                 new AntPathRequestMatcher("/cloudsitter.html"),
+                                new AntPathRequestMatcher("/integration-guide.html"),
                                 new AntPathRequestMatcher("billops/dashboard_user.html"),
                                 new AntPathRequestMatcher("billops/dashboard_admin.html"),
 
