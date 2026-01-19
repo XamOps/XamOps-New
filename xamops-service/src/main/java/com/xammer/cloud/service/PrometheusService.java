@@ -457,6 +457,20 @@ public class PrometheusService {
         return fetchScalarValue(prometheusUrl, query);
     }
 
+    public Double getClusterCpuUsageMillicores(String prometheusUrl, String clusterName) {
+        String query = String.format(
+                "sum(rate(xamops_eks_container_cpu_usage{cluster_name=\"%s\"}[5m])) * 1000",
+                clusterName);
+        return fetchScalarValue(prometheusUrl, query);
+    }
+
+    public Double getClusterCpuCapacityMillicores(String prometheusUrl, String clusterName) {
+        String query = String.format(
+                "sum(xamops_eks_kube_node_status_capacity{cluster_name=\"%s\", resource=\"cpu\"}) * 1000",
+                clusterName);
+        return fetchScalarValue(prometheusUrl, query);
+    }
+
     public Double getClusterMemoryUsage(String prometheusUrl, String clusterName) {
         // Fix: working_set is the ACTUAL usage, not the denominator
         String query = String.format(
@@ -698,6 +712,13 @@ public class PrometheusService {
     public Map<String, Double> getNodeCpuUsage(String prometheusUrl, String clusterName) {
         String query = String.format(
                 "100 - (avg by (instance) (rate(xamops_eks_node_cpu_seconds_total{cluster_name=\"%s\", mode=\"idle\"}[5m])) * 100)",
+                clusterName);
+        return fetchMetricMap(prometheusUrl, query, "instance");
+    }
+
+    public Map<String, Double> getNodeCpuUsageMillicores(String prometheusUrl, String clusterName) {
+        String query = String.format(
+                "sum by (instance) (rate(xamops_eks_node_cpu_seconds_total{cluster_name=\"%s\", mode!=\"idle\"}[5m])) * 1000",
                 clusterName);
         return fetchMetricMap(prometheusUrl, query, "instance");
     }

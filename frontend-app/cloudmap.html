@@ -212,154 +212,164 @@
 
 <body class="bg-gray-100">
 
-    <div class="flex h-screen bg-white">
+    <div class="flex h-screen bg-gray-50">
         <include file="/_sidebar.html"></include>
 
-        <main id="main-content" class="flex-1 flex flex-col pl-64 h-full relative">
-            <header class="header-gradient px-6 py-4 flex-none z-10">
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center space-x-6">
+        <div class="flex-1 ml-64 flex flex-col h-full relative">
+            <main id="main-content" class="flex-1 flex flex-col h-full relative overflow-hidden">
+                <header class="bg-white border-b px-8 py-4 flex-none z-10 shadow-sm">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center space-x-6">
+                            <div class="flex items-center space-x-3">
+                                <button onclick="window.location.href='/dashboard.html'"
+                                    class="flex items-center justify-center w-10 h-10 rounded-lg bg-gray-50 hover:bg-gray-100 text-gray-400 hover:text-gray-600 border border-gray-200 transition-all mr-2">
+                                    <i class="fas fa-arrow-left"></i>
+                                </button>
+                                <div
+                                    class="w-11 h-11 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-md">
+                                    <i class="fas fa-project-diagram text-white text-lg"></i>
+                                </div>
+                                <div>
+                                    <h1 class="text-xl font-black text-gray-900 tracking-tight">CloudMap</h1>
+                                    <p class="text-xs text-gray-500 font-medium">Network Visualization</p>
+                                </div>
+                            </div>
+                            <div class="flex bg-gray-100 p-1 rounded-xl shadow-sm">
+                                <button onclick="switchMode('live')" id="tab-live"
+                                    class="tab-btn active px-4 py-2 text-sm font-bold rounded-lg flex items-center gap-2 transition-all">
+                                    <i class="fas fa-network-wired text-sm"></i> Live View
+                                </button>
+                                <button onclick="switchMode('design')" id="tab-design"
+                                    class="tab-btn px-4 py-2 text-sm font-bold rounded-lg text-gray-500 hover:text-gray-700 flex items-center gap-2 transition-all">
+                                    <i class="fas fa-pencil-ruler text-sm"></i> Design Studio
+                                </button>
+                            </div>
+                        </div>
+
                         <div class="flex items-center space-x-3">
-                            <div
-                                class="w-11 h-11 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-md">
-                                <i class="fas fa-project-diagram text-white text-lg"></i>
+                            <div id="controls-live" class="flex items-center gap-3">
+                                <div
+                                    class="flex items-center space-x-2 text-xs font-semibold text-green-700 bg-green-50 px-3 py-2 rounded-lg border border-green-200 shadow-sm">
+                                    <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse shadow-md"></div>
+                                    <span>Live Monitoring</span>
+                                </div>
+                                <select id="vpc-selector"
+                                    class="border-2 border-gray-200 rounded-lg text-sm px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-medium hover:border-gray-300 transition-colors">
+                                    <option value="">Loading...</option>
+                                </select>
+                                <button id="save-btn-live" onclick="exportGraphAsPng()"
+                                    class="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-md hover:shadow-lg transition-all active:scale-95">
+                                    <i class="fas fa-download mr-1"></i> Export PNG
+                                </button>
                             </div>
-                            <div>
-                                <h1 class="text-xl font-black text-gray-900 tracking-tight">CloudMap</h1>
-                                <p class="text-xs text-gray-500 font-medium">Network Visualization</p>
+
+                            <div id="controls-design" class="hidden flex items-center gap-3">
+                                <select id="blueprint-selector"
+                                    class="border-2 border-gray-200 rounded-lg text-sm px-4 py-2 w-52 font-medium focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                                    <option value="">-- New Design --</option>
+                                </select>
+                                <button onclick="saveDesign()"
+                                    class="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-md hover:shadow-lg transition-all">
+                                    <i class="fas fa-save"></i> Save
+                                </button>
+                                <button onclick="clearCanvas()"
+                                    class="text-red-600 hover:bg-red-50 px-4 py-2 rounded-lg text-sm font-semibold transition-all border-2 border-transparent hover:border-red-200">
+                                    <i class="fas fa-trash"></i> Clear
+                                </button>
                             </div>
                         </div>
-                        <div class="flex bg-gray-100 p-1 rounded-xl shadow-sm">
-                            <button onclick="switchMode('live')" id="tab-live"
-                                class="tab-btn active px-4 py-2 text-sm font-bold rounded-lg flex items-center gap-2 transition-all">
-                                <i class="fas fa-network-wired text-sm"></i> Live View
-                            </button>
-                            <button onclick="switchMode('design')" id="tab-design"
-                                class="tab-btn px-4 py-2 text-sm font-bold rounded-lg text-gray-500 hover:text-gray-700 flex items-center gap-2 transition-all">
-                                <i class="fas fa-pencil-ruler text-sm"></i> Design Studio
-                            </button>
-                        </div>
                     </div>
+                </header>
 
-                    <div class="flex items-center space-x-3">
-                        <div id="controls-live" class="flex items-center gap-3">
-                            <div
-                                class="flex items-center space-x-2 text-xs font-semibold text-green-700 bg-green-50 px-3 py-2 rounded-lg border border-green-200 shadow-sm">
-                                <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse shadow-md"></div>
-                                <span>Live Monitoring</span>
-                            </div>
-                            <select id="vpc-selector"
-                                class="border-2 border-gray-200 rounded-lg text-sm px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-medium hover:border-gray-300 transition-colors">
-                                <option value="">Loading...</option>
-                            </select>
-                            <button id="save-btn-live" onclick="exportGraphAsPng()"
-                                class="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-md hover:shadow-lg transition-all active:scale-95">
-                                <i class="fas fa-download mr-1"></i> Export PNG
-                            </button>
-                        </div>
+                <div class="flex flex-1 relative overflow-hidden">
 
-                        <div id="controls-design" class="hidden flex items-center gap-3">
-                            <select id="blueprint-selector"
-                                class="border-2 border-gray-200 rounded-lg text-sm px-4 py-2 w-52 font-medium focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
-                                <option value="">-- New Design --</option>
-                            </select>
-                            <button onclick="saveDesign()"
-                                class="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-md hover:shadow-lg transition-all">
-                                <i class="fas fa-save"></i> Save
-                            </button>
-                            <button onclick="clearCanvas()"
-                                class="text-red-600 hover:bg-red-50 px-4 py-2 rounded-lg text-sm font-semibold transition-all border-2 border-transparent hover:border-red-200">
-                                <i class="fas fa-trash"></i> Clear
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </header>
-
-            <div class="flex flex-1 relative overflow-hidden">
-
-                <div id="design-palette"
-                    class="hidden w-64 bg-white border-r border-gray-200 overflow-y-auto p-4 shrink-0 z-10">
-                    <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Toolbox</h3>
-                    <div
-                        class="text-xs text-gray-500 mb-3 bg-blue-50 p-2 rounded border border-blue-100 flex items-start gap-2">
-                        <i class="fas fa-info-circle text-blue-500 mt-0.5"></i>
-                        <span>Drag icons to canvas. Click & drag from a node's handle to connect.</span>
-                    </div>
-                    <div id="palette-container" class="grid grid-cols-2 gap-2">
-                    </div>
-                </div>
-
-                <div class="flex-1 relative bg-gray-50" id="canvas-wrapper">
-                    <div id="cy" class="absolute inset-0"></div>
-
-                    <div id="message-overlay"
-                        class="absolute inset-0 flex items-center justify-center z-20 pointer-events-none"
-                        style="display: none;">
+                    <div id="design-palette"
+                        class="hidden w-64 bg-white border-r border-gray-200 overflow-y-auto p-4 shrink-0 z-10">
+                        <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Toolbox</h3>
                         <div
-                            class="bg-white/95 backdrop-blur border border-gray-200 rounded-xl p-6 shadow-xl text-center pointer-events-auto max-w-md">
-                            <div id="spinner"
-                                class="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3">
-                            </div>
-                            <h3 class="font-bold text-gray-800 mb-2" id="msg-title">Loading...</h3>
-                            <p class="text-sm text-gray-500" id="msg-subtitle"></p>
+                            class="text-xs text-gray-500 mb-3 bg-blue-50 p-2 rounded border border-blue-100 flex items-start gap-2">
+                            <i class="fas fa-info-circle text-blue-500 mt-0.5"></i>
+                            <span>Drag icons to canvas. Click & drag from a node's handle to connect.</span>
+                        </div>
+                        <div id="palette-container" class="grid grid-cols-2 gap-2">
                         </div>
                     </div>
 
-                    <div id="empty-state"
-                        class="absolute inset-0 flex items-center justify-center z-10 bg-gradient-to-br from-gray-50 to-gray-100"
-                        style="display: none;">
-                        <div class="text-center max-w-md px-6">
+                    <div class="flex-1 relative bg-gray-50" id="canvas-wrapper">
+                        <div id="cy" class="absolute inset-0"></div>
+
+                        <div id="message-overlay"
+                            class="absolute inset-0 flex items-center justify-center z-20 pointer-events-none"
+                            style="display: none;">
                             <div
-                                class="w-20 h-20 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg">
-                                <i class="fas fa-project-diagram text-white text-3xl"></i>
+                                class="bg-white/95 backdrop-blur border border-gray-200 rounded-xl p-6 shadow-xl text-center pointer-events-auto max-w-md">
+                                <div id="spinner"
+                                    class="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3">
+                                </div>
+                                <h3 class="font-bold text-gray-800 mb-2" id="msg-title">Loading...</h3>
+                                <p class="text-sm text-gray-500" id="msg-subtitle"></p>
                             </div>
-                            <h3 class="text-2xl font-bold text-gray-800 mb-2">No Resources Found</h3>
-                            <p class="text-gray-600 mb-4">Your cloud infrastructure visualization will appear here once
-                                resources are detected.</p>
-                            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 text-left">
-                                <h4 class="font-semibold text-blue-800 mb-2 flex items-center gap-2">
-                                    <i class="fas fa-info-circle"></i> What to check:
-                                </h4>
-                                <ul class="text-sm text-blue-700 space-y-1">
-                                    <li><i class="fas fa-check-circle text-blue-500"></i> Verify your AWS account has
-                                        resources</li>
-                                    <li><i class="fas fa-check-circle text-blue-500"></i> Check if credentials are
-                                        properly configured</li>
-                                    <li><i class="fas fa-check-circle text-blue-500"></i> Try selecting a different VPC
-                                        or region</li>
-                                    <li><i class="fas fa-check-circle text-blue-500"></i> Refresh the page to reload
-                                        data</li>
-                                </ul>
+                        </div>
+
+                        <div id="empty-state"
+                            class="absolute inset-0 flex items-center justify-center z-10 bg-gradient-to-br from-gray-50 to-gray-100"
+                            style="display: none;">
+                            <div class="text-center max-w-md px-6">
+                                <div
+                                    class="w-20 h-20 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg">
+                                    <i class="fas fa-project-diagram text-white text-3xl"></i>
+                                </div>
+                                <h3 class="text-2xl font-bold text-gray-800 mb-2">No Resources Found</h3>
+                                <p class="text-gray-600 mb-4">Your cloud infrastructure visualization will appear here
+                                    once
+                                    resources are detected.</p>
+                                <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 text-left">
+                                    <h4 class="font-semibold text-blue-800 mb-2 flex items-center gap-2">
+                                        <i class="fas fa-info-circle"></i> What to check:
+                                    </h4>
+                                    <ul class="text-sm text-blue-700 space-y-1">
+                                        <li><i class="fas fa-check-circle text-blue-500"></i> Verify your AWS account
+                                            has
+                                            resources</li>
+                                        <li><i class="fas fa-check-circle text-blue-500"></i> Check if credentials are
+                                            properly configured</li>
+                                        <li><i class="fas fa-check-circle text-blue-500"></i> Try selecting a different
+                                            VPC
+                                            or region</li>
+                                        <li><i class="fas fa-check-circle text-blue-500"></i> Refresh the page to reload
+                                            data</li>
+                                    </ul>
+                                </div>
                             </div>
+                        </div>
+
+                        <div class="toolbar">
+                            <button class="toolbar-button" onclick="cy && cy.fit()" title="Fit"><i
+                                    class="fas fa-expand-arrows-alt"></i></button>
+                            <button class="toolbar-button" onclick="cy && cy.center()" title="Center"><i
+                                    class="fas fa-crosshairs"></i></button>
+                            <button class="toolbar-button" onclick="cy && cy.zoom(cy.zoom() * 1.2)" title="Zoom In"><i
+                                    class="fas fa-plus"></i></button>
+                            <button class="toolbar-button" onclick="cy && cy.zoom(cy.zoom() * 0.8)" title="Zoom Out"><i
+                                    class="fas fa-minus"></i></button>
+                        </div>
+
+                        <div id="legend" class="legend hidden sm:block">
+                            <h4 class="text-sm font-bold text-gray-800 mb-3">Legend</h4>
                         </div>
                     </div>
 
-                    <div class="toolbar">
-                        <button class="toolbar-button" onclick="cy && cy.fit()" title="Fit"><i
-                                class="fas fa-expand-arrows-alt"></i></button>
-                        <button class="toolbar-button" onclick="cy && cy.center()" title="Center"><i
-                                class="fas fa-crosshairs"></i></button>
-                        <button class="toolbar-button" onclick="cy && cy.zoom(cy.zoom() * 1.2)" title="Zoom In"><i
-                                class="fas fa-plus"></i></button>
-                        <button class="toolbar-button" onclick="cy && cy.zoom(cy.zoom() * 0.8)" title="Zoom Out"><i
-                                class="fas fa-minus"></i></button>
-                    </div>
-
-                    <div id="legend" class="legend hidden sm:block">
-                        <h4 class="text-sm font-bold text-gray-800 mb-3">Legend</h4>
+                    <div id="info-panel"
+                        class="absolute top-0 right-0 h-full w-80 transform translate-x-full overflow-y-auto bg-white">
+                        <button onclick="closeInfoPanel()"
+                            class="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+                            <i class="fas fa-times"></i>
+                        </button>
+                        <div id="info-content" class="p-6 mt-4"></div>
                     </div>
                 </div>
-
-                <div id="info-panel"
-                    class="absolute top-0 right-0 h-full w-80 transform translate-x-full overflow-y-auto bg-white">
-                    <button onclick="closeInfoPanel()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
-                        <i class="fas fa-times"></i>
-                    </button>
-                    <div id="info-content" class="p-6 mt-4"></div>
-                </div>
-            </div>
-        </main>
+            </main>
+        </div>
     </div>
 
     <script>
@@ -393,28 +403,65 @@
         };
 
         const icons = {
-            'VPC': '/icons/vpc.png', 'EC2 Instance': '/icons/ec2-instances.png', 'EBS Volume': '/icons/ebs.png',
-            'RDS Instance': '/icons/rds-instance.png', 'Lambda Function': '/icons/lambda.png', 'Security Group': '/icons/security-group.png',
-            'Load Balancer': '/icons/load-balanceraws.png', 'Auto Scaling Group': '/icons/autoscaling.png',
-            'ElastiCache Cluster': '/icons/elasticache.png', 'DynamoDB Table': '/icons/dynamodb.png', 'ECR Repository': '/icons/ecr.png',
-            'SNS Topic': '/icons/sns.png', 'SQS Queue': '/icons/sqs.png', 'CloudWatch Log Group': '/icons/cloudwatch.png',
-            'CloudTrail': '/icons/cloudtrail.png', 'S3 Bucket': '/icons/s3-bucket.png', 'Route 53 Zone': '/icons/route53.png',
-            'Certificate Manager': '/icons/acm.png', 'EKS Cluster': '/icons/eks.png', 'Lightsail Instance': '/icons/lightsail.png',
-            'Amplify App': '/icons/amplify.png', 'EFS File System': '/icons/efs.png', 'SSM Managed Instance': '/icons/ssm.png',
-            'AWS Step Functions': '/icons/step-functions.png', 'AWS Config': '/icons/config.png', 'Security Hub': '/icons/security-hub.png',
-            'AWS Glue': '/icons/glue.png', 'Amazon Athena': '/icons/athena.png', 'Amazon Cognito': '/icons/cognito.png',
-            'CloudFront': '/icons/cloudfront.png', 'Bedrock': '/icons/bedrock.png', 'SageMaker': '/icons/sagemaker.png',
-            'KMS': '/icons/kms.png', 'Internet Gateway': '/icons/internet-gateway.png', 'NAT Gateway': '/icons/nat-gateway.png',
-            'Network Interface (ENI)': '/icons/eni.png', 'Elastic IP': '/icons/elastic-ip.png', 'CloudFormation Stack': '/icons/cloudformation.png',
-            'DataZone Domain': '/icons/datazone.png', 'Textract Project': '/icons/textract.png', 'EventBridge Bus': '/icons/eventbridge.png',
-            'Kinesis Stream': '/icons/kinesis.png', 'CodePipeline': '/icons/codepipeline.png', 'CodeBuild Project': '/icons/codebuild.png',
-            'CodeCommit Repository': '/icons/codecommit.png', 'AWS Shield Protection': '/icons/shield.png', 'Organization Account': '/icons/organizations.png',
-            'Control Tower Control': '/icons/controltower.png', 'Elastic Beanstalk Environment': '/icons/elasticbeanstalk.png', 'API Gateway': '/icons/api-gateway.png'
+            'VPC': '/icons/vpc.png',
+            'EC2 Instance': '/icons/ec2-instances.png',
+            'EBS Volume': '/icons/aws-ebs.png',
+            'RDS Instance': '/icons/rds-instance.png',
+            'Lambda Function': '/icons/aws-lambda.png',
+            'Security Group': '/icons/security-group.png',
+            'Load Balancer': '/icons/load-balanceraws.png',
+            'Auto Scaling Group': '/icons/autoscaling.png',
+            'ElastiCache Cluster': '/icons/elasticache-cluster.png',
+            'DynamoDB Table': '/icons/dynamodb-table.png',
+            'ECR Repository': '/icons/ecr-repository.png',
+            'SNS Topic': '/icons/sns-topic.png',
+            'SQS Queue': '/icons/sqs-queue.png',
+            'CloudWatch Log Group': '/icons/cloudwatch-log-group.png',
+            'CloudTrail': '/icons/cloudtrail.png',
+            'S3 Bucket': '/icons/s3-bucket.png',
+            'Route 53 Zone': '/icons/aws-route53.png',
+            'Certificate Manager': '/icons/certificate-manager.png',
+            'EKS Cluster': '/icons/aws-eks.png',
+            'Lightsail Instance': '/icons/lightsail.png',
+            'Amplify App': '/icons/amplify.png',
+            'EFS File System': '/icons/efs.png',
+            'SSM Managed Instance': '/icons/ssm.png',
+            'AWS Step Functions': '/icons/step-functions.png',
+            'AWS Config': '/icons/Config.png',
+            'Security Hub': '/icons/security-hub.png',
+            'AWS Glue': '/icons/glue.png',
+            'Amazon Athena': '/icons/athena.png',
+            'Amazon Cognito': '/icons/cognito.png',
+            'CloudFront': '/icons/cloudfront.png',
+            'Bedrock': '/icons/bedrock.png',
+            'SageMaker': '/icons/sagemaker.png',
+            'KMS': '/icons/kms.png',
+            'Internet Gateway': '/icons/internet-gateway.png',
+            'NAT Gateway': '/icons/nat-gateway.png',
+            'Network Interface (ENI)': '/icons/eni.png',
+            'Elastic IP': '/icons/elastic-ip.png',
+            'CloudFormation Stack': '/icons/cloudformation.png',
+            'DataZone Domain': '/icons/datazone.png',
+            'Textract Project': '/icons/textract.png',
+            'EventBridge Bus': '/icons/eventbridge.png',
+            'Kinesis Stream': '/icons/kinesis.png',
+            'CodePipeline': '/icons/codepipeline.png',
+            'CodeBuild Project': '/icons/codebuild.png',
+            'CodeCommit Repository': '/icons/codecommit.png',
+            'AWS Shield Protection': '/icons/shield.png',
+            'Organization Account': '/icons/organizations.png',
+            'Control Tower Control': '/icons/controltower.png',
+            'Elastic Beanstalk Environment': '/icons/elasticbeanstalk.png',
+            'API Gateway': '/icons/api-gateway.png',
+            'ECS Cluster': '/icons/aws-ecs.png',
+            'Snapshot': '/icons/snapshot.png',
+            'AMI': '/icons/ami.png',
+            'WAF Web ACL': '/icons/waf.png'
         };
 
         const nodeTypeData = {
             'VPC': { icon: 'cloud', color: 'green', style: 'solid', category: 'Network' }, 'Availability Zone': { icon: 'layer-group', color: 'blue', style: 'dashed', category: 'Network' }, 'Subnet': { icon: 'network-wired', color: 'emerald', style: 'solid', category: 'Network' }, 'Security Group': { icon: 'shield-alt', color: 'yellow', style: 'solid', category: 'Security' }, 'Internet Gateway': { icon: 'globe', color: 'cyan', style: 'solid', category: 'Network' }, 'NAT Gateway': { icon: 'exchange-alt', color: 'indigo', style: 'solid', category: 'Network' }, 'Route 53 Zone': { icon: 'route', color: 'orange', style: 'solid', category: 'Network' }, 'EC2 Instance': { icon: 'server', color: 'orange', style: 'solid', category: 'Compute' }, 'Lambda Function': { icon: 'bolt', color: 'amber', style: 'solid', category: 'Compute' }, 'Auto Scaling Group': { icon: 'expand-arrows-alt', color: 'rose', style: 'solid', category: 'Compute' }, 'EKS Cluster': { icon: 'cubes', color: 'indigo', style: 'solid', category: 'Compute' }, 'Lightsail Instance': { icon: 'lightbulb', color: 'yellow', style: 'solid', category: 'Compute' }, 'SSM Managed Instance': { icon: 'tasks', color: 'slate', style: 'solid', category: 'Management' }, 'S3 Bucket': { icon: 'archive', color: 'teal', style: 'solid', category: 'Storage' }, 'EBS Volume': { icon: 'compact-disc', color: 'gray', style: 'solid', category: 'Storage' }, 'EFS File System': { icon: 'folder-open', color: 'lime', style: 'solid', category: 'Storage' }, 'RDS Instance': { icon: 'database', color: 'sky', style: 'solid', category: 'Database' }, 'DynamoDB Table': { icon: 'table', color: 'blue', style: 'solid', category: 'Database' }, 'ElastiCache Cluster': { icon: 'memory', color: 'red', style: 'solid', category: 'Database' }, 'Load Balancer': { icon: 'balance-scale', color: 'purple', style: 'solid', category: 'Network' }, 'SNS Topic': { icon: 'bullhorn', color: 'pink', style: 'solid', category: 'Messaging' }, 'SQS Queue': { icon: 'list-ol', color: 'fuchsia', style: 'solid', category: 'Messaging' }, 'Amplify App': { icon: 'mobile-alt', color: 'violet', style: 'solid', category: 'Application' }, 'AWS Step Functions': { icon: 'project-diagram', color: 'purple', style: 'solid', category: 'Application' }, 'Pinpoint Application': { icon: 'map-pin', color: 'red', style: 'solid', category: 'Application' }, 'CloudWatch Log Group': { icon: 'file-alt', color: 'gray', style: 'solid', category: 'Management' }, 'CloudTrail': { icon: 'shoe-prints', color: 'gray', style: 'solid', category: 'Management' }, 'Certificate Manager': { icon: 'certificate', color: 'green', style: 'solid', category: 'Security' }, 'AWS Config': { icon: 'cogs', color: 'slate', style: 'solid', category: 'Management' }, 'Security Hub': { icon: 'shield-virus', color: 'red', style: 'solid', category: 'Security' }, 'KMS': { icon: 'key', color: 'amber', style: 'solid', category: 'Security' }, 'AWS Glue': { icon: 'puzzle-piece', color: 'cyan', style: 'solid', category: 'Analytics' }, 'Amazon Athena': { icon: 'feather-alt', color: 'indigo', style: 'solid', category: 'Analytics' }, 'Bedrock': { icon: 'brain', color: 'violet', style: 'solid', category: 'AI/ML' }, 'SageMaker': { icon: 'flask', color: 'emerald', style: 'solid', category: 'AI/ML' }, 'Amazon Cognito': { icon: 'users-cog', color: 'orange', style: 'solid', category: 'Security' }, 'CloudFront': { icon: 'rocket', color: 'blue', style: 'solid', category: 'Network' }, 'ECR Repository': { icon: 'box', color: 'slate', style: 'solid', category: 'Storage' },
-            'CloudFormation Stack': { icon: 'cubes', color: 'orange', style: 'solid', category: 'Management' }, 'DataZone Domain': { icon: 'sitemap', color: 'teal', style: 'solid', category: 'Analytics' }, 'Textract Project': { icon: 'file-invoice', color: 'indigo', style: 'solid', category: 'AI/ML' }, 'EventBridge Bus': { icon: 'bus', color: 'rose', style: 'solid', category: 'Application' }, 'Kinesis Stream': { icon: 'stream', color: 'cyan', style: 'solid', category: 'Analytics' }, 'CodePipeline': { icon: 'road', color: 'blue', style: 'solid', category: 'DevOps' }, 'CodeBuild Project': { icon: 'hammer', color: 'slate', style: 'solid', category: 'DevOps' }, 'CodeCommit Repository': { icon: 'code-branch', color: 'gray', style: 'solid', category: 'DevOps' }, 'AWS Shield Protection': { icon: 'shield-alt', color: 'green', style: 'solid', category: 'Security' }, 'Organization Account': { icon: 'sitemap', color: 'indigo', style: 'solid', category: 'Management' }, 'Control Tower Control': { icon: 'university', color: 'purple', style: 'solid', category: 'Management' }, 'Elastic Beanstalk Environment': { icon: 'seedling', color: 'lime', style: 'solid', category: 'Compute' }, 'API Gateway': { icon: 'server', color: 'amber', style: 'solid', category: 'Network' }
+            'CloudFormation Stack': { icon: 'cubes', color: 'orange', style: 'solid', category: 'Management' }, 'DataZone Domain': { icon: 'sitemap', color: 'teal', style: 'solid', category: 'Analytics' }, 'Textract Project': { icon: 'file-invoice', color: 'indigo', style: 'solid', category: 'AI/ML' }, 'EventBridge Bus': { icon: 'bus', color: 'rose', style: 'solid', category: 'Application' }, 'Kinesis Stream': { icon: 'stream', color: 'cyan', style: 'solid', category: 'Analytics' }, 'CodePipeline': { icon: 'road', color: 'blue', style: 'solid', category: 'DevOps' }, 'CodeBuild Project': { icon: 'hammer', color: 'slate', style: 'solid', category: 'DevOps' }, 'CodeCommit Repository': { icon: 'code-branch', color: 'gray', style: 'solid', category: 'DevOps' }, 'AWS Shield Protection': { icon: 'shield-alt', color: 'green', style: 'solid', category: 'Security' }, 'Organization Account': { icon: 'sitemap', color: 'indigo', style: 'solid', category: 'Management' }, 'Control Tower Control': { icon: 'university', color: 'purple', style: 'solid', category: 'Management' }, 'Elastic Beanstalk Environment': { icon: 'seedling', color: 'lime', style: 'solid', category: 'Compute' }, 'API Gateway': { icon: 'server', color: 'amber', style: 'solid', category: 'Network' }, 'ECS Cluster': { icon: 'cubes', color: 'orange', style: 'solid', category: 'Compute' }, 'Snapshot': { icon: 'camera', color: 'gray', style: 'solid', category: 'Storage' }, 'AMI': { icon: 'copy', color: 'gray', style: 'solid', category: 'Storage' }, 'WAF Web ACL': { icon: 'shield-alt', color: 'red', style: 'solid', category: 'Security' }
         };
 
         // --- 2. Initialization ---
@@ -439,10 +486,23 @@
 
         // Initialize on page load or immediately if already loaded (for soft navigation)
         if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', initializeCloudMap);
+            document.addEventListener('DOMContentLoaded', () => {
+                setTimeout(initializeCloudMap, 500);
+            });
         } else {
-            initializeCloudMap();
+            // Already loaded, likely soft navigation
+            setTimeout(initializeCloudMap, 300);
         }
+
+        // Handle soft navigation from sidebar
+        window.addEventListener('account-changed', (e) => {
+            console.log('🔄 CloudMap: Account change detected via soft navigation', e.detail);
+            if (e.detail && (e.detail.accountId || e.detail.accountIds)) {
+                selectedAccountId = e.detail.accountId || e.detail.accountIds[0];
+                // Tiny delay to ensure sessionStorage/DOM is ready
+                setTimeout(initializeCloudMap, 200);
+            }
+        });
 
         // --- 3. Mode Switching ---
         window.switchMode = function (mode) {
@@ -497,13 +557,15 @@
             const vpcSelector = document.getElementById('vpc-selector');
 
             if (!selectedAccountId) {
-                vpcSelector.innerHTML = '<option value="">Please select an account</option>';
+                if (vpcSelector) vpcSelector.innerHTML = '<option value="">Please select an account</option>';
                 showMessage(true, 'No account selected. Please select an account from the dashboard.');
                 return;
             }
 
-            vpcSelector.innerHTML = '<option value="">Loading VPCs...</option>';
-            showMessage(true, 'Loading VPCs...');
+            if (vpcSelector) {
+                vpcSelector.innerHTML = '<option value="">Loading VPCs...</option>';
+                showMessage(true, 'Loading VPCs...');
+            }
 
             fetch(`/api/xamops/cloudmap/vpcs?accountId=${selectedAccountId}`)
                 .then(r => {
@@ -514,40 +576,55 @@
                 })
                 .then(vpcs => {
                     showMessage(false);
-                    vpcSelector.innerHTML = '';
+                    if (vpcSelector) {
+                        vpcSelector.innerHTML = '';
 
-                    if (Array.isArray(vpcs) && vpcs.length > 0) {
-                        vpcs.forEach(vpc => {
-                            const opt = document.createElement('option');
-                            opt.value = `${vpc.id}|${vpc.region}`;
-                            opt.textContent = `${vpc.name} (${vpc.id} - ${vpc.region})`;
-                            vpcSelector.appendChild(opt);
-                        });
-                        const globalOpt = document.createElement('option');
-                        globalOpt.value = ""; globalOpt.textContent = "🌐 Global & S3";
-                        vpcSelector.appendChild(globalOpt);
+                        if (Array.isArray(vpcs) && vpcs.length > 0) {
+                            // Add "All VPCs" option
+                            const allOpt = document.createElement('option');
+                            allOpt.value = "ALL";
+                            allOpt.textContent = "🏢 All VPCs";
+                            vpcSelector.appendChild(allOpt);
 
-                        loadLiveGraph(vpcSelector.options[0].value);
-                    } else {
-                        vpcSelector.innerHTML = '<option value="">🌐 Global & S3</option>';
-                        showMessage(true, 'No VPCs found. Showing global resources...');
-                        setTimeout(() => loadLiveGraph(""), 1000);
+                            vpcs.forEach(vpc => {
+                                const opt = document.createElement('option');
+                                opt.value = `${vpc.id}|${vpc.region}`;
+                                opt.textContent = `${vpc.name} (${vpc.id} - ${vpc.region})`;
+                                vpcSelector.appendChild(opt);
+                            });
+                            const globalOpt = document.createElement('option');
+                            globalOpt.value = ""; globalOpt.textContent = "🌐 Global & S3";
+                            vpcSelector.appendChild(globalOpt);
+
+                            if (vpcSelector.options.length > 0) {
+                                loadLiveGraph(allOpt.value); // Default to "All VPCs"
+                            }
+                        } else {
+                            vpcSelector.innerHTML = '<option value="">🌐 Global & S3</option>';
+                            showMessage(true, 'No VPCs found. Showing global resources...');
+                            setTimeout(() => loadLiveGraph(""), 1000);
+                        }
                     }
                 })
                 .catch(err => {
                     console.error('Error loading VPCs:', err);
-                    vpcSelector.innerHTML = '<option value="">🌐 Global & S3 (Retry)</option>';
+                    if (vpcSelector) vpcSelector.innerHTML = '<option value="">🌐 Global & S3 (Retry)</option>';
                     showMessage(true, `Failed to load VPCs: ${err.message}. Click Export to retry.`);
 
                     // Add retry button
-                    const retryBtn = document.createElement('button');
-                    retryBtn.className = 'bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-xs ml-2';
-                    retryBtn.innerHTML = '<i class="fas fa-sync-alt mr-1"></i> Retry';
-                    retryBtn.onclick = () => initLiveMode();
-                    document.getElementById('controls-live').appendChild(retryBtn);
+                    const controls = document.getElementById('controls-live');
+                    if (controls) {
+                        const retryBtn = document.createElement('button');
+                        retryBtn.className = 'bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-xs ml-2';
+                        retryBtn.innerHTML = '<i class="fas fa-sync-alt mr-1"></i> Retry';
+                        retryBtn.onclick = () => initLiveMode();
+                        controls.appendChild(retryBtn);
+                    }
                 });
 
-            vpcSelector.onchange = (e) => loadLiveGraph(e.target.value);
+            if (vpcSelector) {
+                vpcSelector.onchange = (e) => loadLiveGraph(e.target.value);
+            }
         }
 
         function loadLiveGraph(value) {
@@ -569,6 +646,16 @@
                         renderGraph([], false); // Render empty graph
                     } else {
                         renderGraph(data, false); // false = read-only
+
+                        // Reliability sequence for visibility
+                        const triggerResize = () => {
+                            if (cy) {
+                                cy.resize();
+                                cy.fit();
+                            }
+                        };
+                        setTimeout(triggerResize, 300);
+                        setTimeout(triggerResize, 1000);
                     }
                 })
                 .catch(err => {
@@ -586,6 +673,7 @@
 
         function populatePalette() {
             const container = document.getElementById('palette-container');
+            if (!container) return;
             container.innerHTML = '';
 
             Object.entries(nodeTypeData).forEach(([type, data]) => {
@@ -617,7 +705,9 @@
             if (!type) return;
 
             // Position relative to canvas
-            const rect = document.getElementById('cy').getBoundingClientRect();
+            const canvas = document.getElementById('cy');
+            if (!canvas) return;
+            const rect = canvas.getBoundingClientRect();
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
             const pos = cy.renderer().projectIntoViewport(x, y);
@@ -668,11 +758,49 @@
             const style = [
                 {
                     selector: 'node',
-                    style: { 'shape': 'rectangle', 'label': 'data(label)', 'font-size': '10px', 'font-weight': '600', 'text-valign': 'bottom', 'text-halign': 'center', 'color': '#374151', 'text-margin-y': 6, 'width': 50, 'height': 50, 'background-opacity': 0, 'background-image': (node) => icons[node.data('type')] || '/icons/default.png', 'background-fit': 'contain', 'background-clip': 'none', 'border-width': 2, 'border-color': '#e5e7eb', 'border-opacity': 0.8 }
+                    style: {
+                        'shape': 'rectangle',
+                        'label': 'data(label)',
+                        'font-size': '10px',
+                        'font-weight': '600',
+                        'text-valign': 'bottom',
+                        'text-halign': 'center',
+                        'color': '#374151',
+                        'text-margin-y': 6,
+                        'width': 50,
+                        'height': 50,
+                        'background-opacity': 0,
+                        'background-image': (node) => icons[node.data('type')] || '/icons/default-icon.png',
+                        'background-fit': 'contain',
+                        'background-clip': 'none',
+                        'border-width': 2,
+                        'border-color': '#e5e7eb',
+                        'border-opacity': 0.8
+                    }
                 },
                 { selector: 'node:selected', style: { 'border-color': '#667eea', 'border-width': 3 } },
                 { selector: 'edge', style: { 'width': 2, 'line-color': '#9ca3af', 'target-arrow-color': '#9ca3af', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', 'opacity': 0.8, 'label': 'data(label)', 'font-size': '9px', 'color': '#555' } },
-                { selector: ':parent', style: { 'text-valign': 'top', 'text-halign': 'center', 'font-weight': 'bold', 'font-size': '11px', 'color': '#1f2937', 'background-opacity': 0.95, 'padding': '40px', 'border-width': 2, 'border-style': 'dashed' } },
+                {
+                    selector: ':parent',
+                    style: {
+                        'text-valign': 'top',
+                        'text-halign': 'center',
+                        'font-weight': 'bold',
+                        'font-size': '11px',
+                        'color': '#1f2937',
+                        'background-opacity': 0.05,
+                        'background-color': '#f8fafc',
+                        'padding': '45px',
+                        'border-width': 2,
+                        'border-style': 'dashed',
+                        'background-image': (node) => icons[node.data('type')] || '',
+                        'background-fit': 'none',
+                        'background-width': '25px',
+                        'background-height': '25px',
+                        'background-position-x': '15px',
+                        'background-position-y': '15px'
+                    }
+                },
 
                 // Edge Handles specific styles
                 { selector: '.eh-handle', style: { 'background-color': '#667eea', 'width': 12, 'height': 12, 'shape': 'ellipse', 'overlay-opacity': 0, 'border-width': 12, 'border-opacity': 0 } },
@@ -681,6 +809,20 @@
                 { selector: '.eh-target', style: { 'border-width': 2, 'border-color': '#667eea' } },
                 { selector: '.eh-preview, .eh-ghost-edge', style: { 'background-color': '#667eea', 'line-color': '#667eea', 'target-arrow-color': '#667eea', 'source-arrow-color': '#667eea' } }
             ];
+
+            // Handle automatic resizing when container size changes
+            if (window.ResizeObserver) {
+                const container = document.getElementById('cy');
+                if (container) {
+                    const ro = new ResizeObserver(() => {
+                        if (cy) {
+                            cy.resize();
+                            if (cy.elements().length > 0) cy.fit();
+                        }
+                    });
+                    ro.observe(container);
+                }
+            }
 
             // Dynamic colors from existing logic
             for (const [type, data] of Object.entries(nodeTypeData)) {
@@ -702,6 +844,7 @@
                 .then(r => r.json())
                 .then(list => {
                     const sel = document.getElementById('blueprint-selector');
+                    if (!sel) return;
                     sel.innerHTML = '<option value="">-- New Design --</option>';
                     list.forEach(bp => {
                         const opt = document.createElement('option');
@@ -712,7 +855,12 @@
 
                     sel.onchange = (e) => {
                         if (e.target.value) loadBlueprint(e.target.value);
-                        else { cy.elements().remove(); currentBlueprintId = null; }
+                        else {
+                            if (cy) {
+                                cy.elements().remove();
+                            }
+                            currentBlueprintId = null;
+                        }
                     };
                 });
         };
@@ -723,16 +871,19 @@
                 .then(r => r.json())
                 .then(bp => {
                     currentBlueprintId = bp.id;
-                    cy.elements().remove();
-                    if (bp.graphData) {
-                        cy.add(JSON.parse(bp.graphData));
-                        cy.fit();
+                    if (cy) {
+                        cy.elements().remove();
+                        if (bp.graphData) {
+                            cy.add(JSON.parse(bp.graphData));
+                            cy.fit();
+                        }
                     }
                     showMessage(false);
                 });
         }
 
         window.saveDesign = function () {
+            if (!cy) return;
             const name = prompt("Name your design:", "My Cloud Architecture");
             if (!name) return;
 
@@ -758,9 +909,10 @@
 
         window.clearCanvas = function () {
             if (confirm("Clear everything? Unsaved changes will be lost.")) {
-                cy.elements().remove();
+                if (cy) cy.elements().remove();
                 currentBlueprintId = null;
-                document.getElementById('blueprint-selector').value = "";
+                const sel = document.getElementById('blueprint-selector');
+                if (sel) sel.value = "";
             }
         };
 
@@ -789,8 +941,10 @@
             }
             contentHtml += `</div></div>`;
 
-            document.getElementById('info-content').innerHTML = contentHtml;
-            document.getElementById('info-panel').classList.remove('translate-x-full');
+            const content = document.getElementById('info-content');
+            const panel = document.getElementById('info-panel');
+            if (content) content.innerHTML = contentHtml;
+            if (panel) panel.classList.remove('translate-x-full');
         }
 
         function showMessage(show, text, subtitle = '') {
@@ -798,29 +952,36 @@
             const spinner = document.getElementById('spinner');
             const emptyState = document.getElementById('empty-state');
 
-            el.style.display = show ? 'flex' : 'none';
-            emptyState.style.display = 'none';
+            if (el) el.style.display = show ? 'flex' : 'none';
+            if (emptyState) emptyState.style.display = 'none';
 
             if (show && text) {
-                document.getElementById('msg-title').textContent = text;
-                document.getElementById('msg-subtitle').textContent = subtitle;
+                const titleEl = document.getElementById('msg-title');
+                const subtitleEl = document.getElementById('msg-subtitle');
+                if (titleEl) titleEl.textContent = text;
+                if (subtitleEl) subtitleEl.textContent = subtitle;
 
-                // Hide spinner for non-loading messages
-                if (text.toLowerCase().includes('failed') || text.toLowerCase().includes('error') || text.toLowerCase().includes('no resources')) {
-                    spinner.style.display = 'none';
-                } else {
-                    spinner.style.display = 'block';
+                if (spinner) {
+                    // Hide spinner for non-loading messages
+                    if (text.toLowerCase().includes('failed') || text.toLowerCase().includes('error') || text.toLowerCase().includes('no resources')) {
+                        spinner.style.display = 'none';
+                    } else {
+                        spinner.style.display = 'block';
+                    }
                 }
             }
         }
 
         function showEmptyState() {
-            document.getElementById('message-overlay').style.display = 'none';
-            document.getElementById('empty-state').style.display = 'flex';
+            const msg = document.getElementById('message-overlay');
+            const empty = document.getElementById('empty-state');
+            if (msg) msg.style.display = 'none';
+            if (empty) empty.style.display = 'flex';
         }
 
         window.closeInfoPanel = function () {
-            document.getElementById('info-panel').classList.add('translate-x-full');
+            const panel = document.getElementById('info-panel');
+            if (panel) panel.classList.add('translate-x-full');
         };
 
         function populateLegend() {
@@ -844,7 +1005,8 @@
                     }
                 }
             });
-            document.getElementById('legend').innerHTML = legendHtml;
+            const legend = document.getElementById('legend');
+            if (legend) legend.innerHTML = legendHtml;
         }
 
         // Export graph as PNG
@@ -856,7 +1018,7 @@
 
             try {
                 const vpcSelector = document.getElementById('vpc-selector');
-                const selectedVpc = vpcSelector.options[vpcSelector.selectedIndex].text || 'cloudmap';
+                const selectedVpc = (vpcSelector && vpcSelector.options[vpcSelector.selectedIndex]?.text) || 'cloudmap';
                 const filename = `aws-cloudmap-${selectedVpc.replace(/[^a-z0-9]/gi, '_').toLowerCase()}-${new Date().toISOString().split('T')[0]}.png`;
 
                 const png = cy.png({
@@ -872,18 +1034,20 @@
                 link.click();
 
                 // Show success message briefly
-                const originalText = document.getElementById('save-btn-live').innerHTML;
-                document.getElementById('save-btn-live').innerHTML = '<i class="fas fa-check mr-1"></i> Exported!';
-                setTimeout(() => {
-                    document.getElementById('save-btn-live').innerHTML = originalText;
-                }, 2000);
+                const btn = document.getElementById('save-btn-live');
+                if (btn) {
+                    const originalText = btn.innerHTML;
+                    btn.innerHTML = '<i class="fas fa-check mr-1"></i> Exported!';
+                    setTimeout(() => {
+                        btn.innerHTML = originalText;
+                    }, 2000);
+                }
             } catch (err) {
                 console.error('Export failed:', err);
                 alert('Failed to export graph: ' + err.message);
             }
         };
     </script>
-
 </body>
 
 </html>

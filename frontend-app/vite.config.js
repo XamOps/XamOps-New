@@ -213,7 +213,10 @@ export default defineConfig({
         'azure_cloudlist': resolve(__dirname, 'azure_cloudlist.html'),
         'azure_dashboard': resolve(__dirname, 'azure_dashboard.html'),
         'azure-finops-report': resolve(__dirname, 'azure-finops-report.html'),
-        'superadmin_customers': resolve(__dirname, 'superadmin_customers.html')
+        'superadmin_customers': resolve(__dirname, 'superadmin_customers.html'),
+
+        // Integration guide
+        'integration-guide': resolve(__dirname, 'integration-guide.html')
       },
     },
   },
