@@ -118,14 +118,64 @@ public class OptimizationService {
             String accountId, boolean forceRefresh) {
         String cacheKey = "allRecommendations-" + accountId;
         if (!forceRefresh) {
+            // 1. Check database cache first (persistent, survives restarts)
+            // Aggregate all three types from database
+            try {
+                String today = LocalDate.now().toString();
+                List<DashboardData.OptimizationRecommendation> allRecs = new ArrayList<>();
+
+                // Try to load EC2 recommendations
+                String ec2Key = "RIGHTSIZING_EC2::" + accountId + "::" + today;
+                Optional<CachedData> ec2Cache = cachedDataRepository.findById(ec2Key);
+                if (ec2Cache.isPresent()) {
+                    List<DashboardData.OptimizationRecommendation> ec2Data = objectMapper.readValue(
+                        ec2Cache.get().getJsonData(),
+                        new TypeReference<List<DashboardData.OptimizationRecommendation>>() {});
+                    allRecs.addAll(ec2Data);
+                }
+
+                // Try to load EBS recommendations
+                String ebsKey = "RIGHTSIZING_EBS::" + accountId + "::" + today;
+                Optional<CachedData> ebsCache = cachedDataRepository.findById(ebsKey);
+                if (ebsCache.isPresent()) {
+                    List<DashboardData.OptimizationRecommendation> ebsData = objectMapper.readValue(
+                        ebsCache.get().getJsonData(),
+                        new TypeReference<List<DashboardData.OptimizationRecommendation>>() {});
+                    allRecs.addAll(ebsData);
+                }
+
+                // Try to load Lambda recommendations
+                String lambdaKey = "RIGHTSIZING_LAMBDA::" + accountId + "::" + today;
+                Optional<CachedData> lambdaCache = cachedDataRepository.findById(lambdaKey);
+                if (lambdaCache.isPresent()) {
+                    List<DashboardData.OptimizationRecommendation> lambdaData = objectMapper.readValue(
+                        lambdaCache.get().getJsonData(),
+                        new TypeReference<List<DashboardData.OptimizationRecommendation>>() {});
+                    allRecs.addAll(lambdaData);
+                }
+
+                // If we found data for at least one type, return it
+                if (!allRecs.isEmpty()) {
+                    logger.info("✅ Serving {} rightsizing recommendations from database cache for account {}",
+                        allRecs.size(), accountId);
+                    return CompletableFuture.completedFuture(allRecs);
+                }
+            } catch (Exception e) {
+                logger.warn("Failed to read rightsizing data from database cache: {}", e.getMessage());
+            }
+
+            // 2. Fallback to Redis cache
             Optional<List<DashboardData.OptimizationRecommendation>> cachedData = redisCache.get(cacheKey,
                     new TypeReference<>() {
                     });
             if (cachedData.isPresent()) {
+                logger.info("Serving rightsizing recommendations from Redis cache for account {}", accountId);
                 return CompletableFuture.completedFuture(cachedData.get());
             }
         }
 
+        // 3. Fetch fresh data from AWS API
+        logger.info("Fetching fresh rightsizing recommendations from AWS API for account {}", accountId);
         CloudAccount account = getAccount(accountId);
         return cloudListService.getRegionStatusForAccount(account, forceRefresh).thenCompose(activeRegions -> {
             if (activeRegions == null || activeRegions.isEmpty()) {

@@ -1603,7 +1603,7 @@
                                 const resources = allResources.filter(res => res.count > 0);
 
                                 container.innerHTML = resources.map(res => `
-                        <a href="/cloudlist.html?service=${encodeURIComponent(res.type)}" class="soft-nav-link resource-card flex items-center gap-4 p-4 rounded-xl hover:shadow-md transition-all group">                        <div class="resource-icon w-10 h-10 flex-shrink-0">
+                        <a href="cloudlist.html?service=${encodeURIComponent(res.type)}&accountIds=${this.selectedAccountIds.join(',')}" class="soft-nav-link resource-card flex items-center gap-4 p-4 rounded-xl hover:shadow-md transition-all group">                        <div class="resource-icon w-10 h-10 flex-shrink-0">
                             <img src="/icons/${res.icon}" alt="${res.name}" class="w-full h-full rounded-xl object-cover">
                         </div>
                         <div class="flex-1 min-w-0">
@@ -1699,7 +1699,7 @@
                             </div>
                             ${recs.length > 2 ? `
                                 <div class="mt-1.5 text-center">
-                                    <a href="/rightsizing.html" class="inline-flex items-center text-xs text-${color}-600 hover:text-${color}-700 font-medium">
+                                    <a href="/rightsizing.html?accountIds=${this.selectedAccountIds.join(',')}" class="soft-nav-link inline-flex items-center text-xs text-${color}-600 hover:text-${color}-700 font-medium">
                                         +${recs.length - 2} more
                                         <i class="fas fa-arrow-right ml-1" style="font-size: 10px;"></i>
                                     </a>
@@ -1763,7 +1763,7 @@
                             </div>
                             ${anomalies.length > 2 ? `
                                 <div class="mt-1.5 text-center">
-                                    <a href="#" class="inline-flex items-center text-xs text-red-600 hover:text-red-700 font-medium">
+                                    <a href="/alerts.html?accountIds=${this.selectedAccountIds.join(',')}" class="soft-nav-link inline-flex items-center text-xs text-red-600 hover:text-red-700 font-medium">
                                         +${anomalies.length - 2} more
                                         <i class="fas fa-arrow-right ml-1" style="font-size: 10px;"></i>
                                     </a>

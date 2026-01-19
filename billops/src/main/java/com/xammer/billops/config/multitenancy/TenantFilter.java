@@ -72,13 +72,20 @@ public class TenantFilter implements Filter {
                         String username = auth.getName();
                         Optional<GlobalUserDto> userDto = masterDatabaseService.findGlobalUser(username);
                         if (userDto.isPresent()) {
-                            return userDto.get().getTenantId();
+                            String tenantId = userDto.get().getTenantId();
+                            System.out.println(
+                                    "BillOps TenantFilter: Resolved tenant " + tenantId + " for user " + username);
+                            return tenantId;
+                        } else {
+                            System.out.println(
+                                    "BillOps TenantFilter: User " + username + " not found in global directory");
                         }
                     }
                 }
             }
         } catch (Exception e) {
-            // Ignore errors during fallback
+            System.err.println("BillOps TenantFilter fallback failed: " + e.getMessage());
+            e.printStackTrace();
         }
         return null;
     }
