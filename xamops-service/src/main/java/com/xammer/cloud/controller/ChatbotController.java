@@ -1,8 +1,11 @@
 package com.xammer.cloud.controller;
 
+import com.xammer.cloud.domain.SupportMessage;
 import com.xammer.cloud.dto.ChatRequest;
 import com.xammer.cloud.dto.ChatResponse;
 import com.xammer.cloud.service.SupportChatService;
+
+import java.util.List;
 
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -28,4 +31,12 @@ public class ChatbotController {
         // In a real real-time app, this might be empty, but we return a system note.
         return new ChatResponse("Request received. An agent will be with you shortly.");
     }
+
+    @GetMapping("/chat/history")
+    @PreAuthorize("hasAuthority('ROLE_XAMOPS')")
+    public List<SupportMessage> getChatHistory() {
+    return supportChatService.getMessagesForCurrentUser();
+}
+
+
 }

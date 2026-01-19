@@ -51,4 +51,20 @@ public class SupportChatService {
 
         return messageRepository.save(supportMessage);
     }
+
+    public List<SupportMessage> getMessagesForCurrentUser() {
+    String username = ((UserDetails) SecurityContextHolder.getContext().getAuthentication().getPrincipal()).getUsername();
+    User user = userRepository.findByUsername(username)
+            .orElseThrow(() -> new RuntimeException("User not found"));
+
+    // Get the user's account ID (same logic as sendUserMessage)
+    String accountId = "N/A";
+    if (user.getClient() != null && user.getClient().getCloudAccounts() != null && !user.getClient().getCloudAccounts().isEmpty()) {
+        accountId = user.getClient().getCloudAccounts().get(0).getProviderAccountId();
+    }
+
+    return messageRepository.findByAccountIdOrderByTimestampAsc(accountId);
+}
+
+
 }
