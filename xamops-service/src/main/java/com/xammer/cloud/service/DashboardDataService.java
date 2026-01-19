@@ -214,7 +214,8 @@ public class DashboardDataService {
 
     /**
      * Fetch active tenants - ENVIRONMENT AWARE
-     * Only returns the tenant associated with the current environment
+     * - Local/UAT: Returns single configured tenant (uses local/uat DB)
+     * - Prod: Returns ALL active tenants from master DB (tenant_config table)
      */
     private List<String> fetchActiveTenants() {
         try {
@@ -223,29 +224,27 @@ public class DashboardDataService {
                 return Collections.emptyList();
             }
 
-            String currentTenant = envConfig.getCurrentTenantId();
             String activeProfile = envConfig.getActiveProfile();
-            logger.info("🔒 Environment filter: Only processing tenant '{}' (environment: {})",
-                    currentTenant, activeProfile);
+            logger.info("🔒 Environment: {}", activeProfile);
 
             // In local/UAT, there's no tenant_config table - just return the configured
             // tenant
             if ("local".equals(activeProfile) || "uat".equals(activeProfile)) {
+                String currentTenant = envConfig.getCurrentTenantId();
                 logger.info("✅ Using configured tenant '{}' for {} environment (no tenant_config query)",
                         currentTenant, activeProfile);
                 return java.util.Arrays.asList(currentTenant);
             }
 
-            // In prod, query tenant_config from master DB
+            // In prod, query tenant_config from master DB - GET ALL ACTIVE TENANTS
             List<String> tenants = masterJdbcTemplate.queryForList(
-                    "SELECT tenant_id FROM tenant_config WHERE active = true AND tenant_id = ?",
-                    String.class,
-                    currentTenant);
+                    "SELECT tenant_id FROM tenant_config WHERE active = true",
+                    String.class);
 
             if (tenants.isEmpty()) {
-                logger.warn("⚠️ No active tenant found for tenant_id: {}", currentTenant);
+                logger.warn("⚠️ No active tenants found in tenant_config table");
             } else {
-                logger.info("✅ Found tenant '{}' for background aggregation", currentTenant);
+                logger.info("✅ Found {} active tenants for background aggregation: {}", tenants.size(), tenants);
             }
 
             return tenants;
@@ -481,6 +480,31 @@ public class DashboardDataService {
                 return objectMapper.readValue(cached.get().getJsonData(), typeRef);
             } catch (JsonProcessingException e) {
                 logger.error("Failed to deserialize Security snapshot {}", key, e);
+            }
+        }
+        return null;
+    }
+
+    public void saveAlertsSnapshot(String key, Object data) {
+        try {
+            CachedData cachedData = cachedDataRepository.findById(key).orElse(new CachedData());
+            cachedData.setCacheKey(key);
+            cachedData.setJsonData(objectMapper.writeValueAsString(data));
+            cachedData.setLastUpdated(LocalDateTime.now());
+            cachedDataRepository.save(cachedData);
+            logger.info("Saved Alerts snapshot: {}", key);
+        } catch (JsonProcessingException e) {
+            logger.error("Failed to serialize Alerts snapshot {}", key, e);
+        }
+    }
+
+    public Object getAlertsSnapshot(String key, TypeReference<?> typeRef) {
+        Optional<CachedData> cached = cachedDataRepository.findById(key);
+        if (cached.isPresent()) {
+            try {
+                return objectMapper.readValue(cached.get().getJsonData(), typeRef);
+            } catch (JsonProcessingException e) {
+                logger.error("Failed to deserialize Alerts snapshot {}", key, e);
             }
         }
         return null;

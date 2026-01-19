@@ -108,11 +108,6 @@ public class InvoiceManagementService {
         logger.info("✅ InvoiceManagementService initialized");
     }
 
-    private void evictInvoiceListCache() {
-        redisCache.evict(INVOICE_LIST_CACHE_KEY);
-        logger.info("Evicted invoice list cache: {}", INVOICE_LIST_CACHE_KEY);
-    }
-
     // --- PDF GENERATION START ---
 
     public ByteArrayInputStream generatePdfForInvoice(Long invoiceId) {
@@ -958,9 +953,23 @@ public class InvoiceManagementService {
         return saved;
     }
 
+    private String getTenantCacheKey(String key) {
+        String tenantId = com.xammer.billops.config.multitenancy.TenantContext.getCurrentTenant();
+        if (tenantId == null)
+            tenantId = "default";
+        return key + ":" + tenantId;
+    }
+
+    private void evictInvoiceListCache() {
+        String cacheKey = getTenantCacheKey(INVOICE_LIST_CACHE_KEY);
+        redisCache.evict(cacheKey);
+        logger.info("Evicted invoice list cache: {}", cacheKey);
+    }
+
     @Transactional(readOnly = true)
     public Optional<List<InvoiceDto>> getCachedAllInvoices() {
-        return redisCache.get(INVOICE_LIST_CACHE_KEY, new TypeReference<List<InvoiceDto>>() {
+        String cacheKey = getTenantCacheKey(INVOICE_LIST_CACHE_KEY);
+        return redisCache.get(cacheKey, new TypeReference<List<InvoiceDto>>() {
         });
     }
 
@@ -974,7 +983,8 @@ public class InvoiceManagementService {
             return dto;
         }).collect(Collectors.toList());
 
-        redisCache.put(INVOICE_LIST_CACHE_KEY, dtos, CACHE_TTL_MINUTES);
+        String cacheKey = getTenantCacheKey(INVOICE_LIST_CACHE_KEY);
+        redisCache.put(cacheKey, dtos, CACHE_TTL_MINUTES);
         return dtos;
     }
 

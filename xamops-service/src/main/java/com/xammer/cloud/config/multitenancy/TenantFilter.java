@@ -82,14 +82,19 @@ public class TenantFilter implements Filter {
                         // Query Master DB to find where this user belongs
                         Optional<GlobalUserDto> userDto = masterDatabaseService.findGlobalUser(username);
                         if (userDto.isPresent()) {
-                            return userDto.get().getTenantId();
+                            String tenantId = userDto.get().getTenantId();
+                            System.out.println("TenantFilter: Resolved tenant " + tenantId + " for user " + username);
+                            return tenantId;
+                        } else {
+                            System.out.println("TenantFilter: User " + username + " not found in global directory");
                         }
                     }
                 }
             }
         } catch (Exception e) {
             // Log silently to avoid flooding logs on unauthenticated requests
-            // System.err.println("TenantFilter fallback failed: " + e.getMessage());
+            System.err.println("TenantFilter fallback failed: " + e.getMessage());
+            e.printStackTrace();
         }
         return null;
     }

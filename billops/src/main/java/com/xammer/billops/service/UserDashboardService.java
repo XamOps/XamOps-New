@@ -58,7 +58,11 @@ public class UserDashboardService {
     }
 
     public UserDashboardDto getUserDashboardSummary(AppUser user, boolean forceRefresh) {
-        String cacheKey = CACHE_KEY_PREFIX + user.getId();
+        String tenantId = com.xammer.billops.config.multitenancy.TenantContext.getCurrentTenant();
+        if (tenantId == null)
+            tenantId = "default";
+
+        String cacheKey = CACHE_KEY_PREFIX + tenantId + ":" + user.getId();
 
         // Check cache first
         if (!forceRefresh) {
