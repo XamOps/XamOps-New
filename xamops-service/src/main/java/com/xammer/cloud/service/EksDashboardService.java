@@ -25,6 +25,8 @@ import java.util.stream.Collectors;
 public class EksDashboardService {
 
     private static final Logger logger = LoggerFactory.getLogger(EksDashboardService.class);
+    private static final String EKS_DASHBOARD_CACHE_PREFIX = "EKS_DASHBOARD::";
+    private static final int CACHE_TTL_MINUTES = 2; // Cache for 2 minutes
 
     private final PrometheusService prometheusService;
     private final KubernetesClusterRepository kubernetesClusterRepository;
@@ -33,6 +35,7 @@ public class EksDashboardService {
     private final TrivyService trivyService;
     private final KarpenterService karpenterService;
     private final K8sClientFactory k8sClientFactory;
+    private final RedisCacheService redisCacheService;
 
     public EksDashboardService(PrometheusService prometheusService,
             KubernetesClusterRepository kubernetesClusterRepository,
@@ -40,7 +43,8 @@ public class EksDashboardService {
             KubescapeService kubescapeService,
             TrivyService trivyService,
             KarpenterService karpenterService,
-            K8sClientFactory k8sClientFactory) {
+            K8sClientFactory k8sClientFactory,
+            RedisCacheService redisCacheService) {
         this.prometheusService = prometheusService;
         this.kubernetesClusterRepository = kubernetesClusterRepository;
         this.clusterConfigRepository = clusterConfigRepository;
@@ -48,6 +52,7 @@ public class EksDashboardService {
         this.trivyService = trivyService;
         this.karpenterService = karpenterService;
         this.k8sClientFactory = k8sClientFactory;
+        this.redisCacheService = redisCacheService;
     }
 
     private String getPrometheusUrl(CloudAccount account, String clusterName) {
@@ -65,11 +70,41 @@ public class EksDashboardService {
                 });
     }
 
+    /**
+     * Backward-compatible method - defaults to using cache
+     */
     public CompletableFuture<EksCompleteDashboardDto> getCompleteDashboard(
             CloudAccount account, String clusterName, String region, String version, String status) {
+        return getCompleteDashboard(account, clusterName, region, version, status, false);
+    }
+
+    /**
+     * Get complete dashboard with cache support
+     * 
+     * @param forceRefresh if true, bypasses cache and fetches fresh data
+     */
+    public CompletableFuture<EksCompleteDashboardDto> getCompleteDashboard(
+            CloudAccount account, String clusterName, String region, String version, String status,
+            boolean forceRefresh) {
+
+        String cacheKey = EKS_DASHBOARD_CACHE_PREFIX + account.getAwsAccountId() + "::" + clusterName;
 
         return CompletableFuture.supplyAsync(() -> {
             try {
+                // Check cache first (unless forceRefresh is true or Redis unavailable)
+                if (!forceRefresh && redisCacheService != null) {
+                    try {
+                        Optional<EksCompleteDashboardDto> cached = redisCacheService.get(cacheKey,
+                                EksCompleteDashboardDto.class);
+                        if (cached.isPresent()) {
+                            logger.info("📦 Returning cached EKS dashboard for cluster: {}", clusterName);
+                            return cached.get();
+                        }
+                    } catch (Exception cacheEx) {
+                        logger.warn("⚠️ Cache read failed, fetching fresh data: {}", cacheEx.getMessage());
+                    }
+                }
+
                 String promUrl = getPrometheusUrl(account, clusterName);
 
                 if (promUrl == null) {
@@ -77,7 +112,8 @@ public class EksDashboardService {
                     return createEmptyDashboard(clusterName, region, version, status);
                 }
 
-                logger.info("🎯 Fetching complete dashboard data for cluster: {}", clusterName);
+                logger.info("🎯 Fetching fresh dashboard data for cluster: {} (forceRefresh={})", clusterName,
+                        forceRefresh);
 
                 EksCompleteDashboardDto dashboard = new EksCompleteDashboardDto();
 
@@ -97,7 +133,7 @@ public class EksDashboardService {
                 dashboard.setContainerMetrics(buildContainerMetrics(promUrl, clusterName));
                 dashboard.setNodeMetrics(buildNodeMetrics(promUrl, clusterName));
 
-                // Fetch Kubescape data if enabled
+                // Fetch K8s integrations (Kubescape, Trivy, Karpenter)
                 try {
                     String awsAccountIdStr = account.getAwsAccountId();
                     Long providerId = null;
@@ -105,13 +141,17 @@ public class EksDashboardService {
                         providerId = Long.valueOf(awsAccountIdStr);
                     }
 
-                    logger.info("🔍 Looking up Kubescape config for cluster: {}. DB ID: {}, AWS ID: {}",
+                    logger.info("🔍 Looking up cluster config for: {}. DB ID: {}, AWS ID (as Long): {}",
                             clusterName, account.getId(), providerId);
 
-                    // Step 1: Fix Account ID Resolution - Prioritize AWS Account Number
+                    // Step 1: Try AWS Account ID first (some DBs store this)
                     Optional<KubernetesClusterConfig> configOpt = providerId != null
                             ? clusterConfigRepository.findByCloudAccountIdAndClusterName(providerId, clusterName)
                             : Optional.empty();
+
+                    if (configOpt.isPresent()) {
+                        logger.info("✅ Found cluster config using AWS ID: {}", providerId);
+                    }
 
                     if (configOpt.isEmpty()) {
                         logger.warn("⚠️ Cluster config NOT found using AWS ID, trying DB ID FALLBACK: {}",
@@ -122,42 +162,57 @@ public class EksDashboardService {
 
                     if (configOpt.isPresent()) {
                         KubernetesClusterConfig config = configOpt.get();
-                        if (Boolean.TRUE.equals(config.getKubescapeEnabled())) {
-                            String kubeconfig = config.getKubeconfigYaml();
-                            if (kubeconfig != null && !kubeconfig.isEmpty()) {
-                                // Step 3: Fix Resource Cleanup (Try-With-Resources)
-                                try (KubernetesClient client = k8sClientFactory.createFromKubeconfig(kubeconfig)) {
+                        logger.info("✅ Found cluster config: id={}, clusterName={}, kubeconfigLength={}",
+                                config.getId(), config.getClusterName(),
+                                config.getKubeconfigYaml() != null ? config.getKubeconfigYaml().length() : 0);
+                        String kubeconfig = config.getKubeconfigYaml();
+                        if (kubeconfig != null && !kubeconfig.isEmpty()) {
+                            // Step 3: Fix Resource Cleanup (Try-With-Resources)
+                            logger.info("🔗 Creating K8s client from kubeconfig...");
+                            try (KubernetesClient client = k8sClientFactory.createFromKubeconfig(kubeconfig)) {
+                                logger.info("✅ K8s client created successfully");
+
+                                // 1. Kubescape (Conditional)
+                                if (Boolean.TRUE.equals(config.getKubescapeEnabled())) {
                                     KubescapeDashboard kDashboard = kubescapeService.fetchDashboardData(
                                             client,
                                             clusterName,
                                             awsAccountIdStr != null ? awsAccountIdStr
                                                     : String.valueOf(account.getId()));
                                     dashboard.setKubescape(kDashboard);
+                                } else {
+                                    logger.info("ℹ️ Kubescape is NOT enabled for cluster: {}", clusterName);
+                                }
 
-                                    // NEW: Fetch Trivy data
-                                    TrivyDashboard tDashboard = trivyService.fetchDashboardData(client);
-                                    dashboard.setTrivy(tDashboard);
+                                // 2. Trivy (Independent)
+                                TrivyDashboard tDashboard = trivyService.fetchDashboardData(client);
+                                dashboard.setTrivy(tDashboard);
 
-                                    // NEW: Fetch Karpenter data
+                                // 3. Karpenter (Independent)
+                                try {
                                     KarpenterDashboard karDashboard = karpenterService.fetchDashboardData(client);
                                     dashboard.setKarpenter(karDashboard);
-
-                                    // ✅ NEW: Enrich pod data with actual container statuses from K8s API
-                                    WorkloadHealth currentWorkload = dashboard.getWorkloadHealth();
-                                    if (currentWorkload != null) {
-                                        List<WorkloadHealth.PodHealth> enrichedPods = buildPodHealth(promUrl, clusterName, client);
-                                        currentWorkload.setPods(enrichedPods);
-                                        logger.info("✅ Pod data enriched with container statuses from K8s API");
-                                    }
-
-                                    logger.info("✅ Kubescape, Trivy & Karpenter data integrated for cluster: {}",
-                                            clusterName);
+                                    logger.info("📊 Karpenter data fetched: installed={}, nodePools={}",
+                                            karDashboard.isInstalled(), karDashboard.getTotalNodePools());
+                                } catch (Exception karpenterEx) {
+                                    logger.error("❌ Error fetching Karpenter data for cluster: {}", clusterName,
+                                            karpenterEx);
                                 }
-                            } else {
-                                logger.warn("⚠️ Kubeconfig is EMPTY for cluster: {}", clusterName);
+
+                                // 4. Pod Enrichment (Independent)
+                                WorkloadHealth currentWorkload = dashboard.getWorkloadHealth();
+                                if (currentWorkload != null) {
+                                    List<WorkloadHealth.PodHealth> enrichedPods = buildPodHealth(promUrl, clusterName,
+                                            client);
+                                    currentWorkload.setPods(enrichedPods);
+                                    logger.info("✅ Pod data enriched with container statuses from K8s API");
+                                }
+
+                                logger.info("✅ K8s integrations (Kubescape/Trivy/Karpenter) processed for cluster: {}",
+                                        clusterName);
                             }
                         } else {
-                            logger.info("ℹ️ Kubescape is NOT enabled for cluster: {}", clusterName);
+                            logger.warn("⚠️ Kubeconfig is EMPTY for cluster: {}", clusterName);
                         }
                     } else {
                         logger.warn("⚠️ No cluster config found for cluster: {}. All ID lookups failed.", clusterName);
@@ -166,7 +221,17 @@ public class EksDashboardService {
                     logger.error("❌ Error adding Kubescape data to dashboard for cluster: {}", clusterName, e);
                 }
 
-                logger.info("✅ Complete dashboard data fetched successfully");
+                // Save to cache (if Redis available)
+                if (redisCacheService != null) {
+                    try {
+                        redisCacheService.put(cacheKey, dashboard, CACHE_TTL_MINUTES);
+                        logger.info("✅ Complete dashboard data fetched and cached for {} mins", CACHE_TTL_MINUTES);
+                    } catch (Exception cacheEx) {
+                        logger.warn("⚠️ Cache write failed: {}", cacheEx.getMessage());
+                    }
+                } else {
+                    logger.info("✅ Complete dashboard data fetched (caching disabled)");
+                }
                 return dashboard;
 
             } catch (Exception e) {
@@ -210,11 +275,14 @@ public class EksDashboardService {
 
         overview.setTotalNodes(prometheusService.getClusterNodeCount(promUrl, clusterName));
         overview.setTotalPods(prometheusService.getClusterPodCount(promUrl, clusterName));
-        overview.setCpuUsagePercent(prometheusService.getClusterCpuUsage(promUrl, clusterName));
-        overview.setMemoryUsagePercent(prometheusService.getClusterMemoryUsage(promUrl, clusterName));
 
         Map<String, String> namespaces = prometheusService.getNamespaceStatusPhase(promUrl, clusterName);
         overview.setTotalNamespaces(namespaces.size());
+
+        overview.setCpuUsagePercent(prometheusService.getClusterCpuUsage(promUrl, clusterName));
+        overview.setCpuUsageMillicores(prometheusService.getClusterCpuUsageMillicores(promUrl, clusterName));
+        overview.setCpuCapacityMillicores(prometheusService.getClusterCpuCapacityMillicores(promUrl, clusterName));
+        overview.setMemoryUsagePercent(prometheusService.getClusterMemoryUsage(promUrl, clusterName));
 
         return overview;
     }
@@ -340,6 +408,9 @@ public class EksDashboardService {
         Map<String, Map<String, Double>> nodeAllocatable = prometheusService.getNodeAllocatable(promUrl, clusterName);
         Map<String, String> nodeConditions = prometheusService.getNodeConditions(promUrl, clusterName);
         Map<String, Double> nodeCostsByInstanceId = prometheusService.getNodeCostPerHour(promUrl, clusterName);
+        Map<String, Double> nodeCpuUsage = prometheusService.getNodeCpuUsage(promUrl, clusterName);
+        Map<String, Double> nodeCpuMillicores = prometheusService.getNodeCpuUsageMillicores(promUrl, clusterName);
+        Map<String, Double> nodeMemUsage = prometheusService.getNodeMemoryUsage(promUrl, clusterName);
 
         logger.info("🔍 Node capacity keys: {}", nodeCapacity.keySet());
         logger.info("🔍 Node allocatable keys: {}", nodeAllocatable.keySet());
@@ -365,6 +436,9 @@ public class EksDashboardService {
             nodeRes.setInstanceType("t3.medium");
             nodeRes.setZone(extractZone(providerId));
             nodeRes.setCondition(nodeConditions.getOrDefault(nodeName, "Unknown"));
+            nodeRes.setCpuUsagePercent(nodeCpuUsage.getOrDefault(nodeName, 0.0));
+            nodeRes.setCpuUsageMillicores(nodeCpuMillicores.getOrDefault(nodeName, 0.0));
+            nodeRes.setMemoryUsagePercent(nodeMemUsage.getOrDefault(nodeName, 0.0));
 
             // Set capacity values
             if (nodeCapacity.containsKey(nodeName)) {
@@ -420,7 +494,8 @@ public class EksDashboardService {
         return buildPodHealth(promUrl, clusterName, null);
     }
 
-    private List<WorkloadHealth.PodHealth> buildPodHealth(String promUrl, String clusterName, KubernetesClient k8sClient) {
+    private List<WorkloadHealth.PodHealth> buildPodHealth(String promUrl, String clusterName,
+            KubernetesClient k8sClient) {
         List<Map<String, String>> podInfoList = prometheusService.getPodInfo(promUrl, clusterName);
         Map<String, String> podPhases = prometheusService.getPodStatusPhase(promUrl, clusterName);
         Map<String, Boolean> podReady = prometheusService.getPodContainerStatus(promUrl, clusterName);
@@ -466,7 +541,7 @@ public class EksDashboardService {
             pod.setCpuUsage(podCpu.getOrDefault(podName, 0.0));
             pod.setMemoryUsage(podMem.getOrDefault(podName, 0.0));
 
-            Map<String, WorkloadHealth.PodHealth.ContainerMetrics> containers = new HashMap<>();
+            List<WorkloadHealth.PodHealth.ContainerMetrics> containers = new ArrayList<>();
             int matchCount = 0;
 
             // ✅ IMPROVED MATCHING LOGIC
@@ -484,7 +559,7 @@ public class EksDashboardService {
                     container.setCpuUsage(entry.getValue());
                     container.setMemoryUsage(containerMem.getOrDefault(key, 0.0));
                     container.setFsUsage(containerFs.getOrDefault(key, 0.0));
-                    containers.put(containerName, container);
+                    containers.add(container);
                 }
             }
 
@@ -502,7 +577,8 @@ public class EksDashboardService {
                 List<WorkloadHealth.PodHealth.ContainerStatus> containerStatuses = new ArrayList<>();
 
                 if (k8sPod.getStatus() != null && k8sPod.getStatus().getContainerStatuses() != null) {
-                    for (io.fabric8.kubernetes.api.model.ContainerStatus k8sStatus : k8sPod.getStatus().getContainerStatuses()) {
+                    for (io.fabric8.kubernetes.api.model.ContainerStatus k8sStatus : k8sPod.getStatus()
+                            .getContainerStatuses()) {
                         WorkloadHealth.PodHealth.ContainerStatus status = new WorkloadHealth.PodHealth.ContainerStatus();
                         status.setName(k8sStatus.getName());
                         status.setRestartCount(k8sStatus.getRestartCount());
@@ -722,6 +798,7 @@ public class EksDashboardService {
         Map<String, Map<String, Double>> nodeAllocatable = prometheusService.getNodeAllocatable(promUrl, clusterName);
         Map<String, String> nodeConditions = prometheusService.getNodeConditions(promUrl, clusterName);
         Map<String, Double> nodeCpuUsage = prometheusService.getNodeCpuUsage(promUrl, clusterName);
+        Map<String, Double> nodeCpuMillicores = prometheusService.getNodeCpuUsageMillicores(promUrl, clusterName);
         Map<String, Double> nodeMemUsage = prometheusService.getNodeMemoryUsage(promUrl, clusterName);
 
         // ✅ NEW: Get all node conditions (Ready, DiskPressure, MemoryPressure,
@@ -780,6 +857,7 @@ public class EksDashboardService {
 
             // ✅ Current usage
             node.setCpuUsagePercent(nodeCpuUsage.getOrDefault(nodeName, 0.0));
+            node.setCpuUsageMillicores(nodeCpuMillicores.getOrDefault(nodeName, 0.0));
             node.setMemoryUsagePercent(nodeMemUsage.getOrDefault(nodeName, 0.0));
 
             // ✅ Conditions (Ready, DiskPressure, MemoryPressure, PIDPressure)
@@ -997,6 +1075,7 @@ public class EksDashboardService {
                 info.setCpuCapacity(detail.getCpuCapacity());
                 info.setCpuAllocatable(detail.getCpuAllocatable());
                 info.setCpuUsage(detail.getCpuUsagePercent());
+                info.setCpuUsageMillicores(detail.getCpuUsageMillicores());
                 info.setMemoryCapacity(detail.getMemoryCapacity());
                 info.setMemoryAllocatable(detail.getMemoryAllocatable());
                 info.setMemoryUsage(detail.getMemoryUsagePercent());

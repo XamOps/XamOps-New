@@ -80,13 +80,17 @@ public class KarpenterService {
 
     private boolean isKarpenterInstalled(KubernetesClient client) {
         try {
-            Deployment deployment = client.apps().deployments()
-                    .inNamespace(KARPENTER_NAMESPACE)
-                    .withName("karpenter")
-                    .get();
-            return deployment != null;
+            // Check for Karpenter NodePool CRD which is a more reliable indicator than
+            // deployment
+            logger.info("🔍 Checking if Karpenter CRD exists...");
+            var crd = client.apiextensions().v1().customResourceDefinitions()
+                    .withName("nodepools.karpenter.sh").get();
+            boolean installed = crd != null;
+            logger.info("📋 Karpenter CRD check result: installed={}", installed);
+            return installed;
         } catch (Exception e) {
-            logger.debug("Karpenter deployment not found: {}", e.getMessage());
+            logger.warn("⚠️ Error checking Karpenter CRD (may be permission issue): {}", e.getMessage());
+            logger.debug("Full exception:", e);
             return false;
         }
     }

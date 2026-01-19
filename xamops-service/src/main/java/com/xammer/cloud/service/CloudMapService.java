@@ -63,7 +63,8 @@ public class CloudMapService {
         }
     }
 
-    public CompletableFuture<List<Map<String, Object>>> getGraphData(String accountId, String vpcId, String region, boolean forceRefresh) {
+    public CompletableFuture<List<Map<String, Object>>> getGraphData(String accountId, String vpcId, String region,
+            boolean forceRefresh) {
         try {
             CloudAccount account = getAccount(accountId);
             logger.info("Fetching graph data for account {}, VPC: {}, Region: {}", accountId, vpcId, region);
@@ -81,19 +82,21 @@ public class CloudMapService {
 
                         try {
                             if (vpcId != null && !vpcId.isEmpty()) {
-                                // --- VPC-specific view ---
-                                logger.info("Building VPC-specific graph for VPC: {}", vpcId);
+                                // --- VPC-specific or Multi-VPC view ---
+                                logger.info("Building graph for VPC: {}", vpcId);
                                 Ec2Client ec2Client = awsClientProvider.getEc2Client(account, region);
                                 addVpcAndSubnetNodes(elements, ec2Client, vpcId);
 
                                 relevantResources = allResources.stream()
-                                        .filter(r -> r != null && (vpcId.equals(getDetail(r, "VPC ID")) || vpcId.equals(r.getId())))
+                                        .filter(r -> r != null && ("ALL".equals(vpcId)
+                                                || vpcId.equals(getDetail(r, "VPC ID")) || vpcId.equals(r.getId())))
                                         .collect(Collectors.toList());
                             } else {
                                 // --- Global view (non-VPC resources) ---
                                 logger.info("Building global resource graph");
                                 relevantResources = allResources.stream()
-                                        .filter(r -> r != null && getDetail(r, "VPC ID") == null && !"Subnet".equals(r.getType()))
+                                        .filter(r -> r != null && getDetail(r, "VPC ID") == null
+                                                && !"Subnet".equals(r.getType()))
                                         .collect(Collectors.toList());
                             }
 
@@ -102,9 +105,11 @@ public class CloudMapService {
                             for (ResourceDto resource : relevantResources) {
                                 try {
                                     String parent = getParent(resource);
-                                    elements.add(createNode(resource.getId(), resource.getName(), resource.getType(), parent, resource.getDetails()));
+                                    elements.add(createNode(resource.getId(), resource.getName(), resource.getType(),
+                                            parent, resource.getDetails()));
                                 } catch (Exception e) {
-                                    logger.warn("Failed to create node for resource {}: {}", resource.getId(), e.getMessage());
+                                    logger.warn("Failed to create node for resource {}: {}", resource.getId(),
+                                            e.getMessage());
                                 }
                             }
 
@@ -129,17 +134,32 @@ public class CloudMapService {
 
     private void addVpcAndSubnetNodes(List<Map<String, Object>> elements, Ec2Client ec2Client, String vpcId) {
         try {
-            Vpc vpc = ec2Client.describeVpcs(req -> req.vpcIds(vpcId)).vpcs().get(0);
-            String vpcName = vpc.tags().stream().filter(t -> "Name".equalsIgnoreCase(t.key())).findFirst().map(t -> t.value()).orElse(vpcId);
-            elements.add(createNode(vpcId, vpcName, "VPC", null, null));
-
-            List<Subnet> subnets = ec2Client.describeSubnets(req -> req.filters(Filter.builder().name("vpc-id").values(vpcId).build())).subnets();
-            for (Subnet subnet : subnets) {
-                String subnetName = subnet.tags().stream().filter(t -> "Name".equalsIgnoreCase(t.key())).findFirst().map(t -> t.value()).orElse(subnet.subnetId());
-                elements.add(createNode(subnet.subnetId(), subnetName, "Subnet", vpcId, null));
+            if ("ALL".equals(vpcId)) {
+                List<Vpc> vpcs = ec2Client.describeVpcs().vpcs();
+                for (Vpc vpc : vpcs) {
+                    processVpcAndSubnets(elements, ec2Client, vpc);
+                }
+            } else {
+                Vpc vpc = ec2Client.describeVpcs(req -> req.vpcIds(vpcId)).vpcs().get(0);
+                processVpcAndSubnets(elements, ec2Client, vpc);
             }
         } catch (Exception e) {
             logger.error("Could not describe VPC {} or its subnets: {}", vpcId, e.getMessage());
+        }
+    }
+
+    private void processVpcAndSubnets(List<Map<String, Object>> elements, Ec2Client ec2Client, Vpc vpc) {
+        String vid = vpc.vpcId();
+        String vpcName = vpc.tags().stream().filter(t -> "Name".equalsIgnoreCase(t.key())).findFirst()
+                .map(t -> t.value()).orElse(vid);
+        elements.add(createNode(vid, vpcName, "VPC", null, null));
+
+        List<Subnet> subnets = ec2Client
+                .describeSubnets(req -> req.filters(Filter.builder().name("vpc-id").values(vid).build())).subnets();
+        for (Subnet subnet : subnets) {
+            String subnetName = subnet.tags().stream().filter(t -> "Name".equalsIgnoreCase(t.key())).findFirst()
+                    .map(t -> t.value()).orElse(subnet.subnetId());
+            elements.add(createNode(subnet.subnetId(), subnetName, "Subnet", vid, null));
         }
     }
 
@@ -157,25 +177,30 @@ public class CloudMapService {
                 String securityGroups = getDetail(resource, "Security Groups");
                 if (securityGroups != null && !securityGroups.isBlank()) {
                     for (String sgId : securityGroups.split("\\s*,\\s*")) {
-                        if(!sgId.trim().isEmpty()) elements.add(createEdge(resource.getId(), sgId.trim(), "uses"));
+                        if (!sgId.trim().isEmpty())
+                            elements.add(createEdge(resource.getId(), sgId.trim(), "uses"));
                     }
                 }
             }
             // Load Balancer -> Subnets
             if ("Load Balancer".equals(resource.getType())) {
-                String subnets = getDetail(resource, "Subnets"); // Note: You need to add "Subnets" to the LB's details map
+                String subnets = getDetail(resource, "Subnets"); // Note: You need to add "Subnets" to the LB's details
+                                                                 // map
                 if (subnets != null) {
                     for (String subnetId : subnets.split("\\s*,\\s*")) {
-                        if(!subnetId.trim().isEmpty()) elements.add(createEdge(resource.getId(), subnetId.trim(), "in subnet"));
+                        if (!subnetId.trim().isEmpty())
+                            elements.add(createEdge(resource.getId(), subnetId.trim(), "in subnet"));
                     }
                 }
             }
             // RDS Instance -> Security Groups
             if ("RDS Instance".equals(resource.getType())) {
-                String securityGroups = getDetail(resource, "Security Groups"); // Note: You need to add "Security Groups" to the RDS details map
+                String securityGroups = getDetail(resource, "Security Groups"); // Note: You need to add "Security
+                                                                                // Groups" to the RDS details map
                 if (securityGroups != null) {
                     for (String sgId : securityGroups.split("\\s*,\\s*")) {
-                        if(!sgId.trim().isEmpty()) elements.add(createEdge(resource.getId(), sgId.trim(), "uses"));
+                        if (!sgId.trim().isEmpty())
+                            elements.add(createEdge(resource.getId(), sgId.trim(), "uses"));
                     }
                 }
             }
@@ -198,7 +223,8 @@ public class CloudMapService {
         return (resource.getDetails() != null) ? resource.getDetails().get(key) : null;
     }
 
-    private Map<String, Object> createNode(String id, String label, String type, String parent, Map<String, String> details) {
+    private Map<String, Object> createNode(String id, String label, String type, String parent,
+            Map<String, String> details) {
         Map<String, Object> data = new HashMap<>();
         data.put("id", id);
         data.put("label", label != null && !label.isBlank() ? label : id);
