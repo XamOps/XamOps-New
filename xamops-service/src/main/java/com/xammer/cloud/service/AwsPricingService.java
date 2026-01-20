@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.service.calculator.aws.AwsServiceRegistry;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -330,60 +332,39 @@ public class AwsPricingService {
         return result;
     }
 
-    public Map<String, Object> getAllAwsServices() {
-        PricingClient pricingClient = awsClientProvider.getPricingClient();
+    // Inside src/main/java/com/xammer/cloud/service/AwsPricingService.java
 
-        try {
-            List<Map<String, String>> allServices = new ArrayList<>();
-            String nextToken = null;
-            int pageCount = 0;
+public Map<String, Object> getAllAwsServices(AwsServiceRegistry registry) {
+    // Get the list of service codes you have actually defined in your registry
+    List<String> definedCodes = registry.getServicesAsList().stream()
+            .map(s -> (String) s.get("code"))
+            .collect(Collectors.toList());
 
-            do {
-                DescribeServicesRequest.Builder reqBuilder = DescribeServicesRequest.builder()
-                        .maxResults(100);
-
-                if (nextToken != null) {
-                    reqBuilder.nextToken(nextToken);
-                }
-
-                DescribeServicesResponse response = pricingClient.describeServices(reqBuilder.build());
-                pageCount++;
-
-                logger.info("Page {}: Received {} services from AWS Pricing API", pageCount, response.services().size());
-
-                response.services().forEach(service -> {
-                    String serviceCode = service.serviceCode();
-                    if (serviceCode != null && !serviceCode.isEmpty()) {
-                        Map<String, String> serviceMap = new HashMap<>();
-                        serviceMap.put("code", serviceCode);
-
-                        String friendlyName = deriveFriendlyName(serviceCode);
-                        serviceMap.put("name", friendlyName);
-                        allServices.add(serviceMap);
-
-                        logger.debug("Added service: {} -> {}", serviceCode, friendlyName);
-                    }
-                });
-
-                nextToken = response.nextToken();
-                logger.info("Next token present: {}", (nextToken != null));
-
-            } while (nextToken != null);
-
-            allServices.sort((a, b) -> a.get("name").compareToIgnoreCase(b.get("name")));
-
-            logger.info("Fetched total {} AWS services from Pricing API across {} pages", allServices.size(), pageCount);
-
-            Map<String, Object> result = new HashMap<>();
-            result.put("services", allServices);
-            result.put("count", allServices.size());
-            return result;
-
-        } catch (Exception e) {
-            logger.error("Failed to fetch AWS services from Pricing API", e);
-            return getFallbackServicesMap();
-        }
+    PricingClient pricingClient = awsClientProvider.getPricingClient();
+    try {
+        DescribeServicesResponse response = pricingClient.describeServices(
+                DescribeServicesRequest.builder().maxResults(100).build());
+        
+        List<Map<String, String>> services = response.services().stream()
+                // ONLY keep services that are in your Registry
+                .filter(s -> definedCodes.contains(s.serviceCode())) 
+                .map(s -> {
+                    Map<String, String> svc = new HashMap<>();
+                    String code = s.serviceCode();
+                    svc.put("code", code);
+                    
+                    // Get the clean name from your registry instead of AWS discovery
+                    String cleanName = registry.getServiceConfig(code).getServiceName();
+                    svc.put("name", cleanName);
+                    return svc;
+                }).collect(Collectors.toList());
+        
+        return Map.of("services", services);
+    } catch (Exception e) {
+        // Fallback: Just return your registry list if AWS discovery fails
+        return Map.of("services", registry.getServicesAsList());
     }
+}
 
     private String deriveFriendlyName(String serviceCode) {
         Map<String, String> names = new HashMap<>();

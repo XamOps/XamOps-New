@@ -46,7 +46,7 @@ public class AwsCalculatorController {
 
     @GetMapping("/services")
     public ResponseEntity<Map<String, Object>> getAllServices() {
-        Map<String, Object> officialData = awsPricingService.getAllAwsServices();
+        Map<String, Object> officialData = awsPricingService.getAllAwsServices(awsServiceRegistry);
         List<Map<String, String>> officialServices = (List<Map<String, String>>) officialData.get("services");
         List<Map<String, String>> configuredServices = awsServiceRegistry.getServicesAsList();
 

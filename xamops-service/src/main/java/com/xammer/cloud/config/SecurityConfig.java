@@ -8,6 +8,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.method.configuration.EnableGlobalMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
@@ -31,11 +32,14 @@ public class SecurityConfig {
 
     private final CustomAuthenticationSuccessHandler authenticationSuccessHandler;
     private final CustomLogoutSuccessHandler logoutSuccessHandler;
+    private final UserDetailsService userDetailsService;
 
     public SecurityConfig(CustomAuthenticationSuccessHandler authenticationSuccessHandler,
-            CustomLogoutSuccessHandler logoutSuccessHandler) {
+            CustomLogoutSuccessHandler logoutSuccessHandler,
+            UserDetailsService userDetailsService) {
         this.authenticationSuccessHandler = authenticationSuccessHandler;
         this.logoutSuccessHandler = logoutSuccessHandler;
+        this.userDetailsService = userDetailsService;
     }
 
     @Bean
@@ -88,7 +92,7 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("/terminal"),
 
                                 // Public APIs
-                                new AntPathRequestMatcher("/api/ai/**"),
+                              //  new AntPathRequestMatcher("/api/ai/**"),
                                 new AntPathRequestMatcher("/api/cicd/github/runs"),
                                 new AntPathRequestMatcher("/api/cicd/config/**"),
                                 new AntPathRequestMatcher("/api/cicd/**"),
@@ -111,8 +115,13 @@ public class SecurityConfig {
                         .logoutUrl("/logout")
                         .logoutSuccessHandler(logoutSuccessHandler)
                         .invalidateHttpSession(true)
-                        .deleteCookies("JSESSIONID")
-                        .permitAll());
+                        .deleteCookies("JSESSIONID", "remember-me")
+                        .permitAll())
+                .rememberMe((rememberMe) -> rememberMe
+                        .key("xamops-remember-me-key-2025")
+                        .tokenValiditySeconds(1209600) // 14 days
+                        .rememberMeParameter("rememberMe")
+                        .userDetailsService(userDetailsService));
 
         return http.build();
     }
