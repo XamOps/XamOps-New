@@ -457,21 +457,25 @@ public class CloudListService {
     public CompletableFuture<List<DashboardData.RegionStatus>> getRegionStatusForAccount(CloudAccount account,
             boolean forceRefresh) {
         String cacheKey = "regionStatus-" + account.getAwsAccountId();
+        String dbCacheKey = "REGION_STATUS::" + account.getAwsAccountId();
+
         if (!forceRefresh) {
             // 1. Check database cache first (persistent, survives restarts)
+            // NOTE: Using separate REGION_STATUS:: key, NOT CLOUD_LIST:: (which stores resources, not regions)
             try {
-                String dbKey = "CLOUD_LIST::" + account.getAwsAccountId() + "::" + LocalDate.now();
-                Optional<CachedData> dbCache = cachedDataRepository.findById(dbKey);
-                if (dbCache.isPresent()) {
+                Optional<CachedData> dbCache = cachedDataRepository.findById(dbCacheKey);
+                if (dbCache.isPresent() && dbCache.get().getJsonData() != null && dbCache.get().getJsonData().length() > 10) {
                     List<DashboardData.RegionStatus> data = objectMapper.readValue(
                         dbCache.get().getJsonData(),
                         new TypeReference<List<DashboardData.RegionStatus>>() {});
-                    logger.info("✅ Serving cloud list region data from database cache for account {}",
-                        account.getAwsAccountId());
-                    return CompletableFuture.completedFuture(data);
+                    if (data != null && !data.isEmpty()) {
+                        logger.info("✅ Serving region status data from database cache for account {} ({} regions)",
+                            account.getAwsAccountId(), data.size());
+                        return CompletableFuture.completedFuture(data);
+                    }
                 }
             } catch (Exception e) {
-                logger.warn("Failed to read cloud list data from database cache: {}", e.getMessage());
+                logger.warn("Failed to read region status from database cache: {}", e.getMessage());
             }
 
             // 2. Fallback to Redis cache
@@ -537,6 +541,22 @@ public class CloudListService {
             logger.debug("Successfully fetched {} active region statuses for account {}", regionStatuses.size(),
                     account.getAwsAccountId());
             redisCache.put(cacheKey, regionStatuses, 10);
+
+            // ✅ Save region status to database for persistence (used by EKS cluster discovery)
+            if (!regionStatuses.isEmpty()) {
+                try {
+                    CachedData regionCache = cachedDataRepository.findById(dbCacheKey).orElse(new CachedData());
+                    regionCache.setCacheKey(dbCacheKey);
+                    regionCache.setJsonData(objectMapper.writeValueAsString(regionStatuses));
+                    regionCache.setLastUpdated(LocalDateTime.now());
+                    cachedDataRepository.save(regionCache);
+                    logger.info("✅ Saved region status to database for account {} ({} regions)",
+                            account.getAwsAccountId(), regionStatuses.size());
+                } catch (Exception e) {
+                    logger.error("❌ Failed to save region status to database: {}", e.getMessage());
+                }
+            }
+
             return CompletableFuture.completedFuture(regionStatuses);
 
         } catch (Exception e) {
