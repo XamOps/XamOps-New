@@ -88,13 +88,16 @@ async function loadAwsServices(serviceSelect) {
     const services = data.services || [];
     serviceSelect.innerHTML = '<option value="">-- Select Service --</option>';
     services.forEach(svc => {
+      // Safety check: Don't render if name is missing or "undefined"
+      if (svc.name && svc.name !== "undefined") {
       const opt = document.createElement('option');
       opt.value = svc.code;
       opt.textContent = `${svc.name} (${svc.category})`;
       serviceSelect.appendChild(opt);
+      }
     });
   } catch (e) {
-    serviceSelect.innerHTML = '<option value="">-- Error --</option>';
+    console.error("Error loading services", e);
   }
 }
 
