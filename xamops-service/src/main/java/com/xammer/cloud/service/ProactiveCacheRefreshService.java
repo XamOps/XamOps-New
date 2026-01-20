@@ -6,6 +6,7 @@ import com.xammer.cloud.domain.JobExecutionHistory;
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.JobExecutionHistoryRepository;
+import com.xammer.cloud.service.gcp.GcpDataService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,6 +40,7 @@ public class ProactiveCacheRefreshService {
     private final ReservationService reservationService;
     private final OptimizationService optimizationService;
     private final CloudGuardService cloudGuardService; // For alerts
+    private final GcpDataService gcpDataService; // For GCP dashboard caching
 
     private final JobExecutionHistoryRepository jobExecutionHistoryRepository;
     private final JdbcTemplate masterJdbcTemplate;
@@ -59,9 +61,10 @@ public class ProactiveCacheRefreshService {
             ReservationService reservationService,
             OptimizationService optimizationService,
             CloudGuardService cloudGuardService,
+            GcpDataService gcpDataService,
             JobExecutionHistoryRepository jobExecutionHistoryRepository,
             @Qualifier("masterDataSource") DataSource masterDataSource,
-            com.xammer.cloud.config.SchedulingEnvironmentConfig envConfig) { // Added arg
+            com.xammer.cloud.config.SchedulingEnvironmentConfig envConfig) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.cacheManager = cacheManager;
         this.cloudListService = cloudListService;
@@ -73,6 +76,7 @@ public class ProactiveCacheRefreshService {
         this.reservationService = reservationService;
         this.optimizationService = optimizationService;
         this.cloudGuardService = cloudGuardService;
+        this.gcpDataService = gcpDataService;
         this.jobExecutionHistoryRepository = jobExecutionHistoryRepository;
         this.masterJdbcTemplate = new JdbcTemplate(masterDataSource);
         this.envConfig = envConfig;
@@ -537,6 +541,64 @@ public class ProactiveCacheRefreshService {
 
             } catch (Exception e) {
                 logger.error("❌ Failed alerts refresh for tenant {}", tenantId, e);
+                if (jobHistory.getId() != null) {
+                    jobHistory.setStatus("FAILURE");
+                    jobHistory.setErrorMessage(e.getMessage());
+                    jobHistory.setEndTime(LocalDateTime.now());
+                    jobExecutionHistoryRepository.save(jobHistory);
+                }
+            } finally {
+                TenantContext.clear();
+            }
+        }
+    }
+
+    // ===================================================================================
+    // 1:30 AM -> GCP Dashboard Refresh (Daily)
+    // Caches GCP dashboard data to database for fast access
+    // ===================================================================================
+    @Scheduled(cron = "0 30 1 * * ?")
+    public void refreshGcpDashboardData() {
+        logger.info("--- [1:30 AM] Starting GCP Dashboard Data Refresh ---");
+        List<String> tenants = fetchActiveTenants();
+
+        for (String tenantId : tenants) {
+            JobExecutionHistory jobHistory = new JobExecutionHistory("REFRESH_GCP_DASHBOARD", tenantId,
+                    LocalDateTime.now(), "RUNNING");
+            try {
+                TenantContext.setCurrentTenant(tenantId);
+                jobHistory = jobExecutionHistoryRepository.save(jobHistory);
+
+                int count = 0;
+                for (CloudAccount account : getAllAccounts()) {
+                    // Only process GCP accounts
+                    if (!"GCP".equalsIgnoreCase(account.getProvider())) {
+                        continue;
+                    }
+
+                    String gcpProjectId = account.getGcpProjectId();
+                    if (gcpProjectId == null || gcpProjectId.isEmpty()) {
+                        continue;
+                    }
+
+                    try {
+                        // Force refresh GCP dashboard data and save to database
+                        gcpDataService.refreshAndCacheGcpDashboard(gcpProjectId).join();
+                        logger.info("✓ GCP Dashboard cached for project: {}", gcpProjectId);
+                        count++;
+                    } catch (Exception e) {
+                        logger.error("Failed GCP Dashboard refresh for project {}: {}", gcpProjectId, e.getMessage());
+                    }
+                }
+
+                jobHistory.setStatus("SUCCESS");
+                jobHistory.setItemsProcessed(count);
+                jobHistory.setEndTime(LocalDateTime.now());
+                jobExecutionHistoryRepository.save(jobHistory);
+                logger.info("✅ GCP Dashboard refresh complete for tenant {} - {} projects cached", tenantId, count);
+
+            } catch (Exception e) {
+                logger.error("❌ Failed GCP dashboard refresh for tenant {}", tenantId, e);
                 if (jobHistory.getId() != null) {
                     jobHistory.setStatus("FAILURE");
                     jobHistory.setErrorMessage(e.getMessage());
