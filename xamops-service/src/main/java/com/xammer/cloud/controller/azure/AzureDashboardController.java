@@ -17,15 +17,28 @@ public class AzureDashboardController {
     @Autowired
     private AzureDashboardService azureDashboardService;
 
+    /**
+     * ✅ Get Azure dashboard data from DATABASE CACHE
+     *
+     * Data is pre-cached by nightly scheduled job (4:30 AM IST).
+     * This endpoint ALWAYS returns cached data - no live API calls.
+     * force parameter is ignored for security (only scheduled jobs can refresh).
+     *
+     * Example: GET /api/xamops/azure/dashboard-data?accountId=subscription-id
+     */
     @GetMapping("/dashboard-data")
-    public ResponseEntity<AzureDashboardData> getDashboardData(@RequestParam String accountId, @RequestParam(defaultValue = "false") boolean force) {
+    public ResponseEntity<AzureDashboardData> getDashboardData(
+            @RequestParam String accountId,
+            @RequestParam(defaultValue = "false") boolean force) {
         try {
-            // The accountId here is the Azure Subscription ID
-            AzureDashboardData data = azureDashboardService.getDashboardData(accountId, force);
+            // IGNORE force from user requests - always return cached data
+            // Live data fetch is ONLY allowed via scheduled nightly jobs
+            log.info("📊 Azure Dashboard request - Subscription: {} (returning cached data)", accountId);
+
+            AzureDashboardData data = azureDashboardService.getDashboardData(accountId, false); // Always false - use cache only
             return ResponseEntity.ok(data);
         } catch (Exception e) {
             log.error("Error fetching Azure dashboard data for accountId: {}", accountId, e);
-            // Return a proper 500 error response
             return ResponseEntity.status(500).build();
         }
     }

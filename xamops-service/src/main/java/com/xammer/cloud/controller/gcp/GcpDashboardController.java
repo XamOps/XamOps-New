@@ -37,19 +37,24 @@ public class GcpDashboardController {
     }
 
     /**
-     * ✅ MAIN ENDPOINT: Get GCP dashboard data
+     * ✅ MAIN ENDPOINT: Get GCP dashboard data from DATABASE CACHE
      *
-     * Example: GET
-     * /api/xamops/gcp/dashboard?accountId=my-gcp-project&forceRefresh=false
+     * Data is pre-cached by nightly scheduled job (4:00 AM IST).
+     * This endpoint ALWAYS returns cached data - no live API calls.
+     * forceRefresh parameter is ignored for security (only scheduled jobs can refresh).
+     *
+     * Example: GET /api/xamops/gcp/dashboard?accountId=my-gcp-project
      */
     @GetMapping
     public CompletableFuture<ResponseEntity<?>> getDashboardData(
             @RequestParam String accountId,
             @RequestParam(defaultValue = "false") boolean forceRefresh) {
 
-        logger.info("📊 GCP Dashboard request - Project: {}, ForceRefresh: {}", accountId, forceRefresh);
+        // IGNORE forceRefresh from user requests - always return cached data
+        // Live data fetch is ONLY allowed via scheduled nightly jobs
+        logger.info("📊 GCP Dashboard request - Project: {} (returning cached data)", accountId);
 
-        return gcpDataService.getDashboardData(accountId, forceRefresh)
+        return gcpDataService.getDashboardData(accountId, false) // Always false - use cache only
                 .<ResponseEntity<?>>thenApply(data -> {
                     logger.info("✅ GCP Dashboard data retrieved for project: {} (MonthToDate: ${})",
                             accountId, data.getMonthToDateSpend());
@@ -128,19 +133,23 @@ public class GcpDashboardController {
     }
 
     /**
-     * ✅ Force refresh dashboard (clears cache and fetches fresh data)
+     * ⚠️ DEPRECATED: Manual refresh is disabled.
+     * Dashboard data is refreshed ONLY by nightly scheduled job (4:00 AM IST).
+     * Users should wait for the nightly refresh to see updated data.
      *
      * Example: POST /api/xamops/gcp/dashboard/refresh?accountId=my-gcp-project
      */
     @PostMapping("/refresh")
-    public CompletableFuture<ResponseEntity<?>> refreshDashboard(@RequestParam String accountId) {
-        logger.info("🔄 Force refresh GCP dashboard for project: {}", accountId);
+    public ResponseEntity<?> refreshDashboard(@RequestParam String accountId) {
+        logger.warn("⚠️ Manual refresh requested for GCP project: {} - DISABLED (use nightly job)", accountId);
 
-        // Clear all caches for this project
-        gcpDataService.clearProjectCache(accountId);
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", "disabled");
+        response.put("message", "Manual refresh is disabled. Dashboard data is updated automatically every night at 4:00 AM IST.");
+        response.put("projectId", accountId);
+        response.put("nextRefresh", "4:00 AM IST (daily)");
 
-        // Fetch fresh data
-        return getDashboardData(accountId, true);
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
     }
 
     /**
