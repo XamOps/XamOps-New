@@ -13,8 +13,8 @@ public interface SupportMessageRepository extends JpaRepository<SupportMessage, 
     // Find conversation for a specific account (Chat Window)
     List<SupportMessage> findByAccountIdOrderByTimestampAsc(String accountId);
 
-    // ✅ NEW: Get unique list of accounts that have opened tickets (The "Inbox" Sidebar)
-    // This allows the admin to see "Account A", "Account B" instead of 100 mixed messages.
-    @Query("SELECT DISTINCT m.accountId, m.accountName, m.cloudProvider, m.senderUsername FROM SupportMessage m WHERE m.senderUsername IS NOT NULL")
+    // Get unique list of accounts that have opened tickets (The "Inbox" Sidebar)
+    // Only show conversations started by users (isUserMessage = true), not admin replies
+    @Query("SELECT DISTINCT m.accountId, m.accountName, m.cloudProvider, m.senderUsername FROM SupportMessage m WHERE m.isUserMessage = true AND m.senderUsername IS NOT NULL")
     List<Object[]> findDistinctConversations();
 }

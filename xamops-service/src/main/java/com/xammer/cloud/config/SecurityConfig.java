@@ -86,6 +86,7 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("/integration-guide.html"),
                                 new AntPathRequestMatcher("billops/dashboard_user.html"),
                                 new AntPathRequestMatcher("billops/dashboard_admin.html"),
+                                // new AntPathRequestMatcher("billops/support-dashboard.html"),
 
                                 // Connectivity
                                 new AntPathRequestMatcher("/ws/**"),
