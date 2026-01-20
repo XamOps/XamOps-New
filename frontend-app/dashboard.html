@@ -2177,18 +2177,11 @@
                             open: false,
                             newMessage: '',
                             isLoading: false,
-                            messages: [
-                                { text: 'Welcome to Live Support! How can we help you today?', isUser: false }
-                            ],
-                            historyLoaded: false,
+                            messages: [],
 
                             init() {
-                                // Poll for new messages every 5 seconds when widget is open
-                                setInterval(() => {
-                                    if (this.open) {
-                                        this.fetchHistory();
-                                    }
-                                }, 5000);
+                                this.fetchHistory();
+                                setInterval(() => this.fetchHistory(), 5000);
                             },
 
                             async fetchHistory() {
@@ -2198,17 +2191,12 @@
                                     });
                                     if (response.ok) {
                                         const history = await response.json();
-                                        if (history && history.length > 0) {
-                                            // Keep welcome message and add history
-                                            const welcomeMsg = { text: 'Welcome to Live Support! How can we help you today?', isUser: false };
-                                            this.messages = [welcomeMsg, ...history.map(msg => ({
-                                                text: msg.content,
-                                                isUser: msg.userMessage,
-                                                timestamp: msg.timestamp
-                                            }))];
-                                            this.historyLoaded = true;
-                                            this.scrollToBottom();
-                                        }
+                                        this.messages = history.map(msg => ({
+                                            text: msg.content,
+                                            isUser: msg.userMessage,
+                                            timestamp: msg.timestamp
+                                        }));
+                                        this.scrollToBottom();
                                     }
                                 } catch (e) {
                                     console.error('Failed to fetch chat history', e);
@@ -2225,13 +2213,11 @@
                                 this.scrollToBottom();
 
                                 try {
-                                    // 2. GET CSRF TOKEN (Required for Spring Security)
                                     const csrfToken = document.cookie
                                         .split('; ')
                                         .find(row => row.startsWith('XSRF-TOKEN='))
                                         ?.split('=')[1];
 
-                                    // 3. PROXIED FETCH (Using relative path for correct cookie handling)
                                     const response = await fetch(`/api/ai/chat`, {
                                         method: 'POST',
                                         headers: {
@@ -2256,9 +2242,8 @@
                                         throw new Error(`Server error: ${response.status}`);
                                     }
 
-                                    const data = await response.json();
-
-                                   // this.messages.push({ text: data.response, isUser: false });
+                                    // Fetch updated history after sending
+                                    await this.fetchHistory();
 
                                 } catch (error) {
                                     console.error('Chat Error:', error);

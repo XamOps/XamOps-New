@@ -4,6 +4,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import javax.persistence.*;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 @Entity
 @Table(name = "support_message")
@@ -46,7 +47,7 @@ public class SupportMessage {
         this.sender = sender;
         this.content = content;
         this.isUserMessage = isUserMessage;
-        this.timestamp = LocalDateTime.now();
+        this.timestamp = LocalDateTime.now(ZoneId.of("Asia/Kolkata"));
         this.status = "SENT";
     }
 }
