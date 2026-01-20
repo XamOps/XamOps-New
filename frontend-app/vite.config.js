@@ -138,7 +138,6 @@ export default defineConfig({
       input: {
         index: resolve(__dirname, 'index.html'),
         'account-manager': resolve(__dirname, 'account-manager.html'),
-        'user-manager': resolve(__dirname, 'user-manager.html'),
         'Xamops_User_management.html': resolve(__dirname, 'Xamops_User_management.html'),
         'add-account': resolve(__dirname, 'add-account.html'),
         'add-gcp-account': resolve(__dirname, 'add-gcp-account.html'),
@@ -215,10 +214,9 @@ export default defineConfig({
         'azure_cloudlist': resolve(__dirname, 'azure_cloudlist.html'),
         'azure_dashboard': resolve(__dirname, 'azure_dashboard.html'),
         'azure-finops-report': resolve(__dirname, 'azure-finops-report.html'),
-        'superadmin_customers': resolve(__dirname, 'superadmin_customers.html'),
+        'superadmin_customers': resolve(__dirname, 'superadmin_customers.html')
 
         // Integration guide
-        'integration-guide': resolve(__dirname, 'integration-guide.html')
       },
     },
   },

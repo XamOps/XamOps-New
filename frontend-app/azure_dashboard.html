@@ -497,6 +497,21 @@
                     </div>
                 </header>
 
+                <!-- Development Alert Banner -->
+                <div class="mx-6 mt-4">
+                    <div class="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-start space-x-3">
+                        <div class="flex-shrink-0">
+                            <i class="fas fa-hard-hat text-amber-500 text-xl"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-sm font-semibold text-amber-800">Azure Features Under Development</h3>
+                            <p class="text-sm text-amber-700 mt-1">Most Azure features are currently under development.
+                                Dashboard and CloudList are available. Additional features like FinOps, Security,
+                                Alerts, and more will be coming soon.</p>
+                        </div>
+                    </div>
+                </div>
+
                 <div x-show="selectedAccountIds.length === 0 && !isLoading" id="noAccountState"
                     class="text-center py-32 fade-in" x-cloak>
                     <div class="max-w-md mx-auto">
