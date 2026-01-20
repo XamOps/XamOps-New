@@ -551,10 +551,22 @@
                                 if (this.selectedAccountIds.length > 0) {
                                     this.connectWebSocket();
                                     this.fetchDashboardData(false);
+                                    // Auto-refresh cached data every 60 seconds (uses server-side cache)
+                                    this.startAutoRefresh();
                                 } else {
                                     this.isLoading = false;
                                 }
                                 this.fetchUserRoles();
+                            },
+
+                            startAutoRefresh() {
+                                // Auto-refresh dashboard data every 60 seconds from cache
+                                setInterval(() => {
+                                    if (!this.isRefreshing && !this.isLoading) {
+                                        console.log("Auto-refreshing GCP dashboard from cache...");
+                                        this.fetchDashboardData(false); // Use cache (forceRefresh=false)
+                                    }
+                                }, 60000);
                             },
 
                             fetchUserRoles() {
@@ -721,7 +733,9 @@
                             populatePage(data) {
                                 const account = data.selectedAccount;
                                 if (!account) return;
-                                document.getElementById('updateTime').textContent = `Updated ${new Date().toLocaleTimeString()}`;
+                                // Use server-provided lastUpdated timestamp if available, otherwise use current time
+                                const lastUpdated = account.lastUpdated || new Date().toLocaleTimeString();
+                                document.getElementById('updateTime').textContent = `Updated ${lastUpdated}`;
                                 this.populateKpiCards(account);
                                 this.populateResourceInventory(account.resourceInventory);
                                 this.populateOptimizationHub(account.optimizationSummary, [], account.rightsizingRecommendations || [], [], []);
