@@ -42,28 +42,52 @@ public class FinOpsController {
     @GetMapping("/report")
     public ResponseEntity<?> getFinOpsReport(
             @RequestParam String accountId,
-            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate) {
 
         try {
+            // If date parameters are provided, include them in cache key
             String cacheKey = "finops-" + accountId;
+            if (startDate != null && endDate != null) {
+                cacheKey += "-" + startDate + "-" + endDate;
+            }
 
             if (!forceRefresh) {
-                // ⭐ NEW: Check database cache first
-                FinOpsReportDto cachedReport = dashboardDataService.getFinOpsSnapshot(cacheKey);
-                if (cachedReport != null) {
-                    logger.info("Serving FinOps report from database cache for account {}", accountId);
-                    return ResponseEntity.ok(cachedReport);
+                // ⭐ NEW: Check database cache first (only if no custom dates)
+                if (startDate == null && endDate == null) {
+                    FinOpsReportDto cachedReport = dashboardDataService.getFinOpsSnapshot("finops-" + accountId);
+                    if (cachedReport != null) {
+                        logger.info("Serving FinOps report from database cache for account {}", accountId);
+                        return ResponseEntity.ok(cachedReport);
+                    }
                 }
             }
 
             // Fallback: Fetch fresh data
-            logger.info("Fetching fresh FinOps report for account {}", accountId);
-            FinOpsReportDto report = finOpsService.getFinOpsReport(accountId, forceRefresh).join();
+            if (startDate != null && endDate != null) {
+                logger.info("Fetching FinOps report for account {} with date range: {} to {}", accountId, startDate, endDate);
+            } else {
+                logger.info("Fetching fresh FinOps report for account {}", accountId);
+            }
+
+            FinOpsReportDto report = finOpsService.getFinOpsReport(accountId, forceRefresh, startDate, endDate).join();
+
+            if (report == null) {
+                logger.warn("FinOps report returned null for account {} (dates: {} to {})", accountId, startDate, endDate);
+                return ResponseEntity.status(HttpStatus.NO_CONTENT)
+                    .body(Map.of("error", "No data available for the specified date range."));
+            }
+
+            logger.info("Successfully fetched FinOps report for account {} (dates: {} to {})", accountId, startDate, endDate);
             return ResponseEntity.ok(report);
         } catch (Exception e) {
-            logger.error("Error fetching FinOps report for account {}", accountId, e);
+            logger.error("Error fetching FinOps report for account {} (dates: {} to {}): {}",
+                accountId, startDate, endDate, e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Failed to retrieve FinOps report.", "message", e.getMessage()));
+                    .body(Map.of("error", "Failed to retrieve FinOps report.",
+                        "message", e.getMessage() != null ? e.getMessage() : "Unknown error",
+                        "type", e.getClass().getSimpleName()));
         }
     }
 

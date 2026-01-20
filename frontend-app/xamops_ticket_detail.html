@@ -14,6 +14,8 @@
     <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png">
     <link rel="apple-touch-icon" href="/icons/XamOps.png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Alpine.js and Chart.js via main.js -->
+    <script type="module" src="/src/main.js"></script>
     <!-- Usability Improvements -->
     <link rel="stylesheet" href="/src/usability-improvements.css">
     <script type="module" src="/src/usability-utils.js"></script>
@@ -102,7 +104,8 @@
                 <header class="bg-white shadow-sm z-10 border-b border-gray-200 px-6 py-4 flex-shrink-0">
                     <div class="max-w-5xl mx-auto flex justify-between items-center">
                         <div class="flex items-center gap-4">
-                            <a href="/xamops_tickets.html" class="text-gray-500 hover:text-indigo-600 transition">
+                            <a @click.prevent="goBackToTickets()" href="/xamops_tickets.html"
+                                class="text-gray-500 hover:text-indigo-600 transition cursor-pointer">
                                 <i class="fas fa-arrow-left"></i> Back to List
                             </a>
                             <div>
@@ -483,6 +486,16 @@
                             getInitials(name) {
                                 if (!name) return 'U';
                                 return name.charAt(0).toUpperCase();
+                            },
+
+                            goBackToTickets() {
+                                // Check if we can go back in history
+                                if (window.history.length > 1 && document.referrer.includes('/xamops_tickets.html')) {
+                                    window.history.back();
+                                } else {
+                                    // Fallback: navigate directly to tickets page
+                                    window.location.href = '/xamops_tickets.html';
+                                }
                             }
                         };
                     }
