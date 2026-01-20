@@ -4,7 +4,6 @@ import com.xammer.cloud.dto.DashboardData;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import java.util.List;
-import java.util.Map;
 
 @Data
 @NoArgsConstructor
@@ -32,4 +31,7 @@ public class GcpDashboardData {
 
     // NEWLY ADDED FIELD TO FIX THE ERROR
     private List<DashboardData.RegionStatus> regionStatus;
+
+    // Last updated timestamp for cache display
+    private String lastUpdated;
 }
