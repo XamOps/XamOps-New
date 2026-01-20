@@ -7,6 +7,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -67,7 +68,7 @@ public class SupportAdminController {
         reply.setUserId(lastMsg.getUserId()); // Replying to this user
         reply.setContent(messageContent);
         reply.setUserMessage(false); // FALSE because this is ADMIN speaking
-        reply.setTimestamp(LocalDateTime.now());
+        reply.setTimestamp(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
         reply.setStatus("DELIVERED");
 
         return messageRepository.save(reply);
