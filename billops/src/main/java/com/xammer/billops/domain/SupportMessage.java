@@ -53,4 +53,9 @@ public class SupportMessage {
 
     @Column(name = "cloud_provider")
     private String cloudProvider;
+
+    @Column(name = "sender_username")
+    private String senderUsername;
+
+
 }

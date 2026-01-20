@@ -32,12 +32,13 @@ public class SupportAdminController {
         List<Map<String, String>> inbox = new ArrayList<>();
 
         for (Object[] row : results) {
-            Map<String, String> conversation = new HashMap<>();
-            conversation.put("accountId", (String) row[0]);
-            conversation.put("accountName", (String) row[1]);
-            conversation.put("provider", (String) row[2]);
-            inbox.add(conversation);
-        }
+    Map<String, String> conversation = new HashMap<>();
+    conversation.put("accountId", (String) row[0]);
+    conversation.put("accountName", (String) row[1]);
+    conversation.put("provider", (String) row[2]);
+    conversation.put("senderUsername", (String) row[3]);
+    inbox.add(conversation);
+}
         return inbox;
     }
 
@@ -70,6 +71,7 @@ public class SupportAdminController {
         reply.setUserMessage(false); // FALSE because this is ADMIN speaking
         reply.setTimestamp(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
         reply.setStatus("DELIVERED");
+        reply.setSenderUsername("BillOps Admin");
 
         return messageRepository.save(reply);
     }

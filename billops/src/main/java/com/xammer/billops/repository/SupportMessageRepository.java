@@ -15,6 +15,6 @@ public interface SupportMessageRepository extends JpaRepository<SupportMessage, 
 
     // ✅ NEW: Get unique list of accounts that have opened tickets (The "Inbox" Sidebar)
     // This allows the admin to see "Account A", "Account B" instead of 100 mixed messages.
-    @Query("SELECT DISTINCT s.accountId, s.accountName, s.cloudProvider FROM SupportMessage s")
+    @Query("SELECT DISTINCT m.accountId, m.accountName, m.cloudProvider, m.senderUsername FROM SupportMessage m WHERE m.senderUsername IS NOT NULL")
     List<Object[]> findDistinctConversations();
 }

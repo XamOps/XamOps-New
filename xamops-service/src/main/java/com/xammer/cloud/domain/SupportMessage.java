@@ -1,5 +1,6 @@
 package com.xammer.cloud.domain;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import javax.persistence.*;
@@ -31,7 +32,8 @@ public class SupportMessage {
     // --- Context Data for BillOps Admin ---
     
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id", nullable = false)
+    @JoinColumn(name = "user_id", nullable = true)
+    @JsonIgnore
     private User sender;
 
     @Column(name = "account_id")
@@ -42,6 +44,9 @@ public class SupportMessage {
 
     @Column(name = "cloud_provider")
     private String cloudProvider; // AWS, GCP, Azure
+
+    @Column(name = "sender_username")
+    private String senderUsername;
 
     public SupportMessage(User sender, String content, boolean isUserMessage) {
         this.sender = sender;

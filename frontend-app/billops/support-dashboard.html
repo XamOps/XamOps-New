@@ -112,7 +112,7 @@
                                  :class="activeAccount?.accountId === conv.accountId ? 'bg-indigo-50/80 border-l-4 border-l-indigo-600' : 'border-l-4 border-l-transparent'">
                                 
                                 <div class="flex justify-between items-start mb-1">
-                                    <h3 class="font-bold text-gray-800 text-sm truncate pr-2 group-hover:text-indigo-700 transition-colors" x-text="conv.accountName"></h3>
+                                    <h3 class="font-bold text-gray-800 text-sm truncate pr-2 group-hover:text-indigo-700 transition-colors" x-text="conv.senderUsername"></h3>
                                     <span class="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider text-white shadow-sm"
                                           :class="{
                                             'bg-[#FF9900]': conv.provider === 'AWS',
@@ -121,9 +121,8 @@
                                           }" x-text="conv.provider">
                                     </span>
                                 </div>
-                                
-                                <div class="flex items-center justify-between mt-2">
-                                    <div class="text-xs text-gray-400 font-mono bg-gray-100 px-1.5 py-0.5 rounded" x-text="conv.accountId"></div>
+
+                                <div class="flex items-center justify-end mt-2">
                                     <div class="text-[10px] text-indigo-500 font-semibold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
                                         Open <i class="fas fa-chevron-right"></i>
                                     </div>
