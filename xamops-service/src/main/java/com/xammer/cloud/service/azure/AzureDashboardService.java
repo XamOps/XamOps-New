@@ -2,9 +2,12 @@ package com.xammer.cloud.service.azure;
 
 import com.azure.resourcemanager.AzureResourceManager;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.azure.AzureDashboardData;
+import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.service.RedisCacheService;
 import com.xammer.cloud.service.azure.AzureBillingDataIngestionService;
@@ -12,6 +15,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -23,23 +29,56 @@ import java.util.stream.IntStream;
 public class AzureDashboardService {
 
     private static final Logger log = LoggerFactory.getLogger(AzureDashboardService.class);
+
+    // Database cache key prefix (same pattern as AWS)
+    private static final String AZURE_DASHBOARD_DB_CACHE_PREFIX = "AZURE_DASHBOARD::";
+
     private final AzureClientProvider clientProvider;
     private final CloudAccountRepository cloudAccountRepository;
+    private final CachedDataRepository cachedDataRepository;
     private final RedisCacheService redisCache;
     private final AzureBillingDataIngestionService billingIngestionService;
+    private final ObjectMapper objectMapper;
 
     public AzureDashboardService(AzureClientProvider clientProvider,
             CloudAccountRepository cloudAccountRepository,
+            CachedDataRepository cachedDataRepository,
             RedisCacheService redisCache,
-            AzureBillingDataIngestionService billingIngestionService) {
+            AzureBillingDataIngestionService billingIngestionService,
+            ObjectMapper objectMapper) {
         this.clientProvider = clientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
+        this.cachedDataRepository = cachedDataRepository;
         this.redisCache = redisCache;
         this.billingIngestionService = billingIngestionService;
+        this.objectMapper = objectMapper;
     }
 
     public AzureDashboardData getDashboardData(String accountId, boolean force) {
         log.info("Fetching dashboard data for Azure account ID: {}", accountId);
+        String dbCacheKey = AZURE_DASHBOARD_DB_CACHE_PREFIX + accountId;
+
+        // ALWAYS return from database cache for normal requests (force=false)
+        // Live data is ONLY fetched during nightly scheduled jobs (force=true)
+        if (!force) {
+            AzureDashboardData dbCached = getDashboardFromDatabase(dbCacheKey);
+            if (dbCached != null) {
+                log.info("✅ Returning cached Azure dashboard data from DATABASE for subscription: {}", accountId);
+                return dbCached;
+            }
+
+            // If no cache exists, return empty data (user needs to wait for nightly
+            // refresh)
+            log.warn(
+                    "⚠️ No cached Azure dashboard data found for subscription: {}. Data will be available after nightly refresh.",
+                    accountId);
+            AzureDashboardData emptyData = createEmptyAzureDashboardData();
+            emptyData.setLastUpdated("No data cached yet - will be available after nightly refresh");
+            return emptyData;
+        }
+
+        // force=true - ONLY used by scheduled nightly job
+        log.info("🔍 Fetching LIVE Azure dashboard data for subscription {} (scheduled refresh)", accountId);
         try {
             CloudAccount account = cloudAccountRepository.findByAzureSubscriptionId(accountId)
                     .orElseThrow(() -> new IllegalArgumentException(
@@ -94,11 +133,102 @@ public class AzureDashboardService {
                 dashboardData.getCostHistory().setAnomalies(Collections.emptyList());
             }
 
+            // ✅ Save to DATABASE (persistent - same as AWS pattern)
+            saveDashboardToDatabase(dbCacheKey, dashboardData);
+
             return dashboardData;
         } catch (Exception e) {
             log.error("Failed to get dashboard data for account {}", accountId, e);
             throw new RuntimeException("Failed to get dashboard data", e);
         }
+    }
+
+    // ============================================================================================
+    // DATABASE CACHING METHODS (Same pattern as AWS DashboardDataService)
+    // ============================================================================================
+
+    /**
+     * Save Azure Dashboard data to database cache (persistent storage)
+     * Same pattern as AWS: DashboardDataService.saveSnapshot()
+     */
+    public void saveDashboardToDatabase(String cacheKey, AzureDashboardData data) {
+        try {
+            CachedData cachedData = cachedDataRepository.findById(cacheKey).orElse(new CachedData());
+            cachedData.setCacheKey(cacheKey);
+            cachedData.setJsonData(objectMapper.writeValueAsString(data));
+            cachedData.setLastUpdated(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+            cachedDataRepository.save(cachedData);
+            log.info("✅ Saved Azure dashboard snapshot to DATABASE: {}", cacheKey);
+        } catch (Exception e) {
+            log.error("❌ Failed to save Azure dashboard snapshot to database: {}", cacheKey, e);
+        }
+    }
+
+    /**
+     * Get Azure Dashboard data from database cache
+     * Same pattern as AWS: DashboardDataService.getSnapshot()
+     */
+    public AzureDashboardData getDashboardFromDatabase(String cacheKey) {
+        try {
+            Optional<CachedData> cached = cachedDataRepository.findById(cacheKey);
+            if (cached.isPresent()) {
+                AzureDashboardData data = objectMapper.readValue(cached.get().getJsonData(), AzureDashboardData.class);
+                // Add last updated timestamp to data
+                if (cached.get().getLastUpdated() != null) {
+                    data.setLastUpdated(cached.get().getLastUpdated()
+                            .format(DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
+                }
+                return data;
+            }
+        } catch (Exception e) {
+            log.error("❌ Failed to deserialize Azure dashboard from database: {}", cacheKey, e);
+        }
+        return null;
+    }
+
+    /**
+     * Force refresh Azure dashboard data and save to database
+     * Called by scheduled jobs (same as AWS ProactiveCacheRefreshService)
+     */
+    public AzureDashboardData refreshAndCacheDashboard(String subscriptionId) {
+        log.info("🔄 Force refreshing Azure dashboard for subscription: {}", subscriptionId);
+        try {
+            // Force refresh data
+            AzureDashboardData data = getDashboardData(subscriptionId, true);
+            // Save to database
+            String dbCacheKey = AZURE_DASHBOARD_DB_CACHE_PREFIX + subscriptionId;
+            saveDashboardToDatabase(dbCacheKey, data);
+            log.info("✅ Azure dashboard refreshed and cached for subscription: {}", subscriptionId);
+            return data;
+        } catch (Exception e) {
+            log.error("❌ Failed to refresh Azure dashboard for subscription: {}", subscriptionId, e);
+            return null;
+        }
+    }
+
+    /**
+     * Create empty Azure dashboard data when no cache exists
+     * User will see this until the nightly job populates the cache
+     */
+    private AzureDashboardData createEmptyAzureDashboardData() {
+        AzureDashboardData data = new AzureDashboardData();
+        data.setResourceInventory(new AzureDashboardData.ResourceInventory());
+        data.setBillingSummary(Collections.emptyList());
+        AzureDashboardData.CostHistory costHistory = new AzureDashboardData.CostHistory();
+        costHistory.setLabels(Collections.emptyList());
+        costHistory.setCosts(Collections.emptyList());
+        costHistory.setAnomalies(Collections.emptyList());
+        data.setCostHistory(costHistory);
+        data.setOptimizationSummary(new DashboardData.OptimizationSummary());
+        data.setRegionStatus(Collections.emptyList());
+        data.setCostAnomalies(Collections.emptyList());
+        data.setMonthToDateSpend(0.0);
+        data.setForecastedSpend(0.0);
+        data.setVmRecommendations(Collections.emptyList());
+        data.setDiskRecommendations(Collections.emptyList());
+        data.setFunctionRecommendations(Collections.emptyList());
+        data.setIamDetails(new DashboardData.IamDetail(Collections.emptyList(), Collections.emptyList()));
+        return data;
     }
 
     private void getAndSetResourceInventory(AzureResourceManager azure, AzureDashboardData dashboardData) {

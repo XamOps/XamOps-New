@@ -30,6 +30,9 @@ public class AzureDashboardData {
     // Hints/IAM
     private DashboardData.IamDetail iamDetails;
 
+    // Cache metadata - shows when data was last refreshed
+    private String lastUpdated;
+
     // --- Getters and Setters ---
 
     public ResourceInventory getResourceInventory() {
@@ -127,6 +130,14 @@ public class AzureDashboardData {
 
     public void setIamDetails(DashboardData.IamDetail iamDetails) {
         this.iamDetails = iamDetails;
+    }
+
+    public String getLastUpdated() {
+        return lastUpdated;
+    }
+
+    public void setLastUpdated(String lastUpdated) {
+        this.lastUpdated = lastUpdated;
     }
 
     // --- Inner Classes for Data Structure ---
