@@ -136,7 +136,6 @@ export default defineConfig({
       input: {
         index: resolve(__dirname, 'index.html'),
         'account-manager': resolve(__dirname, 'account-manager.html'),
-        'user-manager': resolve(__dirname, 'user-manager.html'),
         'Xamops_User_management.html': resolve(__dirname, 'Xamops_User_management.html'),
         'add-account': resolve(__dirname, 'add-account.html'),
         'add-gcp-account': resolve(__dirname, 'add-gcp-account.html'),
