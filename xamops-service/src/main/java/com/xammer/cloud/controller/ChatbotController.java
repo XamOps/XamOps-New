@@ -25,7 +25,7 @@ public class ChatbotController {
     
     public ChatResponse chat(@RequestBody ChatRequest request) {
         // 1. Send message to Human Support (Database)
-        supportChatService.sendUserMessage(request.getMessage());
+        supportChatService.sendUserMessage(request.getMessage(), request.getAccountId());
 
         // 2. Return a standard acknowledgement
         // In a real real-time app, this might be empty, but we return a system note.
@@ -34,9 +34,9 @@ public class ChatbotController {
 
     @GetMapping("/chat/history")
     @PreAuthorize("hasAuthority('ROLE_XAMOPS')")
-    public List<SupportMessage> getChatHistory() {
-    return supportChatService.getMessagesForCurrentUser();
-}
+    public List<SupportMessage> getChatHistory(@RequestParam(required = false) String accountId) {
+        return supportChatService.getMessagesForCurrentUser(accountId);
+    }
 
 
 }

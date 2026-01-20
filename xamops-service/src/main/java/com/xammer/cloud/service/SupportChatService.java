@@ -24,21 +24,25 @@ public class SupportChatService {
     }
 
     @Transactional
-    public SupportMessage sendUserMessage(String messageContent) {
+    public SupportMessage sendUserMessage(String messageContent, String selectedAccountId) {
         // 1. Get Logged-in User
         String username = ((UserDetails) SecurityContextHolder.getContext().getAuthentication().getPrincipal()).getUsername();
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
         // 2. Identify Context (Account ID, Name, Cloud)
-        // We pick the first available account linked to the user's client for context
         String accountId = "N/A";
         String accountName = "Unknown";
         String provider = "Unknown";
 
         if (user.getClient() != null && user.getClient().getCloudAccounts() != null && !user.getClient().getCloudAccounts().isEmpty()) {
-            CloudAccount account = user.getClient().getCloudAccounts().get(0);
-            accountId = account.getProviderAccountId(); // Helper method from CloudAccount
+            // Find the account matching the selected accountId, or fall back to first account
+            CloudAccount account = user.getClient().getCloudAccounts().stream()
+                    .filter(a -> a.getProviderAccountId() != null && a.getProviderAccountId().equals(selectedAccountId))
+                    .findFirst()
+                    .orElse(user.getClient().getCloudAccounts().get(0));
+
+            accountId = account.getProviderAccountId();
             accountName = account.getAccountName();
             provider = account.getProvider();
         }
@@ -48,23 +52,36 @@ public class SupportChatService {
         supportMessage.setAccountId(accountId);
         supportMessage.setAccountName(accountName);
         supportMessage.setCloudProvider(provider);
+        supportMessage.setSenderUsername(user.getUsername());
+
 
         return messageRepository.save(supportMessage);
     }
 
-    public List<SupportMessage> getMessagesForCurrentUser() {
-    String username = ((UserDetails) SecurityContextHolder.getContext().getAuthentication().getPrincipal()).getUsername();
-    User user = userRepository.findByUsername(username)
-            .orElseThrow(() -> new RuntimeException("User not found"));
+    public List<SupportMessage> getMessagesForCurrentUser(String selectedAccountId) {
+        String username = ((UserDetails) SecurityContextHolder.getContext().getAuthentication().getPrincipal()).getUsername();
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("User not found"));
 
-    // Get the user's account ID (same logic as sendUserMessage)
-    String accountId = "N/A";
-    if (user.getClient() != null && user.getClient().getCloudAccounts() != null && !user.getClient().getCloudAccounts().isEmpty()) {
-        accountId = user.getClient().getCloudAccounts().get(0).getProviderAccountId();
+        // Use the selected account ID if provided, otherwise fall back to first account
+        String accountId = "N/A";
+        if (user.getClient() != null && user.getClient().getCloudAccounts() != null && !user.getClient().getCloudAccounts().isEmpty()) {
+            if (selectedAccountId != null && !selectedAccountId.isEmpty()) {
+                // Verify the selected account belongs to this user's client
+                boolean validAccount = user.getClient().getCloudAccounts().stream()
+                        .anyMatch(a -> a.getProviderAccountId() != null && a.getProviderAccountId().equals(selectedAccountId));
+                if (validAccount) {
+                    accountId = selectedAccountId;
+                } else {
+                    accountId = user.getClient().getCloudAccounts().get(0).getProviderAccountId();
+                }
+            } else {
+                accountId = user.getClient().getCloudAccounts().get(0).getProviderAccountId();
+            }
+        }
+
+        return messageRepository.findByAccountIdOrderByTimestampAsc(accountId);
     }
-
-    return messageRepository.findByAccountIdOrderByTimestampAsc(accountId);
-}
 
 
 }
