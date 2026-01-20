@@ -215,7 +215,6 @@ export default defineConfig({
         'azure_dashboard': resolve(__dirname, 'azure_dashboard.html'),
         'azure-finops-report': resolve(__dirname, 'azure-finops-report.html'),
         'superadmin_customers': resolve(__dirname, 'superadmin_customers.html'),
-        'support-dashboard': resolve(__dirname, 'billops/support-dashboard.html')
 
         // Integration guide
       },
