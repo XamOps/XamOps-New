@@ -1,5 +1,6 @@
 package com.xammer.cloud.service.gcp;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -23,11 +24,13 @@ import com.google.cloud.scheduler.v1.CloudSchedulerClient;
 import com.google.cloud.secretmanager.v1.Secret;
 import com.google.cloud.secretmanager.v1.SecretManagerServiceClient;
 import com.google.logging.v2.LogBucket;
+import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.domain.Client;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.GcpAccountRequestDto;
 import com.xammer.cloud.dto.gcp.*;
+import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.service.RedisCacheService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -42,7 +45,8 @@ import com.google.cloud.apigateway.v1.ApiGatewayServiceClient;
 import com.google.cloud.bigquery.BigQuery;
 import com.google.cloud.bigquery.Dataset;
 
-import javax.transaction.Transactional;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import java.io.IOException;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -63,12 +67,15 @@ public class GcpDataService {
     private final GcpOptimizationService gcpOptimizationService;
     private final GcpSecurityService gcpSecurityService;
     private final com.xammer.cloud.repository.CloudAccountRepository cloudAccountRepository;
+    private final CachedDataRepository cachedDataRepository;
+    private final TransactionTemplate transactionTemplate;
     private final ExecutorService executor = Executors.newCachedThreadPool();
     private final Map<String, double[]> regionCoordinates = loadRegionCoordinates();
     private final ObjectMapper objectMapper;
     private final RedisCacheService redisCache;
 
     private static final String DASHBOARD_CACHE_PREFIX = "gcp:dashboard:";
+    private static final String DB_DASHBOARD_CACHE_PREFIX = "GCP_DASHBOARD::";
     private static final String ALL_RESOURCES_CACHE_PREFIX = "gcp:all-resources:";
     private static final String IAM_RESOURCES_CACHE_PREFIX = "gcp:iam-resources:";
     private static final String COMPUTE_INSTANCES_CACHE_PREFIX = "gcp:compute-instances:";
@@ -91,13 +98,18 @@ public class GcpDataService {
             GcpCostService gcpCostService,
             GcpOptimizationService gcpOptimizationService,
             GcpSecurityService gcpSecurityService,
-            com.xammer.cloud.repository.CloudAccountRepository cloudAccountRepository, RedisCacheService redisCache,
+            com.xammer.cloud.repository.CloudAccountRepository cloudAccountRepository,
+            CachedDataRepository cachedDataRepository,
+            TransactionTemplate transactionTemplate,
+            RedisCacheService redisCache,
             ObjectMapper objectMapper) {
         this.gcpClientProvider = gcpClientProvider;
         this.gcpCostService = gcpCostService;
         this.gcpOptimizationService = gcpOptimizationService;
         this.gcpSecurityService = gcpSecurityService;
         this.cloudAccountRepository = cloudAccountRepository;
+        this.cachedDataRepository = cachedDataRepository;
+        this.transactionTemplate = transactionTemplate;
         this.objectMapper = objectMapper;
         this.redisCache = redisCache;
     }
@@ -166,18 +178,29 @@ public class GcpDataService {
     }
 
     public CompletableFuture<GcpDashboardData> getDashboardData(String gcpProjectId, boolean forceRefresh) {
-        String cacheKey = DASHBOARD_CACHE_PREFIX + gcpProjectId;
+        String redisCacheKey = DASHBOARD_CACHE_PREFIX + gcpProjectId;
+        String dbCacheKey = DB_DASHBOARD_CACHE_PREFIX + gcpProjectId;
 
         // Check cache first (unless force refresh)
         if (!forceRefresh) {
-            Optional<GcpDashboardData> cached = redisCache.get(cacheKey, GcpDashboardData.class);
-            if (cached.isPresent()) {
-                log.info("✅ Returning cached GCP dashboard data for project: {}", gcpProjectId);
-                return CompletableFuture.completedFuture(cached.get());
+            // 1. First try Redis cache (fastest)
+            Optional<GcpDashboardData> redisCached = redisCache.get(redisCacheKey, GcpDashboardData.class);
+            if (redisCached.isPresent()) {
+                log.info("✅ Returning Redis-cached GCP dashboard data for project: {}", gcpProjectId);
+                return CompletableFuture.completedFuture(redisCached.get());
+            }
+
+            // 2. Fall back to database cache (persistent)
+            GcpDashboardData dbCached = getGcpDashboardSnapshot(dbCacheKey);
+            if (dbCached != null) {
+                log.info("✅ Returning DB-cached GCP dashboard data for project: {}", gcpProjectId);
+                // Also populate Redis for faster subsequent access
+                redisCache.put(redisCacheKey, dbCached, 10);
+                return CompletableFuture.completedFuture(dbCached);
             }
         }
 
-        log.info("🔍 Fetching GCP dashboard data for project {}", gcpProjectId);
+        log.info("🔍 Fetching fresh GCP dashboard data for project {}", gcpProjectId);
         log.info("--- LAUNCHING EXPANDED ASYNC DATA AGGREGATION FOR GCP project {} ---", gcpProjectId);
 
         CompletableFuture<List<GcpResourceDto>> resourcesFuture = getAllResources(gcpProjectId, forceRefresh)
@@ -331,8 +354,19 @@ public class GcpDataService {
                                 new DashboardData.IamDetail(Collections.emptyList(), Collections.emptyList()));
                     }
 
-                    // ✅ Cache the result for 10 minutes
-                    redisCache.put(cacheKey, data, 10);
+                    // Set lastUpdated timestamp
+                    data.setLastUpdated(java.time.LocalDateTime.now()
+                            .format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
+
+                    // ✅ Cache the result in Redis for 10 minutes
+                    redisCache.put(redisCacheKey, data, 10);
+
+                    // ✅ Also persist to database for long-term caching (run synchronously to ensure it completes)
+                    try {
+                        saveGcpDashboardSnapshot(dbCacheKey, data);
+                    } catch (Exception e) {
+                        log.error("Failed to persist GCP dashboard to database for {}: {}", gcpProjectId, e.getMessage());
+                    }
 
                     return data;
                 });
@@ -1670,6 +1704,78 @@ public class GcpDataService {
     public void clearResourcesCache(String gcpProjectId) {
         redisCache.evict(ALL_RESOURCES_CACHE_PREFIX + gcpProjectId);
         log.info("🗑️ Cleared resources cache for project {}", gcpProjectId);
+    }
+
+    // ============================================================================================
+    // DATABASE SNAPSHOT METHODS (for persistent caching - same approach as AWS dashboard)
+    // ============================================================================================
+
+    /**
+     * Save GCP dashboard data to database cache for persistent storage.
+     * This ensures data survives Redis restarts and is available on application startup.
+     * Uses TransactionTemplate to ensure proper transaction handling even when called from async context.
+     */
+    public void saveGcpDashboardSnapshot(String key, GcpDashboardData data) {
+        try {
+            String jsonData = objectMapper.writeValueAsString(data);
+
+            transactionTemplate.executeWithoutResult(status -> {
+                CachedData cachedData = cachedDataRepository.findById(key).orElse(new CachedData());
+                cachedData.setCacheKey(key);
+                cachedData.setJsonData(jsonData);
+                cachedData.setLastUpdated(java.time.LocalDateTime.now());
+                cachedDataRepository.save(cachedData);
+                cachedDataRepository.flush(); // Ensure immediate persistence
+            });
+
+            log.info("✅ Saved GCP dashboard snapshot to DB: {}", key);
+        } catch (JsonProcessingException e) {
+            log.error("❌ Failed to serialize GCP dashboard snapshot {}", key, e);
+        } catch (Exception e) {
+            log.error("❌ Failed to save GCP dashboard snapshot to DB {}: {}", key, e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Retrieve GCP dashboard data from database cache.
+     * Returns null if not found or if deserialization fails.
+     */
+    public GcpDashboardData getGcpDashboardSnapshot(String key) {
+        Optional<CachedData> cached = cachedDataRepository.findById(key);
+        if (cached.isPresent()) {
+            try {
+                GcpDashboardData data = objectMapper.readValue(cached.get().getJsonData(), GcpDashboardData.class);
+                // Set lastUpdated from database timestamp
+                if (cached.get().getLastUpdated() != null) {
+                    data.setLastUpdated(cached.get().getLastUpdated()
+                            .format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
+                }
+                log.info("✅ Retrieved GCP dashboard snapshot from DB: {} (Last Updated: {})",
+                        key, cached.get().getLastUpdated());
+                return data;
+            } catch (JsonProcessingException e) {
+                log.error("❌ Failed to deserialize GCP dashboard snapshot {}", key, e);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Get the last updated timestamp for a GCP dashboard cache entry.
+     */
+    public java.time.LocalDateTime getGcpDashboardCacheTimestamp(String gcpProjectId) {
+        String dbCacheKey = DB_DASHBOARD_CACHE_PREFIX + gcpProjectId;
+        Optional<CachedData> cached = cachedDataRepository.findById(dbCacheKey);
+        return cached.map(CachedData::getLastUpdated).orElse(null);
+    }
+
+    /**
+     * Force refresh GCP dashboard data and save to both Redis and database.
+     * This is called by the startup runner and nightly scheduler.
+     */
+    public CompletableFuture<GcpDashboardData> refreshAndCacheGcpDashboard(String gcpProjectId) {
+        log.info("🔄 Force refreshing GCP dashboard for project: {}", gcpProjectId);
+        return getDashboardData(gcpProjectId, true);
     }
 
 }
