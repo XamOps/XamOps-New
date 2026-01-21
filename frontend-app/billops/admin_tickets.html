@@ -14,12 +14,12 @@
 
 <body class="bg-gray-100 font-sans text-gray-900">
 
-    <div class="flex h-screen overflow-hidden">
+    <div class="flex h-screen overflow-y-auto overflow-x-hidden">
         <include file="/_sidebar.html"></include>
 
-        <div class="flex-1 flex flex-col overflow-hidden pl-64">
+        <div class="flex-1 flex flex-col overflow-hidden lg:pl-64">
 
-            <main id="main-content" class="flex-1 flex flex-col h-screen overflow-hidden" x-data="adminTicketApp()"
+            <main id="main-content" class="flex-1 flex flex-col h-screen overflow-y-auto overflow-x-hidden" x-data="adminTicketApp()"
                 x-init="init()">
 
                 <style>
