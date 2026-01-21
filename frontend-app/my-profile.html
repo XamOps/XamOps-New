@@ -165,6 +165,31 @@
                                             <p class="text-xs text-gray-500 mt-1">Role is inherited from your account</p>
                                         </div>
                                     </div>
+
+                                    <!-- Cloud Account Access Selection -->
+                                    <div class="mt-6" x-show="profile.cloudAccounts && profile.cloudAccounts.length > 0">
+                                        <label class="block text-sm font-semibold text-gray-700 mb-3">Cloud Account Access</label>
+                                        <p class="text-xs text-gray-500 mb-3">Select which cloud accounts this team member can access</p>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            <template x-for="account in profile.cloudAccounts" :key="account.id">
+                                                <label class="flex items-center p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors">
+                                                    <input type="checkbox"
+                                                        :value="account.id"
+                                                        x-model="selectedUser.accountIds"
+                                                        class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500">
+                                                    <div class="ml-3 flex items-center">
+                                                        <i class="mr-2"
+                                                            :class="{
+                                                                'fab fa-aws text-orange-500': account.provider === 'AWS',
+                                                                'fab fa-google text-blue-500': account.provider === 'GCP',
+                                                                'fab fa-microsoft text-sky-500': account.provider === 'Azure'
+                                                            }"></i>
+                                                        <span class="text-sm font-medium text-gray-700" x-text="account.name"></span>
+                                                    </div>
+                                                </label>
+                                            </template>
+                                        </div>
+                                    </div>
                                     <div class="mt-8 flex justify-end space-x-4">
                                         <button type="button" @click="cancelEdit()"
                                             class="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium transition-colors">
@@ -188,6 +213,7 @@
                                             <th class="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Username</th>
                                             <th class="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Email</th>
                                             <th class="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Role</th>
+                                            <th class="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Cloud Accounts</th>
                                             <th class="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Actions</th>
                                         </tr>
                                     </thead>
@@ -199,6 +225,31 @@
                                                 <td class="px-6 py-4">
                                                     <span class="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-indigo-100 text-indigo-800"
                                                         x-text="user.role"></span>
+                                                </td>
+                                                <td class="px-6 py-4">
+                                                    <template x-if="user.cloudAccounts && user.cloudAccounts.length > 0">
+                                                        <div class="flex flex-wrap gap-1">
+                                                            <template x-for="account in user.cloudAccounts" :key="account.id">
+                                                                <span class="inline-flex items-center px-2 py-1 rounded text-xs font-medium"
+                                                                    :class="{
+                                                                        'bg-orange-100 text-orange-700': account.provider === 'AWS',
+                                                                        'bg-blue-100 text-blue-700': account.provider === 'GCP',
+                                                                        'bg-sky-100 text-sky-700': account.provider === 'Azure'
+                                                                    }">
+                                                                    <i class="mr-1 text-xs"
+                                                                        :class="{
+                                                                            'fab fa-aws': account.provider === 'AWS',
+                                                                            'fab fa-google': account.provider === 'GCP',
+                                                                            'fab fa-microsoft': account.provider === 'Azure'
+                                                                        }"></i>
+                                                                    <span x-text="account.name"></span>
+                                                                </span>
+                                                            </template>
+                                                        </div>
+                                                    </template>
+                                                    <span x-show="!user.cloudAccounts || user.cloudAccounts.length === 0" class="text-xs text-gray-400">
+                                                        No access
+                                                    </span>
                                                 </td>
                                                 <td class="px-6 py-4 text-sm font-medium">
                                                     <button @click="editTeamUser(user)"
@@ -213,7 +264,7 @@
                                             </tr>
                                         </template>
                                         <tr x-show="teamUsers.length === 0">
-                                            <td colspan="4" class="px-6 py-12 text-center text-gray-500">
+                                            <td colspan="5" class="px-6 py-12 text-center text-gray-500">
                                                 <i class="fas fa-users text-4xl mb-3 text-gray-300"></i>
                                                 <p>No team members yet. Add one to get started.</p>
                                             </td>
@@ -283,7 +334,8 @@
                                 id: null,
                                 username: '',
                                 email: '',
-                                password: ''
+                                password: '',
+                                accountIds: []
                             },
                             isEditing: false,
                             showPasswordModal: false,
@@ -359,7 +411,8 @@
                                     id: null,
                                     username: '',
                                     email: '',
-                                    password: ''
+                                    password: '',
+                                    accountIds: []
                                 };
                                 this.isEditing = true;
                             },
@@ -369,14 +422,15 @@
                                     id: user.id,
                                     username: user.username,
                                     email: user.email,
-                                    password: ''
+                                    password: '',
+                                    accountIds: user.accountIds || []
                                 };
                                 this.isEditing = true;
                             },
 
                             cancelEdit() {
                                 this.isEditing = false;
-                                this.selectedUser = { id: null, username: '', email: '', password: '' };
+                                this.selectedUser = { id: null, username: '', email: '', password: '', accountIds: [] };
                             },
 
                             saveTeamUser() {

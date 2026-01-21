@@ -1,22 +1,32 @@
 package com.xammer.billops.service;
 
 import com.xammer.billops.domain.CloudAccount;
+import com.xammer.billops.domain.UserCloudAccountAccess;
 import com.xammer.billops.dto.ProfileDTO;
 import com.xammer.billops.dto.TeamUserDTO;
 import com.xammer.billops.repository.AppUserRepository;
 import com.xammer.billops.repository.CloudAccountRepository;
+import com.xammer.billops.repository.UserCloudAccountAccessRepository;
 import com.xammer.billops.util.SecurityUtils;
 import com.xammer.cloud.domain.AppUser;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import javax.persistence.EntityManager;
+import javax.persistence.PersistenceContext;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
 public class TeamUserService {
+
+    private static final Logger log = LoggerFactory.getLogger(TeamUserService.class);
 
     @Autowired
     private AppUserRepository appUserRepository;
@@ -25,12 +35,23 @@ public class TeamUserService {
     private CloudAccountRepository cloudAccountRepository;
 
     @Autowired
+    private UserCloudAccountAccessRepository userCloudAccountAccessRepository;
+
+    @Autowired
     private BCryptPasswordEncoder passwordEncoder;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     public ProfileDTO getMyProfile() {
         Long currentUserId = SecurityUtils.getCurrentUserId();
+        log.info("Getting profile for user ID: {}", currentUserId);
+
         AppUser currentUser = appUserRepository.findById(currentUserId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
+
+        log.info("User: {}, createdBy: {}, isPrimary: {}",
+                currentUser.getUsername(), currentUser.getCreatedBy(), currentUser.getCreatedBy() == null);
 
         ProfileDTO profile = new ProfileDTO();
         profile.setId(currentUser.getId());
@@ -40,14 +61,35 @@ public class TeamUserService {
         profile.setClientName(currentUser.getClient() != null ? currentUser.getClient().getName() : "Unknown");
         profile.setPrimaryUser(currentUser.getCreatedBy() == null);
 
-        // Get cloud accounts for this client
+        // Get cloud accounts based on user type
         if (currentUser.getClient() != null) {
-            List<CloudAccount> accounts = cloudAccountRepository.findByClientId(currentUser.getClient().getId());
+            List<CloudAccount> accounts;
+
+            if (currentUser.getCreatedBy() == null) {
+                // Primary user: show all client accounts
+                log.info("Primary user - fetching all client accounts for client ID: {}", currentUser.getClient().getId());
+                accounts = cloudAccountRepository.findByClientId(currentUser.getClient().getId());
+                log.info("Found {} accounts for primary user", accounts.size());
+            } else {
+                // Sub-user: show only assigned accounts
+                log.info("Sub-user - fetching only assigned accounts");
+                List<Long> accessibleAccountIds = userCloudAccountAccessRepository.findCloudAccountIdsByUserId(currentUserId);
+                log.info("Accessible account IDs: {}", accessibleAccountIds);
+
+                if (accessibleAccountIds.isEmpty()) {
+                    accounts = new ArrayList<>();
+                } else {
+                    accounts = cloudAccountRepository.findAllById(accessibleAccountIds);
+                }
+                log.info("Found {} accounts for sub-user", accounts.size());
+            }
+
             List<ProfileDTO.CloudAccountInfo> accountInfos = accounts.stream()
                     .filter(acc -> "CONNECTED".equals(acc.getStatus()))
                     .map(acc -> new ProfileDTO.CloudAccountInfo(acc.getId(), acc.getAccountName(), acc.getProvider()))
                     .collect(Collectors.toList());
             profile.setCloudAccounts(accountInfos);
+            log.info("Returning {} cloud accounts in profile", accountInfos.size());
         }
 
         return profile;
@@ -71,6 +113,20 @@ public class TeamUserService {
                     dto.setUsername(user.getUsername());
                     dto.setEmail(user.getEmail());
                     dto.setRole(user.getRole());
+
+                    // Get assigned account IDs
+                    List<Long> accountIds = userCloudAccountAccessRepository.findCloudAccountIdsByUserId(user.getId());
+                    dto.setAccountIds(accountIds);
+
+                    // Get full cloud account details for display
+                    if (!accountIds.isEmpty()) {
+                        List<CloudAccount> accounts = cloudAccountRepository.findAllById(accountIds);
+                        List<ProfileDTO.CloudAccountInfo> accountInfos = accounts.stream()
+                                .map(acc -> new ProfileDTO.CloudAccountInfo(acc.getId(), acc.getAccountName(), acc.getProvider()))
+                                .collect(Collectors.toList());
+                        dto.setCloudAccounts(accountInfos);
+                    }
+
                     return dto;
                 })
                 .collect(Collectors.toList());
@@ -92,22 +148,44 @@ public class TeamUserService {
             throw new RuntimeException("Username already exists");
         }
 
+        // Validate account IDs belong to the same client
+        if (dto.getAccountIds() != null && !dto.getAccountIds().isEmpty()) {
+            List<CloudAccount> clientAccounts = cloudAccountRepository.findByClientId(currentUser.getClient().getId());
+            Set<Long> validAccountIds = clientAccounts.stream().map(CloudAccount::getId).collect(Collectors.toSet());
+            for (Long accountId : dto.getAccountIds()) {
+                if (!validAccountIds.contains(accountId)) {
+                    throw new RuntimeException("Invalid account ID: " + accountId);
+                }
+            }
+        }
+
         // Create new user with same role and client as current user
         AppUser newUser = new AppUser();
         newUser.setUsername(dto.getUsername());
         newUser.setEmail(dto.getEmail());
         newUser.setPassword(passwordEncoder.encode(dto.getPassword()));
         newUser.setRole(currentUser.getRole()); // Inherit role from parent
-        newUser.setClient(currentUser.getClient()); // Same client = same cloud accounts
+        newUser.setClient(currentUser.getClient()); // Same client
         newUser.setCreatedBy(currentUserId);
 
         AppUser saved = appUserRepository.save(newUser);
+
+        // Assign cloud account access
+        if (dto.getAccountIds() != null && !dto.getAccountIds().isEmpty()) {
+            for (Long accountId : dto.getAccountIds()) {
+                CloudAccount account = cloudAccountRepository.findById(accountId)
+                        .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
+                UserCloudAccountAccess access = new UserCloudAccountAccess(saved, account);
+                userCloudAccountAccessRepository.save(access);
+            }
+        }
 
         TeamUserDTO result = new TeamUserDTO();
         result.setId(saved.getId());
         result.setUsername(saved.getUsername());
         result.setEmail(saved.getEmail());
         result.setRole(saved.getRole());
+        result.setAccountIds(dto.getAccountIds());
         return result;
     }
 
@@ -130,6 +208,17 @@ public class TeamUserService {
             throw new RuntimeException("You can only update users you created");
         }
 
+        // Validate account IDs belong to the same client
+        if (dto.getAccountIds() != null && !dto.getAccountIds().isEmpty()) {
+            List<CloudAccount> clientAccounts = cloudAccountRepository.findByClientId(currentUser.getClient().getId());
+            Set<Long> validAccountIds = clientAccounts.stream().map(CloudAccount::getId).collect(Collectors.toSet());
+            for (Long accountId : dto.getAccountIds()) {
+                if (!validAccountIds.contains(accountId)) {
+                    throw new RuntimeException("Invalid account ID: " + accountId);
+                }
+            }
+        }
+
         // Update fields
         userToUpdate.setUsername(dto.getUsername());
         userToUpdate.setEmail(dto.getEmail());
@@ -141,11 +230,25 @@ public class TeamUserService {
 
         AppUser saved = appUserRepository.save(userToUpdate);
 
+        // Update cloud account access - delete existing and add new
+        userCloudAccountAccessRepository.deleteByUserId(userId);
+        entityManager.flush(); // Force deletion to complete before inserting new records
+
+        if (dto.getAccountIds() != null && !dto.getAccountIds().isEmpty()) {
+            for (Long accountId : dto.getAccountIds()) {
+                CloudAccount account = cloudAccountRepository.findById(accountId)
+                        .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
+                UserCloudAccountAccess access = new UserCloudAccountAccess(saved, account);
+                userCloudAccountAccessRepository.save(access);
+            }
+        }
+
         TeamUserDTO result = new TeamUserDTO();
         result.setId(saved.getId());
         result.setUsername(saved.getUsername());
         result.setEmail(saved.getEmail());
         result.setRole(saved.getRole());
+        result.setAccountIds(dto.getAccountIds());
         return result;
     }
 
@@ -168,6 +271,10 @@ public class TeamUserService {
             throw new RuntimeException("You can only delete users you created");
         }
 
+        // Delete account access first
+        userCloudAccountAccessRepository.deleteByUserId(userId);
+
+        // Then delete the user
         appUserRepository.delete(userToDelete);
     }
 

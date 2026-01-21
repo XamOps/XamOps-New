@@ -8,6 +8,7 @@ import com.xammer.cloud.domain.User;
 import com.xammer.cloud.dto.*;
 import com.xammer.cloud.repository.ClientRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.repository.UserCloudAccountAccessRepository;
 import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.service.AwsAccountService;
@@ -21,6 +22,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -49,6 +51,9 @@ public class AccountManagerController {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private UserCloudAccountAccessRepository userCloudAccountAccessRepository;
 
     @Autowired
     private AzureCostManagementService azureCostService;
@@ -155,7 +160,28 @@ public class AccountManagerController {
             accounts = cloudAccountRepository.findAll();
         } else {
             // Fetch specific accounts for the target client (Self or Impersonated)
-            accounts = cloudAccountRepository.findByClientId(targetClientId);
+            Long userId = userDetails.getId();
+            if (impersonatedUserId != null) {
+                userId = impersonatedUserId;
+            }
+
+            // Check if user is a sub-user (has createdBy set)
+            Optional<User> userOpt = userRepository.findById(userId);
+            if (userOpt.isPresent() && userOpt.get().getCreatedBy() != null) {
+                // Sub-user: return only assigned accounts
+                logger.info("Sub-user detected (userId: {}) - fetching only assigned accounts", userId);
+                List<Long> accessibleAccountIds = userCloudAccountAccessRepository.findCloudAccountIdsByUserId(userId);
+                logger.info("Accessible account IDs for sub-user: {}", accessibleAccountIds);
+
+                if (accessibleAccountIds.isEmpty()) {
+                    accounts = new ArrayList<>();
+                } else {
+                    accounts = cloudAccountRepository.findAllById(accessibleAccountIds);
+                }
+            } else {
+                // Primary user or admin: return all client accounts
+                accounts = cloudAccountRepository.findByClientId(targetClientId);
+            }
         }
 
         logger.info("✓ Found {} accounts in DB: {}", accounts.size(), TenantContext.getCurrentTenant());
