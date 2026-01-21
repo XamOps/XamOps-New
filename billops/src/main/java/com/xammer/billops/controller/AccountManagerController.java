@@ -4,12 +4,13 @@ import com.xammer.billops.config.multitenancy.ImpersonationContext; // ✅ Added
 import com.xammer.billops.config.multitenancy.TenantContext; // ✅ Added
 import com.xammer.billops.domain.Client;
 import com.xammer.billops.domain.CloudAccount;
-import com.xammer.cloud.domain.User; // ✅ Added (Note: User entity is often shared/copied)
+import com.xammer.cloud.domain.AppUser;
 import com.xammer.billops.dto.*;
 import com.xammer.billops.dto.GlobalUserDto; // ✅ Added
+import com.xammer.billops.repository.AppUserRepository;
 import com.xammer.billops.repository.ClientRepository;
 import com.xammer.billops.repository.CloudAccountRepository;
-import com.xammer.billops.repository.UserRepository; // ✅ Added
+import com.xammer.billops.repository.UserCloudAccountAccessRepository;
 import com.xammer.billops.service.AwsAccountService;
 import com.xammer.billops.service.GcpDataService;
 import com.xammer.billops.service.MasterDatabaseService; // ✅ Added
@@ -26,6 +27,7 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -50,7 +52,10 @@ public class AccountManagerController {
     private ClientRepository clientRepository;
 
     @Autowired
-    private UserRepository userRepository; // ✅ Injected for Impersonation lookup
+    private AppUserRepository appUserRepository; // ✅ Injected for Impersonation lookup
+
+    @Autowired
+    private UserCloudAccountAccessRepository userCloudAccountAccessRepository;
 
     @Autowired
     private AzureCostManagementService azureCostService;
@@ -128,10 +133,10 @@ public class AccountManagerController {
         if (impersonatedUserId != null) {
             logger.info("ℹ Impersonation Active. Target User ID: {}", impersonatedUserId);
             // Fetch the impersonated user from the CURRENT tenant DB
-            Optional<User> impersonatedUserOpt = userRepository.findById(impersonatedUserId);
+            Optional<AppUser> impersonatedUserOpt = appUserRepository.findById(impersonatedUserId);
 
             if (impersonatedUserOpt.isPresent()) {
-                User impersonatedUser = impersonatedUserOpt.get();
+                AppUser impersonatedUser = impersonatedUserOpt.get();
                 if (impersonatedUser.getClient() != null) {
                     targetClientId = impersonatedUser.getClient().getId();
                     logger.info("✓ Switched Client ID to Impersonated User's Client: {}", targetClientId);
@@ -156,8 +161,30 @@ public class AccountManagerController {
             logger.info("User is admin (no impersonation) - fetching all accounts");
             accounts = cloudAccountRepository.findAll();
         } else {
-            logger.info("Fetching accounts for Client ID: {}", targetClientId);
-            accounts = cloudAccountRepository.findByClientId(targetClientId);
+            // Fetch specific accounts for the target client (Self or Impersonated)
+            Long userId = userDetails.getId();
+            if (impersonatedUserId != null) {
+                userId = impersonatedUserId;
+            }
+
+            // Check if user is a sub-user (has createdBy set)
+            Optional<AppUser> userOpt = appUserRepository.findById(userId);
+            if (userOpt.isPresent() && userOpt.get().getCreatedBy() != null) {
+                // Sub-user: return only assigned accounts
+                logger.info("Sub-user detected (userId: {}) - fetching only assigned accounts", userId);
+                List<Long> accessibleAccountIds = userCloudAccountAccessRepository.findCloudAccountIdsByUserId(userId);
+                logger.info("Accessible account IDs for sub-user: {}", accessibleAccountIds);
+
+                if (accessibleAccountIds.isEmpty()) {
+                    accounts = new ArrayList<>();
+                } else {
+                    accounts = cloudAccountRepository.findAllById(accessibleAccountIds);
+                }
+            } else {
+                // Primary user or admin: return all client accounts
+                logger.info("Fetching accounts for Client ID: {}", targetClientId);
+                accounts = cloudAccountRepository.findByClientId(targetClientId);
+            }
         }
 
         logger.info("✓ Found {} accounts in Tenant: {}", accounts.size(), TenantContext.getCurrentTenant());
