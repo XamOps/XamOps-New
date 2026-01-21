@@ -44,13 +44,13 @@
     </style>
 </head>
 <body class="bg-gray-50">
-    <div class="flex h-screen overflow-hidden">
+    <div class="flex h-screen overflow-y-auto overflow-x-hidden">
         <!-- Sidebar -->
   <include file="/_sidebar.html"></include>
 
 
         <!-- Main Content -->
-        <div class="ml-64 flex-1 flex flex-col overflow-hidden pl-64">
+        <div class="lg:ml-64 flex-1 flex flex-col overflow-hidden lg:pl-64">
             <main class="flex-1 overflow-y-auto p-8" x-data="devopsBox()">
                 <!-- Header -->
                 <header class="mb-8">
