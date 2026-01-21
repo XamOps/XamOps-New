@@ -14,7 +14,14 @@ public interface AppUserRepository extends JpaRepository<AppUser, Long> {
      * @return A list of AppUser entities.
      */
     List<AppUser> findByClientId(Long clientId);
-    
+
     Optional<AppUser> findByUsername(String username);
+
+    /**
+     * Finds all users created by a specific user.
+     * @param createdBy The ID of the user who created them.
+     * @return A list of AppUser entities.
+     */
+    List<AppUser> findByCreatedBy(Long createdBy);
 
 }

@@ -43,6 +43,9 @@ public class User {
     @lombok.ToString.Exclude
     private Client client;
 
+    @Column(name = "created_by")
+    private Long createdBy;
+
     public User(String username, String password, Client client) {
         this.username = username;
         this.password = password;

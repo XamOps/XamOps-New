@@ -41,6 +41,9 @@ public class AppUser {
     @JsonIgnoreProperties({"hibernateLazyInitializer", "handler", "users", "cloudAccounts"})
     private Client client;
 
+    @Column(name = "created_by")
+    private Long createdBy;
+
     // Constructors
     public AppUser() {
     }
