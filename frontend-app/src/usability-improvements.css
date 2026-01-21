@@ -5,6 +5,26 @@
  */
 
 /* ============================================
+   GLOBAL OVERFLOW & SCROLL FIXES
+   ============================================ */
+
+/* Prevent horizontal scrolling globally while allowing vertical scroll */
+html {
+  overflow-x: hidden;
+}
+
+body {
+  overflow-x: hidden;
+  /* Allow vertical scrolling - do not use overflow: hidden */
+}
+
+/* Use min-h-screen instead of fixed h-screen for content containers */
+.min-h-screen-safe {
+  min-height: 100vh;
+  min-height: 100dvh; /* Use dynamic viewport height for mobile browsers */
+}
+
+/* ============================================
    FOCUS INDICATORS & KEYBOARD ACCESSIBILITY
    ============================================ */
 
@@ -788,6 +808,33 @@ table tbody tr:hover {
     left: 1rem;
     right: 1rem;
     max-width: none;
+  }
+}
+
+/* ============================================
+   MOBILE SIDEBAR & NAVIGATION
+   ============================================ */
+
+/* Mobile menu toggle button */
+#mobile-menu-toggle {
+  display: none;
+}
+
+@media (max-width: 1023px) {
+  #mobile-menu-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Ensure proper sidebar positioning on mobile */
+  #tour-sidebar {
+    transition: transform 0.3s ease-in-out;
+  }
+
+  /* Mobile overlay styling */
+  #sidebar-overlay {
+    backdrop-filter: blur(2px);
   }
 }
 

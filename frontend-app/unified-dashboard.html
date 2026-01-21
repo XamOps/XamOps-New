@@ -274,11 +274,11 @@
 
 <body class="antialiased text-gray-800 bg-gray-50">
 
-    <div id="appBody" class="flex h-screen overflow-hidden">
+    <div id="appBody" class="flex h-screen">
         <include file="/_sidebar.html"></include>
 
 
-        <div class="flex-1 flex flex-col pl-64 h-screen overflow-hidden">
+        <div class="flex-1 flex flex-col lg:pl-64 h-screen overflow-y-auto overflow-x-hidden">
             <div id="main-content" class="flex flex-col h-full w-full">
 
                 <div class="ticker-wrap" x-data="{ messages: [] }"
