@@ -164,8 +164,28 @@
     }
 </style>
 
-<div id="tour-sidebar" class="w-64 fixed top-0 left-0 h-screen flex flex-col bg-white shadow-xl z-30" x-data="{
+<!-- Mobile Hamburger Menu Button -->
+<button
+    id="mobile-menu-toggle"
+    class="lg:hidden fixed top-4 left-4 z-50 p-2 bg-white rounded-lg shadow-lg border border-gray-200 hover:bg-gray-50 transition-colors"
+    onclick="document.getElementById('tour-sidebar').classList.toggle('translate-x-0'); document.getElementById('tour-sidebar').classList.toggle('-translate-x-full'); document.getElementById('sidebar-overlay').classList.toggle('hidden');"
+    aria-label="Toggle sidebar menu"
+>
+    <svg class="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+    </svg>
+</button>
+
+<!-- Mobile Overlay -->
+<div
+    id="sidebar-overlay"
+    class="lg:hidden fixed inset-0 bg-black/50 z-20 hidden"
+    onclick="document.getElementById('tour-sidebar').classList.remove('translate-x-0'); document.getElementById('tour-sidebar').classList.add('-translate-x-full'); this.classList.add('hidden');"
+></div>
+
+<div id="tour-sidebar" class="w-64 fixed top-0 left-0 h-screen flex flex-col bg-white shadow-xl z-30 transform -translate-x-full lg:translate-x-0 transition-transform duration-300 ease-in-out" x-data="{
     open: false,
+    sidebarOpen: false,
     // Shared state for dropdown menu management - only one can be open at a time
     openDropdown: null,
     // 1. OPTIMIZATION: Load from cache immediately to prevent flicker

@@ -15,10 +15,10 @@
 
 <body class="bg-gray-100 font-sans">
 
-    <div class="flex h-screen overflow-hidden">
+    <div class="flex h-screen overflow-y-auto overflow-x-hidden">
         <include file="/_sidebar.html"></include>
 
-        <main id="main-content" class="flex-1 flex flex-col min-w-0 overflow-hidden pl-64" x-data="ticketDetailApp()"
+        <main id="main-content" class="flex-1 flex flex-col min-w-0 overflow-hidden lg:pl-64" x-data="ticketDetailApp()"
             x-init="init()">
 
             <style>
