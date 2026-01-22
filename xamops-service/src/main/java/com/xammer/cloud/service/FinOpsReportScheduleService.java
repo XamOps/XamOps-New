@@ -23,16 +23,19 @@ public class FinOpsReportScheduleService {
     private final FinOpsReportScheduleRepository scheduleRepository;
     private final CloudAccountRepository cloudAccountRepository;
     private final UserRepository userRepository;
-    private final EmailService emailService; 
+    private final EmailService emailService;
+    private final FinOpsReportEmailBuilder emailBuilder;
 
     public FinOpsReportScheduleService(FinOpsReportScheduleRepository scheduleRepository,
                                      CloudAccountRepository cloudAccountRepository,
                                      UserRepository userRepository,
-                                     EmailService emailService) {
+                                     EmailService emailService,
+                                     FinOpsReportEmailBuilder emailBuilder) {
         this.scheduleRepository = scheduleRepository;
         this.cloudAccountRepository = cloudAccountRepository;
         this.userRepository = userRepository;
         this.emailService = emailService;
+        this.emailBuilder = emailBuilder;
     }
 
     @Transactional
@@ -64,23 +67,16 @@ public class FinOpsReportScheduleService {
 
         // --- START: ADD ACKNOWLEDGEMENT EMAIL LOGIC ---
         try {
-            String subject = "XamOps Report Schedule Confirmed";
-            String body = String.format(
-                "Hello,\n\n" +
-                "This is an acknowledgement that you have successfully set up a new FinOps report schedule.\n\n" +
-                "  Account: %s (%s)\n" +
-                "  Recipient: %s\n" +
-                "  Frequency: %s\n\n" +
-                "You will receive your first report at the next scheduled time.\n\n" +
-                "Thank you,\n" +
-                "The XamOps Team",
+            String subject = "XamOps Report Schedule Confirmed - " + account.getAccountName();
+            String htmlBody = emailBuilder.buildScheduleConfirmationEmail(
                 account.getAccountName(),
                 account.getProviderAccountId(),
                 schedule.getEmail(),
-                schedule.getFrequency().name() 
+                schedule.getFrequency().name(),
+                account.getProvider()
             );
-            
-            emailService.sendEmail(schedule.getEmail(), subject, body); 
+
+            emailService.sendHtmlEmail(schedule.getEmail(), subject, htmlBody);
             logger.info("Sent schedule acknowledgement email to {}", schedule.getEmail());
         } catch (Exception e) {
             logger.error("Failed to send acknowledgement email for schedule ID {}: {}", schedule.getId(), e.getMessage(), e);

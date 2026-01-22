@@ -359,7 +359,7 @@ public class FinOpsService {
 
             int totalScanned = allResources.size();
             double percentage = (totalScanned > 0) ? ((double) taggedCount / totalScanned) * 100.0 : 100.0;
-            DashboardData.TaggingCompliance result = new DashboardData.TaggingCompliance(percentage, totalScanned, untaggedList.size(), untaggedList.stream().limit(20).collect(Collectors.toList()));
+            DashboardData.TaggingCompliance result = new DashboardData.TaggingCompliance(percentage, totalScanned, untaggedList.size(), untaggedList);
             redisCache.put(cacheKey, result, 10);
             return result;
         });

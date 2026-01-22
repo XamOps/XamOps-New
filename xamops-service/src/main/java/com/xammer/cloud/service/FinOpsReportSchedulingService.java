@@ -131,7 +131,7 @@ public class FinOpsReportSchedulingService {
 
                 // --- STEP 2: Build email body ONCE ---
                 String subject = String.format("Your %s FinOps Report - %s (%s)", frequency, accountName, dateRange);
-                String htmlBody = emailBuilder.buildSimpleReportEmail(reportData, accountName, frequency, dateRange);
+                String htmlBody = emailBuilder.buildProfessionalReportEmail(reportData, accountName, frequency, dateRange, account.getProvider());
                 logger.debug("Generated HTML email body with {} characters", htmlBody != null ? htmlBody.length() : 0);
 
                 // --- STEP 3: Send email to all recipients for this account ---
