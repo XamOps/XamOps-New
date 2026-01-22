@@ -43,6 +43,10 @@ public class ReservationService {
     private final List<String> instanceSizeOrder;
     private final String configuredRegion;
     private final RedisCacheService redisCache;
+    private final CostMockService costMockService;
+
+    @Value("${aws.costexplorer.mock:false}")
+    private boolean useMockData;
 
     @Autowired
     public ReservationService(
@@ -50,12 +54,14 @@ public class ReservationService {
             AwsClientProvider awsClientProvider,
             @Lazy CloudListService cloudListService,
             @Value("${rightsizing.instance-size-order}") List<String> instanceSizeOrder,
-            RedisCacheService redisCache) {
+            RedisCacheService redisCache,
+            CostMockService costMockService) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.cloudListService = cloudListService;
         this.instanceSizeOrder = instanceSizeOrder;
         this.redisCache = redisCache;
+        this.costMockService = costMockService;
         this.configuredRegion = System.getenv().getOrDefault("AWS_REGION", "us-east-1");
     }
 
@@ -121,6 +127,12 @@ public class ReservationService {
     @Async("awsTaskExecutor")
     public CompletableFuture<List<SavingsPlanDto>> getSavingsPlans(CloudAccount account,
             List<DashboardData.RegionStatus> activeRegions, boolean forceRefresh) {
+        // Use mock data if enabled
+        if (useMockData) {
+            logger.info("[MOCK] Using mock data for getSavingsPlans");
+            return CompletableFuture.completedFuture(costMockService.getMockSavingsPlans(account));
+        }
+
         return CompletableFuture.supplyAsync(() -> {
             try {
                 SavingsplansClient client = awsClientProvider.getSavingsplansClient(account, "us-east-1");
@@ -151,6 +163,12 @@ public class ReservationService {
     @Async("awsTaskExecutor")
     public CompletableFuture<DashboardData.ReservationAnalysis> getReservationAnalysis(CloudAccount account,
             boolean forceRefresh) {
+        // Use mock data if enabled
+        if (useMockData) {
+            logger.info("[MOCK] Using mock data for getReservationAnalysis");
+            return CompletableFuture.completedFuture(costMockService.getMockReservationAnalysis(account));
+        }
+
         String cacheKey = "reservationAnalysis-" + account.getAwsAccountId();
         if (!forceRefresh) {
             Optional<DashboardData.ReservationAnalysis> cachedData = redisCache.get(cacheKey,
@@ -216,6 +234,12 @@ public class ReservationService {
     @Async("awsTaskExecutor")
     public CompletableFuture<HistoricalReservationDataDto> getHistoricalReservationData(CloudAccount account,
             boolean forceRefresh) {
+        // Use mock data if enabled
+        if (useMockData) {
+            logger.info("[MOCK] Using mock data for getHistoricalReservationData");
+            return CompletableFuture.completedFuture(costMockService.getMockHistoricalReservationData(account));
+        }
+
         String cacheKey = "historicalReservationData-" + account.getAwsAccountId();
         if (!forceRefresh) {
             Optional<HistoricalReservationDataDto> cachedData = redisCache.get(cacheKey,
@@ -331,6 +355,13 @@ public class ReservationService {
     public CompletableFuture<List<DashboardData.ReservationPurchaseRecommendation>> getReservationPurchaseRecommendations(
             CloudAccount account, String term, String paymentOption, String lookback, String offeringClass,
             boolean forceRefresh) {
+        // Use mock data if enabled
+        if (useMockData) {
+            logger.info("[MOCK] Using mock data for getReservationPurchaseRecommendations");
+            return CompletableFuture.completedFuture(
+                    costMockService.getMockReservationPurchaseRecommendations(account, term, paymentOption));
+        }
+
         String cacheKey = String.format("reservationPurchaseRecs-%s-%s-%s-%s-%s", account.getAwsAccountId(), term,
                 paymentOption, lookback, offeringClass);
         if (!forceRefresh) {
@@ -393,6 +424,11 @@ public class ReservationService {
     }
 
     private double fetchSingleRIUtilization(CloudAccount account, String riId) {
+        // Use mock data if enabled (performance optimization)
+        if (useMockData) {
+            return costMockService.getMockSingleRIUtilization(riId);
+        }
+
         CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
         try {
             String today = LocalDate.now().toString();
@@ -427,6 +463,12 @@ public class ReservationService {
     @Async("awsTaskExecutor")
     public CompletableFuture<List<ReservationInventoryDto>> getReservationInventory(CloudAccount account,
             List<DashboardData.RegionStatus> activeRegions, boolean forceRefresh) {
+        // Use mock data if enabled
+        if (useMockData) {
+            logger.info("[MOCK] Using mock data for getReservationInventory");
+            return CompletableFuture.completedFuture(costMockService.getMockReservationInventory(account));
+        }
+
         String cacheKey = "reservationInventory-" + account.getAwsAccountId();
         if (!forceRefresh) {
             Optional<List<ReservationInventoryDto>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {
@@ -503,6 +545,12 @@ public class ReservationService {
     @Async("awsTaskExecutor")
     public CompletableFuture<List<ReservationModificationRecommendationDto>> getReservationModificationRecommendations(
             CloudAccount account, List<DashboardData.RegionStatus> activeRegions, boolean forceRefresh) {
+        // Use mock data if enabled
+        if (useMockData) {
+            logger.info("[MOCK] Using mock data for getReservationModificationRecommendations");
+            return CompletableFuture.completedFuture(costMockService.getMockReservationModificationRecommendations(account));
+        }
+
         String cacheKey = "reservationModificationRecs-" + account.getAwsAccountId();
         if (!forceRefresh) {
             Optional<List<ReservationModificationRecommendationDto>> cachedData = redisCache.get(cacheKey,
@@ -545,6 +593,15 @@ public class ReservationService {
     }
 
     public String applyReservationModification(String accountId, ReservationModificationRequestDto request) {
+        // Use mock data if enabled
+        if (useMockData) {
+            logger.info("[MOCK] Using mock data for applyReservationModification");
+            return costMockService.getMockApplyReservationModification(
+                request.getReservationId(),
+                request.getTargetInstanceType(),
+                request.getInstanceCount());
+        }
+
         CloudAccount account = getAccount(accountId);
         Ec2Client ec2 = awsClientProvider.getEc2Client(account, configuredRegion);
         logger.info("Attempting to modify reservation {} for account {}", request.getReservationId(), accountId);
@@ -587,6 +644,12 @@ public class ReservationService {
     @Async("awsTaskExecutor")
     public CompletableFuture<List<CostByTagDto>> getReservationCostByTag(String accountId, String tagKey,
             boolean forceRefresh) {
+        // Use mock data if enabled
+        if (useMockData) {
+            logger.info("[MOCK] Using mock data for getReservationCostByTag");
+            return CompletableFuture.completedFuture(costMockService.getMockReservationCostByTag(accountId, tagKey));
+        }
+
         String cacheKey = "reservationCostByTag-" + accountId + "-" + tagKey;
         if (!forceRefresh) {
             Optional<List<CostByTagDto>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {

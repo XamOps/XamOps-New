@@ -3,6 +3,7 @@ package com.xammer.cloud.service.calculator.aws.pricing;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.cloud.service.AwsClientProvider;
+import com.xammer.cloud.service.CostMockService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -18,7 +19,8 @@ import java.util.*;
 
 /**
  * AWS Networking Pricing Service
- * Handles REAL pricing calculations from AWS Pricing API for VPC, ELB, CloudFront, Route 53
+ * Handles REAL pricing calculations from AWS Pricing API for VPC, ELB,
+ * CloudFront, Route 53
  */
 @Service
 public class NetworkingPricingService {
@@ -27,11 +29,17 @@ public class NetworkingPricingService {
 
     private final AwsClientProvider awsClientProvider;
     private final ObjectMapper objectMapper;
+    private final CostMockService costMockService;
+
+    @org.springframework.beans.factory.annotation.Value("${aws.costexplorer.mock:false}")
+    private boolean useMockData;
 
     public NetworkingPricingService(AwsClientProvider awsClientProvider,
-                                    ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            CostMockService costMockService) {
         this.awsClientProvider = awsClientProvider;
         this.objectMapper = objectMapper;
+        this.costMockService = costMockService;
     }
 
     // ========================================
@@ -49,6 +57,12 @@ public class NetworkingPricingService {
             int natGatewayCount, int natGatewayDataProcessedGB,
             int interfaceEndpoints, int gatewayEndpoints) {
 
+        // Use mock data if enabled
+        if (useMockData) {
+            return costMockService.getMockComprehensiveVpcEstimate(region, natGatewayCount > 0,
+                    (double) natGatewayDataProcessedGB, siteToSiteVpnConnections);
+        }
+
         logger.info("💰 Calculating VPC estimate with REAL prices for region: {}", region);
 
         // Fetch REAL VPC pricing from AWS API
@@ -61,12 +75,14 @@ public class NetworkingPricingService {
 
         // 1. Site-to-Site VPN Pricing
         double siteToSiteVpnHoursPerMonth = siteToSiteVpnHoursPerDay * 30;
-        double siteToSiteVpnMonthlyCost = siteToSiteVpnConnections * siteToSiteVpnHourlyRate * siteToSiteVpnHoursPerMonth;
+        double siteToSiteVpnMonthlyCost = siteToSiteVpnConnections * siteToSiteVpnHourlyRate
+                * siteToSiteVpnHoursPerMonth;
 
         // 2. Client VPN Pricing
         double clientVpnEndpointHours = clientVpnSubnets * clientVpnHoursPerDay * clientVpnWorkingDaysPerMonth;
         double clientVpnEndpointCost = clientVpnEndpointHours * clientVpnEndpointHourlyRate;
-        double clientVpnConnectionHours = clientVpnActiveConnections * clientVpnHoursPerDay * clientVpnWorkingDaysPerMonth;
+        double clientVpnConnectionHours = clientVpnActiveConnections * clientVpnHoursPerDay
+                * clientVpnWorkingDaysPerMonth;
         double clientVpnConnectionCost = clientVpnConnectionHours * clientVpnConnectionHourlyRate;
         double clientVpnTotalCost = clientVpnEndpointCost + clientVpnConnectionCost;
 
@@ -180,10 +196,16 @@ public class NetworkingPricingService {
             int numberOfLoadBalancers, int processedBytesGB,
             int newConnectionsPerSecond, int activeConnections, int ruleEvaluations) {
 
+        // Use mock data if enabled
+        if (useMockData) {
+            return costMockService.getMockComprehensiveElbEstimate(region, loadBalancerType, 730, processedBytesGB,
+                    newConnectionsPerSecond);
+        }
+
         logger.info("💰 Calculating ELB estimate with REAL prices for region: {}, type: {}", region, loadBalancerType);
 
         String lbType = loadBalancerType.toUpperCase();
-        
+
         // Fetch REAL ELB pricing from AWS API
         double hourlyRate = getElbHourlyRateFromAPI(region, lbType);
         double lcuHourlyRate = getElbLcuRateFromAPI(region, lbType);
@@ -531,7 +553,8 @@ public class NetworkingPricingService {
         return null;
     }
 
-    private double calculateElbCostWithAPI(String region, String type, int count, int bytesGB, int newConn, int activeConn, int rules) {
+    private double calculateElbCostWithAPI(String region, String type, int count, int bytesGB, int newConn,
+            int activeConn, int rules) {
         double hourlyRate = getElbHourlyRateFromAPI(region, type);
         double lcuRate = getElbLcuRateFromAPI(region, type);
         double dataRate = 0.008;
@@ -566,7 +589,8 @@ public class NetworkingPricingService {
     }
 
     private double round(double value, int places) {
-        if (places < 0) throw new IllegalArgumentException();
+        if (places < 0)
+            throw new IllegalArgumentException();
         BigDecimal bd = BigDecimal.valueOf(value);
         bd = bd.setScale(places, RoundingMode.HALF_UP);
         return bd.doubleValue();
