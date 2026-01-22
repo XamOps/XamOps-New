@@ -5,8 +5,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.service.AwsClientProvider;
+import com.xammer.cloud.service.CostMockService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.pricing.PricingClient;
 import software.amazon.awssdk.services.pricing.model.Filter;
@@ -25,24 +28,38 @@ public class ComputePricingService {
     private final AwsClientProvider awsClientProvider;
     private final CloudAccountRepository cloudAccountRepository;
     private final ObjectMapper objectMapper;
+    private final CostMockService costMockService;
+
+    @Value("${aws.costexplorer.mock:false}")
+    private boolean useMockData;
 
     public ComputePricingService(AwsClientProvider awsClientProvider,
-                                 CloudAccountRepository cloudAccountRepository,
-                                 ObjectMapper objectMapper) {
+            CloudAccountRepository cloudAccountRepository,
+            ObjectMapper objectMapper,
+            CostMockService costMockService) {
         this.awsClientProvider = awsClientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
         this.objectMapper = objectMapper;
+        this.costMockService = costMockService;
     }
 
     public Map<String, Object> getEc2InstancePrices(String awsAccountId, String region, String operatingSystem) {
+        // Use mock data if enabled
+        if (useMockData) {
+            logger.info("[MOCK] Using mock data for getEc2InstancePrices");
+            return costMockService.getMockEc2InstancePrices(region, operatingSystem);
+        }
+
         PricingClient pricingClient = awsClientProvider.getPricingClient();
         List<Map<String, Object>> instances = new ArrayList<>();
 
         try {
             List<Filter> filters = new ArrayList<>();
             filters.add(Filter.builder().field("serviceCode").type(FilterType.TERM_MATCH).value("AmazonEC2").build());
-            filters.add(Filter.builder().field("location").type(FilterType.TERM_MATCH).value(regionToLocation(region)).build());
-            filters.add(Filter.builder().field("operatingSystem").type(FilterType.TERM_MATCH).value(operatingSystem).build());
+            filters.add(Filter.builder().field("location").type(FilterType.TERM_MATCH).value(regionToLocation(region))
+                    .build());
+            filters.add(Filter.builder().field("operatingSystem").type(FilterType.TERM_MATCH).value(operatingSystem)
+                    .build());
             filters.add(Filter.builder().field("preInstalledSw").type(FilterType.TERM_MATCH).value("NA").build());
             filters.add(Filter.builder().field("tenancy").type(FilterType.TERM_MATCH).value("Shared").build());
             filters.add(Filter.builder().field("capacitystatus").type(FilterType.TERM_MATCH).value("Used").build());
@@ -56,14 +73,16 @@ public class ComputePricingService {
 
             for (String priceJson : response.priceList()) {
                 Map<String, Object> parsed = simplifyEc2PriceJson(priceJson);
-                if (parsed != null) instances.add(parsed);
+                if (parsed != null)
+                    instances.add(parsed);
             }
         } catch (Exception e) {
             logger.error("❌ AWS API Error for {}. Using fallback.", region);
             return getFallbackInstanceTypes(region, operatingSystem);
         }
 
-        if (instances.isEmpty()) return getFallbackInstanceTypes(region, operatingSystem);
+        if (instances.isEmpty())
+            return getFallbackInstanceTypes(region, operatingSystem);
 
         Map<String, Object> result = new HashMap<>();
         result.put("instances", instances);
@@ -75,16 +94,23 @@ public class ComputePricingService {
             String awsAccountId, String region, String instanceType, String operatingSystem,
             int instanceCount, int hoursPerMonth, int storageGB, String storageType, int dataTransferOutGB) {
 
+        // Use mock data if enabled
+        if (useMockData) {
+            logger.info("[MOCK] Using mock data for getComprehensiveEc2Estimate");
+            return costMockService.getMockComprehensiveEc2Estimate(region, instanceType, operatingSystem,
+                    instanceCount, hoursPerMonth, storageGB, storageType, dataTransferOutGB);
+        }
+
         double instanceHourlyRate = getInstanceHourlyRateFromAPI(awsAccountId, region, instanceType, operatingSystem);
         double computeMonthly = instanceHourlyRate * instanceCount * hoursPerMonth;
-        
+
         Map<String, Object> storageCosts = calculateEbsStorageCost(region, storageType, storageGB);
         double storageMonthly = ((Number) storageCosts.get("totalMonthly")).doubleValue() * instanceCount;
         double transferMonthly = calculateDataTransferCost(dataTransferOutGB);
 
         Map<String, Object> result = new HashMap<>();
         result.put("totalMonthly", round(computeMonthly + storageMonthly + transferMonthly, 2));
-        
+
         Map<String, Object> compute = new HashMap<>();
         compute.put("instanceType", instanceType);
         compute.put("monthlyCost", round(computeMonthly, 2));
@@ -96,7 +122,8 @@ public class ComputePricingService {
         storage.put("monthlyCost", round(storageMonthly, 2));
         result.put("storage", storage);
 
-        result.put("pricingModels", calculatePricingModels(computeMonthly, storageMonthly, transferMonthly, hoursPerMonth));
+        result.put("pricingModels",
+                calculatePricingModels(computeMonthly, storageMonthly, transferMonthly, hoursPerMonth));
         return result;
     }
 
@@ -109,7 +136,9 @@ public class ComputePricingService {
                     .findFirst()
                     .map(i -> (Double) i.get("pricePerHour"))
                     .orElse(0.10); // Safe fallback
-        } catch (Exception e) { return 0.10; }
+        } catch (Exception e) {
+            return 0.10;
+        }
     }
 
     private String regionToLocation(String region) {
@@ -128,24 +157,28 @@ public class ComputePricingService {
             JsonNode root = objectMapper.readTree(json);
             JsonNode attr = root.path("product").path("attributes");
             String type = attr.path("instanceType").asText("");
-            if (type.isEmpty()) return null;
+            if (type.isEmpty())
+                return null;
 
             Map<String, Object> map = new HashMap<>();
             map.put("instanceType", type);
-            map.put("description", type + " - " + attr.path("vcpu").asText() + " vCPU, " + attr.path("memory").asText());
-            
+            map.put("description",
+                    type + " - " + attr.path("vcpu").asText() + " vCPU, " + attr.path("memory").asText());
+
             JsonNode od = root.path("terms").path("OnDemand");
             String firstKey = od.fieldNames().next();
             JsonNode priceDim = od.path(firstKey).path("priceDimensions");
             String priceKey = priceDim.fieldNames().next();
             map.put("pricePerHour", priceDim.path(priceKey).path("pricePerUnit").path("USD").asDouble());
             return map;
-        } catch (Exception e) { return null; }
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private Map<String, Object> getFallbackInstanceTypes(String region, String os) {
         List<Map<String, Object>> fallbacks = new ArrayList<>();
-        String[] types = {"t3.medium", "m5.large", "c5.large"};
+        String[] types = { "t3.medium", "m5.large", "c5.large" };
         for (String type : types) {
             Map<String, Object> map = new HashMap<>();
             map.put("instanceType", type);
@@ -166,7 +199,9 @@ public class ComputePricingService {
         return res;
     }
 
-    private double calculateDataTransferCost(int gb) { return gb * 0.09; }
+    private double calculateDataTransferCost(int gb) {
+        return gb * 0.09;
+    }
 
     private List<Map<String, Object>> calculatePricingModels(double c, double s, double t, int h) {
         List<Map<String, Object>> models = new ArrayList<>();

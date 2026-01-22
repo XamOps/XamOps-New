@@ -51,6 +51,10 @@ public class FinOpsService {
     private final List<String> requiredTags;
     private final RedisCacheService redisCache;
     private final UserRepository userRepository;
+    private final CostMockService costMockService;
+
+    @Value("${aws.costexplorer.mock:false}")
+    private boolean useMockData;
 
     @Autowired
     public FinOpsService(
@@ -59,15 +63,19 @@ public class FinOpsService {
             @Lazy CloudListService cloudListService,
             @Lazy OptimizationService optimizationService,
             @Value("${tagging.compliance.required-tags}") List<String> requiredTags,
-            RedisCacheService redisCache, UserRepository userRepository) {
+            RedisCacheService redisCache,
+            UserRepository userRepository,
+            CostMockService costMockService) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.cloudListService = cloudListService;
         this.optimizationService = optimizationService;
         this.requiredTags = requiredTags;
         this.redisCache = redisCache;
-        this.userRepository = userRepository; // Initialize
+        this.userRepository = userRepository;
+        this.costMockService = costMockService;
 
+        logger.info("FinOpsService initialized (Mock Mode: {})", useMockData);
     }
 
     private CloudAccount getAccount(String accountId) {
@@ -167,7 +175,14 @@ public class FinOpsService {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
         }
-        
+
+        // Return mock data if mock mode is enabled
+        if (useMockData) {
+            List<BudgetDetails> mockResult = costMockService.getMockAccountBudgets(account);
+            redisCache.put(cacheKey, mockResult, 10);
+            return CompletableFuture.completedFuture(mockResult);
+        }
+
         BudgetsClient budgetsClient = awsClientProvider.getBudgetsClient(account);
         logger.info("FinOps Scan: Fetching account budgets for account {}...", account.getAwsAccountId());
         try {
@@ -191,6 +206,25 @@ public class FinOpsService {
      * @return The created BudgetDetails object, populated with spends as 0.
      */
     public BudgetDetails createBudget(String accountId, DashboardData.BudgetDetails budgetDetails, String username) {
+        // Use mock data if enabled
+        if (useMockData) {
+            logger.info("[MOCK] Using mock data for createBudget");
+            String mockResult = costMockService.getMockCreateBudget(
+                budgetDetails.getBudgetName(),
+                budgetDetails.getBudgetLimit().doubleValue());
+            logger.info("[MOCK] {}", mockResult);
+
+            // Return the DTO with zero spend for mock
+            budgetDetails.setActualSpend(BigDecimal.ZERO);
+            budgetDetails.setForecastedSpend(BigDecimal.ZERO);
+
+            // Evict caches to force a refresh on next load
+            redisCache.evict("budgets-" + accountId);
+            redisCache.evict("finopsReport-" + accountId);
+
+            return budgetDetails;
+        }
+
         CloudAccount account = getAccount(accountId);
         BudgetsClient budgetsClient = awsClientProvider.getBudgetsClient(account);
 
@@ -258,6 +292,18 @@ public class FinOpsService {
 
 
     public void deleteBudget(String accountId, String budgetName) {
+        // Use mock data if enabled
+        if (useMockData) {
+            logger.info("[MOCK] Using mock data for deleteBudget");
+            String mockResult = costMockService.getMockDeleteBudget(budgetName);
+            logger.info("[MOCK] {}", mockResult);
+
+            // Evict caches to force a refresh on next load
+            redisCache.evict("budgets-" + accountId);
+            redisCache.evict("finopsReport-" + accountId);
+            return;
+        }
+
         CloudAccount account = getAccount(accountId);
         BudgetsClient budgetsClient = awsClientProvider.getBudgetsClient(account);
         logger.info("Deleting budget: {} for account {}", budgetName, accountId);
@@ -328,18 +374,26 @@ public class FinOpsService {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
         }
-        
+
+        if (tagKey == null || tagKey.isBlank()) return CompletableFuture.completedFuture(Collections.emptyList());
+
+        // Return mock data if mock mode is enabled
+        if (useMockData) {
+            List<Map<String, Object>> mockResult = costMockService.getMockCostByTag(accountId, tagKey);
+            redisCache.put(cacheKey, mockResult, 10);
+            return CompletableFuture.completedFuture(mockResult);
+        }
+
         CloudAccount account = getAccount(accountId);
         CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
         logger.info("Fetching month-to-date cost by tag: {} for account {}", tagKey, accountId);
-        if (tagKey == null || tagKey.isBlank()) return CompletableFuture.completedFuture(Collections.emptyList());
         try {
             GetCostAndUsageRequest request = GetCostAndUsageRequest.builder()
                     .timePeriod(DateInterval.builder().start(LocalDate.now().withDayOfMonth(1).toString())
                             .end(LocalDate.now().plusDays(1).toString()).build())
                     .granularity(Granularity.MONTHLY).metrics("UnblendedCost")
                     .groupBy(GroupDefinition.builder().type(GroupDefinitionType.TAG).key(tagKey).build()).build();
-            
+
             List<Map<String, Object>> result = ce.getCostAndUsage(request).resultsByTime()
                 .stream().flatMap(r -> r.groups().stream())
                 .map(g -> {
@@ -369,6 +423,13 @@ public class FinOpsService {
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
+        }
+
+        // Return mock data if mock mode is enabled
+        if (useMockData) {
+            List<Map<String, Object>> mockResult = costMockService.getMockCostByRegion(account, startDate, endDate);
+            redisCache.put(cacheKey, mockResult, 10);
+            return CompletableFuture.completedFuture(mockResult);
         }
 
         CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
@@ -434,6 +495,13 @@ public class FinOpsService {
             }
         }
 
+        // Return mock data if mock mode is enabled
+        if (useMockData) {
+            List<DashboardData.BillingSummary> mockResult = costMockService.getMockBillingSummary(account, startDate, endDate);
+            redisCache.put(cacheKey, mockResult, 10);
+            return CompletableFuture.completedFuture(mockResult);
+        }
+
         CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
 
         // Determine date range and granularity
@@ -495,6 +563,13 @@ public class FinOpsService {
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
+        }
+
+        // Return mock data if mock mode is enabled
+        if (useMockData) {
+            DashboardData.CostHistory mockResult = costMockService.getMockCostHistory(account, startDate, endDate);
+            redisCache.put(cacheKey, mockResult, 10);
+            return CompletableFuture.completedFuture(mockResult);
         }
 
         CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
@@ -565,6 +640,13 @@ public class FinOpsService {
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
+        }
+
+        // Return mock data if mock mode is enabled
+        if (useMockData) {
+            List<DashboardData.CostAnomaly> mockResult = costMockService.getMockCostAnomalies(account);
+            redisCache.put(cacheKey, mockResult, 10);
+            return CompletableFuture.completedFuture(mockResult);
         }
 
         CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);

@@ -6,6 +6,7 @@ import com.xammer.billops.dto.CreditDetailDto;
 import com.xammer.billops.repository.CloudAccountRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
@@ -25,44 +26,46 @@ public class CostService {
 
     private final AwsClientProvider awsClientProvider;
     private final CloudAccountRepository cloudAccountRepository;
+    private final CostMockService costMockService;
     private static final Logger logger = LoggerFactory.getLogger(CostService.class);
+
+    @Value("${aws.costexplorer.mock:false}")
+    private boolean useMockData;
 
     @PostConstruct
     public void init() {
-        logger.info("✅ CostService initialized");
+        logger.info("✅ CostService initialized (Mock Mode: {})", useMockData);
     }
 
-    public CostService(AwsClientProvider awsClientProvider, CloudAccountRepository cloudAccountRepository) {
+    public CostService(AwsClientProvider awsClientProvider, CloudAccountRepository cloudAccountRepository, CostMockService costMockService) {
         this.awsClientProvider = awsClientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
+        this.costMockService = costMockService;
     }
 
     /**
-     * NOTE: This method currently returns MOCK DATA.
-     * The actual implementation requires integrating with the AWS Cost Explorer API
-     * to fetch real-time credit information, which is a more complex task.
+     * Get AWS Credits for an account.
+     * Returns mock data when aws.costexplorer.mock=true.
      */
     public AwsCreditDto getAwsCredits(CloudAccount account) {
-        logger.info("Fetching mock AWS credit data for account: {}", account.getAwsAccountId());
+        if (useMockData) {
+            return costMockService.getMockAwsCredits(account);
+        }
 
-        // Mock data inspired by the user's screenshot
-        List<CreditDetailDto> mockCredits = List.of(
-                new CreditDetailDto(
-                        "Xammer_PvC_Credits",
-                        LocalDate.of(2025, 10, 31),
-                        new BigDecimal("94.27"),
-                        new BigDecimal("4900.73")));
+        logger.info("Fetching AWS credit data for account: {}", account.getAwsAccountId());
 
-        BigDecimal totalUsed = mockCredits.stream().map(CreditDetailDto::getAmountUsed).reduce(BigDecimal.ZERO,
-                BigDecimal::add);
-        BigDecimal totalRemaining = mockCredits.stream().map(CreditDetailDto::getAmountRemaining)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        return new AwsCreditDto(totalRemaining, totalUsed, mockCredits);
+        // NOTE: Real implementation requires AWS Cost Explorer API for credits
+        // For now, this returns the mock service data even when mock is disabled
+        // TODO: Implement real AWS Credits API integration when available
+        return costMockService.getMockAwsCredits(account);
     }
 
     @Cacheable(value = "costHistory", key = "#account.id + '-' + #year + '-' + #month")
     public List<Map<String, Object>> getCostHistory(CloudAccount account, Integer year, Integer month) {
+        if (useMockData) {
+            return costMockService.getMockCostHistory(account, year, month);
+        }
+
         try {
             CostExplorerClient client = awsClientProvider.getCostExplorerClient(account);
             LocalDate end = (year != null && month != null) ? YearMonth.of(year, month).atEndOfMonth()
@@ -93,6 +96,10 @@ public class CostService {
     @Cacheable(value = "costByDimension", key = "#account.id + '-' + #dimension + '-' + #year + '-' + #month")
     public List<Map<String, Object>> getCostByDimension(CloudAccount account, String dimension, Integer year,
             Integer month) {
+        if (useMockData) {
+            return costMockService.getMockCostByDimension(account, dimension, year, month);
+        }
+
         try {
             CostExplorerClient client = awsClientProvider.getCostExplorerClient(account);
             LocalDate startDate;
@@ -144,6 +151,10 @@ public class CostService {
     @Cacheable(value = "costForServiceInRegion", key = "#account.id + '-' + #serviceName + '-' + #year + '-' + #month")
     public List<Map<String, Object>> getCostForServiceInRegion(CloudAccount account, String serviceName, Integer year,
             Integer month) {
+        if (useMockData) {
+            return costMockService.getMockCostForServiceInRegion(account, serviceName, year, month);
+        }
+
         try {
             CostExplorerClient client = awsClientProvider.getCostExplorerClient(account);
             LocalDate startDate;
@@ -201,6 +212,10 @@ public class CostService {
     @Cacheable(value = "costByResource", key = "#account.id + '-' + #serviceName + '-' + #region + '-' + #year + '-' + #month")
     public List<Map<String, Object>> getCostByResource(CloudAccount account, String serviceName, String region,
             Integer year, Integer month) {
+        if (useMockData) {
+            return costMockService.getMockCostByResource(account, serviceName, region, year, month);
+        }
+
         logger.info("Fetching resource costs for service '{}' in region '{}'", serviceName, region);
         try {
             CostExplorerClient client = awsClientProvider.getCostExplorerClient(account);

@@ -11,6 +11,7 @@ import com.xammer.cloud.repository.CloudAccountRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -33,16 +34,24 @@ public class CostService {
         private final AwsClientProvider awsClientProvider;
         private final RedisCacheService redisCache;
         private final ForecastingService forecastingService;
+        private final CostMockService costMockService;
+
+        @Value("${aws.costexplorer.mock:false}")
+        private boolean useMockData;
 
         @Autowired
         public CostService(CloudAccountRepository cloudAccountRepository,
                         AwsClientProvider awsClientProvider,
                         RedisCacheService redisCache,
-                        @Lazy ForecastingService forecastingService) {
+                        @Lazy ForecastingService forecastingService,
+                        CostMockService costMockService) {
                 this.cloudAccountRepository = cloudAccountRepository;
                 this.awsClientProvider = awsClientProvider;
                 this.redisCache = redisCache;
                 this.forecastingService = forecastingService;
+                this.costMockService = costMockService;
+
+                logger.info("CostService initialized (Mock Mode: {})", useMockData);
         }
 
         private CloudAccount getAccount(String accountId) {
@@ -64,6 +73,13 @@ public class CostService {
                                 logger.info("✅ Cache hit for MTD cost: {}", cacheKey);
                                 return CompletableFuture.completedFuture(cached.get());
                         }
+                }
+
+                // Return mock data if mock mode is enabled
+                if (useMockData) {
+                        Double mockResult = costMockService.getMockTotalMonthToDateCost(accountId);
+                        redisCache.put(cacheKey, mockResult, 60);
+                        return CompletableFuture.completedFuture(mockResult);
                 }
 
                 return CompletableFuture.supplyAsync(() -> {
@@ -114,6 +130,13 @@ public class CostService {
                                 logger.info("✅ Cache hit for Last Month cost: {}", cacheKey);
                                 return CompletableFuture.completedFuture(cached.get());
                         }
+                }
+
+                // Return mock data if mock mode is enabled
+                if (useMockData) {
+                        Double mockResult = costMockService.getMockLastMonthSpend(accountId);
+                        redisCache.put(cacheKey, mockResult, 60 * 24);
+                        return CompletableFuture.completedFuture(mockResult);
                 }
 
                 return CompletableFuture.supplyAsync(() -> {
@@ -168,6 +191,13 @@ public class CostService {
                                 logger.info("✅ Cache hit for detailed cost breakdown: {}", cacheKey);
                                 return CompletableFuture.completedFuture(cachedData.get());
                         }
+                }
+
+                // Return mock data if mock mode is enabled
+                if (useMockData) {
+                        List<DetailedCostDto> mockResult = costMockService.getMockCostBreakdownByServiceAndRegion(accountId, startDate, endDate);
+                        redisCache.put(cacheKey, mockResult, 60 * 6);
+                        return CompletableFuture.completedFuture(mockResult);
                 }
 
                 CloudAccount account = getAccount(accountId);
@@ -239,6 +269,13 @@ public class CostService {
                         }
                 }
 
+                // Return mock data if mock mode is enabled
+                if (useMockData) {
+                        List<CostDto> mockResult = costMockService.getMockCostBreakdown(accountId, groupBy, tag, startDate, endDate);
+                        redisCache.put(cacheKey, mockResult, 10);
+                        return CompletableFuture.completedFuture(mockResult);
+                }
+
                 CloudAccount account = getAccount(accountId);
                 CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
 
@@ -305,6 +342,13 @@ public class CostService {
                                 logger.info("✅ Cache hit for historical cost: {}", cacheKey);
                                 return CompletableFuture.completedFuture(cachedData.get());
                         }
+                }
+
+                // Return mock data if mock mode is enabled
+                if (useMockData) {
+                        HistoricalCostDto mockResult = costMockService.getMockHistoricalCost(accountId, serviceName, regionName, days);
+                        redisCache.put(cacheKey, mockResult, 10);
+                        return CompletableFuture.completedFuture(mockResult);
                 }
 
                 logger.info("📊 Fetching historical cost - Account: {}, Service: {}, Region: {}, Days: {}",
@@ -407,6 +451,13 @@ public class CostService {
                         }
                 }
 
+                // Return mock data if mock mode is enabled
+                if (useMockData) {
+                        HistoricalCostDto mockResult = costMockService.getMockHistoricalCostForDimension(accountId, groupBy, dimensionValue, tagKey);
+                        redisCache.put(cacheKey, mockResult, 10);
+                        return CompletableFuture.completedFuture(mockResult);
+                }
+
                 CloudAccount account = getAccount(accountId);
                 CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
 
@@ -465,6 +516,12 @@ public class CostService {
         @Async("awsTaskExecutor")
         public CompletableFuture<CostForecastDto> getCostForecast(
                         String accountId, String serviceName, String regionName, int periods, boolean forceRefresh) {
+
+                // Return mock data if mock mode is enabled
+                if (useMockData) {
+                        CostForecastDto mockResult = costMockService.getMockCostForecast(accountId, serviceName, periods);
+                        return CompletableFuture.completedFuture(mockResult);
+                }
 
                 logger.info("🔮 Generating cost forecast - Account: {}, Service: {}, Region: {}, Periods: {}",
                                 accountId, serviceName, regionName, periods);

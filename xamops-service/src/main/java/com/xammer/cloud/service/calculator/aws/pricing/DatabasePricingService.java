@@ -3,6 +3,7 @@ package com.xammer.cloud.service.calculator.aws.pricing;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.cloud.service.AwsClientProvider;
+import com.xammer.cloud.service.CostMockService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -18,7 +19,8 @@ import java.util.*;
 
 /**
  * AWS Database Pricing Service
- * Handles REAL pricing calculations from AWS Pricing API for RDS, DynamoDB, ElastiCache, Redshift, Aurora
+ * Handles REAL pricing calculations from AWS Pricing API for RDS, DynamoDB,
+ * ElastiCache, Redshift, Aurora
  */
 @Service
 public class DatabasePricingService {
@@ -27,11 +29,17 @@ public class DatabasePricingService {
 
     private final AwsClientProvider awsClientProvider;
     private final ObjectMapper objectMapper;
+    private final CostMockService costMockService;
+
+    @org.springframework.beans.factory.annotation.Value("${aws.costexplorer.mock:false}")
+    private boolean useMockData;
 
     public DatabasePricingService(AwsClientProvider awsClientProvider,
-                                  ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            CostMockService costMockService) {
         this.awsClientProvider = awsClientProvider;
         this.objectMapper = objectMapper;
+        this.costMockService = costMockService;
     }
 
     // ========================================
@@ -44,6 +52,21 @@ public class DatabasePricingService {
     public Map<String, Object> getComprehensiveRdsEstimate(
             String awsAccountId, String region, String engine, String instanceClass,
             int storageGB, String storageType, boolean multiAZ, int backupStorageGB) {
+
+        // Use mock data if enabled
+        if (useMockData) {
+            // Simplified multi-AZ logic for mock
+            double baseMonthly = costMockService.getMockRdsInstanceMonthlyPrice(instanceClass, region);
+            double storageMonthly = storageGB * costMockService.getMockEbsGbMonthPrice(region, storageType);
+            if (multiAZ) {
+                baseMonthly *= 2;
+                storageMonthly *= 2;
+            }
+            Map<String, Object> mockResult = new HashMap<>();
+            mockResult.put("totalMonthly", Math.round((baseMonthly + storageMonthly) * 100.0) / 100.0);
+            mockResult.put("source", "Mock Data");
+            return mockResult;
+        }
 
         logger.info("💰 Calculating RDS estimate with REAL prices for region: {}, engine: {}, instance: {}",
                 region, engine, instanceClass);
@@ -169,6 +192,16 @@ public class DatabasePricingService {
             int readRequestsMillions, int writeRequestsMillions,
             int provisionedReadCapacity, int provisionedWriteCapacity, boolean enableBackup) {
 
+        // Use mock data if enabled
+        if (useMockData) {
+            logger.info("[MOCK] Generating mock DynamoDB estimate for {}", region);
+            double total = storageGB * 0.25 + readRequestsMillions * 0.25 + writeRequestsMillions * 1.25;
+            Map<String, Object> mockResult = new HashMap<>();
+            mockResult.put("totalMonthly", Math.round(total * 100.0) / 100.0);
+            mockResult.put("source", "Mock Data");
+            return mockResult;
+        }
+
         logger.info("💰 Calculating DynamoDB estimate with REAL prices for region: {}, mode: {}", region, capacityMode);
 
         // Get REAL DynamoDB pricing from AWS API
@@ -248,8 +281,9 @@ public class DatabasePricingService {
         // On-Demand comparison
         double onDemandReadPrice = getDynamoDbRequestPriceFromAPI(region, "Read");
         double onDemandWritePrice = getDynamoDbRequestPriceFromAPI(region, "Write");
-        double onDemandTotal = storageCost + (readRequestsMillions * onDemandReadPrice) + (writeRequestsMillions * onDemandWritePrice) + backupCost;
-        
+        double onDemandTotal = storageCost + (readRequestsMillions * onDemandReadPrice)
+                + (writeRequestsMillions * onDemandWritePrice) + backupCost;
+
         Map<String, Object> onDemandComp = new HashMap<>();
         onDemandComp.put("mode", "On-Demand");
         onDemandComp.put("monthlyTotal", round(onDemandTotal, 2));
@@ -257,12 +291,15 @@ public class DatabasePricingService {
         comparisons.add(onDemandComp);
 
         // Provisioned comparison
-        int estimatedRCU = provisionedReadCapacity > 0 ? provisionedReadCapacity : (int)(readRequestsMillions * 1000000 / 2592000);
-        int estimatedWCU = provisionedWriteCapacity > 0 ? provisionedWriteCapacity : (int)(writeRequestsMillions * 1000000 / 2592000);
+        int estimatedRCU = provisionedReadCapacity > 0 ? provisionedReadCapacity
+                : (int) (readRequestsMillions * 1000000 / 2592000);
+        int estimatedWCU = provisionedWriteCapacity > 0 ? provisionedWriteCapacity
+                : (int) (writeRequestsMillions * 1000000 / 2592000);
         double provReadPrice = getDynamoDbCapacityPriceFromAPI(region, "Read");
         double provWritePrice = getDynamoDbCapacityPriceFromAPI(region, "Write");
-        double provisionedTotal = storageCost + (estimatedRCU * provReadPrice) + (estimatedWCU * provWritePrice) + backupCost;
-        
+        double provisionedTotal = storageCost + (estimatedRCU * provReadPrice) + (estimatedWCU * provWritePrice)
+                + backupCost;
+
         Map<String, Object> provisionedComp = new HashMap<>();
         provisionedComp.put("mode", "Provisioned");
         provisionedComp.put("monthlyTotal", round(provisionedTotal, 2));
@@ -331,7 +368,8 @@ public class DatabasePricingService {
                 for (String priceJson : priceList) {
                     double price = parseRdsInstancePrice(priceJson);
                     if (price > 0) {
-                        logger.info("✅ Fetched REAL RDS instance price from API: ${}/hour for {} {}", price, engine, instanceClass);
+                        logger.info("✅ Fetched REAL RDS instance price from API: ${}/hour for {} {}", price, engine,
+                                instanceClass);
                         return price;
                     }
                 }
@@ -496,7 +534,8 @@ public class DatabasePricingService {
         // AWS documented base prices for common instance types (us-east-1)
         Map<String, Double> basePrices = new HashMap<>();
 
-        if (engine.toLowerCase().contains("mysql") || engine.toLowerCase().contains("postgres") || engine.toLowerCase().contains("mariadb")) {
+        if (engine.toLowerCase().contains("mysql") || engine.toLowerCase().contains("postgres")
+                || engine.toLowerCase().contains("mariadb")) {
             basePrices.put("db.t3.micro", 0.017);
             basePrices.put("db.t3.small", 0.034);
             basePrices.put("db.t3.medium", 0.068);
@@ -542,10 +581,14 @@ public class DatabasePricingService {
     }
 
     private String mapRdsStorageType(String storageType) {
-        if (storageType.contains("gp3")) return "General Purpose-Aurora";
-        if (storageType.contains("gp2")) return "General Purpose";
-        if (storageType.contains("io1") || storageType.contains("io2")) return "Provisioned IOPS";
-        if (storageType.contains("Magnetic")) return "Magnetic";
+        if (storageType.contains("gp3"))
+            return "General Purpose-Aurora";
+        if (storageType.contains("gp2"))
+            return "General Purpose";
+        if (storageType.contains("io1") || storageType.contains("io2"))
+            return "Provisioned IOPS";
+        if (storageType.contains("Magnetic"))
+            return "Magnetic";
         return "General Purpose";
     }
 
@@ -569,7 +612,8 @@ public class DatabasePricingService {
     }
 
     private double round(double value, int places) {
-        if (places < 0) throw new IllegalArgumentException();
+        if (places < 0)
+            throw new IllegalArgumentException();
         BigDecimal bd = BigDecimal.valueOf(value);
         bd = bd.setScale(places, RoundingMode.HALF_UP);
         return bd.doubleValue();
