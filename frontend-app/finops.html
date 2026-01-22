@@ -363,6 +363,174 @@
                         </div>
                     </div>
 
+                    <!-- Tagging Compliance Section -->
+                    <div class="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-8 shadow-md fade-in">
+                        <div class="flex items-center space-x-3 mb-6">
+                            <div
+                                class="w-10 h-10 bg-gradient-to-br from-teal-500 to-cyan-600 rounded-xl flex items-center justify-center shadow-md">
+                                <i class="fas fa-tags text-white"></i>
+                            </div>
+                            <div>
+                                <h3 class="text-xl font-bold text-gray-800">Tagging Compliance</h3>
+                                <p class="text-sm text-gray-600">Monitor resource tagging across your infrastructure</p>
+                            </div>
+                        </div>
+
+                        <div x-show="isLoading" class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div class="animate-pulse bg-gray-200 h-32 w-full rounded-xl"></div>
+                            <div class="animate-pulse bg-gray-200 h-32 w-full rounded-xl"></div>
+                            <div class="animate-pulse bg-gray-200 h-32 w-full rounded-xl"></div>
+                        </div>
+
+                        <div x-show="!isLoading" x-cloak>
+                            <!-- Compliance KPIs -->
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                                <!-- Compliance Percentage -->
+                                <div class="bg-gray-50 border border-gray-200 rounded-xl p-6">
+                                    <div class="flex items-center justify-between mb-4">
+                                        <h4 class="text-sm font-medium text-gray-600">Compliance Rate</h4>
+                                        <div class="p-2 rounded-lg" :class="(reportData.taggingCompliance?.compliancePercentage || 0) >= 80 ? 'bg-green-100' : (reportData.taggingCompliance?.compliancePercentage || 0) >= 50 ? 'bg-yellow-100' : 'bg-red-100'">
+                                            <i class="fas fa-percentage" :class="(reportData.taggingCompliance?.compliancePercentage || 0) >= 80 ? 'text-green-500' : (reportData.taggingCompliance?.compliancePercentage || 0) >= 50 ? 'text-yellow-500' : 'text-red-500'"></i>
+                                        </div>
+                                    </div>
+                                    <p class="text-3xl font-bold mb-2" :class="(reportData.taggingCompliance?.compliancePercentage || 0) >= 80 ? 'text-green-600' : (reportData.taggingCompliance?.compliancePercentage || 0) >= 50 ? 'text-yellow-600' : 'text-red-600'" x-text="`${(reportData.taggingCompliance?.compliancePercentage || 0).toFixed(1)}%`"></p>
+                                    <div class="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
+                                        <div class="h-2.5 rounded-full transition-all duration-500"
+                                            :class="(reportData.taggingCompliance?.compliancePercentage || 0) >= 80 ? 'bg-gradient-to-r from-green-400 to-green-600' : (reportData.taggingCompliance?.compliancePercentage || 0) >= 50 ? 'bg-gradient-to-r from-yellow-400 to-orange-500' : 'bg-gradient-to-r from-red-500 to-red-600'"
+                                            :style="`width: ${Math.min(reportData.taggingCompliance?.compliancePercentage || 0, 100)}%`">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Total Resources Scanned -->
+                                <div class="bg-gray-50 border border-gray-200 rounded-xl p-6">
+                                    <div class="flex items-center justify-between mb-4">
+                                        <h4 class="text-sm font-medium text-gray-600">Resources Scanned</h4>
+                                        <div class="p-2 rounded-lg bg-blue-100">
+                                            <i class="fas fa-server text-blue-500"></i>
+                                        </div>
+                                    </div>
+                                    <p class="text-3xl font-bold text-gray-900" x-text="(reportData.taggingCompliance?.totalResourcesScanned || 0).toLocaleString()"></p>
+                                    <p class="text-sm text-gray-500 mt-2">Total resources analyzed</p>
+                                </div>
+
+                                <!-- Untagged Resources -->
+                                <div class="bg-gray-50 border border-gray-200 rounded-xl p-6">
+                                    <div class="flex items-center justify-between mb-4">
+                                        <h4 class="text-sm font-medium text-gray-600">Untagged Resources</h4>
+                                        <div class="p-2 rounded-lg" :class="(reportData.taggingCompliance?.untaggedResourcesCount || 0) === 0 ? 'bg-green-100' : 'bg-red-100'">
+                                            <i class="fas fa-exclamation-circle" :class="(reportData.taggingCompliance?.untaggedResourcesCount || 0) === 0 ? 'text-green-500' : 'text-red-500'"></i>
+                                        </div>
+                                    </div>
+                                    <p class="text-3xl font-bold" :class="(reportData.taggingCompliance?.untaggedResourcesCount || 0) === 0 ? 'text-green-600' : 'text-red-600'" x-text="(reportData.taggingCompliance?.untaggedResourcesCount || 0).toLocaleString()"></p>
+                                    <p class="text-sm text-gray-500 mt-2">Resources missing required tags</p>
+                                </div>
+                            </div>
+
+                            <!-- Untagged Resources Table -->
+                            <div x-show="reportData.taggingCompliance?.untaggedResources?.length > 0" x-cloak>
+                                <div class="flex items-center justify-between mb-4">
+                                    <h4 class="text-lg font-semibold text-gray-800 flex items-center">
+                                        <i class="fas fa-list-ul text-teal-500 mr-2"></i>
+                                        Untagged Resources Details
+                                        <span class="ml-2 px-2 py-0.5 text-xs font-medium bg-red-100 text-red-600 rounded-full" x-text="`${reportData.taggingCompliance?.untaggedResourcesCount || 0} total`"></span>
+                                    </h4>
+                                    <div class="flex items-center space-x-2">
+                                        <label for="taggingItemsPerPage" class="text-sm text-gray-600">Show:</label>
+                                        <select id="taggingItemsPerPage" x-model="taggingPagination.itemsPerPage" @change="taggingPagination.currentPage = 1"
+                                            class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500">
+                                            <option value="10">10</option>
+                                            <option value="25">25</option>
+                                            <option value="50">50</option>
+                                            <option value="100">100</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="overflow-x-auto rounded-lg border border-gray-200">
+                                    <table class="w-full text-sm text-left text-gray-600">
+                                        <thead class="bg-gray-50 text-xs text-gray-700 uppercase font-semibold">
+                                            <tr>
+                                                <th class="px-6 py-4">Resource ID</th>
+                                                <th class="px-6 py-4">Type</th>
+                                                <th class="px-6 py-4">Region</th>
+                                                <th class="px-6 py-4">Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-gray-200">
+                                            <template x-for="resource in paginatedUntaggedResources" :key="resource.resourceId">
+                                                <tr class="hover:bg-gray-50">
+                                                    <td class="px-6 py-4 font-mono text-xs text-gray-800" x-text="resource.resourceId"></td>
+                                                    <td class="px-6 py-4">
+                                                        <span class="px-2 py-1 text-xs font-medium bg-indigo-100 text-indigo-700 rounded-full" x-text="resource.resourceType"></span>
+                                                    </td>
+                                                    <td class="px-6 py-4" x-text="resource.region"></td>
+                                                    <td class="px-6 py-4">
+                                                        <span class="px-2 py-1 text-xs font-medium bg-red-100 text-red-600 rounded-full">
+                                                            <i class="fas fa-times-circle mr-1"></i>Missing
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <!-- Pagination Controls -->
+                                <div class="flex items-center justify-between mt-4 px-2">
+                                    <p class="text-sm text-gray-600">
+                                        Showing <span class="font-semibold" x-text="((taggingPagination.currentPage - 1) * taggingPagination.itemsPerPage) + 1"></span>
+                                        to <span class="font-semibold" x-text="Math.min(taggingPagination.currentPage * taggingPagination.itemsPerPage, reportData.taggingCompliance?.untaggedResourcesCount || 0)"></span>
+                                        of <span class="font-semibold" x-text="reportData.taggingCompliance?.untaggedResourcesCount || 0"></span> resources
+                                    </p>
+                                    <div class="flex items-center space-x-2">
+                                        <button @click="taggingGoToPage(1)" :disabled="taggingPagination.currentPage === 1"
+                                            class="px-3 py-1.5 text-sm font-medium rounded-lg border transition-all"
+                                            :class="taggingPagination.currentPage === 1 ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'">
+                                            <i class="fas fa-angle-double-left"></i>
+                                        </button>
+                                        <button @click="taggingPrevPage()" :disabled="taggingPagination.currentPage === 1"
+                                            class="px-3 py-1.5 text-sm font-medium rounded-lg border transition-all"
+                                            :class="taggingPagination.currentPage === 1 ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'">
+                                            <i class="fas fa-angle-left"></i>
+                                        </button>
+                                        <span class="px-4 py-1.5 text-sm font-medium text-gray-700">
+                                            Page <span x-text="taggingPagination.currentPage"></span> of <span x-text="taggingTotalPages"></span>
+                                        </span>
+                                        <button @click="taggingNextPage()" :disabled="taggingPagination.currentPage >= taggingTotalPages"
+                                            class="px-3 py-1.5 text-sm font-medium rounded-lg border transition-all"
+                                            :class="taggingPagination.currentPage >= taggingTotalPages ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'">
+                                            <i class="fas fa-angle-right"></i>
+                                        </button>
+                                        <button @click="taggingGoToPage(taggingTotalPages)" :disabled="taggingPagination.currentPage >= taggingTotalPages"
+                                            class="px-3 py-1.5 text-sm font-medium rounded-lg border transition-all"
+                                            :class="taggingPagination.currentPage >= taggingTotalPages ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'">
+                                            <i class="fas fa-angle-double-right"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Empty State -->
+                            <div x-show="!reportData.taggingCompliance?.untaggedResources?.length && reportData.taggingCompliance?.totalResourcesScanned > 0" x-cloak
+                                class="text-center py-12 rounded-2xl border-2 border-dashed border-green-300 bg-green-50/50">
+                                <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <i class="fas fa-check-circle text-green-500 text-2xl"></i>
+                                </div>
+                                <h4 class="text-lg font-bold text-green-800 mb-2">All Resources Tagged</h4>
+                                <p class="text-green-600">All scanned resources have the required tags. Great job!</p>
+                            </div>
+
+                            <!-- No Data State -->
+                            <div x-show="!reportData.taggingCompliance?.totalResourcesScanned" x-cloak
+                                class="text-center py-12 rounded-2xl border-2 border-dashed border-gray-300 bg-gray-50/50">
+                                <div class="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <i class="fas fa-tags text-gray-400 text-2xl"></i>
+                                </div>
+                                <h4 class="text-lg font-bold text-gray-800 mb-2">No Tagging Data Available</h4>
+                                <p class="text-gray-600">Tagging compliance data will appear here once resources are scanned.</p>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Insights Table -->
                     <div class="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-8 shadow-md fade-in"
                         x-show="!isLoading && (reportData.rightsizingRecommendations.length > 0 || reportData.wastedResources.length > 0 || reportData.costAnomalies.length > 0)">
@@ -409,10 +577,23 @@
 
                         <!-- Rightsizing -->
                         <div x-show="reportData.rightsizingRecommendations.length > 0" x-cloak class="mb-8">
-                            <h4 class="text-lg font-semibold text-gray-800 mb-4 flex items-center">
-                                <i class="fas fa-cogs text-green-500 mr-2"></i>
-                                Rightsizing Recommendations
-                            </h4>
+                            <div class="flex items-center justify-between mb-4">
+                                <h4 class="text-lg font-semibold text-gray-800 flex items-center">
+                                    <i class="fas fa-cogs text-green-500 mr-2"></i>
+                                    Rightsizing Recommendations
+                                    <span class="ml-2 px-2 py-0.5 text-xs font-medium bg-green-100 text-green-600 rounded-full" x-text="`${reportData.rightsizingRecommendations?.length || 0} total`"></span>
+                                </h4>
+                                <div class="flex items-center space-x-2">
+                                    <label for="rightsizingItemsPerPage" class="text-sm text-gray-600">Show:</label>
+                                    <select id="rightsizingItemsPerPage" x-model="rightsizingPagination.itemsPerPage" @change="rightsizingPagination.currentPage = 1"
+                                        class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500">
+                                        <option value="10">10</option>
+                                        <option value="25">25</option>
+                                        <option value="50">50</option>
+                                        <option value="100">100</option>
+                                    </select>
+                                </div>
+                            </div>
                             <div class="overflow-x-auto rounded-lg border border-gray-200">
                                 <table class="w-full text-sm text-left text-gray-600">
                                     <thead class="bg-gray-50 text-xs text-gray-700 uppercase font-semibold">
@@ -425,8 +606,7 @@
                                         </tr>
                                     </thead>
                                     <tbody class="divide-y divide-gray-200">
-                                        <template x-for="rec in reportData.rightsizingRecommendations"
-                                            :key="rec.resourceId">
+                                        <template x-for="rec in paginatedRightsizing" :key="rec.resourceId">
                                             <tr class="hover:bg-gray-50">
                                                 <td class="px-6 py-4 font-mono text-xs text-gray-800"
                                                     x-text="rec.resourceId"></td>
@@ -441,14 +621,60 @@
                                     </tbody>
                                 </table>
                             </div>
+                            <!-- Pagination Controls -->
+                            <div class="flex items-center justify-between mt-4 px-2" x-show="rightsizingTotalPages > 1">
+                                <p class="text-sm text-gray-600">
+                                    Showing <span class="font-semibold" x-text="((rightsizingPagination.currentPage - 1) * rightsizingPagination.itemsPerPage) + 1"></span>
+                                    to <span class="font-semibold" x-text="Math.min(rightsizingPagination.currentPage * rightsizingPagination.itemsPerPage, reportData.rightsizingRecommendations?.length || 0)"></span>
+                                    of <span class="font-semibold" x-text="reportData.rightsizingRecommendations?.length || 0"></span>
+                                </p>
+                                <div class="flex items-center space-x-2">
+                                    <button @click="rightsizingGoToPage(1)" :disabled="rightsizingPagination.currentPage === 1"
+                                        class="px-3 py-1.5 text-sm font-medium rounded-lg border transition-all"
+                                        :class="rightsizingPagination.currentPage === 1 ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'">
+                                        <i class="fas fa-angle-double-left"></i>
+                                    </button>
+                                    <button @click="rightsizingPrevPage()" :disabled="rightsizingPagination.currentPage === 1"
+                                        class="px-3 py-1.5 text-sm font-medium rounded-lg border transition-all"
+                                        :class="rightsizingPagination.currentPage === 1 ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'">
+                                        <i class="fas fa-angle-left"></i>
+                                    </button>
+                                    <span class="px-4 py-1.5 text-sm font-medium text-gray-700">
+                                        Page <span x-text="rightsizingPagination.currentPage"></span> of <span x-text="rightsizingTotalPages"></span>
+                                    </span>
+                                    <button @click="rightsizingNextPage()" :disabled="rightsizingPagination.currentPage >= rightsizingTotalPages"
+                                        class="px-3 py-1.5 text-sm font-medium rounded-lg border transition-all"
+                                        :class="rightsizingPagination.currentPage >= rightsizingTotalPages ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'">
+                                        <i class="fas fa-angle-right"></i>
+                                    </button>
+                                    <button @click="rightsizingGoToPage(rightsizingTotalPages)" :disabled="rightsizingPagination.currentPage >= rightsizingTotalPages"
+                                        class="px-3 py-1.5 text-sm font-medium rounded-lg border transition-all"
+                                        :class="rightsizingPagination.currentPage >= rightsizingTotalPages ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'">
+                                        <i class="fas fa-angle-double-right"></i>
+                                    </button>
+                                </div>
+                            </div>
                         </div>
 
                         <!-- Wasted Resources -->
                         <div x-show="reportData.wastedResources.length > 0" x-cloak>
-                            <h4 class="text-lg font-semibold text-gray-800 mb-4 flex items-center">
-                                <i class="fas fa-trash-alt text-red-500 mr-2"></i>
-                                Wasted Resources
-                            </h4>
+                            <div class="flex items-center justify-between mb-4">
+                                <h4 class="text-lg font-semibold text-gray-800 flex items-center">
+                                    <i class="fas fa-trash-alt text-red-500 mr-2"></i>
+                                    Wasted Resources
+                                    <span class="ml-2 px-2 py-0.5 text-xs font-medium bg-red-100 text-red-600 rounded-full" x-text="`${reportData.wastedResources?.length || 0} total`"></span>
+                                </h4>
+                                <div class="flex items-center space-x-2">
+                                    <label for="wastedItemsPerPage" class="text-sm text-gray-600">Show:</label>
+                                    <select id="wastedItemsPerPage" x-model="wastedPagination.itemsPerPage" @change="wastedPagination.currentPage = 1"
+                                        class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500">
+                                        <option value="10">10</option>
+                                        <option value="25">25</option>
+                                        <option value="50">50</option>
+                                        <option value="100">100</option>
+                                    </select>
+                                </div>
+                            </div>
                             <div class="overflow-x-auto rounded-lg border border-gray-200">
                                 <table class="w-full text-sm text-left text-gray-600">
                                     <thead class="bg-gray-50 text-xs text-gray-700 uppercase font-semibold">
@@ -461,7 +687,7 @@
                                         </tr>
                                     </thead>
                                     <tbody class="divide-y divide-gray-200">
-                                        <template x-for="res in reportData.wastedResources" :key="res.resourceId">
+                                        <template x-for="res in paginatedWastedResources" :key="res.resourceId">
                                             <tr class="hover:bg-gray-50">
                                                 <td class="px-6 py-4 font-mono text-xs text-gray-800"
                                                     x-text="res.resourceId"></td>
@@ -474,6 +700,39 @@
                                         </template>
                                     </tbody>
                                 </table>
+                            </div>
+                            <!-- Pagination Controls -->
+                            <div class="flex items-center justify-between mt-4 px-2" x-show="wastedTotalPages > 1">
+                                <p class="text-sm text-gray-600">
+                                    Showing <span class="font-semibold" x-text="((wastedPagination.currentPage - 1) * wastedPagination.itemsPerPage) + 1"></span>
+                                    to <span class="font-semibold" x-text="Math.min(wastedPagination.currentPage * wastedPagination.itemsPerPage, reportData.wastedResources?.length || 0)"></span>
+                                    of <span class="font-semibold" x-text="reportData.wastedResources?.length || 0"></span>
+                                </p>
+                                <div class="flex items-center space-x-2">
+                                    <button @click="wastedGoToPage(1)" :disabled="wastedPagination.currentPage === 1"
+                                        class="px-3 py-1.5 text-sm font-medium rounded-lg border transition-all"
+                                        :class="wastedPagination.currentPage === 1 ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'">
+                                        <i class="fas fa-angle-double-left"></i>
+                                    </button>
+                                    <button @click="wastedPrevPage()" :disabled="wastedPagination.currentPage === 1"
+                                        class="px-3 py-1.5 text-sm font-medium rounded-lg border transition-all"
+                                        :class="wastedPagination.currentPage === 1 ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'">
+                                        <i class="fas fa-angle-left"></i>
+                                    </button>
+                                    <span class="px-4 py-1.5 text-sm font-medium text-gray-700">
+                                        Page <span x-text="wastedPagination.currentPage"></span> of <span x-text="wastedTotalPages"></span>
+                                    </span>
+                                    <button @click="wastedNextPage()" :disabled="wastedPagination.currentPage >= wastedTotalPages"
+                                        class="px-3 py-1.5 text-sm font-medium rounded-lg border transition-all"
+                                        :class="wastedPagination.currentPage >= wastedTotalPages ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'">
+                                        <i class="fas fa-angle-right"></i>
+                                    </button>
+                                    <button @click="wastedGoToPage(wastedTotalPages)" :disabled="wastedPagination.currentPage >= wastedTotalPages"
+                                        class="px-3 py-1.5 text-sm font-medium rounded-lg border transition-all"
+                                        :class="wastedPagination.currentPage >= wastedTotalPages ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'">
+                                        <i class="fas fa-angle-double-right"></i>
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -640,6 +899,18 @@
                             dateFilter: {
                                 startDate: '',
                                 endDate: ''
+                            },
+                            taggingPagination: {
+                                currentPage: 1,
+                                itemsPerPage: 10
+                            },
+                            rightsizingPagination: {
+                                currentPage: 1,
+                                itemsPerPage: 10
+                            },
+                            wastedPagination: {
+                                currentPage: 1,
+                                itemsPerPage: 10
                             },
 
                             init() {
@@ -828,6 +1099,99 @@
                                     color: { bg: 'bg-green-100', text: 'text-green-500' },
                                     trendIcon: '', trendColor: '', trendText: ''
                                 }];
+                            },
+
+                            // Tagging Compliance Pagination
+                            get paginatedUntaggedResources() {
+                                const resources = this.reportData.taggingCompliance?.untaggedResources || [];
+                                const start = (this.taggingPagination.currentPage - 1) * this.taggingPagination.itemsPerPage;
+                                const end = start + this.taggingPagination.itemsPerPage;
+                                return resources.slice(start, end);
+                            },
+
+                            get taggingTotalPages() {
+                                const total = this.reportData.taggingCompliance?.untaggedResources?.length || 0;
+                                return Math.ceil(total / this.taggingPagination.itemsPerPage);
+                            },
+
+                            taggingGoToPage(page) {
+                                if (page >= 1 && page <= this.taggingTotalPages) {
+                                    this.taggingPagination.currentPage = page;
+                                }
+                            },
+
+                            taggingPrevPage() {
+                                if (this.taggingPagination.currentPage > 1) {
+                                    this.taggingPagination.currentPage--;
+                                }
+                            },
+
+                            taggingNextPage() {
+                                if (this.taggingPagination.currentPage < this.taggingTotalPages) {
+                                    this.taggingPagination.currentPage++;
+                                }
+                            },
+
+                            // Rightsizing Recommendations Pagination
+                            get paginatedRightsizing() {
+                                const resources = this.reportData.rightsizingRecommendations || [];
+                                const start = (this.rightsizingPagination.currentPage - 1) * this.rightsizingPagination.itemsPerPage;
+                                const end = start + this.rightsizingPagination.itemsPerPage;
+                                return resources.slice(start, end);
+                            },
+
+                            get rightsizingTotalPages() {
+                                const total = this.reportData.rightsizingRecommendations?.length || 0;
+                                return Math.ceil(total / this.rightsizingPagination.itemsPerPage);
+                            },
+
+                            rightsizingGoToPage(page) {
+                                if (page >= 1 && page <= this.rightsizingTotalPages) {
+                                    this.rightsizingPagination.currentPage = page;
+                                }
+                            },
+
+                            rightsizingPrevPage() {
+                                if (this.rightsizingPagination.currentPage > 1) {
+                                    this.rightsizingPagination.currentPage--;
+                                }
+                            },
+
+                            rightsizingNextPage() {
+                                if (this.rightsizingPagination.currentPage < this.rightsizingTotalPages) {
+                                    this.rightsizingPagination.currentPage++;
+                                }
+                            },
+
+                            // Wasted Resources Pagination
+                            get paginatedWastedResources() {
+                                const resources = this.reportData.wastedResources || [];
+                                const start = (this.wastedPagination.currentPage - 1) * this.wastedPagination.itemsPerPage;
+                                const end = start + this.wastedPagination.itemsPerPage;
+                                return resources.slice(start, end);
+                            },
+
+                            get wastedTotalPages() {
+                                const total = this.reportData.wastedResources?.length || 0;
+                                return Math.ceil(total / this.wastedPagination.itemsPerPage);
+                            },
+
+                            wastedGoToPage(page) {
+                                if (page >= 1 && page <= this.wastedTotalPages) {
+                                    this.wastedPagination.currentPage = page;
+                                }
+                            },
+
+                            wastedPrevPage() {
+                                if (this.wastedPagination.currentPage > 1) {
+                                    this.wastedPagination.currentPage--;
+                                }
+                            },
+
+                            wastedNextPage() {
+                                if (this.wastedPagination.currentPage < this.wastedTotalPages) {
+                                    this.wastedPagination.currentPage++;
+                                }
                             },
 
                             renderCharts() {
