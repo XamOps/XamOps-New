@@ -21,6 +21,8 @@ import software.amazon.awssdk.services.pricing.model.GetProductsRequest;
 import software.amazon.awssdk.services.pricing.model.GetProductsResponse;
 import software.amazon.awssdk.services.pricing.model.PricingException;
 
+import org.springframework.beans.factory.annotation.Value;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.*;
@@ -39,6 +41,10 @@ public class AwsPricingService {
     private final AwsClientProvider awsClientProvider;
     private final CloudAccountRepository cloudAccountRepository;
     private final ObjectMapper objectMapper;
+    private final CostMockService costMockService;
+
+    @Value("${aws.costexplorer.mock:false}")
+    private boolean useMockData;
 
     // --- YOUR STATIC DATA (Required for Calculator) ---
     // Real AWS EC2 On-Demand pricing for us-east-1 (as of 2024)
@@ -130,10 +136,12 @@ public class AwsPricingService {
     // --- CONSTRUCTOR (Team's structure required for Injection) ---
     public AwsPricingService(AwsClientProvider awsClientProvider,
                              CloudAccountRepository cloudAccountRepository,
-                             ObjectMapper objectMapper) {
+                             ObjectMapper objectMapper,
+                             CostMockService costMockService) {
         this.awsClientProvider = awsClientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
         this.objectMapper = objectMapper;
+        this.costMockService = costMockService;
     }
 
     // ==========================================
@@ -237,6 +245,16 @@ public class AwsPricingService {
      * Get all AWS regions dynamically from AWS API
      */
     public Map<String, Object> getAwsRegions(String awsAccountId) {
+        // Use mock data if enabled
+        if (useMockData) {
+            logger.info("[MOCK] Using mock data for getAwsRegions");
+            List<Map<String, Object>> regions = costMockService.getMockAwsRegions();
+            Map<String, Object> result = new HashMap<>();
+            result.put("regions", regions);
+            result.put("count", regions.size());
+            return result;
+        }
+
         logger.info("Fetching AWS regions for account: {}", awsAccountId);
 
         CloudAccount account = resolveAwsAccount(awsAccountId);
@@ -335,6 +353,13 @@ public class AwsPricingService {
     // Inside src/main/java/com/xammer/cloud/service/AwsPricingService.java
 
 public Map<String, Object> getAllAwsServices(AwsServiceRegistry registry) {
+    // Use mock data if enabled
+    if (useMockData) {
+        logger.info("[MOCK] Using mock data for getAllAwsServices");
+        List<Map<String, Object>> services = costMockService.getMockAllAwsServices();
+        return Map.of("services", services);
+    }
+
     // Get the list of service codes you have actually defined in your registry
     List<String> definedCodes = registry.getServicesAsList().stream()
             .map(s -> (String) s.get("code"))
@@ -421,6 +446,12 @@ public Map<String, Object> getAllAwsServices(AwsServiceRegistry registry) {
             int natGatewayDataProcessedGB,
             int interfaceEndpoints,
             int gatewayEndpoints) {
+        // Use mock data if enabled
+        if (useMockData) {
+            logger.info("[MOCK] Using mock data for getComprehensiveVpcEstimate");
+            return costMockService.getMockComprehensiveVpcEstimate(region, natGatewayCount > 0,
+                    natGatewayDataProcessedGB, siteToSiteVpnConnections);
+        }
 
         logger.info("Calculating VPC estimate for region: {}", region);
 
@@ -547,6 +578,11 @@ public Map<String, Object> getAllAwsServices(AwsServiceRegistry registry) {
             int newConnectionsPerSecond,
             int activeConnections,
             int ruleEvaluations) {
+        // Use mock data if enabled
+        if (useMockData) {
+            logger.info("[MOCK] Using mock data for getComprehensiveElbEstimate");
+            return costMockService.getMockComprehensiveElbEstimate(region, loadBalancerType, 730, processedBytesGB, newConnectionsPerSecond);
+        }
 
         logger.info("Calculating ELB estimate for region: {}, type: {}", region, loadBalancerType);
 
@@ -697,6 +733,11 @@ public Map<String, Object> getAllAwsServices(AwsServiceRegistry registry) {
     public Map<String, Object> getEc2InstancePrices(String awsAccountId,
                                                     String region,
                                                     String operatingSystem) {
+        // Use mock data if enabled
+        if (useMockData) {
+            logger.info("[MOCK] Using mock data for getEc2InstancePrices");
+            return costMockService.getMockEc2InstancePrices(region, operatingSystem);
+        }
 
         CloudAccount account = null;
         if (awsAccountId != null && !awsAccountId.equals("null")) {
@@ -814,6 +855,12 @@ public Map<String, Object> getAllAwsServices(AwsServiceRegistry registry) {
             int storageGB,
             String storageType,
             int dataTransferOutGB) {
+        // Use mock data if enabled
+        if (useMockData) {
+            logger.info("[MOCK] Using mock data for getComprehensiveEc2Estimate");
+            return costMockService.getMockComprehensiveEc2Estimate(region, instanceType, operatingSystem,
+                    instanceCount, hoursPerMonth, storageGB, storageType, dataTransferOutGB);
+        }
 
         logger.info("Getting comprehensive EC2 estimate for {} in {}", instanceType, region);
 
@@ -885,6 +932,12 @@ public Map<String, Object> getAllAwsServices(AwsServiceRegistry registry) {
             int dataTransferOutGB,
             int putRequests,
             int getRequests) {
+        // Use mock data if enabled
+        if (useMockData) {
+            logger.info("[MOCK] Using mock data for getComprehensiveS3Estimate");
+            return costMockService.getMockComprehensiveS3Estimate(region, storageClass, storageGB,
+                    putRequests + getRequests, dataTransferOutGB);
+        }
 
         logger.info("Calculating S3 estimate for region: {}, storage: {}GB, class: {}",
                 region, storageGB, storageClass);

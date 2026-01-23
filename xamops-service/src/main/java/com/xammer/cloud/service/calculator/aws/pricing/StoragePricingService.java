@@ -3,6 +3,7 @@ package com.xammer.cloud.service.calculator.aws.pricing;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.cloud.service.AwsClientProvider;
+import com.xammer.cloud.service.CostMockService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -18,7 +19,8 @@ import java.util.*;
 
 /**
  * AWS Storage Pricing Service
- * Handles REAL pricing calculations from AWS Pricing API for S3, EBS, EFS, Glacier
+ * Handles REAL pricing calculations from AWS Pricing API for S3, EBS, EFS,
+ * Glacier
  */
 @Service
 public class StoragePricingService {
@@ -27,11 +29,17 @@ public class StoragePricingService {
 
     private final AwsClientProvider awsClientProvider;
     private final ObjectMapper objectMapper;
+    private final CostMockService costMockService;
+
+    @org.springframework.beans.factory.annotation.Value("${aws.costexplorer.mock:false}")
+    private boolean useMockData;
 
     public StoragePricingService(AwsClientProvider awsClientProvider,
-                                 ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            CostMockService costMockService) {
         this.awsClientProvider = awsClientProvider;
         this.objectMapper = objectMapper;
+        this.costMockService = costMockService;
     }
 
     // ========================================
@@ -44,6 +52,12 @@ public class StoragePricingService {
     public Map<String, Object> getComprehensiveS3Estimate(
             String awsAccountId, String region, int storageGB, String storageClass,
             int dataTransferOutGB, int putRequests, int getRequests) {
+
+        // Use mock data if enabled
+        if (useMockData) {
+            return costMockService.getMockComprehensiveS3Estimate(region, storageClass, storageGB,
+                    (long) (putRequests + getRequests), (double) dataTransferOutGB);
+        }
 
         logger.info("💰 Calculating S3 estimate with REAL prices for region: {}, storage: {}GB, class: {}",
                 region, storageGB, storageClass);
@@ -91,13 +105,17 @@ public class StoragePricingService {
 
         // Storage class comparison with REAL prices
         List<Map<String, Object>> pricingModels = new ArrayList<>();
-        pricingModels.add(createS3PricingModelWithRealAPI(region, "Standard", storageGB, dataTransferOutGB, putRequests, getRequests,
+        pricingModels.add(createS3PricingModelWithRealAPI(region, "Standard", storageGB, dataTransferOutGB, putRequests,
+                getRequests,
                 "Best for frequently accessed data", "0%"));
-        pricingModels.add(createS3PricingModelWithRealAPI(region, "Intelligent-Tiering", storageGB, dataTransferOutGB, putRequests, getRequests,
+        pricingModels.add(createS3PricingModelWithRealAPI(region, "Intelligent-Tiering", storageGB, dataTransferOutGB,
+                putRequests, getRequests,
                 "Auto-moves data between tiers", "~30-40%"));
-        pricingModels.add(createS3PricingModelWithRealAPI(region, "Standard-IA", storageGB, dataTransferOutGB, putRequests, getRequests,
+        pricingModels.add(createS3PricingModelWithRealAPI(region, "Standard-IA", storageGB, dataTransferOutGB,
+                putRequests, getRequests,
                 "Infrequent access, lower storage", "~45%"));
-        pricingModels.add(createS3PricingModelWithRealAPI(region, "Glacier Flexible Retrieval", storageGB, dataTransferOutGB, putRequests, getRequests,
+        pricingModels.add(createS3PricingModelWithRealAPI(region, "Glacier Flexible Retrieval", storageGB,
+                dataTransferOutGB, putRequests, getRequests,
                 "Archive, retrieval in mins-hours", "~84%"));
 
         result.put("pricingModels", pricingModels);
@@ -211,7 +229,8 @@ public class StoragePricingService {
                 if (priceJson.contains(groupDescription)) {
                     double price = parseS3RequestPrice(priceJson);
                     if (price > 0) {
-                        logger.info("✅ Fetched REAL S3 request price from API: ${} per 1000 {} requests", price, requestType);
+                        logger.info("✅ Fetched REAL S3 request price from API: ${} per 1000 {} requests", price,
+                                requestType);
                         return price;
                     }
                 }
@@ -381,9 +400,9 @@ public class StoragePricingService {
     }
 
     private Map<String, Object> createS3PricingModelWithRealAPI(String region, String storageClass,
-                                                                int storageGB, int dataTransferGB,
-                                                                int putReq, int getReq,
-                                                                String description, String savings) {
+            int storageGB, int dataTransferGB,
+            int putReq, int getReq,
+            String description, String savings) {
         double storagePricePerGB = getS3StoragePriceFromAPI(region, storageClass);
         double storageCost = storageGB * storagePricePerGB;
         double dataTransferCost = calculateS3DataTransferCost(dataTransferGB);
@@ -410,7 +429,15 @@ public class StoragePricingService {
     // EBS PRICING
     // ========================================
 
-    public Map<String, Object> getEbsStorageEstimate(String region, String volumeType, int storageGB, int iops, int throughput) {
+    public Map<String, Object> getEbsStorageEstimate(String region, String volumeType, int storageGB, int iops,
+            int throughput) {
+        // Use mock data if enabled
+        if (useMockData) {
+            // Reusing a simplified version or the existing logic since it's mostly static
+            // anyway
+            // but logging for parity with other mock methods
+            logger.info("[MOCK] Generating mock EBS estimate for {} in {}", volumeType, region);
+        }
         // EBS pricing from AWS documentation (these are consistent)
         Map<String, Double> volumePricing = new HashMap<>();
         volumePricing.put("gp3", 0.08);
@@ -473,7 +500,8 @@ public class StoragePricingService {
     }
 
     private double round(double value, int places) {
-        if (places < 0) throw new IllegalArgumentException();
+        if (places < 0)
+            throw new IllegalArgumentException();
         BigDecimal bd = BigDecimal.valueOf(value);
         bd = bd.setScale(places, RoundingMode.HALF_UP);
         return bd.doubleValue();

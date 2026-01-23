@@ -33,30 +33,42 @@ public class PricingService {
     private final PricingClient pricingClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final AwsClientProvider awsClientProvider;
+    private final CostMockService costMockService;
+
+    @Value("${aws.costexplorer.mock:false}")
+    private boolean useMockData;
 
     @Value("${pricing.ebs.fallback-price:0.10}")
     private double ebsFallbackPrice;
 
-    public PricingService(PricingClient pricingClient, AwsClientProvider awsClientProvider) {
+    public PricingService(PricingClient pricingClient, AwsClientProvider awsClientProvider,
+            CostMockService costMockService) {
         this.pricingClient = pricingClient;
         this.awsClientProvider = awsClientProvider;
+        this.costMockService = costMockService;
     }
 
     @Cacheable(value = "spotPrice", key = "#account.awsAccountId + '-' + #region + '-' + #instanceType")
     public double getSpotInstancePrice(String instanceType, String region, CloudAccount account) {
+        // Use mock data if enabled
+        if (useMockData) {
+            logger.info("[MOCK] Using mock data for getSpotInstancePrice");
+            return costMockService.getMockSpotInstancePrice(instanceType, region);
+        }
+
         logger.info("Fetching spot price for instance type: {} in region: {}", instanceType, region);
         try {
             Ec2Client ec2Client = awsClientProvider.getEc2Client(account, region);
 
             DescribeSpotPriceHistoryRequest request = DescribeSpotPriceHistoryRequest.builder()
-                .instanceTypes(InstanceType.fromValue(instanceType))
-                .productDescriptions("Linux/UNIX")
-                .startTime(Instant.now().minusSeconds(3600))
-                .endTime(Instant.now())
-                .build();
+                    .instanceTypes(InstanceType.fromValue(instanceType))
+                    .productDescriptions("Linux/UNIX")
+                    .startTime(Instant.now().minusSeconds(3600))
+                    .endTime(Instant.now())
+                    .build();
 
             Optional<SpotPrice> spotPrice = ec2Client.describeSpotPriceHistory(request).spotPriceHistory().stream()
-                .max(Comparator.comparing(SpotPrice::timestamp));
+                    .max(Comparator.comparing(SpotPrice::timestamp));
 
             if (spotPrice.isPresent()) {
                 return Double.parseDouble(spotPrice.get().spotPrice());
@@ -69,9 +81,16 @@ public class PricingService {
 
     @Cacheable(value = "ebsPrice", key = "#region + '-' + #volumeType")
     public double getEbsGbMonthPrice(String region, String volumeType) {
+        // Use mock data if enabled
+        if (useMockData) {
+            logger.info("[MOCK] Using mock data for getEbsGbMonthPrice");
+            return costMockService.getMockEbsGbMonthPrice(region, volumeType);
+        }
+
         logger.info("Fetching live EBS price for region: {}, type: {}", region, volumeType);
         Filter regionFilter = Filter.builder().field("regionCode").value(region).type("TERM_MATCH").build();
-        Filter volumeApiNameFilter = Filter.builder().field("volumeApiName").value(volumeType).type("TERM_MATCH").build();
+        Filter volumeApiNameFilter = Filter.builder().field("volumeApiName").value(volumeType).type("TERM_MATCH")
+                .build();
 
         GetProductsRequest request = GetProductsRequest.builder()
                 .serviceCode("AmazonEC2")
@@ -81,7 +100,8 @@ public class PricingService {
         try {
             GetProductsResponse response = pricingClient.getProducts(request);
             if (response.priceList().isEmpty()) {
-                logger.warn("No price list found for EBS volume type {} in region {}. Using fallback price.", volumeType, region);
+                logger.warn("No price list found for EBS volume type {} in region {}. Using fallback price.",
+                        volumeType, region);
                 return ebsFallbackPrice;
             }
 
@@ -110,18 +130,26 @@ public class PricingService {
 
     @Cacheable(value = "ec2Price", key = "#region + '-' + #instanceType")
     public double getEc2InstanceMonthlyPrice(String instanceType, String region) {
+        // Use mock data if enabled
+        if (useMockData) {
+            logger.info("[MOCK] Using mock data for getEc2InstanceMonthlyPrice");
+            return costMockService.getMockEc2InstanceMonthlyPrice(instanceType, region);
+        }
+
         logger.info("Fetching live EC2 price for region: {}, type: {}", region, instanceType);
-        Filter regionFilter = Filter.builder().field("location").value(getRegionDescription(region)).type("TERM_MATCH").build();
-        Filter instanceTypeFilter = Filter.builder().field("instanceType").value(instanceType).type("TERM_MATCH").build();
+        Filter regionFilter = Filter.builder().field("location").value(getRegionDescription(region)).type("TERM_MATCH")
+                .build();
+        Filter instanceTypeFilter = Filter.builder().field("instanceType").value(instanceType).type("TERM_MATCH")
+                .build();
         Filter tenancyFilter = Filter.builder().field("tenancy").value("Shared").type("TERM_MATCH").build();
         Filter osFilter = Filter.builder().field("operatingSystem").value("Linux").type("TERM_MATCH").build();
         Filter capacityFilter = Filter.builder().field("capacitystatus").value("Used").type("TERM_MATCH").build();
         Filter preinstalledSwFilter = Filter.builder().field("preInstalledSw").value("NA").type("TERM_MATCH").build();
 
-
         GetProductsRequest request = GetProductsRequest.builder()
                 .serviceCode("AmazonEC2")
-                .filters(regionFilter, instanceTypeFilter, tenancyFilter, osFilter, capacityFilter, preinstalledSwFilter)
+                .filters(regionFilter, instanceTypeFilter, tenancyFilter, osFilter, capacityFilter,
+                        preinstalledSwFilter)
                 .build();
 
         try {
@@ -138,28 +166,38 @@ public class PricingService {
             if (elements.hasNext()) {
                 JsonNode priceDimensions = elements.next().path("priceDimensions");
                 Iterator<JsonNode> dimensions = priceDimensions.elements();
-                if(dimensions.hasNext()) {
+                if (dimensions.hasNext()) {
                     JsonNode pricePerUnit = dimensions.next().path("pricePerUnit").path("USD");
                     double hourlyPrice = pricePerUnit.asDouble(0.0);
                     return hourlyPrice * 24 * 30; // Estimate monthly cost
                 }
             }
         } catch (Exception e) {
-            logger.error("Failed to fetch or parse price for EC2 instance type {} in region {}", instanceType, region, e);
+            logger.error("Failed to fetch or parse price for EC2 instance type {} in region {}", instanceType, region,
+                    e);
         }
         return 0.0; // Fallback
     }
 
     @Cacheable(value = "elasticIpPrice", key = "#region")
     public double getElasticIpMonthlyPrice(String region) {
+        // Use mock data if enabled
+        if (useMockData) {
+            logger.info("[MOCK] Using mock data for getElasticIpMonthlyPrice");
+            return costMockService.getMockElasticIpMonthlyPrice(region);
+        }
+
         logger.info("Fetching live Elastic IP price for region: {}", region);
 
         // *** CHANGED: Using more specific filters for Elastic IPs ***
-        Filter regionFilter = Filter.builder().field("location").value(getRegionDescription(region)).type("TERM_MATCH").build();
-        Filter productFamilyFilter = Filter.builder().field("productFamily").value("IP Address").type("TERM_MATCH").build();
-        // This targets unattached (idle) public IPv4 addresses, which is what AWS charges for.
-        Filter usageTypeFilter = Filter.builder().field("usagetype").value(region + "-UnusedAddr").type("TERM_MATCH").build();
-
+        Filter regionFilter = Filter.builder().field("location").value(getRegionDescription(region)).type("TERM_MATCH")
+                .build();
+        Filter productFamilyFilter = Filter.builder().field("productFamily").value("IP Address").type("TERM_MATCH")
+                .build();
+        // This targets unattached (idle) public IPv4 addresses, which is what AWS
+        // charges for.
+        Filter usageTypeFilter = Filter.builder().field("usagetype").value(region + "-UnusedAddr").type("TERM_MATCH")
+                .build();
 
         GetProductsRequest request = GetProductsRequest.builder()
                 .serviceCode("AmazonEC2")
@@ -186,10 +224,19 @@ public class PricingService {
 
     @Cacheable(value = "rdsPrice", key = "#region + '-' + #dbInstance.dbInstanceClass()")
     public double getRdsInstanceMonthlyPrice(DBInstance dbInstance, String region) {
+        // Use mock data if enabled
+        if (useMockData) {
+            logger.info("[MOCK] Using mock data for getRdsInstanceMonthlyPrice");
+            return costMockService.getMockRdsInstanceMonthlyPrice(dbInstance, region);
+        }
+
         logger.info("Fetching live RDS price for region: {}, type: {}", region, dbInstance.dbInstanceClass());
-        Filter regionFilter = Filter.builder().field("location").value(getRegionDescription(region)).type("TERM_MATCH").build();
-        Filter instanceClassFilter = Filter.builder().field("instanceType").value(dbInstance.dbInstanceClass()).type("TERM_MATCH").build();
-        Filter engineFilter = Filter.builder().field("databaseEngine").value(dbInstance.engine()).type("TERM_MATCH").build();
+        Filter regionFilter = Filter.builder().field("location").value(getRegionDescription(region)).type("TERM_MATCH")
+                .build();
+        Filter instanceClassFilter = Filter.builder().field("instanceType").value(dbInstance.dbInstanceClass())
+                .type("TERM_MATCH").build();
+        Filter engineFilter = Filter.builder().field("databaseEngine").value(dbInstance.engine()).type("TERM_MATCH")
+                .build();
 
         GetProductsRequest request = GetProductsRequest.builder()
                 .serviceCode("AmazonRDS")
@@ -198,7 +245,8 @@ public class PricingService {
         try {
             GetProductsResponse response = pricingClient.getProducts(request);
             if (response.priceList().isEmpty()) {
-                logger.warn("No price list found for RDS instance type {} in region {}", dbInstance.dbInstanceClass(), region);
+                logger.warn("No price list found for RDS instance type {} in region {}", dbInstance.dbInstanceClass(),
+                        region);
                 return 20.0; // Fallback
             }
             JsonNode priceList = objectMapper.readTree(response.priceList().get(0));
@@ -208,30 +256,30 @@ public class PricingService {
             double hourlyPrice = pricePerUnit.asDouble(0.02);
             return hourlyPrice * 24 * 30;
         } catch (Exception e) {
-            logger.error("Failed to fetch price for RDS instance {} in region {}", dbInstance.dbInstanceIdentifier(), region, e);
+            logger.error("Failed to fetch price for RDS instance {} in region {}", dbInstance.dbInstanceIdentifier(),
+                    region, e);
             return 20.0; // Fallback
         }
     }
 
     private String getRegionDescription(String regionCode) {
         Map<String, String> regionMap = Map.ofEntries(
-            Map.entry("us-east-1", "US East (N. Virginia)"),
-            Map.entry("us-east-2", "US East (Ohio)"),
-            Map.entry("us-west-1", "US West (N. California)"),
-            Map.entry("us-west-2", "US West (Oregon)"),
-            Map.entry("ap-south-1", "Asia Pacific (Mumbai)"),
-            Map.entry("ap-northeast-2", "Asia Pacific (Seoul)"),
-            Map.entry("ap-southeast-1", "Asia Pacific (Singapore)"),
-            Map.entry("ap-southeast-2", "Asia Pacific (Sydney)"),
-            Map.entry("ap-northeast-1", "Asia Pacific (Tokyo)"),
-            Map.entry("ca-central-1", "Canada (Central)"),
-            Map.entry("eu-central-1", "EU (Frankfurt)"),
-            Map.entry("eu-west-1", "EU (Ireland)"),
-            Map.entry("eu-west-2", "EU (London)"),
-            Map.entry("eu-west-3", "EU (Paris)"),
-            Map.entry("eu-north-1", "EU (Stockholm)"),
-            Map.entry("sa-east-1", "South America (Sao Paulo)")
-        );
+                Map.entry("us-east-1", "US East (N. Virginia)"),
+                Map.entry("us-east-2", "US East (Ohio)"),
+                Map.entry("us-west-1", "US West (N. California)"),
+                Map.entry("us-west-2", "US West (Oregon)"),
+                Map.entry("ap-south-1", "Asia Pacific (Mumbai)"),
+                Map.entry("ap-northeast-2", "Asia Pacific (Seoul)"),
+                Map.entry("ap-southeast-1", "Asia Pacific (Singapore)"),
+                Map.entry("ap-southeast-2", "Asia Pacific (Sydney)"),
+                Map.entry("ap-northeast-1", "Asia Pacific (Tokyo)"),
+                Map.entry("ca-central-1", "Canada (Central)"),
+                Map.entry("eu-central-1", "EU (Frankfurt)"),
+                Map.entry("eu-west-1", "EU (Ireland)"),
+                Map.entry("eu-west-2", "EU (London)"),
+                Map.entry("eu-west-3", "EU (Paris)"),
+                Map.entry("eu-north-1", "EU (Stockholm)"),
+                Map.entry("sa-east-1", "South America (Sao Paulo)"));
         return regionMap.getOrDefault(regionCode, regionCode);
     }
 }
