@@ -5,6 +5,15 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>XamOps - Cloud Shell</title>
+  <!-- REDIRECT TO REACT CLOUDSHELL -->
+  <script>
+    // Automatically redirect to the new React CloudShell
+    // Preserve query parameters (accountId, etc.)
+    console.log('📍 [cloudshell.html] Redirecting to React CloudShell at /cloudshell');
+    const currentParams = window.location.search;
+    window.location.replace('/cloudshell' + currentParams);
+  </script>
+
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
 

@@ -1,0 +1,42 @@
+/**
+ * CloudSitter Page Styles
+ *
+ * Additional styles for CloudSitter EC2 scheduling page
+ */
+
+/* Schedule Grid Cell Hover Effect */
+.schedule-cell {
+  transition: all 0.1s ease;
+}
+
+.schedule-cell:hover {
+  transform: scale(1.1);
+  z-index: 10;
+}
+
+/* Custom Scrollbar for CloudSitter */
+.cloudsitter-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.cloudsitter-scroll::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+.cloudsitter-scroll::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 3px;
+}
+
+.cloudsitter-scroll::-webkit-scrollbar-thumb:hover {
+  background: #999;
+}
+
+/* Prevent text selection during drag */
+.schedule-grid {
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}

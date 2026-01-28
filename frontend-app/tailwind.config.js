@@ -7,7 +7,7 @@ export default {
     "./billops/*.html",   // BillOps
     "./**/*.html",        // All other HTML (but NOT node_modules)
     "!./node_modules",    // Exclude node_modules
-    "./src/**/*.js",
+    "./src/**/*.{js,jsx,ts,tsx}",  // React components
     "./src/**/*.css",
   ],
   theme: { extend: {} },

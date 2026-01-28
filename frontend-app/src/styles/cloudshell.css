@@ -1,0 +1,84 @@
+/**
+ * CloudShell Styles
+ *
+ * Styles for the CloudShell page with terminal functionality
+ */
+
+/* Terminal container tweaks */
+.xterm {
+  padding: 10px;
+  height: 100%;
+}
+
+.xterm-viewport {
+  overflow-y: auto;
+}
+
+.xterm-screen {
+  overflow: hidden;
+}
+
+/* Ensure terminal fills container */
+.xterm-container {
+  height: 100%;
+  width: 100%;
+}
+
+/* Custom scrollbar for terminal (matches GitHub dark theme) */
+.xterm .xterm-viewport::-webkit-scrollbar {
+  width: 10px;
+}
+
+.xterm .xterm-viewport::-webkit-scrollbar-track {
+  background: #0d1117;
+}
+
+.xterm .xterm-viewport::-webkit-scrollbar-thumb {
+  background: #30363d;
+  border-radius: 5px;
+}
+
+.xterm .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: #484f58;
+}
+
+/* Terminal cursor animation */
+@keyframes blink {
+  0%, 49% {
+    opacity: 1;
+  }
+  50%, 100% {
+    opacity: 0;
+  }
+}
+
+/* Smooth fade-in animation for terminal */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.terminal-fade-in {
+  animation: fadeIn 0.3s ease-in;
+}
+
+/* Connection status pulse animation */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .xterm {
+    padding: 5px;
+  }
+}
