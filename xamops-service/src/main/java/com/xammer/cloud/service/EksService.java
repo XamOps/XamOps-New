@@ -94,30 +94,38 @@ public class EksService {
             logger.info("DEBUG K8S: Found {} active regions: {}", activeRegions.size(),
                     activeRegions.stream().map(r -> r.getRegionId()).collect(Collectors.toList()));
 
-            List<CompletableFuture<List<K8sClusterInfo>>> futures = activeRegions.stream()
+            // 1. Create a list of futures, one for each region
+            List<CompletableFuture<List<K8sClusterInfo>>> regionFutures = activeRegions.stream()
                     .map(region -> CompletableFuture.supplyAsync(() -> {
                         try {
                             EksClient eks = awsClientProvider.getEksClient(account, region.getRegionId());
                             // --- DEBUG: Log before listing clusters in a region ---
                             logger.info("DEBUG K8S: Listing clusters in region: {}", region.getRegionId());
-                            List<K8sClusterInfo> clustersInRegion = eks.listClusters().clusters().stream().map(name -> {
-                                try {
-                                    Cluster cluster = eks.describeCluster(b -> b.name(name)).cluster();
-                                    boolean isConnected = checkContainerInsightsStatus(account, name,
-                                            region.getRegionId());
-                                    return new K8sClusterInfo(name, cluster.statusAsString(), cluster.version(),
-                                            region.getRegionId(), isConnected);
-                                } catch (Exception e) {
-                                    logger.error("DEBUG K8S: Failed to describe EKS cluster {} in region {}", name,
-                                            region.getRegionId(), e);
-                                    return null;
-                                }
-                            }).filter(Objects::nonNull).collect(Collectors.toList());
-                            // --- DEBUG: Log after listing clusters in a region ---
-                            logger.info("DEBUG K8S: Found {} clusters in region {}: {}", clustersInRegion.size(),
-                                    region.getRegionId(), clustersInRegion.stream().map(K8sClusterInfo::getName)
-                                            .collect(Collectors.toList()));
-                            return clustersInRegion;
+
+                            List<String> clusterNames = eks.listClusters().clusters();
+
+                            // 2. Parallelize processing of clusters WITHIN the region
+                            List<CompletableFuture<K8sClusterInfo>> clusterFutures = clusterNames.stream()
+                                    .map(name -> CompletableFuture.supplyAsync(() -> {
+                                        try {
+                                            Cluster cluster = eks.describeCluster(b -> b.name(name)).cluster();
+                                            boolean isConnected = checkContainerInsightsStatus(account, name,
+                                                    region.getRegionId());
+                                            return new K8sClusterInfo(name, cluster.statusAsString(), cluster.version(),
+                                                    region.getRegionId(), isConnected);
+                                        } catch (Exception e) {
+                                            logger.error("DEBUG K8S: Failed to describe EKS cluster {} in region {}",
+                                                    name, region.getRegionId(), e);
+                                            return null;
+                                        }
+                                    }))
+                                    .collect(Collectors.toList());
+
+                            // Wait for all cluster details in this region to complete
+                            return clusterFutures.stream()
+                                    .map(CompletableFuture::join)
+                                    .filter(Objects::nonNull)
+                                    .collect(Collectors.toList());
 
                         } catch (Exception e) {
                             logger.error("DEBUG K8S: Could not list EKS clusters in region {} for account {}",
@@ -127,9 +135,9 @@ public class EksService {
                     }))
                     .collect(Collectors.toList());
 
-            return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+            return CompletableFuture.allOf(regionFutures.toArray(new CompletableFuture[0]))
                     .thenApply(v -> {
-                        List<K8sClusterInfo> clusterInfos = futures.stream()
+                        List<K8sClusterInfo> clusterInfos = regionFutures.stream()
                                 .map(CompletableFuture::join)
                                 .flatMap(List::stream)
                                 .collect(Collectors.toList());

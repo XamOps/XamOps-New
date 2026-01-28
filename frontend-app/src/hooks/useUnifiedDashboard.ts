@@ -1,0 +1,276 @@
+/**
+ * useUnifiedDashboard Hook
+ *
+ * Custom hook for managing unified dashboard state and data fetching
+ * Handles fetching data from all providers (AWS, GCP, Azure) and summary endpoint
+ */
+
+import { useState, useEffect, useCallback, useRef } from 'react';
+import type {
+  ProviderData,
+  SummaryData,
+  HealthData,
+  DashboardErrors,
+  DashboardLoading,
+  ViewMode,
+  SubAccount,
+} from '../types/dashboard';
+
+export const useUnifiedDashboard = () => {
+  // Loading states
+  const [isLoading, setIsLoading] = useState<DashboardLoading>({
+    summary: true,
+    aws: true,
+    gcp: true,
+    azure: true,
+    health: true,
+  });
+
+  // Error states
+  const [error, setError] = useState<DashboardErrors>({
+    summary: null,
+    aws: null,
+    gcp: null,
+    azure: null,
+    health: null,
+  });
+
+  // Data states
+  const [summaryData, setSummaryData] = useState({
+    awsCount: 0,
+    gcpCount: 0,
+    azureCount: 0,
+    totalResources: 0,
+    totalAccounts: 0,
+  });
+  const [awsData, setAwsData] = useState<ProviderData | null>(null);
+  const [gcpData, setGcpData] = useState<ProviderData | null>(null);
+  const [azureData, setAzureData] = useState<ProviderData | null>(null);
+  const [healthData, setHealthData] = useState<HealthData | null>(null);
+
+  // UI states
+  const [showModal, setShowModal] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>('cost');
+  const [activeProvider, setActiveProvider] = useState('');
+  const [activeAccountList, setActiveAccountList] = useState<SubAccount[]>([]);
+
+  // Timestamp states
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [serverTime, setServerTime] = useState<string | null>(null);
+  const [lastUpdatedText, setLastUpdatedText] = useState('Checking...');
+
+  // Intervals and initialization refs
+  const intervalsRef = useRef<{ timeAgo?: ReturnType<typeof setInterval>; autoRefresh?: ReturnType<typeof setInterval> }>({});
+  const initializedRef = useRef(false);
+
+  // Update time ago text - stable reference using ref
+  const updateTimeAgoRef = useRef<(() => void) | undefined>(undefined);
+  updateTimeAgoRef.current = () => {
+    if (!lastUpdated) {
+      setLastUpdatedText('Updating...');
+      return;
+    }
+    const diff = Math.floor((new Date().getTime() - lastUpdated.getTime()) / 60000);
+    if (diff < 1) setLastUpdatedText('Just now');
+    else setLastUpdatedText(`Updated ${diff} mins ago`);
+  };
+
+  const updateTimeAgo = useCallback(() => {
+    updateTimeAgoRef.current?.();
+  }, []);
+
+  // Fetch summary data
+  const fetchSummary = useCallback(async (force: boolean = false) => {
+    setError((prev) => ({ ...prev, summary: null }));
+    setIsLoading((prev) => ({ ...prev, summary: true }));
+
+    try {
+      const url = '/api/xamops/dashboard/unified/summary' + (force ? '?forceRefresh=true' : '');
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Summary failed');
+      const data: SummaryData = await res.json();
+      const acc = data.selectedAccount;
+
+      setSummaryData({
+        awsCount: acc.awsAccountCount,
+        gcpCount: acc.gcpAccountCount,
+        azureCount: acc.azureAccountCount,
+        totalAccounts: acc.awsAccountCount + acc.gcpAccountCount + acc.azureAccountCount,
+        totalResources: 0,
+      });
+    } catch (e) {
+      console.error(e);
+      setError((prev) => ({ ...prev, summary: 'Data Unavailable' }));
+    } finally {
+      setIsLoading((prev) => ({ ...prev, summary: false }));
+    }
+  }, []);
+
+  // Fetch provider data
+  const fetchProvider = useCallback(async (provider: 'aws' | 'gcp' | 'azure', force: boolean = false) => {
+    setIsLoading((prev) => ({ ...prev, [provider]: true }));
+    setError((prev) => ({ ...prev, [provider]: null }));
+
+    try {
+      const url = `/api/xamops/dashboard/unified/${provider}` + (force ? '?forceRefresh=true' : '');
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`${provider.toUpperCase()} Failed`);
+      const data: ProviderData = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      // Update state based on provider
+      if (provider === 'aws') setAwsData(data);
+      else if (provider === 'gcp') setGcpData(data);
+      else if (provider === 'azure') setAzureData(data);
+
+      // Update server time
+      if (data.lastUpdated) {
+        setServerTime(data.lastUpdated);
+      }
+
+      // Update total resources
+      if (data.selectedAccount?.resourceInventory) {
+        setSummaryData((prev) => ({
+          ...prev,
+          totalResources: prev.totalResources + (data.selectedAccount.resourceInventory.totalCount || 0),
+        }));
+      }
+    } catch (e: any) {
+      console.error(`Error loading ${provider}`, e);
+      setError((prev) => ({ ...prev, [provider]: e.message || 'Connection Failed' }));
+    } finally {
+      setIsLoading((prev) => ({ ...prev, [provider]: false }));
+    }
+  }, []);
+
+  // Fetch health data
+  const fetchHealth = useCallback(async () => {
+    try {
+      const res = await fetch('/api/xamops/dashboard/unified/health');
+      if (res.ok) {
+        const data = await res.json();
+        setHealthData(data);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsLoading((prev) => ({ ...prev, health: false }));
+    }
+  }, []);
+
+  // Store fetch functions in refs for stable reference in intervals
+  const fetchFunctionsRef = useRef({ fetchSummary, fetchProvider, fetchHealth });
+  fetchFunctionsRef.current = { fetchSummary, fetchProvider, fetchHealth };
+
+  // Fetch all data - using ref to avoid dependency issues
+  const fetchAllImpl = useCallback((force: boolean = false) => {
+    const { fetchSummary, fetchProvider, fetchHealth } = fetchFunctionsRef.current;
+
+    if (force) {
+      // Reset states when forcing refresh
+      setIsLoading({
+        summary: true,
+        aws: true,
+        gcp: true,
+        azure: true,
+        health: true,
+      });
+      setError({
+        summary: null,
+        aws: null,
+        gcp: null,
+        azure: null,
+        health: null,
+      });
+      setAwsData(null);
+      setGcpData(null);
+      setAzureData(null);
+      setSummaryData((prev) => ({ ...prev, totalResources: 0 }));
+    }
+
+    setLastUpdated(new Date());
+
+    fetchSummary(force);
+    fetchProvider('aws', force);
+    fetchProvider('gcp', force);
+    fetchProvider('azure', force);
+    fetchHealth();
+  }, []);
+
+  // Stable fetchAll reference for external use
+  const fetchAll = useCallback((force: boolean = false) => {
+    fetchAllImpl(force);
+  }, [fetchAllImpl]);
+
+  // Helper to get all accounts
+  const getAllAccounts = useCallback((): SubAccount[] => {
+    const all: SubAccount[] = [];
+    if (awsData?.selectedAccount?.subAccounts) all.push(...awsData.selectedAccount.subAccounts);
+    if (gcpData?.selectedAccount?.subAccounts) all.push(...gcpData.selectedAccount.subAccounts);
+    if (azureData?.selectedAccount?.subAccounts) all.push(...azureData.selectedAccount.subAccounts);
+    return JSON.parse(JSON.stringify(all));
+  }, [awsData, gcpData, azureData]);
+
+  // Initialize on mount - only run once
+  useEffect(() => {
+    // Guard against double initialization (React Strict Mode)
+    if (initializedRef.current) {
+      return;
+    }
+    initializedRef.current = true;
+
+    console.log('📊 Unified Dashboard: Initializing...');
+    fetchAllImpl(false);
+
+    // Setup intervals
+    intervalsRef.current.timeAgo = setInterval(() => {
+      updateTimeAgoRef.current?.();
+    }, 60000);
+
+    intervalsRef.current.autoRefresh = setInterval(() => {
+      console.log('Auto-refreshing dashboard data...');
+      fetchFunctionsRef.current.fetchSummary(false);
+      fetchFunctionsRef.current.fetchProvider('aws', false);
+      fetchFunctionsRef.current.fetchProvider('gcp', false);
+      fetchFunctionsRef.current.fetchProvider('azure', false);
+      fetchFunctionsRef.current.fetchHealth();
+    }, 60000);
+
+    // Cleanup
+    return () => {
+      if (intervalsRef.current.timeAgo) clearInterval(intervalsRef.current.timeAgo);
+      if (intervalsRef.current.autoRefresh) clearInterval(intervalsRef.current.autoRefresh);
+    };
+  }, []); // Empty dependency array - only run on mount
+
+  // Update time ago when lastUpdated changes
+  useEffect(() => {
+    updateTimeAgo();
+  }, [lastUpdated, updateTimeAgo]);
+
+  return {
+    // State
+    isLoading,
+    error,
+    summaryData,
+    awsData,
+    gcpData,
+    azureData,
+    healthData,
+    showModal,
+    viewMode,
+    activeProvider,
+    activeAccountList,
+    lastUpdatedText,
+    serverTime,
+
+    // Actions
+    fetchAll,
+    fetchProvider,
+    setShowModal,
+    setViewMode,
+    setActiveProvider,
+    setActiveAccountList,
+    getAllAccounts,
+  };
+};

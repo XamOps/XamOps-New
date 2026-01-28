@@ -1,0 +1,242 @@
+/**
+ * CloudK8s Dashboard Styles
+ *
+ * Converted from: cloudk8s.html inline styles
+ * Modern, professional styling for Kubernetes management dashboard
+ */
+
+/* CSS Variables */
+.cloudk8s-page {
+  --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --k8s-gradient: linear-gradient(135deg, #326ce5 0%, #1e3a8a 100%);
+  --glass-bg: rgba(255, 255, 255, 0.95);
+  --glass-border: rgba(229, 231, 235, 0.8);
+}
+
+/* Header */
+.cloudk8s-header {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.98) 100%);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--glass-border);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+/* Glass Card Effect */
+.cloudk8s-page .glass-card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  transition: box-shadow 0.3s ease, transform 0.3s ease;
+}
+
+.cloudk8s-page .glass-card:hover {
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+}
+
+/* Table Styles */
+.cloudk8s-page .table-enhanced {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.cloudk8s-page .table-enhanced thead {
+  background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+}
+
+.cloudk8s-page .table-enhanced thead th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.cloudk8s-page .table-enhanced tbody tr {
+  transition: all 0.2s ease;
+}
+
+.cloudk8s-page .table-enhanced tbody tr:hover {
+  background: rgba(102, 126, 234, 0.05);
+}
+
+/* Status Badge */
+.cloudk8s-page .status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+}
+
+/* Loading Spinner */
+.cloudk8s-page .loading-spinner {
+  border: 3px solid #f3f4f6;
+  border-top: 3px solid #326ce5;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  animation: cloudk8s-spin 1s linear infinite;
+}
+
+@keyframes cloudk8s-spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* Fade In Animation */
+.cloudk8s-page .fade-in {
+  animation: cloudk8s-fadeIn 0.5s ease-in-out;
+}
+
+@keyframes cloudk8s-fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Modal Styles */
+.cloudk8s-page .modal-overlay {
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+}
+
+.cloudk8s-page .modal-content {
+  background: var(--glass-bg);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--glass-border);
+}
+
+/* Button Primary */
+.cloudk8s-page .btn-primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  transition: all 0.3s ease;
+}
+
+.cloudk8s-page .btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 15px -3px rgba(102, 126, 234, 0.4);
+}
+
+/* Integration Cards */
+.cloudk8s-page .glass-card.border-dashed {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(248, 250, 252, 0.9) 100%);
+}
+
+/* Custom Scrollbar for Modal */
+.cloudk8s-page .modal-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.cloudk8s-page .modal-content::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 4px;
+}
+
+.cloudk8s-page .modal-content::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+.cloudk8s-page .modal-content::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Code Block Styling */
+.cloudk8s-page pre {
+  position: relative;
+}
+
+.cloudk8s-page pre code {
+  display: block;
+  white-space: pre;
+  word-wrap: normal;
+  overflow-x: auto;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+  .cloudk8s-header {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  .cloudk8s-header h1 {
+    font-size: 1.25rem;
+  }
+
+  .cloudk8s-header > div:first-child > div:first-child {
+    width: 2.5rem;
+    height: 2.5rem;
+  }
+
+  .cloudk8s-page .glass-card {
+    padding: 1rem;
+  }
+
+  .cloudk8s-page .modal-content {
+    padding: 1rem;
+    max-height: 85vh;
+  }
+}
+
+/* Pulse Animation for Help Button */
+@keyframes cloudk8s-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.cloudk8s-page .group:hover .group-hover\:animate-pulse {
+  animation: cloudk8s-pulse 1s ease-in-out infinite;
+}
+
+/* Table Row Hover Effect */
+.cloudk8s-page .table-enhanced tbody tr {
+  position: relative;
+}
+
+.cloudk8s-page .table-enhanced tbody tr::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(102, 126, 234, 0.2), transparent);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.cloudk8s-page .table-enhanced tbody tr:hover::after {
+  opacity: 1;
+}
+
+/* Integration Card Hover States */
+.cloudk8s-page .glass-card.border-dashed:hover {
+  transform: translateY(-2px);
+}
+
+/* Version Badge */
+.cloudk8s-page .font-mono {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+/* Gradient Text for Headers */
+.cloudk8s-page .bg-clip-text {
+  -webkit-background-clip: text;
+  background-clip: text;
+}

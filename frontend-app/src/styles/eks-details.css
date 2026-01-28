@@ -1,0 +1,378 @@
+/**
+ * EKS Details Dashboard Styles
+ *
+ * Converted from: eks-details.html inline styles
+ * Professional AWS-inspired design for Kubernetes monitoring
+ */
+
+/* CSS Variables */
+.eks-details-page {
+  --aws-orange: #ff9900;
+  --aws-blue: #232f3e;
+  --aws-light-blue: #1e88e5;
+  --success-green: #16a34a;
+  --warning-amber: #f59e0b;
+  --danger-red: #dc2626;
+  --neutral-50: #f9fafb;
+  --neutral-100: #f3f4f6;
+  --neutral-200: #e5e7eb;
+  --neutral-800: #1f2937;
+  --neutral-900: #111827;
+}
+
+/* Page Background */
+.eks-details-page {
+  background: linear-gradient(135deg, #fdfbf7 0%, #f5f1ea 50%, #ebe7df 100%);
+  min-height: 100vh;
+}
+
+/* Health Badge Styles */
+.health-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+  transition: all 0.2s;
+}
+
+.health-badge.healthy {
+  background: #d1fae5;
+  color: #065f46;
+  border: 1px solid #6ee7b7;
+}
+
+.health-badge.degraded {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+}
+
+.health-badge.at-risk {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fca5a5;
+}
+
+/* Metric Card Styles */
+.eks-details-page .metric-card {
+  background: white;
+  border-radius: 12px;
+  border: 1px solid var(--neutral-200);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.eks-details-page .metric-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--aws-light-blue), var(--aws-orange));
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.eks-details-page .metric-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.08);
+  border-color: var(--aws-light-blue);
+}
+
+.eks-details-page .metric-card:hover::before {
+  opacity: 1;
+}
+
+/* Tab Styling */
+.eks-details-page .tab-container {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 0.5rem;
+  border-bottom: 2px solid #e5e7eb;
+  padding-bottom: 0;
+}
+
+.eks-details-page .tab-button {
+  padding: 0.75rem 1.25rem;
+  font-weight: 600;
+  font-size: 0.8125rem;
+  border-radius: 0.5rem 0.5rem 0 0;
+  transition: all 0.2s ease;
+  border: none;
+  border-bottom: 3px solid transparent;
+  color: #6b7280;
+  background: transparent;
+  position: relative;
+  cursor: pointer;
+  flex: 1 1 auto;
+  min-width: fit-content;
+  text-align: center;
+}
+
+.eks-details-page .tab-button:hover {
+  background: rgba(99, 102, 241, 0.08);
+  color: #6366f1;
+  border-bottom-color: rgba(99, 102, 241, 0.4);
+}
+
+.eks-details-page .tab-button.active {
+  background: linear-gradient(to bottom, #6366f1, #4f46e5);
+  border-bottom: 3px solid #4338ca;
+  color: #ffffff;
+  font-weight: 700;
+  box-shadow: 0 4px 6px -1px rgba(99, 102, 241, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+/* Data Table Styles */
+.eks-details-page .data-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.eks-details-page .data-table thead {
+  background: var(--neutral-50);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.eks-details-page .data-table th {
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--neutral-800);
+  padding: 0.75rem 1rem;
+  text-align: left;
+  border-bottom: 2px solid var(--neutral-200);
+}
+
+.eks-details-page .data-table tbody tr {
+  transition: background 0.2s;
+  border-bottom: 1px solid var(--neutral-100);
+}
+
+.eks-details-page .data-table tbody tr:hover {
+  background: var(--neutral-50);
+}
+
+.eks-details-page .data-table td {
+  padding: 1rem;
+  color: var(--neutral-800);
+}
+
+/* Loading Skeleton */
+.eks-details-page .skeleton {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: eks-loading 1.5s ease-in-out infinite;
+  border-radius: 0.75rem;
+}
+
+@keyframes eks-loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Fade In Animation */
+.eks-details-page .fade-in {
+  animation: eksFadeIn 0.5s ease-out;
+}
+
+@keyframes eksFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Circular Progress for Gauges */
+.eks-details-page .gauge-container {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.eks-details-page .gauge-svg {
+  transform: rotate(-90deg);
+  width: 100%;
+  height: 100%;
+}
+
+.eks-details-page .gauge-bg {
+  fill: none;
+  stroke: #f1f5f9;
+  stroke-width: 10;
+}
+
+.eks-details-page .gauge-progress {
+  fill: none;
+  stroke-width: 10;
+  stroke-linecap: round;
+  transition: stroke-dasharray 1s ease-out;
+  filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.1));
+}
+
+/* Custom Scrollbar */
+.eks-details-page .custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.eks-details-page .custom-scrollbar::-webkit-scrollbar-track {
+  background: var(--neutral-100);
+  border-radius: 4px;
+}
+
+.eks-details-page .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--neutral-200);
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.eks-details-page .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--neutral-800);
+}
+
+/* Alert Count Badge */
+.eks-details-page .alert-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 0.75rem;
+}
+
+.eks-details-page .alert-count-badge.critical {
+  background: var(--danger-red);
+  color: white;
+}
+
+.eks-details-page .alert-count-badge.warning {
+  background: var(--warning-amber);
+  color: white;
+}
+
+.eks-details-page .alert-count-badge.info {
+  background: var(--aws-light-blue);
+  color: white;
+}
+
+/* Health Score Circle */
+.eks-details-page .health-score {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  font-weight: 700;
+  font-size: 1.125rem;
+  position: relative;
+}
+
+.eks-details-page .health-score.excellent {
+  background: linear-gradient(135deg, #d1fae5, #a7f3d0);
+  color: #065f46;
+  box-shadow: 0 0 0 3px #6ee7b7;
+}
+
+.eks-details-page .health-score.good {
+  background: linear-gradient(135deg, #dbeafe, #bfdbfe);
+  color: #1e3a8a;
+  box-shadow: 0 0 0 3px #93c5fd;
+}
+
+.eks-details-page .health-score.poor {
+  background: linear-gradient(135deg, #fee2e2, #fecaca);
+  color: #991b1b;
+  box-shadow: 0 0 0 3px #fca5a5;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+  .eks-details-page .tab-container {
+    flex-direction: column;
+  }
+
+  .eks-details-page .tab-button {
+    width: 100%;
+  }
+
+  .eks-details-page .gauge-container {
+    width: 80px;
+    height: 80px;
+  }
+}
+
+/* Shimmer Effect for Progress Bars */
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* Pulse Animation */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* Node Block Visualization */
+.eks-details-page .node-block {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  transition: all 0.3s;
+  cursor: pointer;
+  position: relative;
+}
+
+.eks-details-page .node-block:hover {
+  transform: scale(1.2);
+  z-index: 10;
+}
+
+.eks-details-page .node-block.underutilized {
+  background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+  border: 1px solid #93c5fd;
+}
+
+.eks-details-page .node-block.balanced {
+  background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+  border: 1px solid #6ee7b7;
+}
+
+.eks-details-page .node-block.saturated {
+  background: linear-gradient(135deg, #fecaca 0%, #fca5a5 100%);
+  border: 1px solid #f87171;
+}

@@ -3,10 +3,16 @@ package com.xammer.cloud.config;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.filter.ForwardedHeaderFilter;
+import org.springframework.web.servlet.config.annotation.AsyncSupportConfigurer;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
+
+    @Override
+    public void configureAsyncSupport(AsyncSupportConfigurer configurer) {
+        configurer.setDefaultTimeout(300_000); // 5 minutes in milliseconds
+    }
 
     // Removed view controller - frontend is served by Vite dev server on port 5173
     // Backend on port 8080 only handles API requests and authentication
