@@ -7,6 +7,7 @@ import javax.persistence.GenerationType;
 import javax.persistence.Id;
 import javax.persistence.Lob;
 import javax.persistence.Column;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 @Entity // <-- Add back
 public class DevOpsScript {
@@ -28,7 +29,8 @@ public class DevOpsScript {
 
     @Lob // <-- Add back
     @Column(columnDefinition = "TEXT") // <-- Add back
-    private String usageInstructions; // Mapped to 'usage' in frontend
+    @JsonProperty("usage") // Map to 'usage' field in JSON for frontend compatibility
+    private String usageInstructions;
 
     // Constructors
     public DevOpsScript() {}

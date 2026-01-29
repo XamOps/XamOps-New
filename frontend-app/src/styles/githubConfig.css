@@ -1,0 +1,339 @@
+/**
+ * GitHub Config Page Styles
+ *
+ * Professional styling for the GitHub configuration page
+ * Converted and enhanced from: add-github-config.html
+ */
+
+/* ============================================
+   CSS Variables
+   ============================================ */
+:root {
+  --github-dark: #1F2937;
+  --github-darker: #111827;
+  --github-accent: #238636;
+  --github-gradient: linear-gradient(135deg, #24292e 0%, #1a1e22 100%);
+}
+
+/* ============================================
+   Page Layout
+   ============================================ */
+.github-config-page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+}
+
+.github-config-content {
+  flex: 1;
+  padding: 2rem;
+  max-width: 900px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.github-config-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* ============================================
+   Header
+   ============================================ */
+.github-config-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 2rem;
+  background: var(--aa-glass-bg);
+  border-bottom: 1px solid #e5e7eb;
+  backdrop-filter: blur(12px);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.github-config-header .header-icon.github {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--aa-shadow-md);
+  background: var(--github-gradient);
+}
+
+.github-config-header .header-icon.github i {
+  color: white;
+  font-size: 1.5rem;
+}
+
+/* ============================================
+   Info Card
+   ============================================ */
+.github-info-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1.25rem 1.5rem;
+  background: linear-gradient(135deg, rgba(35, 134, 54, 0.05) 0%, rgba(35, 134, 54, 0.02) 100%);
+  border: 1px solid rgba(35, 134, 54, 0.2);
+  border-radius: 1rem;
+}
+
+.github-info-card .info-icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.75rem;
+  background: linear-gradient(135deg, #238636 0%, #2ea043 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.github-info-card .info-icon i {
+  color: white;
+  font-size: 1rem;
+}
+
+.github-info-card .info-content h3 {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #166534;
+  margin-bottom: 0.25rem;
+}
+
+.github-info-card .info-content p {
+  font-size: 0.8125rem;
+  color: #15803d;
+  line-height: 1.5;
+}
+
+/* ============================================
+   Form Card Enhancements
+   ============================================ */
+.github-form-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.github-form-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--github-gradient);
+}
+
+.github-header-icon {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 0.75rem;
+  background: var(--github-gradient);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--aa-shadow-md);
+}
+
+.github-header-icon i {
+  color: white;
+  font-size: 1.25rem;
+}
+
+/* ============================================
+   Inline Code Style
+   ============================================ */
+.inline-code {
+  display: inline;
+  padding: 0.125rem 0.375rem;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.25rem;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.75rem;
+  color: #374151;
+}
+
+/* ============================================
+   Token Help Section
+   ============================================ */
+.token-help-section {
+  margin-top: 1.5rem;
+  padding: 1.25rem;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border: 1px solid #e5e7eb;
+  border-radius: 0.75rem;
+}
+
+.token-help-section h4 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 0.75rem;
+}
+
+.token-help-section h4 i {
+  color: #6366f1;
+}
+
+.token-help-section ol {
+  margin: 0;
+  padding-left: 1.25rem;
+  counter-reset: step-counter;
+  list-style: none;
+}
+
+.token-help-section ol li {
+  position: relative;
+  padding-left: 0.5rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.8125rem;
+  color: #6b7280;
+  line-height: 1.6;
+  counter-increment: step-counter;
+}
+
+.token-help-section ol li::before {
+  content: counter(step-counter);
+  position: absolute;
+  left: -1.25rem;
+  width: 1.25rem;
+  height: 1.25rem;
+  background: #e5e7eb;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #374151;
+}
+
+.token-help-section ol li:last-child {
+  margin-bottom: 0;
+}
+
+/* ============================================
+   Features Card
+   ============================================ */
+.github-features-card {
+  padding: 1.5rem;
+  background: var(--aa-glass-bg);
+  border: 1px solid rgba(229, 231, 235, 0.8);
+  border-radius: 1rem;
+  box-shadow: var(--aa-shadow-sm);
+}
+
+.github-features-card h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #111827;
+  margin-bottom: 1rem;
+}
+
+.github-features-card ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+}
+
+.github-features-card ul li {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  font-size: 0.8125rem;
+  color: #374151;
+}
+
+.github-features-card ul li i {
+  color: #238636;
+  font-size: 0.875rem;
+  flex-shrink: 0;
+}
+
+/* ============================================
+   Button Styles
+   ============================================ */
+.btn-primary.github {
+  background: var(--github-gradient);
+  box-shadow: 0 4px 6px -1px rgba(31, 41, 55, 0.3);
+}
+
+.btn-primary.github:hover:not(:disabled) {
+  box-shadow: 0 10px 15px -3px rgba(31, 41, 55, 0.4);
+}
+
+.btn-primary.github i {
+  font-size: 1rem;
+}
+
+/* ============================================
+   Responsive Adjustments
+   ============================================ */
+@media (max-width: 768px) {
+  .github-config-header {
+    flex-direction: column;
+    gap: 1rem;
+    align-items: flex-start;
+  }
+
+  .github-config-content {
+    padding: 1rem;
+  }
+
+  .github-info-card {
+    flex-direction: column;
+    text-align: center;
+    align-items: center;
+  }
+
+  .github-features-card ul {
+    grid-template-columns: 1fr;
+  }
+
+  .token-help-section {
+    padding: 1rem;
+  }
+
+  .form-actions {
+    flex-direction: column-reverse;
+    gap: 0.75rem;
+  }
+
+  .form-actions .btn-secondary,
+  .form-actions .btn-primary {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .github-config-header .header-left {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .github-config-header .header-icon.github {
+    width: 2.5rem;
+    height: 2.5rem;
+  }
+
+  .github-config-header .header-icon.github i {
+    font-size: 1.25rem;
+  }
+}

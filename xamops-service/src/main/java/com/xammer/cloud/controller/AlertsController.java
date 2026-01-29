@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 @RequestMapping("/cloudguard")
 public class AlertsController {
 
-    @GetMapping("/alerts")
+    @GetMapping({ "/alerts", "/alerts.html" })
     public String alertsPage() {
         return "alerts";
     }

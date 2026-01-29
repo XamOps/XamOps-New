@@ -48,22 +48,29 @@ export const useWebSocket = ({
       return;
     }
 
+    const isMounted = { current: true };
+
     try {
       console.log('🔌 Connecting to WebSocket for account:', accountId);
 
-      // Create SockJS connection
-      const socket = new window.SockJS('/ws');
+      // Create SockJS connection - using the new path
+      const socket = new window.SockJS('/xamops-ws');
       const client = window.Stomp.over(socket);
 
       // Disable debug logging in production
       if (process.env.NODE_ENV === 'production') {
-        client.debug = () => {};
+        client.debug = () => { };
       }
 
       // Connect to STOMP broker
       client.connect(
         {},
         () => {
+          if (!isMounted.current) {
+            client.disconnect(() => { });
+            return;
+          }
+
           console.log('✅ WebSocket connected');
           stompClientRef.current = client;
 
@@ -87,19 +94,27 @@ export const useWebSocket = ({
           subscriptionRef.current = subscription;
         },
         (error: any) => {
+          if (!isMounted.current) return;
+
           console.error('❌ WebSocket connection error:', error);
           stompClientRef.current = null;
 
           // Attempt reconnection after 5 seconds
           reconnectTimeoutRef.current = setTimeout(() => {
-            console.log('🔄 Attempting to reconnect WebSocket...');
-            connect();
+            if (isMounted.current) {
+              console.log('🔄 Attempting to reconnect WebSocket...');
+              connect();
+            }
           }, 5000);
         }
       );
     } catch (err) {
       console.error('❌ Failed to initialize WebSocket:', err);
     }
+
+    return () => {
+      isMounted.current = false;
+    };
   }, [accountId, enabled, onInventoryUpdate]);
 
   /**

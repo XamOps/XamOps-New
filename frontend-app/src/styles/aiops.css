@@ -1,0 +1,213 @@
+/**
+ * AIOps Page Styles
+ *
+ * Custom styles for the AIOps "Coming Soon" page
+ * with animations, gradients, and modern UI effects.
+ */
+
+/* Page Container */
+.aiops-page {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+}
+
+/* Header */
+.aiops-header {
+  backdrop-filter: blur(10px);
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.aiops-icon-container {
+  box-shadow: 0 10px 25px -5px rgba(99, 102, 241, 0.4);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.aiops-icon-container:hover {
+  transform: scale(1.05);
+  box-shadow: 0 15px 30px -5px rgba(99, 102, 241, 0.5);
+}
+
+/* Hero Section */
+.aiops-hero {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(249, 250, 251, 0.9) 100%);
+  border: 1px solid rgba(99, 102, 241, 0.1);
+}
+
+/* Float Animation */
+.aiops-float-animation {
+  animation: aiops-float 6s ease-in-out infinite;
+  box-shadow:
+    0 25px 50px -12px rgba(99, 102, 241, 0.35),
+    0 0 60px rgba(139, 92, 246, 0.2);
+}
+
+@keyframes aiops-float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-15px);
+  }
+}
+
+/* Feature Cards */
+.aiops-feature-card {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.aiops-feature-card:hover {
+  transform: translateY(-4px) translateX(4px);
+  box-shadow:
+    0 20px 25px -5px rgba(0, 0, 0, 0.1),
+    0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+.aiops-feature-card:hover .flex-shrink-0 {
+  transform: scale(1.1);
+  transition: transform 0.3s ease;
+}
+
+/* Capability Cards */
+.aiops-capability-card {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid transparent;
+}
+
+.aiops-capability-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(99, 102, 241, 0.2);
+  box-shadow: 0 10px 20px -5px rgba(99, 102, 241, 0.15);
+}
+
+.aiops-capability-card:hover > div:first-child {
+  background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+  box-shadow: 0 8px 15px -3px rgba(99, 102, 241, 0.4);
+}
+
+.aiops-capability-card:hover > div:first-child i {
+  color: white;
+}
+
+/* Gradient Text Animation */
+.aiops-gradient-text {
+  background: linear-gradient(135deg, #6366f1 0%, #a855f7 50%, #ec4899 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: aiops-gradient-shift 3s ease infinite;
+}
+
+@keyframes aiops-gradient-shift {
+  0%, 100% {
+    background-position: 0% center;
+  }
+  50% {
+    background-position: 100% center;
+  }
+}
+
+/* Launch Badge */
+.aiops-page .inline-flex[class*="from-indigo-500"] {
+  position: relative;
+  overflow: hidden;
+}
+
+.aiops-page .inline-flex[class*="from-indigo-500"]::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.2),
+    transparent
+  );
+  animation: aiops-shine 3s infinite;
+}
+
+@keyframes aiops-shine {
+  0% {
+    left: -100%;
+  }
+  50%, 100% {
+    left: 100%;
+  }
+}
+
+/* Pulse Ring Animation Enhancement */
+.aiops-page .animate-ping {
+  animation: aiops-pulse 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+@keyframes aiops-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.3;
+  }
+  75%, 100% {
+    transform: scale(1.3);
+    opacity: 0;
+  }
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+  .aiops-header {
+    padding: 1rem;
+  }
+
+  .aiops-header h1 {
+    font-size: 1.5rem;
+  }
+
+  .aiops-hero {
+    padding: 2rem 1rem;
+  }
+
+  .aiops-float-animation {
+    width: 5rem;
+    height: 5rem;
+  }
+
+  .aiops-float-animation i {
+    font-size: 2rem;
+  }
+
+  .aiops-feature-card {
+    padding: 1rem;
+  }
+
+  .aiops-feature-card .flex-shrink-0 {
+    width: 3rem;
+    height: 3rem;
+  }
+
+  .aiops-feature-card .flex-shrink-0 i {
+    font-size: 1.25rem;
+  }
+}
+
+/* Dark Mode Support (future) */
+@media (prefers-color-scheme: dark) {
+  /* Placeholder for dark mode styles when implemented */
+}
+
+/* Print Styles */
+@media print {
+  .aiops-page {
+    background: white;
+  }
+
+  .aiops-float-animation {
+    animation: none;
+  }
+
+  .aiops-feature-card:hover {
+    transform: none;
+    box-shadow: none;
+  }
+}

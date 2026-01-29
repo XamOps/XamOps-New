@@ -1,0 +1,435 @@
+/**
+ * BillOps Ticket Detail Page Styles
+ *
+ * Professional, modern stylesheet for the ticket detail page
+ * Includes styles for:
+ * - Chat-style message bubbles
+ * - Quill editor customization
+ * - RCA modal
+ * - Attachment previews
+ * - Responsive design
+ *
+ * Converted from: billops/ticket_detail.html
+ */
+
+.billops-ticket-detail-page {
+  @apply w-full h-full bg-gray-50;
+}
+
+/* Custom Scrollbar for Modal */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #c7c7cc;
+  border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #a1a1aa;
+}
+
+/* Quill Editor Overrides */
+.billops-ticket-detail-page .ql-editor {
+  min-height: 120px;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+.billops-ticket-detail-page .ql-toolbar {
+  border-radius: 0.5rem 0.5rem 0 0;
+  border-color: #e5e7eb !important;
+  background-color: #f9fafb;
+}
+
+.billops-ticket-detail-page .ql-container {
+  border-radius: 0 0 0.5rem 0.5rem;
+  border-color: #e5e7eb !important;
+  font-size: 1rem;
+}
+
+.billops-ticket-detail-page .ql-editor ul {
+  list-style-type: disc !important;
+  padding-left: 1.5em !important;
+}
+
+.billops-ticket-detail-page .ql-editor ol {
+  list-style-type: decimal !important;
+  padding-left: 1.5em !important;
+}
+
+.billops-ticket-detail-page .ql-editor p {
+  margin-bottom: 0.5em;
+}
+
+.billops-ticket-detail-page .ql-editor p:last-child {
+  margin-bottom: 0;
+}
+
+/* Chat Bubble Content Styling */
+.prose-chat {
+  max-width: none;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.prose-chat p {
+  margin-bottom: 0.5em;
+}
+
+.prose-chat p:last-child {
+  margin-bottom: 0;
+}
+
+.prose-chat ul,
+.prose-chat ol {
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+  padding-left: 1.5em;
+}
+
+.prose-chat ul {
+  list-style-type: disc;
+}
+
+.prose-chat ol {
+  list-style-type: decimal;
+}
+
+.prose-chat li {
+  margin-bottom: 0.25em;
+}
+
+.prose-chat strong {
+  font-weight: 600;
+}
+
+.prose-chat em {
+  font-style: italic;
+}
+
+.prose-chat code {
+  background-color: rgba(0, 0, 0, 0.05);
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.25rem;
+  font-size: 0.875em;
+  font-family: 'Courier New', monospace;
+}
+
+.prose-chat blockquote {
+  border-left: 3px solid rgba(0, 0, 0, 0.1);
+  padding-left: 1em;
+  margin-left: 0;
+  font-style: italic;
+  color: rgba(0, 0, 0, 0.7);
+}
+
+/* Inverse prose for user bubbles (white text on colored background) */
+.prose-chat-inverse {
+  color: white;
+}
+
+.prose-chat-inverse a {
+  color: #bfdbfe;
+  text-decoration: underline;
+}
+
+.prose-chat-inverse a:hover {
+  color: #dbeafe;
+}
+
+.prose-chat-inverse strong {
+  color: white;
+  font-weight: 700;
+}
+
+.prose-chat-inverse em {
+  color: white;
+}
+
+.prose-chat-inverse code {
+  color: #1e40af;
+  background-color: #dbeafe;
+  border-radius: 0.25rem;
+  padding: 0.125rem 0.25rem;
+}
+
+.prose-chat-inverse blockquote {
+  border-left-color: rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.prose-chat-inverse ul,
+.prose-chat-inverse ol {
+  color: white;
+}
+
+/* Message Bubble Animations */
+.billops-ticket-detail-page .message-bubble-enter {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.billops-ticket-detail-page .message-bubble-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 300ms, transform 300ms;
+}
+
+/* Attachment Preview Styles */
+.attachment-preview {
+  @apply rounded-lg overflow-hidden border border-gray-200 shadow-sm bg-gray-50;
+  max-width: 300px;
+}
+
+.attachment-preview:hover {
+  @apply opacity-90;
+}
+
+/* RCA Form Styles */
+.rca-section-field {
+  @apply bg-gray-50 p-4 rounded-lg border border-gray-200 relative;
+}
+
+.rca-section-field:hover {
+  @apply border-gray-300;
+}
+
+.rca-section-remove {
+  @apply absolute top-2 right-2 text-gray-400 hover:text-red-500 transition-colors;
+}
+
+/* Status Badge Animations */
+@keyframes pulse-status {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.status-badge-pulse {
+  animation: pulse-status 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Loading Spinner */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.fa-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Smooth Scrolling */
+.scroll-smooth {
+  scroll-behavior: smooth;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .billops-ticket-detail-page header {
+    @apply px-4 py-3;
+  }
+
+  .billops-ticket-detail-page header h1 {
+    @apply text-lg;
+  }
+
+  .billops-ticket-detail-page .message-bubble {
+    max-width: 90%;
+  }
+
+  .billops-ticket-detail-page footer {
+    @apply px-4 py-4;
+  }
+}
+
+/* Print Styles */
+@media print {
+  .billops-ticket-detail-page header button,
+  .billops-ticket-detail-page footer {
+    display: none;
+  }
+
+  .billops-ticket-detail-page {
+    background: white;
+  }
+}
+
+/* Focus Styles for Accessibility */
+.billops-ticket-detail-page button:focus-visible,
+.billops-ticket-detail-page input:focus-visible,
+.billops-ticket-detail-page textarea:focus-visible {
+  @apply outline-none ring-2 ring-indigo-500 ring-offset-2;
+}
+
+/* Improved Button Hover States */
+.billops-ticket-detail-page button:not(:disabled):hover {
+  @apply transform scale-[1.02] transition-transform;
+}
+
+.billops-ticket-detail-page button:disabled {
+  @apply cursor-not-allowed opacity-50;
+}
+
+/* Attachment Icon Colors */
+.attachment-icon-image {
+  @apply text-blue-600;
+}
+
+.attachment-icon-pdf {
+  @apply text-red-600;
+}
+
+.attachment-icon-default {
+  @apply text-gray-600;
+}
+
+/* RCA Badge Special Styling */
+.rca-badge {
+  @apply bg-purple-50 border-2 border-purple-200 text-purple-700;
+}
+
+.rca-badge:hover {
+  @apply border-purple-300 bg-purple-100;
+}
+
+/* Empty State Styling */
+.empty-state {
+  @apply text-center py-12;
+}
+
+.empty-state-icon {
+  @apply text-gray-300 text-6xl mb-4;
+}
+
+.empty-state-title {
+  @apply text-lg font-medium text-gray-900;
+}
+
+.empty-state-description {
+  @apply text-sm text-gray-500 mt-2;
+}
+
+/* Ticket Header Info Bar */
+.ticket-info-bar {
+  @apply flex items-center gap-2 text-xs text-gray-500;
+}
+
+.ticket-info-bar > span:not(:last-child)::after {
+  content: '•';
+  margin-left: 0.5rem;
+}
+
+/* Custom Checkbox Styles for RCA Form */
+.custom-checkbox {
+  @apply w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 rounded focus:ring-purple-500;
+}
+
+/* Fade-in Animation */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease-in;
+}
+
+/* Modal Overlay */
+.modal-overlay {
+  @apply fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity;
+  animation: fadeIn 0.2s ease-in;
+}
+
+/* Modal Content */
+.modal-content {
+  animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Hover Effects for Interactive Elements */
+.interactive-hover {
+  @apply transition-all duration-200;
+}
+
+.interactive-hover:hover {
+  @apply shadow-md transform -translate-y-0.5;
+}
+
+/* Badge Glow Effect */
+.badge-glow {
+  @apply shadow-sm;
+  box-shadow: 0 0 10px rgba(99, 102, 241, 0.3);
+}
+
+/* Text Truncation Helper */
+.truncate-2-lines {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Gradient Background for Headers */
+.gradient-header {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+/* Success/Error Toast Animations */
+@keyframes toast-slide-in {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.toast-notification {
+  animation: toast-slide-in 0.3s ease-out;
+}
+
+/* Skeleton Loading for Lazy-loaded Content */
+@keyframes skeleton-loading {
+  0% {
+    background-position: -200px 0;
+  }
+  100% {
+    background-position: calc(200px + 100%) 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #f0f0f0 0px, #f8f8f8 40px, #f0f0f0 80px);
+  background-size: 200px 100%;
+  animation: skeleton-loading 1.5s infinite;
+}

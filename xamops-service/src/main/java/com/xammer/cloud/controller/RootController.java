@@ -12,7 +12,10 @@ import org.springframework.web.bind.annotation.GetMapping;
 @Controller
 public class RootController {
 
-    @GetMapping({ "/", "/login" })
+    @GetMapping({ "/", "/login", "/unified-dashboard", "/dashboard", "/finops", "/cost", "/waste", "/rightsizing",
+            "/reservation", "/cloudsitter", "/cloudlist", "/account-manager", "/security", "/performance", "/alerts",
+            "/tickets", "/ticket-detail", "/cloudshell", "/add-account", "/devops-in-the-box", "/cicd-pipelines",
+            "/grafana-dashboard", "/cloudk8s", "/eks-details" })
     public String redirectToFrontend() {
         // Redirect to Vite dev server during development
         return "redirect:http://localhost:5173/";

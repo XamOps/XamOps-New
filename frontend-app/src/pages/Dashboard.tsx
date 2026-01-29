@@ -81,12 +81,12 @@ export const Dashboard: React.FC = () => {
   const [lastUpdateTime, setLastUpdateTime] = useState<string>('Connected');
 
   // WebSocket for real-time inventory updates (single account only)
-  const handleInventoryUpdate = (inventory: ResourceInventory) => {
+  const handleInventoryUpdate = React.useCallback((inventory: ResourceInventory) => {
     console.log('📦 Real-time inventory update received:', inventory);
     setLastUpdateTime(new Date().toLocaleTimeString());
     // Update dashboard data with new inventory
     // This will trigger a re-render of the InventorySection
-  };
+  }, []);
 
   useWebSocket({
     accountId: selectedAccountIds.length === 1 ? selectedAccountIds[0] : null,
