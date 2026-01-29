@@ -1,0 +1,236 @@
+/**
+ * CICD Pipelines Page Styles
+ *
+ * Converted from: cicd_pipelines.html
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+/* Container */
+.cicd-pipelines-container {
+  font-family: 'Inter', sans-serif;
+}
+
+/* Status Text Colors */
+.status-success {
+  color: #16a34a;
+}
+
+.status-failure {
+  color: #dc2626;
+}
+
+.status-running {
+  color: #2563eb;
+}
+
+.status-cancelled {
+  color: #6b7280;
+}
+
+.status-unknown {
+  color: #f59e0b;
+}
+
+/* Card Borders */
+.border-success {
+  border-left-color: #16a34a;
+}
+
+.border-failure {
+  border-left-color: #dc2626;
+}
+
+.border-running {
+  border-left-color: #2563eb;
+}
+
+.border-cancelled {
+  border-left-color: #6b7280;
+}
+
+.border-unknown {
+  border-left-color: #f59e0b;
+}
+
+/* Tabs */
+.tab-button {
+  padding: 0.75rem 1.5rem;
+  border-bottom: 3px solid transparent;
+  transition: all 0.2s ease-in-out;
+  font-weight: 600;
+  color: #4b5563;
+  background: transparent;
+  border-left: none;
+  border-right: none;
+  border-top: none;
+  cursor: pointer;
+}
+
+.tab-button:hover {
+  color: #1f2937;
+}
+
+.tab-button.active {
+  color: #4f46e5;
+  border-bottom-color: #4f46e5;
+}
+
+/* History List */
+.history-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #e5e7eb;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.history-item:last-child {
+  border-bottom: none;
+}
+
+.history-item:hover {
+  background-color: #f9fafb;
+}
+
+.history-item.active-run {
+  background-color: #eff6ff;
+  border-left: 3px solid #3b82f6;
+}
+
+/* === Pipeline Visual Styles === */
+.pipeline-container {
+  display: flex;
+  align-items: center;
+  overflow-x: auto;
+  padding: 20px 10px;
+  margin-bottom: 20px;
+  scrollbar-width: thin;
+}
+
+.pipeline-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  min-width: 120px;
+  z-index: 1;
+  flex-shrink: 0;
+}
+
+.stage-node {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 3px solid #e5e7eb;
+  background: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+  font-size: 14px;
+  z-index: 10;
+}
+
+/* Connector Lines */
+.pipeline-stage:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  width: 100%;
+  height: 3px;
+  background: #e5e7eb;
+  z-index: 0;
+}
+
+.pipeline-stage.completed:not(:last-child)::after {
+  background: #16a34a;
+}
+
+/* Node States */
+.stage-success .stage-node {
+  border-color: #16a34a;
+  background: #16a34a;
+  color: white;
+  box-shadow: 0 2px 4px rgba(22, 163, 74, 0.2);
+}
+
+.stage-failure .stage-node {
+  border-color: #dc2626;
+  background: #dc2626;
+  color: white;
+  box-shadow: 0 2px 4px rgba(220, 38, 38, 0.2);
+}
+
+.stage-running .stage-node {
+  border-color: #2563eb;
+  border-top-color: transparent;
+  color: #2563eb;
+  animation: spin 1s linear infinite;
+}
+
+.stage-skipped .stage-node {
+  border-color: #9ca3af;
+  background: #f3f4f6;
+  color: #9ca3af;
+}
+
+.stage-pending .stage-node {
+  border-color: #d1d5db;
+  border-style: dashed;
+  background: #ffffff;
+  color: #d1d5db;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .pipeline-container {
+    padding: 15px 5px;
+  }
+
+  .pipeline-stage {
+    min-width: 100px;
+  }
+
+  .stage-node {
+    width: 28px;
+    height: 28px;
+    font-size: 12px;
+  }
+
+  .pipeline-stage:not(:last-child)::after {
+    top: 14px;
+  }
+}
+
+/* Custom scrollbar for pipeline container */
+.pipeline-container::-webkit-scrollbar {
+  height: 6px;
+}
+
+.pipeline-container::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.pipeline-container::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 3px;
+}
+
+.pipeline-container::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}

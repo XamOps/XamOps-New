@@ -177,7 +177,7 @@ const CloudListPage: React.FC = () => {
     console.log('📡 [CloudList] Opening Web Socket...');
     isConnectingRef.current = true;
 
-    const socket = new SockJS('/ws') as any;
+    const socket = new SockJS('/xamops-ws') as any;
     const client = Stomp.over(socket);
 
     // Disable logging to reduce console clutter

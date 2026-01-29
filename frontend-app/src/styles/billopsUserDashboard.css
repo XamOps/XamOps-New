@@ -1,0 +1,433 @@
+/**
+ * BillOps User Dashboard Styles
+ *
+ * Converted from: billops/dashboard_user.html inline styles
+ * Enhanced for a more professional, smooth UI
+ */
+
+/* Page Container */
+.billops-user-dashboard {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ef 100%);
+  color: #1f2937;
+}
+
+/* Glass Card Effect */
+.billops-glass-card {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.billops-glass-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  transition: left 0.5s;
+}
+
+.billops-glass-card:hover::before {
+  left: 100%;
+}
+
+.billops-glass-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08);
+  border-color: rgba(99, 102, 241, 0.2);
+}
+
+/* Metric Cards */
+.billops-metric-card {
+  position: relative;
+  z-index: 1;
+}
+
+.billops-metric-value {
+  font-weight: 800;
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Border Colors */
+.billops-border-indigo {
+  border-left: 4px solid #6366f1;
+}
+
+.billops-border-purple {
+  border-left: 4px solid #a855f7;
+}
+
+.billops-border-blue {
+  border-left: 4px solid #3b82f6;
+}
+
+.billops-border-orange {
+  border-left: 4px solid #f97316;
+}
+
+.billops-border-cyan {
+  border-left: 4px solid #06b6d4;
+}
+
+.billops-border-top-indigo {
+  border-top: 4px solid #6366f1;
+}
+
+.billops-border-top-purple {
+  border-top: 4px solid #a855f7;
+}
+
+/* Shimmer Loading Animation */
+.billops-shimmer {
+  background: #f6f7f8;
+  background-image: linear-gradient(to right, #f6f7f8 0%, #edeef1 20%, #f6f7f8 40%, #f6f7f8 100%);
+  background-repeat: no-repeat;
+  background-size: 800px 100%;
+  animation: billopsShimmer 1.5s linear infinite forwards;
+}
+
+@keyframes billopsShimmer {
+  0% {
+    background-position: -468px 0;
+  }
+  100% {
+    background-position: 468px 0;
+  }
+}
+
+/* Fade In Animation */
+.billops-fade-in {
+  animation: billopsFadeIn 0.5s ease-out forwards;
+}
+
+@keyframes billopsFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Provider Colors */
+.billops-provider-aws {
+  color: #FF9900;
+}
+
+.billops-provider-gcp {
+  color: #34A853;
+}
+
+.billops-provider-azure {
+  color: #0078D4;
+}
+
+/* Header Styles */
+.billops-header {
+  background: linear-gradient(to right, #ffffff, #f9fafb, #ffffff);
+  border-bottom: 1px solid #e5e7eb;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+  backdrop-filter: blur(8px);
+}
+
+.billops-header-icon {
+  background: linear-gradient(135deg, #6366f1 0%, #a855f7 50%, #6366f1 100%);
+  box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
+}
+
+.billops-header-icon:hover {
+  transform: scale(1.05);
+}
+
+/* Refresh Button */
+.billops-refresh-btn {
+  background: linear-gradient(135deg, #6366f1, #a855f7);
+  transition: all 0.2s ease;
+}
+
+.billops-refresh-btn:hover {
+  background: linear-gradient(135deg, #4f46e5, #9333ea);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+}
+
+.billops-refresh-btn:active {
+  transform: scale(0.95);
+}
+
+/* Icon Backgrounds */
+.billops-icon-indigo {
+  background: linear-gradient(135deg, #eef2ff 0%, #e9d5ff 100%);
+}
+
+.billops-icon-purple {
+  background: linear-gradient(135deg, #faf5ff 0%, #fce7f3 100%);
+}
+
+.billops-icon-blue {
+  background: linear-gradient(135deg, #eff6ff 0%, #ecfeff 100%);
+}
+
+.billops-icon-orange {
+  background: linear-gradient(135deg, #fff7ed 0%, #fef3c7 100%);
+}
+
+.billops-icon-cyan {
+  background: linear-gradient(135deg, #ecfeff 0%, #cffafe 100%);
+}
+
+/* Account Card */
+.billops-account-card {
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid #f3f4f6;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.billops-account-card:hover {
+  background: #ffffff;
+  transform: translateY(-4px);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+}
+
+/* Status Badges */
+.billops-status-active {
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+}
+
+.billops-status-pending {
+  background: #fef9c3;
+  color: #a16207;
+  border: 1px solid #fde047;
+}
+
+.billops-status-inactive {
+  background: #fee2e2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+/* Invoice/Ticket Status */
+.billops-status-draft {
+  background: #fef9c3;
+  color: #a16207;
+}
+
+.billops-status-finalized {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.billops-status-paid {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.billops-status-overdue {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.billops-status-open {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.billops-status-in-progress {
+  background: #fef9c3;
+  color: #a16207;
+}
+
+.billops-status-closed {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+/* Severity Colors */
+.billops-severity-low {
+  color: #3b82f6;
+}
+
+.billops-severity-medium {
+  color: #ca8a04;
+}
+
+.billops-severity-high,
+.billops-severity-critical {
+  color: #ef4444;
+}
+
+/* List Items */
+.billops-list-item {
+  background: rgba(249, 250, 251, 0.8);
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+}
+
+.billops-list-item:hover {
+  background: #ffffff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  border-color: #f3f4f6;
+}
+
+/* Progress Bar */
+.billops-progress-track {
+  background: #f3f4f6;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.billops-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #6366f1, #a855f7);
+  border-radius: 3px;
+  transition: width 0.5s ease;
+}
+
+/* Custom Scrollbar */
+.billops-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.billops-scrollbar::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+.billops-scrollbar::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+.billops-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Chart Container */
+.billops-chart-container {
+  position: relative;
+  width: 100%;
+  height: 300px;
+}
+
+/* Error Alert */
+.billops-error-alert {
+  background: #fef2f2;
+  border-left: 4px solid #ef4444;
+  animation: billopsSlideIn 0.3s ease-out;
+}
+
+@keyframes billopsSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Empty State */
+.billops-empty-state {
+  background: rgba(249, 250, 251, 0.5);
+  border: 2px dashed #e5e7eb;
+}
+
+/* Live Indicator */
+.billops-live-indicator {
+  animation: billopsLivePulse 2s infinite;
+}
+
+@keyframes billopsLivePulse {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+  }
+  50% {
+    opacity: 0.8;
+    box-shadow: 0 0 0 4px rgba(34, 197, 94, 0);
+  }
+}
+
+/* Provider Icon Stack */
+.billops-provider-stack {
+  display: flex;
+  margin-left: -8px;
+}
+
+.billops-provider-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  margin-left: -8px;
+}
+
+.billops-provider-icon:first-child {
+  margin-left: 0;
+  z-index: 30;
+}
+
+.billops-provider-icon:nth-child(2) {
+  z-index: 20;
+}
+
+.billops-provider-icon:nth-child(3) {
+  z-index: 10;
+}
+
+/* Trend Indicator */
+.billops-trend-up {
+  color: #ef4444;
+}
+
+.billops-trend-down {
+  color: #22c55e;
+}
+
+/* Responsive Grid */
+@media (max-width: 1024px) {
+  .billops-chart-container {
+    height: 250px;
+  }
+}
+
+@media (max-width: 768px) {
+  .billops-header {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+}
+
+/* Spin Animation for Refresh */
+.billops-spin {
+  animation: billopsSpin 1s linear infinite;
+}
+
+@keyframes billopsSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}

@@ -1,0 +1,291 @@
+/**
+ * Credits Management Styles
+ *
+ * Converted from: billops/credits.html
+ *
+ * Professional, modern styles for credits management page with:
+ * - Smooth animations
+ * - Gradient effects
+ * - Responsive design
+ * - Custom scrollbar
+ */
+
+/* Page Container */
+.credits-page {
+  background: linear-gradient(135deg, #f5f7fa 0%, #e9ecef 100%);
+}
+
+/* Header */
+.credits-header {
+  background: linear-gradient(to right, #ffffff 0%, #f8f9fa 100%);
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+}
+
+/* Custom Scrollbar */
+.credits-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.credits-scrollbar::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 10px;
+}
+
+.credits-scrollbar::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #667eea 0%, #764ba2 100%);
+  border-radius: 10px;
+}
+
+.credits-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #5568d3 0%, #653a8e 100%);
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.5s ease-in-out;
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.3s ease-out;
+}
+
+.animate-slide-in-right {
+  animation: slideInRight 0.4s ease-out;
+}
+
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Card Hover Effects */
+.credits-page .bg-white {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.credits-page .bg-white:hover {
+  transform: translateY(-2px);
+}
+
+/* Button Hover Effects */
+.credits-page button {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.credits-page button:active {
+  transform: scale(0.98);
+}
+
+/* Form Input Focus Effects */
+.credits-page input:focus,
+.credits-page textarea:focus,
+.credits-page select:focus {
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+/* Progress Step Animations */
+.credits-page .animate-pulse-slow {
+  animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Status Badge Pulse for Active States */
+.credits-page .bg-yellow-100 {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+/* Modal Backdrop */
+.credits-page .fixed.inset-0.bg-black {
+  backdrop-filter: blur(4px);
+  animation: fadeIn 0.2s ease-out;
+}
+
+/* Gradient Text */
+.credits-gradient-text {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Custom Shadow for Cards */
+.credits-card-shadow {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1),
+    0 2px 4px -1px rgba(0, 0, 0, 0.06),
+    0 0 0 1px rgba(0, 0, 0, 0.05);
+}
+
+.credits-card-shadow:hover {
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1),
+    0 10px 10px -5px rgba(0, 0, 0, 0.04),
+    0 0 0 1px rgba(0, 0, 0, 0.05);
+}
+
+/* Loading Shimmer Effect */
+@keyframes shimmer {
+  0% {
+    background-position: -1000px 0;
+  }
+  100% {
+    background-position: 1000px 0;
+  }
+}
+
+.credits-shimmer {
+  background: linear-gradient(
+    to right,
+    #f3f4f6 0%,
+    #e5e7eb 20%,
+    #f3f4f6 40%,
+    #f3f4f6 100%
+  );
+  background-size: 1000px 100%;
+  animation: shimmer 2s linear infinite;
+}
+
+/* Notification Toast Animation */
+.credits-notification {
+  animation: slideInRight 0.3s ease-out, fadeIn 0.3s ease-out;
+}
+
+/* Filter Button Active State */
+.credits-page button.bg-indigo-600,
+.credits-page button.bg-blue-600,
+.credits-page button.bg-cyan-600,
+.credits-page button.bg-yellow-600,
+.credits-page button.bg-green-600,
+.credits-page button.bg-red-600 {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+  .credits-header {
+    padding: 1rem;
+  }
+
+  .credits-header h3 {
+    font-size: 1.5rem;
+  }
+
+  .credits-page main {
+    padding: 1rem;
+  }
+}
+
+/* Print Styles */
+@media print {
+  .credits-header button,
+  .credits-page .fixed {
+    display: none !important;
+  }
+
+  .credits-page {
+    background: white;
+  }
+}
+
+/* High Contrast Mode Support */
+@media (prefers-contrast: high) {
+  .credits-page .bg-gradient-to-r {
+    background: #4f46e5 !important;
+  }
+}
+
+/* Reduced Motion Support */
+@media (prefers-reduced-motion: reduce) {
+  .credits-page * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Dark Mode Support (if implemented) */
+@media (prefers-color-scheme: dark) {
+  .credits-page {
+    background: linear-gradient(135deg, #1a202c 0%, #2d3748 100%);
+  }
+
+  .credits-header {
+    background: linear-gradient(to right, #2d3748 0%, #374151 100%);
+  }
+
+  .credits-page .bg-white {
+    background: #2d3748;
+    color: #f7fafc;
+  }
+
+  .credits-page .text-gray-900 {
+    color: #f7fafc !important;
+  }
+
+  .credits-page .text-gray-700 {
+    color: #e2e8f0 !important;
+  }
+
+  .credits-page .text-gray-600 {
+    color: #cbd5e0 !important;
+  }
+
+  .credits-page .text-gray-500 {
+    color: #a0aec0 !important;
+  }
+
+  .credits-page .bg-gray-50 {
+    background: #374151;
+  }
+
+  .credits-page .bg-gray-100 {
+    background: #4a5568;
+  }
+
+  .credits-page .border-gray-200 {
+    border-color: #4a5568;
+  }
+
+  .credits-page .border-gray-300 {
+    border-color: #4a5568;
+  }
+}

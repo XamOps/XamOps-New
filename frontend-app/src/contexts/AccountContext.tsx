@@ -275,7 +275,10 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
         '/performance',
         '/alerts',
         '/tickets',
-        '/ticket-detail'
+        '/ticket-detail',
+        '/account-manager',
+        '/billops-dashboard',
+        '/billops-billing'
       ];
 
       const currentPath = window.location.pathname;

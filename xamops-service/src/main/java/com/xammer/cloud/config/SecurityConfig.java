@@ -30,139 +30,171 @@ import static org.springframework.security.config.Customizer.withDefaults;
 @EnableGlobalMethodSecurity(prePostEnabled = true)
 public class SecurityConfig {
 
-    private final CustomAuthenticationSuccessHandler authenticationSuccessHandler;
-    private final CustomLogoutSuccessHandler logoutSuccessHandler;
-    private final UserDetailsService userDetailsService;
+        private final CustomAuthenticationSuccessHandler authenticationSuccessHandler;
+        private final CustomLogoutSuccessHandler logoutSuccessHandler;
+        private final UserDetailsService userDetailsService;
 
-    public SecurityConfig(CustomAuthenticationSuccessHandler authenticationSuccessHandler,
-            CustomLogoutSuccessHandler logoutSuccessHandler,
-            UserDetailsService userDetailsService) {
-        this.authenticationSuccessHandler = authenticationSuccessHandler;
-        this.logoutSuccessHandler = logoutSuccessHandler;
-        this.userDetailsService = userDetailsService;
-    }
+        public SecurityConfig(CustomAuthenticationSuccessHandler authenticationSuccessHandler,
+                        CustomLogoutSuccessHandler logoutSuccessHandler,
+                        UserDetailsService userDetailsService) {
+                this.authenticationSuccessHandler = authenticationSuccessHandler;
+                this.logoutSuccessHandler = logoutSuccessHandler;
+                this.userDetailsService = userDetailsService;
+        }
 
-    @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-        http
+        @Bean
+        public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+                http
 
-                .cors(withDefaults())
-                .csrf(csrf -> csrf.disable())
-                .exceptionHandling(exceptions -> exceptions
-                        .defaultAuthenticationEntryPointFor(
-                                new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
-                                new AntPathRequestMatcher("/api/**")))
-                .authorizeHttpRequests((requests) -> requests
-                        // ✅ TEAM FIX: Allow Password Reset APIs Publicly
-                        .requestMatchers(new AntPathRequestMatcher("/api/auth/**")).permitAll()
+                                .cors(withDefaults())
+                                .csrf(csrf -> csrf.disable())
+                                .exceptionHandling(exceptions -> exceptions
+                                                .defaultAuthenticationEntryPointFor(
+                                                                new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
+                                                                new AntPathRequestMatcher("/api/**")))
+                                .authorizeHttpRequests((requests) -> requests
+                                                // ✅ TEAM FIX: Allow Password Reset APIs Publicly
+                                                .requestMatchers(new AntPathRequestMatcher("/api/auth/**")).permitAll()
 
-                        // Grafana Ingest
-                        .requestMatchers(new AntPathRequestMatcher("/api/xamops/cloudguard/grafana-ingest", "POST"))
-                        .permitAll()
+                                                // Grafana Ingest
+                                                .requestMatchers(new AntPathRequestMatcher(
+                                                                "/api/xamops/cloudguard/grafana-ingest", "POST"))
+                                                .permitAll()
 
-                        // Public Static Resources & Pages
-                        .requestMatchers(
-                                new AntPathRequestMatcher("/"),
-                                new AntPathRequestMatcher("/index.html"),
-                                new AntPathRequestMatcher("/login"),
-                                new AntPathRequestMatcher("/css/**"),
-                                new AntPathRequestMatcher("/js/**"),
-                                new AntPathRequestMatcher("/images/**"),
-                                new AntPathRequestMatcher("/icons/**"),
-                                new AntPathRequestMatcher("/webjars/**"),
-                                new AntPathRequestMatcher("/gcp_*.html"),
-                                new AntPathRequestMatcher("/azure_dashboard.html"),
-                                new AntPathRequestMatcher("/azure_*.html"),
-                                new AntPathRequestMatcher("/cloudlist.html"),
-                                new AntPathRequestMatcher("/cloudk8s.html"),
-                                new AntPathRequestMatcher("/eks-details.html"),
-                                new AntPathRequestMatcher("/sonarqube.html"),
-                                new AntPathRequestMatcher("/user-manager.html"),
-                                new AntPathRequestMatcher("/spot-automation.html"),
-                                new AntPathRequestMatcher("/superadmin_customer.html"),
-                                new AntPathRequestMatcher("actions-history.html"),
-                                // ✅ YOUR CODE: Preserved missing pages
-                                new AntPathRequestMatcher("/cloudsitter.html"),
-                                new AntPathRequestMatcher("/integration-guide.html"),
-                                new AntPathRequestMatcher("billops/dashboard_user.html"),
-                                new AntPathRequestMatcher("billops/dashboard_admin.html"),
-                                // new AntPathRequestMatcher("billops/support-dashboard.html"),
+                                                // Public Static Resources & Pages
+                                                .requestMatchers(
+                                                                new AntPathRequestMatcher("/"),
+                                                                new AntPathRequestMatcher("/index.html"),
+                                                                new AntPathRequestMatcher("/login"),
+                                                                new AntPathRequestMatcher("/css/**"),
+                                                                new AntPathRequestMatcher("/js/**"),
+                                                                new AntPathRequestMatcher("/images/**"),
+                                                                new AntPathRequestMatcher("/icons/**"),
+                                                                new AntPathRequestMatcher("/webjars/**"),
+                                                                new AntPathRequestMatcher("/gcp_*.html"),
+                                                                new AntPathRequestMatcher("/azure_dashboard.html"),
+                                                                new AntPathRequestMatcher("/azure_*.html"),
+                                                                new AntPathRequestMatcher("/cloudlist.html"),
+                                                                new AntPathRequestMatcher("/cloudk8s.html"),
+                                                                new AntPathRequestMatcher("/eks-details.html"),
+                                                                new AntPathRequestMatcher("/sonarqube.html"),
+                                                                new AntPathRequestMatcher("/user-manager.html"),
+                                                                new AntPathRequestMatcher("/spot-automation.html"),
+                                                                new AntPathRequestMatcher("/superadmin_customer.html"),
+                                                                new AntPathRequestMatcher("actions-history.html"),
+                                                                // ✅ YOUR CODE: Preserved missing pages
+                                                                new AntPathRequestMatcher("/cloudsitter.html"),
+                                                                new AntPathRequestMatcher("/integration-guide.html"),
+                                                                new AntPathRequestMatcher(
+                                                                                "billops/dashboard_user.html"),
+                                                                new AntPathRequestMatcher(
+                                                                                "billops/dashboard_admin.html"),
+                                                                // new
+                                                                // AntPathRequestMatcher("billops/support-dashboard.html"),
 
-                                // Connectivity
-                                new AntPathRequestMatcher("/ws/**"),
-                                new AntPathRequestMatcher("/terminal"),
+                                                                // Connectivity
+                                                                new AntPathRequestMatcher("/ws/**"),
+                                                                new AntPathRequestMatcher("/xamops-ws/**"),
+                                                                new AntPathRequestMatcher("/unified-dashboard"),
+                                                                new AntPathRequestMatcher("/dashboard"),
+                                                                new AntPathRequestMatcher("/sonarqube"),
+                                                                new AntPathRequestMatcher("/cloudlist"),
+                                                                new AntPathRequestMatcher("/finops"),
+                                                                new AntPathRequestMatcher("/cost"),
+                                                                new AntPathRequestMatcher("/waste"),
+                                                                new AntPathRequestMatcher("/rightsizing"),
+                                                                new AntPathRequestMatcher("/reservation"),
+                                                                new AntPathRequestMatcher("/cloudsitter"),
+                                                                new AntPathRequestMatcher("/spot-automation"),
+                                                                new AntPathRequestMatcher("/account-manager"),
+                                                                new AntPathRequestMatcher("/security"),
+                                                                new AntPathRequestMatcher("/performance"),
+                                                                new AntPathRequestMatcher("/alerts"),
+                                                                new AntPathRequestMatcher("/tickets"),
+                                                                new AntPathRequestMatcher("/ticket-detail"),
+                                                                new AntPathRequestMatcher("/cloudshell"),
+                                                                new AntPathRequestMatcher("/add-account"),
+                                                                new AntPathRequestMatcher("/add-gcp-account"),
+                                                                new AntPathRequestMatcher("/add-github-config"),
+                                                                new AntPathRequestMatcher("/devops-in-the-box"),
+                                                                new AntPathRequestMatcher("/cicd-pipelines"),
+                                                                new AntPathRequestMatcher("/grafana-dashboard"),
+                                                                new AntPathRequestMatcher("/cloudk8s"),
+                                                                new AntPathRequestMatcher("/eks-details"),
+                                                                new AntPathRequestMatcher("/terminal"),
 
-                                // Public APIs
-                              //  new AntPathRequestMatcher("/api/ai/**"),
-                                new AntPathRequestMatcher("/api/cicd/github/runs"),
-                                new AntPathRequestMatcher("/api/cicd/config/**"),
-                                new AntPathRequestMatcher("/api/cicd/**"),
-                                new AntPathRequestMatcher("/api/xamops/k8s/**"),
-                                // ✅ YOUR CODE: Preserved missing APIs
-                                new AntPathRequestMatcher("/api/xamops/eks/**"),
-                                new AntPathRequestMatcher("/api/karpenter/**"),
+                                                                // Public APIs
+                                                                // new AntPathRequestMatcher("/api/ai/**"),
+                                                                new AntPathRequestMatcher("/api/cicd/github/runs"),
+                                                                new AntPathRequestMatcher("/api/cicd/config/**"),
+                                                                new AntPathRequestMatcher("/api/cicd/**"),
+                                                                new AntPathRequestMatcher("/api/xamops/k8s/**"),
+                                                                // ✅ YOUR CODE: Preserved missing APIs
+                                                                new AntPathRequestMatcher("/api/xamops/eks/**"),
+                                                                new AntPathRequestMatcher("/api/karpenter/**"),
 
-                                new AntPathRequestMatcher("/api/autospotting/**"),
-                                new AntPathRequestMatcher("/api/dev_ops_script/**"),
-                                // ✅ TEAM CODE: Preserved AWS Calculator API
-                                new AntPathRequestMatcher("/api/aws/**"))
-                        .permitAll()
-                        .anyRequest().authenticated())
-                .formLogin((form) -> form
-                        .loginPage("/login")
-                        .successHandler(authenticationSuccessHandler)
-                        .permitAll())
-                .logout((logout) -> logout
-                        .logoutUrl("/logout")
-                        .logoutSuccessHandler(logoutSuccessHandler)
-                        .invalidateHttpSession(true)
-                        .deleteCookies("JSESSIONID", "remember-me")
-                        .permitAll())
-                .rememberMe((rememberMe) -> rememberMe
-                        .key("xamops-remember-me-key-2025")
-                        .tokenValiditySeconds(1209600) // 14 days
-                        .rememberMeParameter("rememberMe")
-                        .userDetailsService(userDetailsService));
+                                                                new AntPathRequestMatcher("/api/autospotting/**"),
+                                                                new AntPathRequestMatcher("/api/dev_ops_script"),
+                                                                new AntPathRequestMatcher("/api/dev_ops_script/**"),
+                                                                // ✅ TEAM CODE: Preserved AWS Calculator API
+                                                                new AntPathRequestMatcher("/api/aws/**"))
+                                                .permitAll()
+                                                .anyRequest().authenticated())
+                                .formLogin((form) -> form
+                                                .loginPage("/login")
+                                                .successHandler(authenticationSuccessHandler)
+                                                .permitAll())
+                                .logout((logout) -> logout
+                                                .logoutUrl("/logout")
+                                                .logoutSuccessHandler(logoutSuccessHandler)
+                                                .invalidateHttpSession(true)
+                                                .deleteCookies("JSESSIONID", "remember-me")
+                                                .permitAll())
+                                .rememberMe((rememberMe) -> rememberMe
+                                                .key("xamops-remember-me-key-2025")
+                                                .tokenValiditySeconds(1209600) // 14 days
+                                                .rememberMeParameter("rememberMe")
+                                                .userDetailsService(userDetailsService));
 
-        return http.build();
-    }
+                return http.build();
+        }
 
-    @Bean
-    public CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(Arrays.asList(
-                "http://localhost:5173",
-                "https://live.xamops.com",
-                "https://uat.xamops.com"));
-        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(Arrays.asList("*"));
-        configuration.setAllowCredentials(true);
+        @Bean
+        public CorsConfigurationSource corsConfigurationSource() {
+                CorsConfiguration configuration = new CorsConfiguration();
+                configuration.setAllowedOrigins(Arrays.asList(
+                                "http://localhost:5173",
+                                "https://live.xamops.com",
+                                "https://uat.xamops.com"));
+                configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+                configuration.setAllowedHeaders(Arrays.asList("*"));
+                configuration.setAllowCredentials(true);
 
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", configuration);
-        return source;
-    }
+                UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+                source.registerCorsConfiguration("/**", configuration);
+                return source;
+        }
 
-    @Bean
-    public CommonsRequestLoggingFilter requestLoggingFilter() {
-        CommonsRequestLoggingFilter loggingFilter = new CommonsRequestLoggingFilter();
-        loggingFilter.setIncludeQueryString(true);
-        loggingFilter.setIncludePayload(true);
-        loggingFilter.setMaxPayloadLength(10000);
-        loggingFilter.setIncludeHeaders(true);
-        loggingFilter.setIncludeClientInfo(true);
-        return loggingFilter;
-    }
+        @Bean
+        public CommonsRequestLoggingFilter requestLoggingFilter() {
+                CommonsRequestLoggingFilter loggingFilter = new CommonsRequestLoggingFilter();
+                loggingFilter.setIncludeQueryString(true);
+                loggingFilter.setIncludePayload(true);
+                loggingFilter.setMaxPayloadLength(10000);
+                loggingFilter.setIncludeHeaders(true);
+                loggingFilter.setIncludeClientInfo(true);
+                return loggingFilter;
+        }
 
-    @Bean
-    public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();
-    }
+        @Bean
+        public PasswordEncoder passwordEncoder() {
+                return new BCryptPasswordEncoder();
+        }
 
-    @Bean
-    public HttpFirewall allowSemicolonHttpFirewall() {
-        StrictHttpFirewall firewall = new StrictHttpFirewall();
-        firewall.setAllowSemicolon(true);
-        return firewall;
-    }
+        @Bean
+        public HttpFirewall allowSemicolonHttpFirewall() {
+                StrictHttpFirewall firewall = new StrictHttpFirewall();
+                firewall.setAllowSemicolon(true);
+                return firewall;
+        }
 }

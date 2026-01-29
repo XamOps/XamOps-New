@@ -58,10 +58,10 @@ public class DashboardController {
 
     /**
      * User Dashboard endpoint - shows data specific to the logged-in user's accounts
-     * Accessible by users with ROLE_BILLOPS or ROLE_BILLOPS_ADMIN
+     * Accessible by users with ROLE_BILLOPS, ROLE_BILLOPS_ADMIN, or ROLE_XAMOPS
      */
     @GetMapping("/user")
-    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS', 'ROLE_BILLOPS_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS', 'ROLE_BILLOPS_ADMIN', 'ROLE_XAMOPS')")
     public ResponseEntity<UserDashboardDto> getUserDashboard(
             @RequestParam(required = false, defaultValue = "false") boolean forceRefresh,
             Authentication authentication) {
