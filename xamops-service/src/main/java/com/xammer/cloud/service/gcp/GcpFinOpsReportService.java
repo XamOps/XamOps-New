@@ -117,8 +117,7 @@ public class GcpFinOpsReportService {
                         return Collections.emptyList();
                     });
 
-            CompletableFuture<List<DashboardData.CostAnomaly>> costAnomaliesFuture = gcpCostService.getHistoricalCosts(gcpProjectId)
-                    .thenApply(costs -> Collections.<DashboardData.CostAnomaly>emptyList()) // Placeholder for anomaly detection
+            CompletableFuture<List<DashboardData.CostAnomaly>> costAnomaliesFuture = gcpCostService.getCostAnomalies(gcpProjectId)
                     .exceptionally(ex -> {
                         logger.error("Failed to detect cost anomalies for project {}", gcpProjectId, ex);
                         return Collections.emptyList();
@@ -175,12 +174,158 @@ public class GcpFinOpsReportService {
     }
 
     /**
-     * ✅ Force refresh - evict cache and regenerate
+     * Generate FinOps report with custom date range filtering.
+     */
+    public CompletableFuture<GcpFinOpsReportDto> generateFinOpsReportWithDateRange(
+            String gcpProjectId, String startDate, String endDate, boolean forceRefresh) {
+        return CompletableFuture.supplyAsync(() ->
+                generateFinOpsReportWithDateRangeSync(gcpProjectId, startDate, endDate, forceRefresh), executor);
+    }
+
+    /**
+     * Generate FinOps report with custom date range - synchronous version.
+     */
+    public GcpFinOpsReportDto generateFinOpsReportWithDateRangeSync(
+            String gcpProjectId, String startDate, String endDate, boolean forceRefresh) {
+
+        String cacheKey = FINOPS_REPORT_CACHE_PREFIX + gcpProjectId + ":" + startDate + ":" + endDate;
+
+        if (!forceRefresh) {
+            Optional<GcpFinOpsReportDto> cached = redisCacheService.get(cacheKey, GcpFinOpsReportDto.class);
+            if (cached.isPresent()) {
+                logger.info("Returning cached FinOps report for project {} (dates: {} to {})",
+                        gcpProjectId, startDate, endDate);
+                return cached.get();
+            }
+        }
+
+        logger.info("Generating FinOps report for GCP project {} with date range: {} to {}",
+                gcpProjectId, startDate, endDate);
+
+        GcpFinOpsReportDto report = new GcpFinOpsReportDto();
+        GcpFinOpsReportDto.Kpis kpis = new GcpFinOpsReportDto.Kpis();
+        GcpFinOpsReportDto.CostBreakdown costBreakdown = new GcpFinOpsReportDto.CostBreakdown();
+
+        try {
+            // Fetch data with date range filtering
+            CompletableFuture<List<GcpCostDto>> costByServiceFuture = gcpCostService
+                    .getBillingSummaryWithDateRange(gcpProjectId, startDate, endDate)
+                    .exceptionally(ex -> {
+                        logger.error("Failed to get cost by service for project {} (dates: {} to {})",
+                                gcpProjectId, startDate, endDate, ex);
+                        return Collections.emptyList();
+                    });
+
+            CompletableFuture<List<GcpCostDto>> costByRegionFuture = gcpCostService
+                    .getCostByRegionWithDateRange(gcpProjectId, startDate, endDate)
+                    .exceptionally(ex -> {
+                        logger.error("Failed to get cost by region for project {} (dates: {} to {})",
+                                gcpProjectId, startDate, endDate, ex);
+                        return Collections.emptyList();
+                    });
+
+            // MTD and last month spend are not filtered by date range
+            CompletableFuture<Double> mtdSpendFuture = gcpCostService.getUnfilteredMonthToDateSpend(gcpProjectId)
+                    .exceptionally(ex -> {
+                        logger.error("Failed to get MTD spend for project {}", gcpProjectId, ex);
+                        return 0.0;
+                    });
+
+            CompletableFuture<Double> lastMonthSpendFuture = gcpCostService.getLastMonthSpend(gcpProjectId)
+                    .exceptionally(ex -> {
+                        logger.error("Failed to get last month spend for project {}", gcpProjectId, ex);
+                        return 0.0;
+                    });
+
+            // Optimization data
+            CompletableFuture<List<GcpWasteItem>> wasteFuture = CompletableFuture.supplyAsync(
+                            () -> gcpOptimizationService.getWasteReport(gcpProjectId), executor)
+                    .exceptionally(ex -> {
+                        logger.error("Failed to get waste report for project {}", gcpProjectId, ex);
+                        return Collections.emptyList();
+                    });
+
+            CompletableFuture<List<GcpOptimizationRecommendation>> recommendationsFuture = CompletableFuture.supplyAsync(
+                            () -> gcpOptimizationService.getRightsizingRecommendations(gcpProjectId), executor)
+                    .exceptionally(ex -> {
+                        logger.error("Failed to get rightsizing recommendations for project {}", gcpProjectId, ex);
+                        return Collections.emptyList();
+                    });
+
+            CompletableFuture<DashboardData.OptimizationSummary> optimizationSummaryFuture = CompletableFuture.supplyAsync(
+                            () -> gcpOptimizationService.getOptimizationSummary(gcpProjectId), executor)
+                    .exceptionally(ex -> {
+                        logger.error("Failed to get optimization summary for project {}", gcpProjectId, ex);
+                        return new DashboardData.OptimizationSummary(0.0, 0);
+                    });
+
+            CompletableFuture<List<GcpBudgetDto>> budgetsFuture = gcpBudgetService.getBudgets(gcpProjectId)
+                    .exceptionally(ex -> {
+                        logger.error("Failed to get budgets for project {}", gcpProjectId, ex);
+                        return Collections.emptyList();
+                    });
+
+            CompletableFuture<List<DashboardData.CostAnomaly>> costAnomaliesFuture = gcpCostService.getCostAnomalies(gcpProjectId)
+                    .exceptionally(ex -> {
+                        logger.error("Failed to detect cost anomalies for project {}", gcpProjectId, ex);
+                        return Collections.emptyList();
+                    });
+
+            // Wait for all futures
+            CompletableFuture.allOf(
+                    costByServiceFuture,
+                    costByRegionFuture,
+                    mtdSpendFuture,
+                    lastMonthSpendFuture,
+                    wasteFuture,
+                    recommendationsFuture,
+                    optimizationSummaryFuture,
+                    budgetsFuture,
+                    costAnomaliesFuture
+            ).join();
+
+            // Populate the report
+            double mtdSpend = mtdSpendFuture.join();
+            kpis.setMonthToDateSpend(mtdSpend);
+            kpis.setLastMonthSpend(lastMonthSpendFuture.join());
+            kpis.setForecastedSpend(gcpCostService.calculateForecastedSpend(mtdSpend));
+            kpis.setPotentialSavings(optimizationSummaryFuture.join().getPotentialSavings());
+            report.setKpis(kpis);
+
+            costBreakdown.setByService(costByServiceFuture.join());
+            costBreakdown.setByRegion(costByRegionFuture.join());
+            report.setCostBreakdown(costBreakdown);
+
+            report.setWastedResources(wasteFuture.join());
+            report.setRightsizingRecommendations(recommendationsFuture.join());
+            report.setBudgets(budgetsFuture.join());
+            report.setCostAnomalies(costAnomaliesFuture.join());
+
+            // Cache the report
+            redisCacheService.put(cacheKey, report, 10);
+            logger.info("Successfully generated and cached FinOps report for GCP project {} (dates: {} to {})",
+                    gcpProjectId, startDate, endDate);
+
+            return report;
+
+        } catch (CompletionException ce) {
+            logger.error("Completion exception while generating FinOps report for project {} (dates: {} to {})",
+                    gcpProjectId, startDate, endDate, ce.getCause());
+        } catch (Exception e) {
+            logger.error("Unexpected error while generating FinOps report for project {} (dates: {} to {})",
+                    gcpProjectId, startDate, endDate, e);
+        }
+
+        return new GcpFinOpsReportDto();
+    }
+
+    /**
+     * Force refresh - evict cache and regenerate
      */
     public CompletableFuture<GcpFinOpsReportDto> refreshFinOpsReport(String gcpProjectId) {
         String cacheKey = FINOPS_REPORT_CACHE_PREFIX + gcpProjectId;
         redisCacheService.evict(cacheKey);
-        logger.info("🔄 Forced refresh of FinOps report for project {}", gcpProjectId);
+        logger.info("Forced refresh of FinOps report for project {}", gcpProjectId);
         return generateFinOpsReport(gcpProjectId);
     }
 

@@ -41,7 +41,8 @@ public class GcpDashboardController {
      *
      * Data is pre-cached by nightly scheduled job (4:00 AM IST).
      * This endpoint ALWAYS returns cached data - no live API calls.
-     * forceRefresh parameter is ignored for security (only scheduled jobs can refresh).
+     * forceRefresh parameter is ignored for security (only scheduled jobs can
+     * refresh).
      *
      * Example: GET /api/xamops/gcp/dashboard?accountId=my-gcp-project
      */
@@ -54,7 +55,7 @@ public class GcpDashboardController {
         // Live data fetch is ONLY allowed via scheduled nightly jobs
         logger.info("📊 GCP Dashboard request - Project: {} (returning cached data)", accountId);
 
-        return gcpDataService.getDashboardData(accountId, false) // Always false - use cache only
+        return gcpDataService.getDashboardData(accountId, forceRefresh)
                 .<ResponseEntity<?>>thenApply(data -> {
                     logger.info("✅ GCP Dashboard data retrieved for project: {} (MonthToDate: ${})",
                             accountId, data.getMonthToDateSpend());
@@ -145,7 +146,8 @@ public class GcpDashboardController {
 
         Map<String, Object> response = new HashMap<>();
         response.put("status", "disabled");
-        response.put("message", "Manual refresh is disabled. Dashboard data is updated automatically every night at 4:00 AM IST.");
+        response.put("message",
+                "Manual refresh is disabled. Dashboard data is updated automatically every night at 4:00 AM IST.");
         response.put("projectId", accountId);
         response.put("nextRefresh", "4:00 AM IST (daily)");
 

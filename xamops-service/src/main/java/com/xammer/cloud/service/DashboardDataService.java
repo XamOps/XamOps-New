@@ -1101,11 +1101,23 @@ public class DashboardDataService {
                 });
             }
 
-            if (data.getCostHistory() != null) {
-                for (GcpCostDto cost : data.getCostHistory()) {
-                    // Convert cost history from INR to USD
-                    double costUsd = cost.getAmount() * INR_TO_USD_RATE;
-                    costHistoryMap.merge(cost.getName(), costUsd, Double::sum);
+            if (data.getCostHistory() != null && data.getCostHistory().getLabels() != null) {
+                List<String> labels = data.getCostHistory().getLabels();
+                List<Double> costs = data.getCostHistory().getCosts();
+                for (int j = 0; j < labels.size(); j++) {
+                    // Note: Labels are already converted to USD if they came from individual
+                    // account fetch,
+                    // but here aggregateGcpDashboardData is also applying INR_TO_USD_RATE.
+                    // Wait, let's check if GcpDataService already converts to USD.
+                    // Yes, it does NOT seem to convert individual history items to USD in
+                    // GcpDataService.
+                    // Actually, GcpDataService (line 289) says:
+                    // costHistory.setCosts(historyList.stream().map(GcpCostDto::getAmount).collect(Collectors.toList()));
+                    // And historyList comes from gcpCostService.getHistoricalCosts(gcpProjectId).
+                    // Most GCP BigQuery results are in INR.
+                    double costValue = costs.get(j);
+                    double costUsd = costValue * INR_TO_USD_RATE;
+                    costHistoryMap.merge(labels.get(j), costUsd, Double::sum);
                 }
             }
 
@@ -1569,15 +1581,16 @@ public class DashboardDataService {
         mainAccount.setOptimizationSummary(gcpData.getOptimizationSummary());
         mainAccount.setRegionStatus(gcpData.getRegionStatus());
 
-        List<String> costLabels = (gcpData.getCostHistory() != null)
-                ? gcpData.getCostHistory().stream().map(c -> c.getName()).collect(Collectors.toList())
+        List<String> costLabels = (gcpData.getCostHistory() != null && gcpData.getCostHistory().getLabels() != null)
+                ? gcpData.getCostHistory().getLabels()
                 : new ArrayList<>();
         List<Double> costValues = (gcpData.getCostHistory() != null)
-                ? gcpData.getCostHistory().stream().map(c -> c.getAmount()).collect(Collectors.toList())
+                ? gcpData.getCostHistory().getValues()
                 : new ArrayList<>();
-        List<Boolean> costAnomalies = (gcpData.getCostHistory() != null)
-                ? gcpData.getCostHistory().stream().map(c -> c.isAnomaly()).collect(Collectors.toList())
-                : new ArrayList<>();
+        List<Boolean> costAnomalies = (gcpData.getCostHistory() != null
+                && gcpData.getCostHistory().getAnomalies() != null)
+                        ? gcpData.getCostHistory().getAnomalies()
+                        : new ArrayList<>();
         mainAccount.setCostHistory(new DashboardData.CostHistory(costLabels, costValues, costAnomalies));
 
         List<DashboardData.BillingSummary> billingSummary = (gcpData.getBillingSummary() != null)

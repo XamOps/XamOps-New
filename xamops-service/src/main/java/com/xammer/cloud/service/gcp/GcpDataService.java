@@ -282,7 +282,15 @@ public class GcpDataService {
                     GcpDashboardData data = new GcpDashboardData();
 
                     data.setRegionStatus(regionStatusFuture.join());
-                    data.setCostHistory(costHistoryFuture.join());
+                    // Convert List<GcpCostDto> to DashboardData.CostHistory
+                    List<GcpCostDto> historyList = costHistoryFuture.join();
+                    DashboardData.CostHistory costHistory = new DashboardData.CostHistory();
+                    costHistory.setLabels(historyList.stream().map(GcpCostDto::getName).collect(Collectors.toList()));
+                    costHistory.setCosts(historyList.stream().map(GcpCostDto::getAmount).collect(Collectors.toList()));
+                    costHistory
+                            .setAnomalies(historyList.stream().map(GcpCostDto::isAnomaly).collect(Collectors.toList()));
+                    data.setCostHistory(costHistory);
+
                     data.setBillingSummary(billingSummaryFuture.join());
                     data.setWastedResources(wasteReportFuture.join());
                     data.setRightsizingRecommendations(rightsizingFuture.join());
@@ -319,7 +327,7 @@ public class GcpDataService {
                     data.setForecastedSpend(gcpCostService.calculateForecastedSpend(currentMtdSpend));
 
                     String lastMonthStr = LocalDate.now().minusMonths(1).format(DateTimeFormatter.ofPattern("yyyy-MM"));
-                    double lastMonthSpend = data.getCostHistory().stream()
+                    double lastMonthSpend = historyList.stream()
                             .filter(c -> c.getName().equals(lastMonthStr))
                             .mapToDouble(GcpCostDto::getAmount)
                             .findFirst().orElse(0.0);
@@ -361,11 +369,13 @@ public class GcpDataService {
                     // ✅ Cache the result in Redis for 10 minutes
                     redisCache.put(redisCacheKey, data, 10);
 
-                    // ✅ Also persist to database for long-term caching (run synchronously to ensure it completes)
+                    // ✅ Also persist to database for long-term caching (run synchronously to ensure
+                    // it completes)
                     try {
                         saveGcpDashboardSnapshot(dbCacheKey, data);
                     } catch (Exception e) {
-                        log.error("Failed to persist GCP dashboard to database for {}: {}", gcpProjectId, e.getMessage());
+                        log.error("Failed to persist GCP dashboard to database for {}: {}", gcpProjectId,
+                                e.getMessage());
                     }
 
                     return data;
@@ -1707,13 +1717,16 @@ public class GcpDataService {
     }
 
     // ============================================================================================
-    // DATABASE SNAPSHOT METHODS (for persistent caching - same approach as AWS dashboard)
+    // DATABASE SNAPSHOT METHODS (for persistent caching - same approach as AWS
+    // dashboard)
     // ============================================================================================
 
     /**
      * Save GCP dashboard data to database cache for persistent storage.
-     * This ensures data survives Redis restarts and is available on application startup.
-     * Uses TransactionTemplate to ensure proper transaction handling even when called from async context.
+     * This ensures data survives Redis restarts and is available on application
+     * startup.
+     * Uses TransactionTemplate to ensure proper transaction handling even when
+     * called from async context.
      */
     public void saveGcpDashboardSnapshot(String key, GcpDashboardData data) {
         try {
@@ -1776,6 +1789,113 @@ public class GcpDataService {
     public CompletableFuture<GcpDashboardData> refreshAndCacheGcpDashboard(String gcpProjectId) {
         log.info("🔄 Force refreshing GCP dashboard for project: {}", gcpProjectId);
         return getDashboardData(gcpProjectId, true);
+    }
+
+    // ============================================================================================
+    // CLOUDLIST SERVICES GROUPED & PAGINATED (Top 50 Most Used Services)
+    // ============================================================================================
+
+    /**
+     * Get all GCP resources grouped by service type, sorted by usage (resource
+     * count) descending.
+     * Returns top services paginated. Default shows top 50 services across all
+     * pages.
+     *
+     * @param gcpProjectId    The GCP project ID
+     * @param page            The page number (0-indexed)
+     * @param servicesPerPage Number of services per page (default: 10)
+     * @param forceRefresh    Whether to bypass cache
+     * @return Paginated response with services sorted by resource count (most used
+     *         first)
+     */
+    public CompletableFuture<GcpServicePaginatedResponse> getServicesGroupedPaginated(
+            String gcpProjectId, int page, int servicesPerPage, boolean forceRefresh) {
+
+        return getAllResources(gcpProjectId, forceRefresh)
+                .thenApply(allResources -> {
+                    // Group resources by service type
+                    Map<String, List<GcpResourceDto>> groupedByType = allResources.stream()
+                            .filter(r -> r.getType() != null && !r.getType().isEmpty())
+                            .collect(Collectors.groupingBy(GcpResourceDto::getType));
+
+                    // Create service groups and sort by resource count (descending) - most used
+                    // first
+                    List<GcpServicePaginatedResponse.GcpServiceGroupDto> allServiceGroups = groupedByType.entrySet()
+                            .stream()
+                            .map(entry -> new GcpServicePaginatedResponse.GcpServiceGroupDto(
+                                    entry.getKey(),
+                                    entry.getValue().size(),
+                                    entry.getValue()))
+                            .sorted((a, b) -> Integer.compare(b.getResourceCount(), a.getResourceCount())) // Sort
+                                                                                                           // descending
+                            .limit(50) // Top 50 most frequently used services
+                            .collect(Collectors.toList());
+
+                    int totalServices = allServiceGroups.size();
+                    int totalResources = allResources.size();
+                    int totalPages = (int) Math.ceil((double) totalServices / servicesPerPage);
+
+                    // Validate page bounds - use local variable since lambda requires effectively
+                    // final
+                    int currentPage = page;
+                    if (currentPage < 0)
+                        currentPage = 0;
+                    if (currentPage >= totalPages && totalPages > 0)
+                        currentPage = totalPages - 1;
+
+                    // Calculate pagination bounds
+                    int startIndex = currentPage * servicesPerPage;
+                    int endIndex = Math.min(startIndex + servicesPerPage, totalServices);
+
+                    List<GcpServicePaginatedResponse.GcpServiceGroupDto> pageServices = (startIndex < totalServices)
+                            ? allServiceGroups.subList(startIndex, endIndex)
+                            : List.of();
+
+                    boolean hasNext = (currentPage + 1) < totalPages;
+                    boolean hasPrevious = currentPage > 0;
+
+                    log.info(
+                            "✅ GCP Cloudlist: Returning page {} of {} ({} services, {} total resources) for project {}",
+                            currentPage, totalPages, pageServices.size(), totalResources, gcpProjectId);
+
+                    return new GcpServicePaginatedResponse(
+                            pageServices,
+                            currentPage,
+                            totalServices,
+                            totalPages,
+                            servicesPerPage,
+                            totalResources,
+                            hasNext,
+                            hasPrevious);
+                });
+    }
+
+    /**
+     * Get all GCP resources grouped by service type (non-paginated).
+     * Sorted by resource count descending - most used services first.
+     *
+     * @param gcpProjectId The GCP project ID
+     * @param forceRefresh Whether to bypass cache
+     * @return List of service groups sorted by usage
+     */
+    public CompletableFuture<List<GcpServicePaginatedResponse.GcpServiceGroupDto>> getAllResourcesGrouped(
+            String gcpProjectId, boolean forceRefresh) {
+
+        return getAllResources(gcpProjectId, forceRefresh)
+                .thenApply(allResources -> {
+                    Map<String, List<GcpResourceDto>> groupedByType = allResources.stream()
+                            .filter(r -> r.getType() != null && !r.getType().isEmpty())
+                            .collect(Collectors.groupingBy(GcpResourceDto::getType));
+
+                    return groupedByType.entrySet().stream()
+                            .map(entry -> new GcpServicePaginatedResponse.GcpServiceGroupDto(
+                                    entry.getKey(),
+                                    entry.getValue().size(),
+                                    entry.getValue()))
+                            .sorted((a, b) -> Integer.compare(b.getResourceCount(), a.getResourceCount()))
+                            .limit(50) // Top 50 services
+                            .collect(Collectors.toList());
+                });
     }
 
 }

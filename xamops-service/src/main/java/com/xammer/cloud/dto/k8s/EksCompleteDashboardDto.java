@@ -44,6 +44,9 @@ public class EksCompleteDashboardDto {
     // ✅ NEW: Karpenter Dashboard Data
     private KarpenterDashboard karpenter;
 
+    // ✅ NEW: OpenCost Dashboard Data
+    private OpenCostDashboard openCost;
+
     public KubescapeDashboard getKubescape() {
         return kubescape;
     }
@@ -90,6 +93,14 @@ public class EksCompleteDashboardDto {
 
     public void setKarpenter(KarpenterDashboard karpenter) {
         this.karpenter = karpenter;
+    }
+
+    public OpenCostDashboard getOpenCost() {
+        return openCost;
+    }
+
+    public void setOpenCost(OpenCostDashboard openCost) {
+        this.openCost = openCost;
     }
 
     // Nested Classes
@@ -201,18 +212,37 @@ public class EksCompleteDashboardDto {
         private Double dailyCost;
         private Double monthlyCost;
         private List<NodeCost> nodeCosts;
+        // P2: Namespace and Workload cost allocation
+        private List<NamespaceCostAllocation> namespaceCosts;
+        private List<WorkloadCostAllocation> workloadCosts;
 
         public static class NodeCost {
             private String nodeName;
             private Double hourlyRate;
             private Double dailyCost;
             private String instanceType;
+            // P2: Capacity type (on-demand, spot) and node group
+            private String capacityType;  // "on-demand", "spot", "fargate"
+            private String nodeGroupName;
+            private Double cpuUsagePercent;
+
+            public NodeCost() {}
 
             public NodeCost(String nodeName, Double hourlyRate, Double dailyCost, String instanceType) {
                 this.nodeName = nodeName;
                 this.hourlyRate = hourlyRate;
                 this.dailyCost = dailyCost;
                 this.instanceType = instanceType;
+            }
+
+            public NodeCost(String nodeName, Double hourlyRate, Double dailyCost, String instanceType,
+                           String capacityType, String nodeGroupName) {
+                this.nodeName = nodeName;
+                this.hourlyRate = hourlyRate;
+                this.dailyCost = dailyCost;
+                this.instanceType = instanceType;
+                this.capacityType = capacityType;
+                this.nodeGroupName = nodeGroupName;
             }
 
             // Getters and Setters
@@ -247,6 +277,182 @@ public class EksCompleteDashboardDto {
             public void setInstanceType(String instanceType) {
                 this.instanceType = instanceType;
             }
+
+            public String getCapacityType() {
+                return capacityType;
+            }
+
+            public void setCapacityType(String capacityType) {
+                this.capacityType = capacityType;
+            }
+
+            public String getNodeGroupName() {
+                return nodeGroupName;
+            }
+
+            public void setNodeGroupName(String nodeGroupName) {
+                this.nodeGroupName = nodeGroupName;
+            }
+
+            public Double getCpuUsagePercent() {
+                return cpuUsagePercent;
+            }
+
+            public void setCpuUsagePercent(Double cpuUsagePercent) {
+                this.cpuUsagePercent = cpuUsagePercent;
+            }
+        }
+
+        // P2: Namespace-level cost allocation
+        public static class NamespaceCostAllocation {
+            private String namespace;
+            private Double dailyCost;
+            private Double monthlyCost;
+            private Double cpuUsageMillicores;
+            private Double memoryUsageMb;
+            private Integer podCount;
+            private Double costPercentage;  // % of total cluster cost
+
+            public String getNamespace() {
+                return namespace;
+            }
+
+            public void setNamespace(String namespace) {
+                this.namespace = namespace;
+            }
+
+            public Double getDailyCost() {
+                return dailyCost;
+            }
+
+            public void setDailyCost(Double dailyCost) {
+                this.dailyCost = dailyCost;
+            }
+
+            public Double getMonthlyCost() {
+                return monthlyCost;
+            }
+
+            public void setMonthlyCost(Double monthlyCost) {
+                this.monthlyCost = monthlyCost;
+            }
+
+            public Double getCpuUsageMillicores() {
+                return cpuUsageMillicores;
+            }
+
+            public void setCpuUsageMillicores(Double cpuUsageMillicores) {
+                this.cpuUsageMillicores = cpuUsageMillicores;
+            }
+
+            public Double getMemoryUsageMb() {
+                return memoryUsageMb;
+            }
+
+            public void setMemoryUsageMb(Double memoryUsageMb) {
+                this.memoryUsageMb = memoryUsageMb;
+            }
+
+            public Integer getPodCount() {
+                return podCount;
+            }
+
+            public void setPodCount(Integer podCount) {
+                this.podCount = podCount;
+            }
+
+            public Double getCostPercentage() {
+                return costPercentage;
+            }
+
+            public void setCostPercentage(Double costPercentage) {
+                this.costPercentage = costPercentage;
+            }
+        }
+
+        // P2: Workload-level cost allocation (Deployments, DaemonSets, etc.)
+        public static class WorkloadCostAllocation {
+            private String name;
+            private String namespace;
+            private String kind;  // Deployment, DaemonSet, StatefulSet, etc.
+            private Double dailyCost;
+            private Double monthlyCost;
+            private Double cpuUsageMillicores;
+            private Double memoryUsageMb;
+            private Integer podCount;
+            private Integer replicas;
+
+            public String getName() {
+                return name;
+            }
+
+            public void setName(String name) {
+                this.name = name;
+            }
+
+            public String getNamespace() {
+                return namespace;
+            }
+
+            public void setNamespace(String namespace) {
+                this.namespace = namespace;
+            }
+
+            public String getKind() {
+                return kind;
+            }
+
+            public void setKind(String kind) {
+                this.kind = kind;
+            }
+
+            public Double getDailyCost() {
+                return dailyCost;
+            }
+
+            public void setDailyCost(Double dailyCost) {
+                this.dailyCost = dailyCost;
+            }
+
+            public Double getMonthlyCost() {
+                return monthlyCost;
+            }
+
+            public void setMonthlyCost(Double monthlyCost) {
+                this.monthlyCost = monthlyCost;
+            }
+
+            public Double getCpuUsageMillicores() {
+                return cpuUsageMillicores;
+            }
+
+            public void setCpuUsageMillicores(Double cpuUsageMillicores) {
+                this.cpuUsageMillicores = cpuUsageMillicores;
+            }
+
+            public Double getMemoryUsageMb() {
+                return memoryUsageMb;
+            }
+
+            public void setMemoryUsageMb(Double memoryUsageMb) {
+                this.memoryUsageMb = memoryUsageMb;
+            }
+
+            public Integer getPodCount() {
+                return podCount;
+            }
+
+            public void setPodCount(Integer podCount) {
+                this.podCount = podCount;
+            }
+
+            public Integer getReplicas() {
+                return replicas;
+            }
+
+            public void setReplicas(Integer replicas) {
+                this.replicas = replicas;
+            }
         }
 
         // Getters and Setters
@@ -272,6 +478,22 @@ public class EksCompleteDashboardDto {
 
         public void setNodeCosts(List<NodeCost> nodeCosts) {
             this.nodeCosts = nodeCosts;
+        }
+
+        public List<NamespaceCostAllocation> getNamespaceCosts() {
+            return namespaceCosts;
+        }
+
+        public void setNamespaceCosts(List<NamespaceCostAllocation> namespaceCosts) {
+            this.namespaceCosts = namespaceCosts;
+        }
+
+        public List<WorkloadCostAllocation> getWorkloadCosts() {
+            return workloadCosts;
+        }
+
+        public void setWorkloadCosts(List<WorkloadCostAllocation> workloadCosts) {
+            this.workloadCosts = workloadCosts;
         }
     }
 
@@ -805,6 +1027,13 @@ public class EksCompleteDashboardDto {
             private Integer unavailable;
             private Integer updated;
             private Double healthScore;
+            // P1: Resource usage summary for workloads
+            private Double cpuUsageMillicores;
+            private Double memoryUsageMb;
+            private Double cpuRequestMillicores;
+            private Double memoryRequestMb;
+            private Integer replicas;
+            private Integer readyReplicas;
 
             // Getters and Setters
             public String getName() {
@@ -862,6 +1091,54 @@ public class EksCompleteDashboardDto {
             public void setHealthScore(Double healthScore) {
                 this.healthScore = healthScore;
             }
+
+            public Double getCpuUsageMillicores() {
+                return cpuUsageMillicores;
+            }
+
+            public void setCpuUsageMillicores(Double cpuUsageMillicores) {
+                this.cpuUsageMillicores = cpuUsageMillicores;
+            }
+
+            public Double getMemoryUsageMb() {
+                return memoryUsageMb;
+            }
+
+            public void setMemoryUsageMb(Double memoryUsageMb) {
+                this.memoryUsageMb = memoryUsageMb;
+            }
+
+            public Double getCpuRequestMillicores() {
+                return cpuRequestMillicores;
+            }
+
+            public void setCpuRequestMillicores(Double cpuRequestMillicores) {
+                this.cpuRequestMillicores = cpuRequestMillicores;
+            }
+
+            public Double getMemoryRequestMb() {
+                return memoryRequestMb;
+            }
+
+            public void setMemoryRequestMb(Double memoryRequestMb) {
+                this.memoryRequestMb = memoryRequestMb;
+            }
+
+            public Integer getReplicas() {
+                return replicas;
+            }
+
+            public void setReplicas(Integer replicas) {
+                this.replicas = replicas;
+            }
+
+            public Integer getReadyReplicas() {
+                return readyReplicas;
+            }
+
+            public void setReadyReplicas(Integer readyReplicas) {
+                this.readyReplicas = readyReplicas;
+            }
         }
 
         public static class DaemonsetHealth {
@@ -871,6 +1148,11 @@ public class EksCompleteDashboardDto {
             private Integer ready;
             private Integer unavailable;
             private Double healthScore;
+            // P1: Resource usage summary for workloads
+            private Double cpuUsageMillicores;
+            private Double memoryUsageMb;
+            private Integer currentNumberScheduled;
+            private Integer numberReady;
 
             // Getters and Setters
             public String getName() {
@@ -919,6 +1201,38 @@ public class EksCompleteDashboardDto {
 
             public void setHealthScore(Double healthScore) {
                 this.healthScore = healthScore;
+            }
+
+            public Double getCpuUsageMillicores() {
+                return cpuUsageMillicores;
+            }
+
+            public void setCpuUsageMillicores(Double cpuUsageMillicores) {
+                this.cpuUsageMillicores = cpuUsageMillicores;
+            }
+
+            public Double getMemoryUsageMb() {
+                return memoryUsageMb;
+            }
+
+            public void setMemoryUsageMb(Double memoryUsageMb) {
+                this.memoryUsageMb = memoryUsageMb;
+            }
+
+            public Integer getCurrentNumberScheduled() {
+                return currentNumberScheduled;
+            }
+
+            public void setCurrentNumberScheduled(Integer currentNumberScheduled) {
+                this.currentNumberScheduled = currentNumberScheduled;
+            }
+
+            public Integer getNumberReady() {
+                return numberReady;
+            }
+
+            public void setNumberReady(Integer numberReady) {
+                this.numberReady = numberReady;
             }
         }
 
