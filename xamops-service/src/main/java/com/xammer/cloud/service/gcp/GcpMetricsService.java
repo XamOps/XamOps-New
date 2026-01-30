@@ -36,6 +36,202 @@ public class GcpMetricsService {
         return getTimeSeriesData(gcpProjectId, metricType, resourceFilter, aligner, reducer, 24, 3600, asPercentage);
     }
 
+    /**
+     * Get average CPU utilization for Compute Engine instance over last N days
+     */
+    public Double getAverageCpuUtilization(String gcpProjectId, String instanceId, int lookbackDays) {
+        try {
+            String metricType = "compute.googleapis.com/instance/cpu/utilization";
+            String resourceFilter = String.format("resource.labels.instance_id = \"%s\"", instanceId);
+            Aggregation.Aligner aligner = Aggregation.Aligner.ALIGN_MEAN;
+            Aggregation.Reducer reducer = Aggregation.Reducer.REDUCE_NONE;
+            boolean asPercentage = true;
+
+            List<GcpMetricDto> metrics = getTimeSeriesData(gcpProjectId, metricType, resourceFilter,
+                aligner, reducer, lookbackDays * 24, 3600, asPercentage);
+
+            if (metrics.isEmpty()) {
+                return null;
+            }
+
+            return metrics.stream()
+                .mapToDouble(GcpMetricDto::getValue)
+                .average()
+                .orElse(0.0);
+        } catch (Exception e) {
+            log.error("Failed to get average CPU utilization for instance {}: {}", instanceId, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Get max CPU utilization for Compute Engine instance over last N days
+     */
+    public Double getMaxCpuUtilization(String gcpProjectId, String instanceId, int lookbackDays) {
+        try {
+            String metricType = "compute.googleapis.com/instance/cpu/utilization";
+            String resourceFilter = String.format("resource.labels.instance_id = \"%s\"", instanceId);
+            Aggregation.Aligner aligner = Aggregation.Aligner.ALIGN_MAX;
+            Aggregation.Reducer reducer = Aggregation.Reducer.REDUCE_NONE;
+            boolean asPercentage = true;
+
+            List<GcpMetricDto> metrics = getTimeSeriesData(gcpProjectId, metricType, resourceFilter,
+                aligner, reducer, lookbackDays * 24, 3600, asPercentage);
+
+            if (metrics.isEmpty()) {
+                return null;
+            }
+
+            return metrics.stream()
+                .mapToDouble(GcpMetricDto::getValue)
+                .max()
+                .orElse(0.0);
+        } catch (Exception e) {
+            log.error("Failed to get max CPU utilization for instance {}: {}", instanceId, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Get average Memory utilization for Compute Engine instance over last N days
+     */
+    public Double getAverageMemoryUtilization(String gcpProjectId, String instanceId, int lookbackDays) {
+        try {
+            String metricType = "compute.googleapis.com/instance/memory/percent_used";
+            String resourceFilter = String.format("resource.labels.instance_id = \"%s\"", instanceId);
+            Aggregation.Aligner aligner = Aggregation.Aligner.ALIGN_MEAN;
+            Aggregation.Reducer reducer = Aggregation.Reducer.REDUCE_NONE;
+            boolean asPercentage = false; // Already in percentage
+
+            List<GcpMetricDto> metrics = getTimeSeriesData(gcpProjectId, metricType, resourceFilter,
+                aligner, reducer, lookbackDays * 24, 3600, asPercentage);
+
+            if (metrics.isEmpty()) {
+                return null;
+            }
+
+            return metrics.stream()
+                .mapToDouble(GcpMetricDto::getValue)
+                .average()
+                .orElse(0.0);
+        } catch (Exception e) {
+            log.error("Failed to get average memory utilization for instance {}: {}", instanceId, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Get Cloud SQL CPU utilization over last N days
+     */
+    public Double getCloudSqlAverageCpuUtilization(String gcpProjectId, String instanceName, int lookbackDays) {
+        try {
+            String metricType = "cloudsql.googleapis.com/database/cpu/utilization";
+            String resourceFilter = String.format("resource.labels.database_id = \"%s:%s\"", gcpProjectId, instanceName);
+            Aggregation.Aligner aligner = Aggregation.Aligner.ALIGN_MEAN;
+            Aggregation.Reducer reducer = Aggregation.Reducer.REDUCE_NONE;
+            boolean asPercentage = true; // Convert to percentage
+
+            List<GcpMetricDto> metrics = getTimeSeriesData(gcpProjectId, metricType, resourceFilter,
+                aligner, reducer, lookbackDays * 24, 3600, asPercentage);
+
+            if (metrics.isEmpty()) {
+                return null;
+            }
+
+            return metrics.stream()
+                .mapToDouble(GcpMetricDto::getValue)
+                .average()
+                .orElse(0.0);
+        } catch (Exception e) {
+            log.error("Failed to get average CPU utilization for Cloud SQL instance {}: {}", instanceName, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Get Cloud SQL max CPU utilization over last N days
+     */
+    public Double getCloudSqlMaxCpuUtilization(String gcpProjectId, String instanceName, int lookbackDays) {
+        try {
+            String metricType = "cloudsql.googleapis.com/database/cpu/utilization";
+            String resourceFilter = String.format("resource.labels.database_id = \"%s:%s\"", gcpProjectId, instanceName);
+            Aggregation.Aligner aligner = Aggregation.Aligner.ALIGN_MAX;
+            Aggregation.Reducer reducer = Aggregation.Reducer.REDUCE_NONE;
+            boolean asPercentage = true; // Convert to percentage
+
+            List<GcpMetricDto> metrics = getTimeSeriesData(gcpProjectId, metricType, resourceFilter,
+                aligner, reducer, lookbackDays * 24, 3600, asPercentage);
+
+            if (metrics.isEmpty()) {
+                return null;
+            }
+
+            return metrics.stream()
+                .mapToDouble(GcpMetricDto::getValue)
+                .max()
+                .orElse(0.0);
+        } catch (Exception e) {
+            log.error("Failed to get max CPU utilization for Cloud SQL instance {}: {}", instanceName, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Get Cloud SQL average memory utilization over last N days
+     */
+    public Double getCloudSqlAverageMemoryUtilization(String gcpProjectId, String instanceName, int lookbackDays) {
+        try {
+            String metricType = "cloudsql.googleapis.com/database/memory/utilization";
+            String resourceFilter = String.format("resource.labels.database_id = \"%s:%s\"", gcpProjectId, instanceName);
+            Aggregation.Aligner aligner = Aggregation.Aligner.ALIGN_MEAN;
+            Aggregation.Reducer reducer = Aggregation.Reducer.REDUCE_NONE;
+            boolean asPercentage = true; // Convert to percentage
+
+            List<GcpMetricDto> metrics = getTimeSeriesData(gcpProjectId, metricType, resourceFilter,
+                aligner, reducer, lookbackDays * 24, 3600, asPercentage);
+
+            if (metrics.isEmpty()) {
+                return null;
+            }
+
+            return metrics.stream()
+                .mapToDouble(GcpMetricDto::getValue)
+                .average()
+                .orElse(0.0);
+        } catch (Exception e) {
+            log.error("Failed to get average memory utilization for Cloud SQL instance {}: {}", instanceName, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Get Cloud SQL max memory utilization over last N days
+     */
+    public Double getCloudSqlMaxMemoryUtilization(String gcpProjectId, String instanceName, int lookbackDays) {
+        try {
+            String metricType = "cloudsql.googleapis.com/database/memory/utilization";
+            String resourceFilter = String.format("resource.labels.database_id = \"%s:%s\"", gcpProjectId, instanceName);
+            Aggregation.Aligner aligner = Aggregation.Aligner.ALIGN_MAX;
+            Aggregation.Reducer reducer = Aggregation.Reducer.REDUCE_NONE;
+            boolean asPercentage = true; // Convert to percentage
+
+            List<GcpMetricDto> metrics = getTimeSeriesData(gcpProjectId, metricType, resourceFilter,
+                aligner, reducer, lookbackDays * 24, 3600, asPercentage);
+
+            if (metrics.isEmpty()) {
+                return null;
+            }
+
+            return metrics.stream()
+                .mapToDouble(GcpMetricDto::getValue)
+                .max()
+                .orElse(0.0);
+        } catch (Exception e) {
+            log.error("Failed to get max memory utilization for Cloud SQL instance {}: {}", instanceName, e.getMessage());
+            return null;
+        }
+    }
+
     public List<GcpMetricDto> getCloudSqlConnections(String gcpProjectId, String instanceName) throws IOException {
         String metricType = "cloudsql.googleapis.com/database/network/connections";
         // Cloud SQL instance IDs are typically project_id:instance_name

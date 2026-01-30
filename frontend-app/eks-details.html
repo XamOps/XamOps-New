@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
   <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js/dist/chart.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+  <script type="module" src="/src/main.js"></script>
   <!-- Usability Improvements -->
   <link rel="stylesheet" href="/src/usability-improvements.css">
   <script type="module" src="/src/usability-utils.js"></script>
@@ -777,12 +777,12 @@
                   Cost Today
                 </p>
                 <p class="text-2xl font-bold text-gray-900"
-                  x-text="`$${(dashboard?.costMetrics?.dailyCost || 0).toFixed(2)}`">
+                  x-text="`$${getOpenCostDailyCost().toFixed(2)}`">
                   $127.45
                 </p>
                 <p class="text-xs text-gray-500 font-medium mt-1">
                   Monthly: <span class="text-gray-900 font-bold"
-                    x-text="`$${((dashboard?.costMetrics?.dailyCost || 0) * 30).toFixed(2)}`">$3,823</span>
+                    x-text="`$${getOpenCostMonthlyCost().toFixed(2)}`">$3,823</span>
                 </p>
               </div>
 
@@ -802,7 +802,7 @@
                   <span x-show="getCostEfficiency() >= 70">Optimized</span>
                   <span x-show="getCostEfficiency() >= 50 && getCostEfficiency() < 70">
                     Save $<span
-                      x-text="((dashboard?.costMetrics?.dailyCost || 0) * (getIdleCostPercentage() / 100)).toFixed(2)"></span>/day
+                      x-text="getOpenCostIdleCost().toFixed(2)"></span>/day
                   </span>
                   <span x-show="getCostEfficiency() < 50">High waste</span>
                 </p>
@@ -836,10 +836,12 @@
                     <i class="fas fa-server text-blue-600 text-lg"></i>
                   </div>
                 </div>
-                <h3 class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">Active Nodes</h3>
-                <p class="text-2xl font-black text-gray-900 mb-1" x-text="dashboard?.clusterOverview?.totalNodes || 0">2
+                <h3 class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">Ready Nodes</h3>
+                <p class="text-2xl font-black text-gray-900 mb-1" x-text="getNodeConditionCount('ready')">2
                 </p>
-                <div class="text-xs text-gray-600">Compute resources</div>
+                <div class="text-xs text-gray-600">
+                  <span x-text="dashboard?.clusterOverview?.totalNodes || 0"></span> total
+                </div>
               </div>
 
               <!-- PODS CARD -->
@@ -850,10 +852,11 @@
                     <i class="fas fa-cubes text-purple-600 text-lg"></i>
                   </div>
                 </div>
-                <h3 class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">Total Pods</h3>
-                <p class="text-2xl font-black text-gray-900 mb-1" x-text="getTotalPodsCount()">28
+                <h3 class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">Running Pods</h3>
+                <p class="text-2xl font-black text-gray-900 mb-1" x-text="getPodsCountByPhase('Running')">28
                 </p>
                 <div class="text-xs text-gray-600">
+                  <span x-text="getTotalPodsCount()"></span> total |
                   <span class="font-semibold text-gray-900"
                     x-text="dashboard?.clusterOverview?.totalNamespaces || 0">8</span> namespaces
                 </div>
@@ -914,8 +917,7 @@
                   <i class="fas fa-tachometer-alt mr-1.5"></i>
                   Overview
                 </button>
-                <button @click="activeTab = 'cost'" class="tab-button"
-                  :class="{'active': activeTab === 'cost'}">
+                <button @click="activeTab = 'cost'" class="tab-button" :class="{'active': activeTab === 'cost'}">
                   <i class="fas fa-dollar-sign mr-1.5"></i>
                   Cost
                 </button>
@@ -934,8 +936,7 @@
                   <i class="fas fa-cubes mr-1.5"></i>
                   Workloads
                 </button>
-                <button @click="activeTab = 'pods'" class="tab-button"
-                  :class="{'active': activeTab === 'pods'}">
+                <button @click="activeTab = 'pods'" class="tab-button" :class="{'active': activeTab === 'pods'}">
                   <i class="fas fa-box mr-1.5"></i>
                   Pods
                 </button>
@@ -944,8 +945,7 @@
                   <i class="fas fa-layer-group mr-1.5"></i>
                   Containers
                 </button>
-                <button @click="activeTab = 'nodes'" class="tab-button"
-                  :class="{'active': activeTab === 'nodes'}">
+                <button @click="activeTab = 'nodes'" class="tab-button" :class="{'active': activeTab === 'nodes'}">
                   <i class="fas fa-server mr-1.5"></i>
                   Nodes
                 </button>
@@ -1165,11 +1165,11 @@
                   <div class="p-6 bg-gradient-to-br from-blue-50 to-white rounded-xl border-2 border-blue-100">
                     <h4 class="text-sm font-semibold text-blue-600 uppercase tracking-wide mb-2">Today's Spend</h4>
                     <p class="text-5xl font-black text-gray-900 mb-2"
-                      x-text="`$${(dashboard?.costMetrics?.dailyCost || 0).toFixed(2)}`">$3.00</p>
+                      x-text="`$${getOpenCostDailyCost().toFixed(2)}`">$3.00</p>
                     <div class="flex items-center gap-2 text-sm">
                       <span class="text-gray-600">Monthly:</span>
                       <span class="font-bold text-gray-900"
-                        x-text="`$${((dashboard?.costMetrics?.dailyCost || 0) * 30).toFixed(2)}`">$89.86</span>
+                        x-text="`$${getOpenCostMonthlyCost().toFixed(2)}`">$89.86</span>
                     </div>
                   </div>
 
@@ -1201,11 +1201,100 @@
                   </div>
                 </div>
 
+                <!-- Cost by Resource Breakdown -->
+                <div x-show="isOpenCostEnabled()" class="bg-gray-50 rounded-xl p-6 mb-6">
+                  <h4 class="font-bold text-gray-900 mb-4 flex items-center gap-2">
+                    <i class="fas fa-chart-pie text-indigo-500"></i>
+                    Cost by Resource Type
+                  </h4>
+                  <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                    <div class="bg-white rounded-lg p-4 border border-blue-100">
+                      <div class="flex items-center gap-2 mb-2">
+                        <i class="fas fa-microchip text-blue-500"></i>
+                        <span class="text-xs font-semibold text-gray-600 uppercase">CPU</span>
+                      </div>
+                      <p class="text-xl font-bold text-gray-900" x-text="`$${getCostBreakdown().cpu.toFixed(2)}`">$0.00</p>
+                    </div>
+                    <div class="bg-white rounded-lg p-4 border border-purple-100">
+                      <div class="flex items-center gap-2 mb-2">
+                        <i class="fas fa-memory text-purple-500"></i>
+                        <span class="text-xs font-semibold text-gray-600 uppercase">RAM</span>
+                      </div>
+                      <p class="text-xl font-bold text-gray-900" x-text="`$${getCostBreakdown().ram.toFixed(2)}`">$0.00</p>
+                    </div>
+                    <div class="bg-white rounded-lg p-4 border border-green-100">
+                      <div class="flex items-center gap-2 mb-2">
+                        <i class="fas fa-hdd text-green-500"></i>
+                        <span class="text-xs font-semibold text-gray-600 uppercase">Storage</span>
+                      </div>
+                      <p class="text-xl font-bold text-gray-900" x-text="`$${getCostBreakdown().storage.toFixed(2)}`">$0.00</p>
+                    </div>
+                    <div class="bg-white rounded-lg p-4 border border-amber-100">
+                      <div class="flex items-center gap-2 mb-2">
+                        <i class="fas fa-network-wired text-amber-500"></i>
+                        <span class="text-xs font-semibold text-gray-600 uppercase">Network</span>
+                      </div>
+                      <p class="text-xl font-bold text-gray-900" x-text="`$${getCostBreakdown().network.toFixed(2)}`">$0.00</p>
+                    </div>
+                    <div class="bg-white rounded-lg p-4 border border-cyan-100">
+                      <div class="flex items-center gap-2 mb-2">
+                        <i class="fas fa-balance-scale text-cyan-500"></i>
+                        <span class="text-xs font-semibold text-gray-600 uppercase">Load Balancer</span>
+                      </div>
+                      <p class="text-xl font-bold text-gray-900" x-text="`$${getCostBreakdown().loadBalancer.toFixed(2)}`">$0.00</p>
+                    </div>
+                    <div class="bg-white rounded-lg p-4 border border-red-100">
+                      <div class="flex items-center gap-2 mb-2">
+                        <i class="fas fa-bolt text-red-500"></i>
+                        <span class="text-xs font-semibold text-gray-600 uppercase">GPU</span>
+                      </div>
+                      <p class="text-xl font-bold text-gray-900" x-text="`$${getCostBreakdown().gpu.toFixed(2)}`">$0.00</p>
+                    </div>
+                  </div>
+                  <!-- Efficiency metrics -->
+                  <div class="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="bg-white rounded-lg p-4 border border-gray-200">
+                      <div class="flex items-center justify-between">
+                        <span class="text-sm font-semibold text-gray-600">CPU Efficiency</span>
+                        <span class="text-lg font-bold"
+                          :class="getOpenCostCpuEfficiency() >= 70 ? 'text-green-600' : getOpenCostCpuEfficiency() >= 40 ? 'text-amber-600' : 'text-red-600'"
+                          x-text="`${getOpenCostCpuEfficiency().toFixed(1)}%`">0%</span>
+                      </div>
+                      <div class="mt-2 w-full bg-gray-200 rounded-full h-2">
+                        <div class="h-2 rounded-full transition-all duration-500"
+                          :class="getOpenCostCpuEfficiency() >= 70 ? 'bg-green-500' : getOpenCostCpuEfficiency() >= 40 ? 'bg-amber-500' : 'bg-red-500'"
+                          :style="`width: ${Math.min(100, getOpenCostCpuEfficiency())}%`"></div>
+                      </div>
+                    </div>
+                    <div class="bg-white rounded-lg p-4 border border-gray-200">
+                      <div class="flex items-center justify-between">
+                        <span class="text-sm font-semibold text-gray-600">RAM Efficiency</span>
+                        <span class="text-lg font-bold"
+                          :class="getOpenCostRamEfficiency() >= 70 ? 'text-green-600' : getOpenCostRamEfficiency() >= 40 ? 'text-amber-600' : 'text-red-600'"
+                          x-text="`${getOpenCostRamEfficiency().toFixed(1)}%`">0%</span>
+                      </div>
+                      <div class="mt-2 w-full bg-gray-200 rounded-full h-2">
+                        <div class="h-2 rounded-full transition-all duration-500"
+                          :class="getOpenCostRamEfficiency() >= 70 ? 'bg-green-500' : getOpenCostRamEfficiency() >= 40 ? 'bg-amber-500' : 'bg-red-500'"
+                          :style="`width: ${Math.min(100, getOpenCostRamEfficiency())}%`"></div>
+                      </div>
+                    </div>
+                    <div class="bg-white rounded-lg p-4 border border-gray-200">
+                      <div class="flex items-center justify-between">
+                        <span class="text-sm font-semibold text-gray-600">Idle Cost</span>
+                        <span class="text-lg font-bold text-amber-600" x-text="`$${getOpenCostIdleCost().toFixed(2)}/day`">$0/day</span>
+                      </div>
+                      <p class="text-xs text-gray-500 mt-1">Resources allocated but unused</p>
+                    </div>
+                  </div>
+                </div>
+
                 <!-- Cost Breakdown Table -->
                 <div class="bg-gray-50 rounded-xl p-6">
                   <h4 class="font-bold text-gray-900 mb-4 flex items-center gap-2">
                     <i class="fas fa-server text-blue-500"></i>
                     Node Cost Breakdown
+                    <span class="text-sm font-normal text-gray-500" x-text="`(${getNodeCosts().length} active nodes)`"></span>
                   </h4>
                   <div class="overflow-x-auto">
                     <table class="w-full">
@@ -1213,6 +1302,9 @@
                         <tr class="border-b-2 border-gray-200">
                           <th class="text-left py-3 px-4 text-xs font-bold text-gray-600 uppercase">Node</th>
                           <th class="text-left py-3 px-4 text-xs font-bold text-gray-600 uppercase">Instance Type</th>
+                          <th class="text-left py-3 px-4 text-xs font-bold text-gray-600 uppercase">Capacity</th>
+                          <th class="text-right py-3 px-4 text-xs font-bold text-gray-600 uppercase">CPU Eff</th>
+                          <th class="text-right py-3 px-4 text-xs font-bold text-gray-600 uppercase">RAM Eff</th>
                           <th class="text-right py-3 px-4 text-xs font-bold text-gray-600 uppercase">$/Hour</th>
                           <th class="text-right py-3 px-4 text-xs font-bold text-gray-600 uppercase">$/Day</th>
                           <th class="text-left py-3 px-4 text-xs font-bold text-gray-600 uppercase">Status</th>
@@ -1221,24 +1313,369 @@
                       <tbody>
                         <template x-for="node in getSortedNodesByCost()" :key="node.nodeName">
                           <tr class="border-b border-gray-100 hover:bg-white transition-colors">
-                            <td class="py-3 px-4 font-mono text-sm text-gray-900" x-text="node.nodeName">node-1</td>
-                            <td class="py-3 px-4 text-sm text-gray-600" x-text="node.instanceType">t3.medium</td>
+                            <td class="py-3 px-4">
+                              <div class="font-mono text-sm text-gray-900" x-text="node.nodeName">node-1</div>
+                              <div class="text-xs text-gray-500" x-text="node.nodeGroupName || '-'">-</div>
+                            </td>
+                            <td class="py-3 px-4 text-sm text-gray-600 font-medium" x-text="node.instanceType || 'Unknown'">t3.medium</td>
+                            <td class="py-3 px-4">
+                              <span class="px-2 py-1 rounded-full text-xs font-bold"
+                                :class="node.capacityType === 'spot' ? 'bg-purple-100 text-purple-700' : node.capacityType === 'fargate' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'"
+                                x-text="(node.capacityType || 'on-demand').toUpperCase()">ON-DEMAND</span>
+                            </td>
+                            <td class="py-3 px-4 text-right">
+                              <span class="text-sm font-semibold"
+                                :class="(node.cpuEfficiency || node.cpuUsagePercent || 0) >= 60 ? 'text-green-600' : (node.cpuEfficiency || node.cpuUsagePercent || 0) >= 30 ? 'text-amber-600' : 'text-red-600'"
+                                x-text="`${(node.cpuEfficiency || node.cpuUsagePercent || 0).toFixed(0)}%`">0%</span>
+                            </td>
+                            <td class="py-3 px-4 text-right">
+                              <span class="text-sm font-semibold"
+                                :class="(node.ramEfficiency || node.memoryUsagePercent || 0) >= 60 ? 'text-green-600' : (node.ramEfficiency || node.memoryUsagePercent || 0) >= 30 ? 'text-amber-600' : 'text-red-600'"
+                                x-text="`${(node.ramEfficiency || node.memoryUsagePercent || 0).toFixed(0)}%`">0%</span>
+                            </td>
                             <td class="py-3 px-4 text-right font-semibold text-gray-900"
                               x-text="`$${(node.hourlyRate || 0).toFixed(4)}`">$0.0416</td>
                             <td class="py-3 px-4 text-right font-bold text-gray-900"
                               x-text="`$${(node.dailyCost || 0).toFixed(2)}`">$1.00</td>
                             <td class="py-3 px-4">
                               <span class="px-2 py-1 rounded-full text-xs font-bold"
-                                :class="node.cpuUsagePercent < 40 ? 'bg-red-100 text-red-700' : node.cpuUsagePercent < 70 ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'">
-                                <span x-show="node.cpuUsagePercent < 40">Underutilized</span>
-                                <span x-show="node.cpuUsagePercent >= 40 && node.cpuUsagePercent < 70">Moderate</span>
-                                <span x-show="node.cpuUsagePercent >= 70">Optimal</span>
+                                :class="((node.cpuEfficiency || node.cpuUsagePercent || 0) + (node.ramEfficiency || node.memoryUsagePercent || 0)) / 2 < 30 ? 'bg-red-100 text-red-700' : ((node.cpuEfficiency || node.cpuUsagePercent || 0) + (node.ramEfficiency || node.memoryUsagePercent || 0)) / 2 < 60 ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'">
+                                <span x-show="((node.cpuEfficiency || node.cpuUsagePercent || 0) + (node.ramEfficiency || node.memoryUsagePercent || 0)) / 2 < 30">Rightsize</span>
+                                <span x-show="((node.cpuEfficiency || node.cpuUsagePercent || 0) + (node.ramEfficiency || node.memoryUsagePercent || 0)) / 2 >= 30 && ((node.cpuEfficiency || node.cpuUsagePercent || 0) + (node.ramEfficiency || node.memoryUsagePercent || 0)) / 2 < 60">Moderate</span>
+                                <span x-show="((node.cpuEfficiency || node.cpuUsagePercent || 0) + (node.ramEfficiency || node.memoryUsagePercent || 0)) / 2 >= 60">Optimal</span>
                               </span>
                             </td>
                           </tr>
                         </template>
                       </tbody>
                     </table>
+                  </div>
+                </div>
+
+                <!-- P2: Namespace Cost Allocation -->
+                <div class="bg-gray-50 rounded-xl p-6 mt-6">
+                  <h4 class="font-bold text-gray-900 mb-4 flex items-center gap-2">
+                    <i class="fas fa-layer-group text-purple-500"></i>
+                    Cost by Namespace
+                  </h4>
+                  <div class="overflow-x-auto">
+                    <table class="w-full">
+                      <thead>
+                        <tr class="border-b-2 border-gray-200">
+                          <th class="text-left py-3 px-4 text-xs font-bold text-gray-600 uppercase">Namespace</th>
+                          <th class="text-right py-3 px-4 text-xs font-bold text-gray-600 uppercase">CPU (mc)</th>
+                          <th class="text-right py-3 px-4 text-xs font-bold text-gray-600 uppercase">Memory (MB)</th>
+                          <th x-show="isOpenCostEnabled()" class="text-right py-3 px-4 text-xs font-bold text-gray-600 uppercase">Efficiency</th>
+                          <th class="text-right py-3 px-4 text-xs font-bold text-gray-600 uppercase">Cost %</th>
+                          <th class="text-right py-3 px-4 text-xs font-bold text-gray-600 uppercase">$/Day</th>
+                          <th class="text-right py-3 px-4 text-xs font-bold text-gray-600 uppercase">$/Month</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <template x-for="ns in getNamespaceCosts()" :key="ns.namespace">
+                          <tr class="border-b border-gray-100 hover:bg-white transition-colors">
+                            <td class="py-3 px-4 font-mono text-sm text-gray-900 font-semibold" x-text="ns.namespace">default</td>
+                            <td class="py-3 px-4 text-right text-sm text-gray-600" x-text="(ns.cpuUsageMillicores || 0).toFixed(1)">0</td>
+                            <td class="py-3 px-4 text-right text-sm text-gray-600" x-text="(ns.memoryUsageMb || 0).toFixed(1)">0</td>
+                            <td x-show="isOpenCostEnabled()" class="py-3 px-4 text-right">
+                              <span class="px-2 py-1 rounded-full text-xs font-bold"
+                                :class="(ns.totalEfficiency || 0) >= 70 ? 'bg-green-100 text-green-700' : (ns.totalEfficiency || 0) >= 40 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'"
+                                x-text="`${(ns.totalEfficiency || 0).toFixed(0)}%`">0%</span>
+                            </td>
+                            <td class="py-3 px-4 text-right">
+                              <div class="flex items-center justify-end gap-2">
+                                <div class="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
+                                  <div class="h-full bg-purple-500 rounded-full" :style="`width: ${Math.min(ns.costPercentage || 0, 100)}%`"></div>
+                                </div>
+                                <span class="text-sm font-semibold text-gray-700" x-text="`${(ns.costPercentage || 0).toFixed(1)}%`">0%</span>
+                              </div>
+                            </td>
+                            <td class="py-3 px-4 text-right font-semibold text-gray-900" x-text="`$${(ns.dailyCost || 0).toFixed(2)}`">$0.00</td>
+                            <td class="py-3 px-4 text-right font-bold text-gray-900" x-text="`$${(ns.monthlyCost || 0).toFixed(2)}`">$0.00</td>
+                          </tr>
+                        </template>
+                        <tr x-show="getNamespaceCosts().length === 0" class="border-b border-gray-100">
+                          <td colspan="7" class="py-6 text-center text-gray-500">
+                            <i class="fas fa-chart-pie text-gray-300 text-2xl mb-2"></i>
+                            <p class="text-sm">No namespace cost data available</p>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <!-- P2: Workload Cost Allocation - Split by Kind -->
+                <div class="bg-gray-50 rounded-xl p-6 mt-6">
+                  <h4 class="font-bold text-gray-900 mb-4 flex items-center gap-2">
+                    <i class="fas fa-cubes text-indigo-500"></i>
+                    Cost by Workload
+                    <span class="ml-2 text-xs font-normal text-gray-500" x-text="`(${getWorkloadCosts().length} workloads)`"></span>
+                  </h4>
+
+                  <!-- Top 5 Deployments -->
+                  <div class="mb-6">
+                    <h5 class="text-sm font-semibold text-blue-700 mb-3 flex items-center gap-2">
+                      <span class="px-2 py-1 bg-blue-100 rounded text-xs">Deployments</span>
+                      Top 5 by Cost
+                    </h5>
+                    <div class="overflow-x-auto">
+                      <table class="w-full">
+                        <thead>
+                          <tr class="border-b-2 border-gray-200">
+                            <th class="text-left py-2 px-3 text-xs font-bold text-gray-600 uppercase">Workload</th>
+                            <th class="text-left py-2 px-3 text-xs font-bold text-gray-600 uppercase">Namespace</th>
+                            <th class="text-right py-2 px-3 text-xs font-bold text-gray-600 uppercase">Pods</th>
+                            <th class="text-right py-2 px-3 text-xs font-bold text-gray-600 uppercase">CPU (mc)</th>
+                            <th class="text-right py-2 px-3 text-xs font-bold text-gray-600 uppercase">Memory (MB)</th>
+                            <th x-show="isOpenCostEnabled()" class="text-right py-2 px-3 text-xs font-bold text-gray-600 uppercase">Efficiency</th>
+                            <th class="text-right py-2 px-3 text-xs font-bold text-gray-600 uppercase">$/Day</th>
+                            <th class="text-right py-2 px-3 text-xs font-bold text-gray-600 uppercase">$/Month</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <template x-for="wl in getDeploymentCosts().slice(0, 5)" :key="wl.name + wl.namespace">
+                            <tr class="border-b border-gray-100 hover:bg-white transition-colors">
+                              <td class="py-2 px-3 font-mono text-sm text-gray-900 font-semibold" x-text="wl.name">workload</td>
+                              <td class="py-2 px-3 text-sm text-gray-600" x-text="wl.namespace || '-'">-</td>
+                              <td class="py-2 px-3 text-right text-sm text-gray-600" x-text="wl.replicas || 0">0</td>
+                              <td class="py-2 px-3 text-right text-sm text-gray-600" x-text="(wl.cpuUsageMillicores || 0).toFixed(1)">0</td>
+                              <td class="py-2 px-3 text-right text-sm text-gray-600" x-text="(wl.memoryUsageMb || 0).toFixed(1)">0</td>
+                              <td x-show="isOpenCostEnabled()" class="py-2 px-3 text-right">
+                                <span class="px-2 py-0.5 rounded-full text-xs font-bold"
+                                  :class="(wl.totalEfficiency || 0) >= 70 ? 'bg-green-100 text-green-700' : (wl.totalEfficiency || 0) >= 40 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'"
+                                  x-text="`${(wl.totalEfficiency || 0).toFixed(0)}%`">0%</span>
+                              </td>
+                              <td class="py-2 px-3 text-right font-semibold text-gray-900" x-text="`$${(wl.dailyCost || 0).toFixed(2)}`">$0.00</td>
+                              <td class="py-2 px-3 text-right font-bold text-blue-700" x-text="`$${(wl.monthlyCost || 0).toFixed(2)}`">$0.00</td>
+                            </tr>
+                          </template>
+                          <tr x-show="getDeploymentCosts().length === 0" class="border-b border-gray-100">
+                            <td colspan="8" class="py-4 text-center text-gray-500 text-sm">No Deployment data available</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <!-- Top 5 DaemonSets -->
+                  <div class="mb-6">
+                    <h5 class="text-sm font-semibold text-purple-700 mb-3 flex items-center gap-2">
+                      <span class="px-2 py-1 bg-purple-100 rounded text-xs">DaemonSets</span>
+                      Top 5 by Cost
+                    </h5>
+                    <div class="overflow-x-auto">
+                      <table class="w-full">
+                        <thead>
+                          <tr class="border-b-2 border-gray-200">
+                            <th class="text-left py-2 px-3 text-xs font-bold text-gray-600 uppercase">Workload</th>
+                            <th class="text-left py-2 px-3 text-xs font-bold text-gray-600 uppercase">Namespace</th>
+                            <th class="text-right py-2 px-3 text-xs font-bold text-gray-600 uppercase">Pods</th>
+                            <th class="text-right py-2 px-3 text-xs font-bold text-gray-600 uppercase">CPU (mc)</th>
+                            <th class="text-right py-2 px-3 text-xs font-bold text-gray-600 uppercase">Memory (MB)</th>
+                            <th x-show="isOpenCostEnabled()" class="text-right py-2 px-3 text-xs font-bold text-gray-600 uppercase">Efficiency</th>
+                            <th class="text-right py-2 px-3 text-xs font-bold text-gray-600 uppercase">$/Day</th>
+                            <th class="text-right py-2 px-3 text-xs font-bold text-gray-600 uppercase">$/Month</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <template x-for="wl in getDaemonSetCosts().slice(0, 5)" :key="wl.name + wl.namespace">
+                            <tr class="border-b border-gray-100 hover:bg-white transition-colors">
+                              <td class="py-2 px-3 font-mono text-sm text-gray-900 font-semibold" x-text="wl.name">workload</td>
+                              <td class="py-2 px-3 text-sm text-gray-600" x-text="wl.namespace || '-'">-</td>
+                              <td class="py-2 px-3 text-right text-sm text-gray-600" x-text="wl.replicas || 0">0</td>
+                              <td class="py-2 px-3 text-right text-sm text-gray-600" x-text="(wl.cpuUsageMillicores || 0).toFixed(1)">0</td>
+                              <td class="py-2 px-3 text-right text-sm text-gray-600" x-text="(wl.memoryUsageMb || 0).toFixed(1)">0</td>
+                              <td x-show="isOpenCostEnabled()" class="py-2 px-3 text-right">
+                                <span class="px-2 py-0.5 rounded-full text-xs font-bold"
+                                  :class="(wl.totalEfficiency || 0) >= 70 ? 'bg-green-100 text-green-700' : (wl.totalEfficiency || 0) >= 40 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'"
+                                  x-text="`${(wl.totalEfficiency || 0).toFixed(0)}%`">0%</span>
+                              </td>
+                              <td class="py-2 px-3 text-right font-semibold text-gray-900" x-text="`$${(wl.dailyCost || 0).toFixed(2)}`">$0.00</td>
+                              <td class="py-2 px-3 text-right font-bold text-purple-700" x-text="`$${(wl.monthlyCost || 0).toFixed(2)}`">$0.00</td>
+                            </tr>
+                          </template>
+                          <tr x-show="getDaemonSetCosts().length === 0" class="border-b border-gray-100">
+                            <td colspan="8" class="py-4 text-center text-gray-500 text-sm">No DaemonSet data available</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <!-- Top 5 StatefulSets (if any) -->
+                  <div x-show="getStatefulSetCosts().length > 0">
+                    <h5 class="text-sm font-semibold text-green-700 mb-3 flex items-center gap-2">
+                      <span class="px-2 py-1 bg-green-100 rounded text-xs">StatefulSets</span>
+                      Top 5 by Cost
+                    </h5>
+                    <div class="overflow-x-auto">
+                      <table class="w-full">
+                        <thead>
+                          <tr class="border-b-2 border-gray-200">
+                            <th class="text-left py-2 px-3 text-xs font-bold text-gray-600 uppercase">Workload</th>
+                            <th class="text-left py-2 px-3 text-xs font-bold text-gray-600 uppercase">Namespace</th>
+                            <th class="text-right py-2 px-3 text-xs font-bold text-gray-600 uppercase">Pods</th>
+                            <th class="text-right py-2 px-3 text-xs font-bold text-gray-600 uppercase">CPU (mc)</th>
+                            <th class="text-right py-2 px-3 text-xs font-bold text-gray-600 uppercase">Memory (MB)</th>
+                            <th x-show="isOpenCostEnabled()" class="text-right py-2 px-3 text-xs font-bold text-gray-600 uppercase">Efficiency</th>
+                            <th class="text-right py-2 px-3 text-xs font-bold text-gray-600 uppercase">$/Day</th>
+                            <th class="text-right py-2 px-3 text-xs font-bold text-gray-600 uppercase">$/Month</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <template x-for="wl in getStatefulSetCosts().slice(0, 5)" :key="wl.name + wl.namespace">
+                            <tr class="border-b border-gray-100 hover:bg-white transition-colors">
+                              <td class="py-2 px-3 font-mono text-sm text-gray-900 font-semibold" x-text="wl.name">workload</td>
+                              <td class="py-2 px-3 text-sm text-gray-600" x-text="wl.namespace || '-'">-</td>
+                              <td class="py-2 px-3 text-right text-sm text-gray-600" x-text="wl.replicas || 0">0</td>
+                              <td class="py-2 px-3 text-right text-sm text-gray-600" x-text="(wl.cpuUsageMillicores || 0).toFixed(1)">0</td>
+                              <td class="py-2 px-3 text-right text-sm text-gray-600" x-text="(wl.memoryUsageMb || 0).toFixed(1)">0</td>
+                              <td x-show="isOpenCostEnabled()" class="py-2 px-3 text-right">
+                                <span class="px-2 py-0.5 rounded-full text-xs font-bold"
+                                  :class="(wl.totalEfficiency || 0) >= 70 ? 'bg-green-100 text-green-700' : (wl.totalEfficiency || 0) >= 40 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'"
+                                  x-text="`${(wl.totalEfficiency || 0).toFixed(0)}%`">0%</span>
+                              </td>
+                              <td class="py-2 px-3 text-right font-semibold text-gray-900" x-text="`$${(wl.dailyCost || 0).toFixed(2)}`">$0.00</td>
+                              <td class="py-2 px-3 text-right font-bold text-green-700" x-text="`$${(wl.monthlyCost || 0).toFixed(2)}`">$0.00</td>
+                            </tr>
+                          </template>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <!-- No data message -->
+                  <div x-show="getWorkloadCosts().length === 0" class="py-6 text-center text-gray-500">
+                    <i class="fas fa-cubes text-gray-300 text-2xl mb-2"></i>
+                    <p class="text-sm" x-text="isOpenCostEnabled() ? 'OpenCost has no workload data yet' : 'No workload cost data available'">No workload cost data available</p>
+                  </div>
+                </div>
+
+                <!-- Cost Optimization Recommendations -->
+                <div x-show="isOpenCostEnabled() && getOptimizations().length > 0" class="bg-gradient-to-r from-amber-50 to-orange-50 rounded-xl p-6 mt-6 border border-amber-200">
+                  <h4 class="font-bold text-gray-900 mb-4 flex items-center gap-2">
+                    <i class="fas fa-lightbulb text-amber-500"></i>
+                    Cost Optimization Recommendations
+                    <span class="ml-2 px-2 py-0.5 bg-amber-100 text-amber-700 rounded text-xs font-bold"
+                      x-text="`${getOptimizations().length} FOUND`">0 FOUND</span>
+                    <span class="ml-auto text-sm font-normal text-amber-700">
+                      Potential savings: <span class="font-bold" x-text="`$${getTotalPotentialSavings().toFixed(2)}/month`">$0/month</span>
+                    </span>
+                  </h4>
+
+                  <div class="space-y-3">
+                    <template x-for="opt in getOptimizations().slice(0, 10)" :key="opt.resourceName + opt.type">
+                      <div class="bg-white rounded-lg p-4 border border-amber-100 shadow-sm">
+                        <div class="flex items-start justify-between">
+                          <div class="flex items-start gap-3">
+                            <!-- Severity Icon -->
+                            <div class="mt-0.5">
+                              <span x-show="opt.severity === 'HIGH'" class="flex h-6 w-6 items-center justify-center rounded-full bg-red-100">
+                                <i class="fas fa-exclamation text-red-600 text-xs"></i>
+                              </span>
+                              <span x-show="opt.severity === 'MEDIUM'" class="flex h-6 w-6 items-center justify-center rounded-full bg-amber-100">
+                                <i class="fas fa-exclamation text-amber-600 text-xs"></i>
+                              </span>
+                              <span x-show="opt.severity === 'LOW'" class="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100">
+                                <i class="fas fa-info text-blue-600 text-xs"></i>
+                              </span>
+                            </div>
+                            <div>
+                              <div class="flex items-center gap-2 mb-1">
+                                <span class="font-semibold text-gray-900" x-text="opt.resourceName">Resource</span>
+                                <span class="px-1.5 py-0.5 rounded text-xs font-medium"
+                                  :class="opt.resourceType === 'NODE' ? 'bg-blue-100 text-blue-700' : opt.resourceType === 'NAMESPACE' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-700'"
+                                  x-text="opt.resourceType">WORKLOAD</span>
+                                <span class="px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600"
+                                  x-text="opt.type.replace('_', ' ')">OVER PROVISIONED</span>
+                              </div>
+                              <p class="text-sm text-gray-600" x-text="opt.description">Description</p>
+                              <p class="text-xs text-gray-500 mt-1">
+                                <i class="fas fa-arrow-right text-amber-500 mr-1"></i>
+                                <span x-text="opt.recommendation">Recommendation</span>
+                              </p>
+                            </div>
+                          </div>
+                          <div class="text-right">
+                            <div class="text-lg font-bold text-green-600" x-text="`$${(opt.estimatedMonthlySavings || 0).toFixed(2)}`">$0</div>
+                            <div class="text-xs text-gray-500">per month</div>
+                            <div class="text-xs mt-1">
+                              <span class="px-1.5 py-0.5 rounded-full text-xs font-medium"
+                                :class="(opt.efficiency || 0) >= 70 ? 'bg-green-100 text-green-700' : (opt.efficiency || 0) >= 40 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'"
+                                x-text="`${(opt.efficiency || 0).toFixed(0)}% eff`">0% eff</span>
+                            </div>
+                          </div>
+                        </div>
+                        <!-- Resource Details (for workloads) -->
+                        <div x-show="opt.type === 'OVER_PROVISIONED'" class="mt-3 pt-3 border-t border-gray-100 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                          <div>
+                            <span class="text-gray-500">Current CPU:</span>
+                            <span class="font-medium text-gray-700" x-text="`${(opt.currentCpuRequest || 0).toFixed(0)}m`">0m</span>
+                          </div>
+                          <div>
+                            <span class="text-gray-500">Recommended:</span>
+                            <span class="font-medium text-green-600" x-text="`${(opt.recommendedCpuRequest || 0).toFixed(0)}m`">0m</span>
+                          </div>
+                          <div>
+                            <span class="text-gray-500">Current Mem:</span>
+                            <span class="font-medium text-gray-700" x-text="`${(opt.currentMemoryRequest || 0).toFixed(0)}Mi`">0Mi</span>
+                          </div>
+                          <div>
+                            <span class="text-gray-500">Recommended:</span>
+                            <span class="font-medium text-green-600" x-text="`${(opt.recommendedMemoryRequest || 0).toFixed(0)}Mi`">0Mi</span>
+                          </div>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+
+                  <!-- Summary -->
+                  <div class="mt-4 p-3 bg-white rounded-lg border border-amber-100 flex items-center justify-between">
+                    <div class="text-sm text-gray-600">
+                      <i class="fas fa-chart-line text-amber-500 mr-2"></i>
+                      Total potential monthly savings from <span class="font-semibold" x-text="getOptimizations().length">0</span> recommendations
+                    </div>
+                    <div class="text-xl font-bold text-green-600" x-text="`$${getTotalPotentialSavings().toFixed(2)}`">$0.00</div>
+                  </div>
+                </div>
+
+                <!-- No Optimizations Message - only show if truly well-optimized -->
+                <div x-show="isOpenCostEnabled() && getOptimizations().length === 0 && getCostEfficiency() >= 60" class="bg-green-50 rounded-xl p-6 mt-6 border border-green-200">
+                  <div class="flex items-center gap-3">
+                    <div class="flex h-10 w-10 items-center justify-center rounded-full bg-green-100">
+                      <i class="fas fa-check text-green-600"></i>
+                    </div>
+                    <div>
+                      <h4 class="font-semibold text-green-800">Resources are well-utilized</h4>
+                      <p class="text-sm text-green-600">Your cluster resources are running efficiently at <span x-text="`${getCostEfficiency()}%`"></span> efficiency. Keep monitoring for changes.</p>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Low efficiency but no OpenCost optimizations - show general advice -->
+                <div x-show="isOpenCostEnabled() && getOptimizations().length === 0 && getCostEfficiency() < 60" class="bg-amber-50 rounded-xl p-6 mt-6 border border-amber-200">
+                  <div class="flex items-center gap-3">
+                    <div class="flex h-10 w-10 items-center justify-center rounded-full bg-amber-100">
+                      <i class="fas fa-lightbulb text-amber-600"></i>
+                    </div>
+                    <div>
+                      <h4 class="font-semibold text-amber-800">Optimization opportunities may exist</h4>
+                      <p class="text-sm text-amber-600">Your cluster efficiency is at <span x-text="`${getCostEfficiency()}%`"></span>. Consider reviewing underutilized nodes in the table above, enabling cluster autoscaler, or right-sizing workload requests.</p>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- OpenCost not enabled message -->
+                <div x-show="!isOpenCostEnabled()" class="bg-blue-50 rounded-xl p-6 mt-6 border border-blue-200">
+                  <div class="flex items-center gap-3">
+                    <div class="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100">
+                      <i class="fas fa-info text-blue-600"></i>
+                    </div>
+                    <div>
+                      <h4 class="font-semibold text-blue-800">Enable OpenCost for detailed recommendations</h4>
+                      <p class="text-sm text-blue-600">Install OpenCost in your cluster to get detailed cost optimization recommendations, workload-level cost allocation, and efficiency insights.</p>
+                    </div>
                   </div>
                 </div>
               </section>
@@ -1355,13 +1792,28 @@
                             <h4 class="font-bold text-gray-900 truncate" x-text="deployment.name">deployment-name</h4>
                             <p class="text-xs text-gray-500 font-mono" x-text="deployment.namespace">namespace</p>
                           </div>
-                          <div class="flex flex-col items-center flex-shrink-0 ml-2">
-                            <div class="w-14 h-14 rounded-lg flex items-center justify-center"
+                          <div class="flex flex-col items-center flex-shrink-0 ml-2" x-data="{ showScoreInfo: false }">
+                            <div class="w-14 h-14 rounded-lg flex items-center justify-center relative"
                               :class="deployment.readyReplicas === deployment.replicas ? 'bg-green-100 text-green-600' : 'bg-amber-100 text-amber-600'">
                               <span class="text-xl font-black"
-                                x-text="(deployment.healthScore || 100).toFixed(0)">100</span>
+                                x-text="(deployment.healthScore || 0).toFixed(0)">100</span>
                             </div>
-                            <span class="text-[10px] text-gray-500 font-semibold mt-1 uppercase">Health Score</span>
+                            <div class="flex items-center gap-1 mt-1">
+                              <span class="text-[10px] text-gray-500 font-semibold uppercase">Health</span>
+                              <i @click="showScoreInfo = !showScoreInfo" class="fas fa-info-circle text-gray-400 text-xs cursor-pointer hover:text-indigo-500"></i>
+                            </div>
+                            <!-- Health Score Explanation Tooltip -->
+                            <div x-show="showScoreInfo" x-cloak @click.away="showScoreInfo = false"
+                              class="absolute right-0 top-16 w-64 bg-gray-900 text-white text-xs rounded-lg p-3 shadow-xl z-50">
+                              <div class="font-bold mb-1">Health Score Calculation</div>
+                              <p class="text-gray-300 leading-relaxed mb-2">Score = (Ready Replicas / Desired Replicas) × 100</p>
+                              <ul class="text-gray-300 space-y-1">
+                                <li><span class="text-green-400 font-bold">100:</span> All replicas ready</li>
+                                <li><span class="text-amber-400 font-bold">1-99:</span> Some replicas unavailable</li>
+                                <li><span class="text-red-400 font-bold">0:</span> No replicas ready</li>
+                              </ul>
+                              <div class="absolute -top-1 right-4 w-2 h-2 bg-gray-900 transform rotate-45"></div>
+                            </div>
                           </div>
                         </div>
 
@@ -1376,6 +1828,18 @@
                           <div class="h-full rounded-full transition-all duration-500"
                             :class="deployment.readyReplicas === deployment.replicas ? 'bg-gradient-to-r from-green-400 to-green-500' : 'bg-gradient-to-r from-amber-400 to-amber-500'"
                             :style="`width: ${deployment.replicas > 0 ? (deployment.readyReplicas / deployment.replicas * 100) : 0}%`">
+                          </div>
+                        </div>
+
+                        <!-- P1: Resource Usage Summary -->
+                        <div class="mt-3 pt-3 border-t border-gray-200 grid grid-cols-2 gap-2">
+                          <div class="text-center p-2 bg-white rounded-lg">
+                            <p class="text-xs text-gray-500 font-semibold">CPU</p>
+                            <p class="text-sm font-bold text-indigo-600" x-text="`${(deployment.cpuUsageMillicores || 0).toFixed(1)} mc`">0 mc</p>
+                          </div>
+                          <div class="text-center p-2 bg-white rounded-lg">
+                            <p class="text-xs text-gray-500 font-semibold">Memory</p>
+                            <p class="text-sm font-bold text-purple-600" x-text="`${(deployment.memoryUsageMb || 0).toFixed(1)} MB`">0 MB</p>
                           </div>
                         </div>
 
@@ -1420,13 +1884,29 @@
                             <h4 class="font-bold text-gray-900 truncate" x-text="daemonset.name">daemonset-name</h4>
                             <p class="text-xs text-gray-500 font-mono" x-text="daemonset.namespace">namespace</p>
                           </div>
-                          <div class="flex flex-col items-center flex-shrink-0 ml-2">
-                            <div class="w-14 h-14 rounded-lg flex items-center justify-center"
+                          <div class="flex flex-col items-center flex-shrink-0 ml-2" x-data="{ showScoreInfo: false }">
+                            <div class="w-14 h-14 rounded-lg flex items-center justify-center relative"
                               :class="daemonset.numberReady === daemonset.currentNumberScheduled ? 'bg-green-100 text-green-600' : 'bg-amber-100 text-amber-600'">
                               <span class="text-xl font-black"
-                                x-text="(daemonset.healthScore || 100).toFixed(0)">100</span>
+                                x-text="(daemonset.healthScore || 0).toFixed(0)">100</span>
                             </div>
-                            <span class="text-[10px] text-gray-500 font-semibold mt-1 uppercase">Health Score</span>
+                            <div class="flex items-center gap-1 mt-1">
+                              <span class="text-[10px] text-gray-500 font-semibold uppercase">Health</span>
+                              <i @click="showScoreInfo = !showScoreInfo" class="fas fa-info-circle text-gray-400 text-xs cursor-pointer hover:text-purple-500"></i>
+                            </div>
+                            <!-- Health Score Explanation Tooltip -->
+                            <div x-show="showScoreInfo" x-cloak @click.away="showScoreInfo = false"
+                              class="absolute right-0 top-16 w-64 bg-gray-900 text-white text-xs rounded-lg p-3 shadow-xl z-50">
+                              <div class="font-bold mb-1">Health Score Calculation</div>
+                              <p class="text-gray-300 leading-relaxed mb-2">Score = (Ready Pods / Scheduled Pods) × 100</p>
+                              <ul class="text-gray-300 space-y-1">
+                                <li><span class="text-green-400 font-bold">100:</span> All scheduled pods ready</li>
+                                <li><span class="text-amber-400 font-bold">1-99:</span> Some pods not ready</li>
+                                <li><span class="text-red-400 font-bold">0:</span> No pods ready</li>
+                              </ul>
+                              <p class="text-gray-400 text-xs mt-2 italic">DaemonSets run on every eligible node</p>
+                              <div class="absolute -top-1 right-4 w-2 h-2 bg-gray-900 transform rotate-45"></div>
+                            </div>
                           </div>
                         </div>
 
@@ -1441,6 +1921,18 @@
                           <div class="h-full rounded-full transition-all duration-500"
                             :class="daemonset.numberReady === daemonset.currentNumberScheduled ? 'bg-gradient-to-r from-purple-400 to-purple-500' : 'bg-gradient-to-r from-amber-400 to-amber-500'"
                             :style="`width: ${daemonset.currentNumberScheduled > 0 ? (daemonset.numberReady / daemonset.currentNumberScheduled * 100) : 0}%`">
+                          </div>
+                        </div>
+
+                        <!-- P1: Resource Usage Summary -->
+                        <div class="mt-3 pt-3 border-t border-gray-200 grid grid-cols-2 gap-2">
+                          <div class="text-center p-2 bg-white rounded-lg">
+                            <p class="text-xs text-gray-500 font-semibold">CPU</p>
+                            <p class="text-sm font-bold text-indigo-600" x-text="`${(daemonset.cpuUsageMillicores || 0).toFixed(1)} mc`">0 mc</p>
+                          </div>
+                          <div class="text-center p-2 bg-white rounded-lg">
+                            <p class="text-xs text-gray-500 font-semibold">Memory</p>
+                            <p class="text-sm font-bold text-purple-600" x-text="`${(daemonset.memoryUsageMb || 0).toFixed(1)} MB`">0 MB</p>
                           </div>
                         </div>
 
@@ -1518,10 +2010,24 @@
 
                 <!-- ✅ NEW: Pod Resource Details with Container-level Metrics -->
                 <div class="bg-white rounded-2xl shadow-lg p-8 border border-gray-100" x-data="{
-                selectedNamespace: 'kubescape',
+                selectedNamespace: 'all',
                 searchQuery: '',
                 sortBy: 'cpuUsage',
                 sortOrder: 'desc',
+                init() {
+                  // Watch for global pod filter changes (e.g., from container modal View Pod button)
+                  this.$watch('$root.podSearchFilter', (newVal) => {
+                    if (newVal) {
+                      this.searchQuery = newVal;
+                      this.selectedNamespace = 'all'; // Clear namespace filter to find the pod
+                    }
+                  });
+                  // Initialize from global filter if set
+                  if (this.$root.podSearchFilter) {
+                    this.searchQuery = this.$root.podSearchFilter;
+                    this.selectedNamespace = 'all';
+                  }
+                },
                 get filteredPods() {
                   let pods = dashboard?.podDetails || [];
 
@@ -1530,11 +2036,12 @@
                     pods = pods.filter(p => p.namespace === this.selectedNamespace);
                   }
 
-                  // Filter by search query
-                  if (this.searchQuery) {
+                  // Filter by search query (local or from global filter)
+                  const query = this.searchQuery || this.$root.podSearchFilter || '';
+                  if (query) {
                     pods = pods.filter(p =>
-                      p.name.toLowerCase().includes(this.searchQuery.toLowerCase()) ||
-                      p.namespace.toLowerCase().includes(this.searchQuery.toLowerCase())
+                      p.name.toLowerCase().includes(query.toLowerCase()) ||
+                      p.namespace.toLowerCase().includes(query.toLowerCase())
                     );
                   }
 
@@ -1875,7 +2382,7 @@
                       <div>
                         <div class="text-sm font-semibold text-gray-600 mb-2">Daily Cost</div>
                         <div class="text-4xl font-bold text-gray-900"
-                          x-text="'$' + (dashboard?.costMetrics?.dailyCost || 0).toFixed(2)"></div>
+                          x-text="'$' + getOpenCostDailyCost().toFixed(2)"></div>
                       </div>
                       <div class=" w-14 h-14 bg-green-100 rounded-xl flex items-center justify-center">
                         <i class="fas fa-calendar-day text-green-600 text-xl"></i>
@@ -1905,7 +2412,7 @@
                       <div>
                         <div class="text-sm font-semibold text-gray-600 mb-2">Monthly Projection</div>
                         <div class="text-4xl font-bold text-gray-900"
-                          x-text="'$' + (dashboard?.costMetrics?.monthlyCost || 0).toFixed(2)"></div>
+                          x-text="'$' + getOpenCostMonthlyCost().toFixed(2)"></div>
                       </div>
                       <div class="w-14 h-14 bg-blue-100 rounded-xl flex items-center justify-center">
                         <i class="fas fa-calendar-alt text-blue-600 text-xl"></i>
@@ -2437,40 +2944,90 @@
                     </div>
                   </div>
 
-                  <!-- Recent Alerts Table -->
+                  <!-- Recent Alerts with Detailed Information -->
                   <div class="mt-6 bg-gray-50 rounded-2xl p-6 border border-gray-100">
                     <h4 class="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
                       <i class="fas fa-list-ul text-red-600"></i>
-                      Recent Security Alerts
+                      Security Alerts
+                      <span class="ml-2 px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs font-bold">Click to expand</span>
                     </h4>
-                    <div class="overflow-x-auto">
-                      <table class="w-full">
-                        <thead>
-                          <tr class="border-b border-gray-200">
-                            <th class="text-left py-3 px-4 text-xs font-bold uppercase text-gray-600">Priority</th>
-                            <th class="text-left py-3 px-4 text-xs font-bold uppercase text-gray-600">Rule</th>
-                            <th class="text-left py-3 px-4 text-xs font-bold uppercase text-gray-600">Pod</th>
-                            <th class="text-left py-3 px-4 text-xs font-bold uppercase text-gray-600">Namespace</th>
-                            <th class="text-right py-3 px-4 text-xs font-bold uppercase text-gray-600">Count</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <template x-for="alert in getSortedAlertsByPriority().slice(0, 5)"
-                            :key="alert.rule + alert.pod">
-                            <tr class="border-b border-gray-100 hover:bg-white transition-colors">
-                              <td class="py-3 px-4">
-                                <span class="px-2 py-1 rounded-full text-xs font-bold" :class="alert.priority === 'CRITICAL' || alert.priority === '4' ? 'bg-red-100 text-red-700' :
-                                            alert.priority === 'WARNING' || alert.priority === '3' ? 'bg-orange-100 text-orange-700' :
-                                            'bg-blue-100 text-blue-700'" x-text="alert.priority">WARNING</span>
-                              </td>
-                              <td class="py-3 px-4 font-medium text-gray-900" x-text="alert.rule">Rule name</td>
-                              <td class="py-3 px-4 font-mono text-sm text-gray-600" x-text="alert.pod">pod-name</td>
-                              <td class="py-3 px-4 text-sm text-gray-600" x-text="alert.namespace">namespace</td>
-                              <td class="py-3 px-4 text-right font-bold text-gray-900" x-text="alert.count">1</td>
-                            </tr>
-                          </template>
-                        </tbody>
-                      </table>
+                    <div class="space-y-3">
+                      <template x-for="(alert, index) in getSortedAlertsByPriority().slice(0, 10)"
+                        :key="alert.rule + alert.pod + index">
+                        <div x-data="{ expanded: false }" class="bg-white rounded-xl border-2 transition-all"
+                             :class="expanded ? 'border-red-300 shadow-md' : 'border-gray-200 hover:border-red-200'">
+                          <!-- Alert Header -->
+                          <button @click="expanded = !expanded" class="w-full p-4 text-left flex items-center justify-between">
+                            <div class="flex items-center gap-4 flex-1 min-w-0">
+                              <span class="px-2.5 py-1 rounded-full text-xs font-bold flex-shrink-0" :class="alert.priority === 'CRITICAL' || alert.priority === '4' ? 'bg-red-100 text-red-700' :
+                                          alert.priority === 'WARNING' || alert.priority === '3' ? 'bg-orange-100 text-orange-700' :
+                                          'bg-blue-100 text-blue-700'" x-text="alert.priority">WARNING</span>
+                              <div class="flex-1 min-w-0">
+                                <p class="font-semibold text-gray-900 truncate" x-text="alert.rule">Rule name</p>
+                                <p class="text-xs text-gray-500 mt-0.5">
+                                  <span class="font-mono" x-text="alert.pod || 'N/A'">pod-name</span>
+                                  <span class="mx-1">|</span>
+                                  <span x-text="alert.namespace || 'N/A'">namespace</span>
+                                </p>
+                              </div>
+                            </div>
+                            <div class="flex items-center gap-3">
+                              <span class="px-2 py-1 bg-gray-100 rounded text-sm font-bold text-gray-700" x-text="alert.count + 'x'">1x</span>
+                              <i class="fas transition-transform text-gray-400" :class="expanded ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
+                            </div>
+                          </button>
+
+                          <!-- Expanded Details -->
+                          <div x-show="expanded" x-collapse class="border-t border-gray-200">
+                            <div class="p-4 space-y-4">
+                              <!-- Description -->
+                              <div class="bg-red-50 rounded-lg p-4 border border-red-100">
+                                <h5 class="text-sm font-bold text-red-800 mb-2 flex items-center gap-2">
+                                  <i class="fas fa-exclamation-triangle"></i>
+                                  What happened?
+                                </h5>
+                                <p class="text-sm text-red-700" x-text="getFalcoAlertDetails(alert.rule).description">
+                                  Alert description
+                                </p>
+                              </div>
+
+                              <!-- Impact -->
+                              <div class="bg-amber-50 rounded-lg p-4 border border-amber-100">
+                                <h5 class="text-sm font-bold text-amber-800 mb-2 flex items-center gap-2">
+                                  <i class="fas fa-bolt"></i>
+                                  Potential Impact
+                                </h5>
+                                <p class="text-sm text-amber-700" x-text="getFalcoAlertDetails(alert.rule).impact">
+                                  Impact description
+                                </p>
+                              </div>
+
+                              <!-- Recommendation -->
+                              <div class="bg-green-50 rounded-lg p-4 border border-green-100">
+                                <h5 class="text-sm font-bold text-green-800 mb-2 flex items-center gap-2">
+                                  <i class="fas fa-lightbulb"></i>
+                                  Recommendation
+                                </h5>
+                                <p class="text-sm text-green-700" x-text="getFalcoAlertDetails(alert.rule).recommendation">
+                                  Recommendation
+                                </p>
+                              </div>
+
+                              <!-- Quick Actions -->
+                              <div class="flex items-center gap-3 pt-2">
+                                <span class="text-xs text-gray-500">Affected:</span>
+                                <span class="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-mono" x-text="alert.namespace + '/' + alert.pod">ns/pod</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </template>
+
+                      <!-- Empty State -->
+                      <div x-show="!getSortedAlertsByPriority().length" class="text-center py-8 text-gray-500">
+                        <i class="fas fa-shield-check text-green-400 text-4xl mb-2"></i>
+                        <p>No security alerts detected</p>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -2937,6 +3494,114 @@
                       </table>
                     </div>
                   </div>
+
+                  <!-- P1: Detailed Vulnerability Information with CVE -->
+                  <div class="mt-6 bg-gray-50 rounded-2xl p-6 border border-gray-100"
+                    x-data="{ selectedWorkload: null, showVulnDetails: false }">
+                    <h4 class="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+                      <i class="fas fa-bug text-red-500"></i>
+                      Detailed Vulnerability Report
+                      <span class="ml-2 px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs font-bold">NEW</span>
+                    </h4>
+                    <p class="text-sm text-gray-600 mb-4">Click on a workload to view detailed CVE information</p>
+
+                    <!-- Workload Selector - Show all workloads with vulnerabilities -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
+                      <template x-for="workload in (dashboard?.trivy?.workloads || []).filter(w => ((w.critical || 0) + (w.high || 0) + (w.medium || 0) + (w.low || 0)) > 0).slice(0, 12)" :key="workload.name">
+                        <button @click="selectedWorkload = workload; showVulnDetails = true"
+                          class="p-4 rounded-xl border-2 text-left transition-all hover:shadow-md"
+                          :class="selectedWorkload?.name === workload.name ? 'border-red-400 bg-red-50' : 'border-gray-200 bg-white hover:border-red-200'">
+                          <div class="flex items-center justify-between mb-2">
+                            <span class="font-bold text-gray-900 truncate" x-text="workload.name">workload</span>
+                            <i class="fas fa-chevron-right text-gray-400"></i>
+                          </div>
+                          <p class="text-xs text-gray-500 font-mono truncate" x-text="`${workload.image || 'unknown'}:${workload.tag || 'latest'}`">image</p>
+                          <div class="flex flex-wrap items-center gap-1 mt-2">
+                            <span x-show="(workload.critical || 0) > 0" class="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs font-bold" x-text="`${workload.critical} CRIT`">0 CRIT</span>
+                            <span x-show="(workload.high || 0) > 0" class="px-2 py-0.5 bg-orange-100 text-orange-700 rounded text-xs font-bold" x-text="`${workload.high} HIGH`">0 HIGH</span>
+                            <span x-show="(workload.medium || 0) > 0" class="px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded text-xs font-bold" x-text="`${workload.medium} MED`">0 MED</span>
+                            <span x-show="(workload.low || 0) > 0" class="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-bold" x-text="`${workload.low} LOW`">0 LOW</span>
+                          </div>
+                        </button>
+                      </template>
+                    </div>
+
+                    <!-- Vulnerability Details Modal/Drawer -->
+                    <div x-show="showVulnDetails && selectedWorkload" x-transition class="bg-white rounded-xl border-2 border-gray-200 p-6">
+                      <div class="flex items-center justify-between mb-4">
+                        <div>
+                          <h5 class="text-lg font-bold text-gray-900" x-text="selectedWorkload?.name">Workload</h5>
+                          <p class="text-sm text-gray-500 font-mono" x-text="`${selectedWorkload?.image}:${selectedWorkload?.tag || 'latest'}`">image:tag</p>
+                        </div>
+                        <button @click="showVulnDetails = false" class="p-2 hover:bg-gray-100 rounded-lg">
+                          <i class="fas fa-times text-gray-500"></i>
+                        </button>
+                      </div>
+
+                      <!-- Summary Badges -->
+                      <div class="flex gap-2 mb-4">
+                        <span class="px-3 py-1 bg-red-100 text-red-700 rounded-full text-sm font-bold" x-text="`${selectedWorkload?.critical || 0} Critical`">0 Critical</span>
+                        <span class="px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-sm font-bold" x-text="`${selectedWorkload?.high || 0} High`">0 High</span>
+                        <span class="px-3 py-1 bg-yellow-100 text-yellow-700 rounded-full text-sm font-bold" x-text="`${selectedWorkload?.medium || 0} Medium`">0 Medium</span>
+                        <span class="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm font-bold" x-text="`${selectedWorkload?.low || 0} Low`">0 Low</span>
+                      </div>
+
+                      <!-- CVE Table -->
+                      <div class="overflow-x-auto max-h-96 overflow-y-auto">
+                        <table class="w-full text-sm">
+                          <thead class="sticky top-0 bg-gray-100">
+                            <tr>
+                              <th class="text-left py-2 px-3 font-bold text-gray-600">CVE ID</th>
+                              <th class="text-left py-2 px-3 font-bold text-gray-600">Severity</th>
+                              <th class="text-left py-2 px-3 font-bold text-gray-600">Package</th>
+                              <th class="text-left py-2 px-3 font-bold text-gray-600">Installed</th>
+                              <th class="text-left py-2 px-3 font-bold text-gray-600">Fixed In</th>
+                              <th class="text-left py-2 px-3 font-bold text-gray-600">Score</th>
+                              <th class="text-left py-2 px-3 font-bold text-gray-600">Title</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <template x-for="vuln in (selectedWorkload?.vulnerabilities || [])" :key="vuln.vulnerabilityId">
+                              <tr class="border-b border-gray-100 hover:bg-gray-50">
+                                <td class="py-2 px-3">
+                                  <a :href="vuln.primaryLink" target="_blank" class="text-blue-600 hover:underline font-mono text-xs" x-text="vuln.vulnerabilityId">CVE-2023-XXXXX</a>
+                                </td>
+                                <td class="py-2 px-3">
+                                  <span class="px-2 py-0.5 rounded text-xs font-bold"
+                                    :class="{
+                                      'bg-red-100 text-red-700': vuln.severity === 'CRITICAL',
+                                      'bg-orange-100 text-orange-700': vuln.severity === 'HIGH',
+                                      'bg-yellow-100 text-yellow-700': vuln.severity === 'MEDIUM',
+                                      'bg-blue-100 text-blue-700': vuln.severity === 'LOW'
+                                    }"
+                                    x-text="vuln.severity">CRITICAL</span>
+                                </td>
+                                <td class="py-2 px-3 font-mono text-xs text-gray-700" x-text="vuln.packageName">package</td>
+                                <td class="py-2 px-3 font-mono text-xs text-gray-500" x-text="vuln.installedVersion">1.0.0</td>
+                                <td class="py-2 px-3 font-mono text-xs" :class="vuln.fixedVersion ? 'text-green-600' : 'text-gray-400'" x-text="vuln.fixedVersion || 'No fix'">1.0.1</td>
+                                <td class="py-2 px-3">
+                                  <span class="font-bold" :class="(vuln.score || 0) >= 9 ? 'text-red-600' : (vuln.score || 0) >= 7 ? 'text-orange-600' : 'text-gray-600'" x-text="vuln.score ? vuln.score.toFixed(1) : '-'">9.8</span>
+                                </td>
+                                <td class="py-2 px-3 text-gray-600 max-w-xs truncate" x-text="vuln.title || '-'" :title="vuln.title">Vulnerability title</td>
+                              </tr>
+                            </template>
+                            <tr x-show="!(selectedWorkload?.vulnerabilities?.length)">
+                              <td colspan="7" class="py-8 text-center text-gray-500">
+                                <i class="fas fa-info-circle text-gray-300 text-2xl mb-2"></i>
+                                <p>No detailed vulnerability data available for this workload</p>
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    <!-- No Workloads Message -->
+                    <div x-show="!(dashboard?.trivy?.workloads || []).filter(w => ((w.critical || 0) + (w.high || 0) + (w.medium || 0) + (w.low || 0)) > 0).length" class="text-center py-8 text-gray-500">
+                      <i class="fas fa-shield-check text-green-400 text-4xl mb-2"></i>
+                      <p>No vulnerabilities found in scanned images</p>
+                    </div>
+                  </div>
                 </div>
               </section>
             </div>
@@ -2989,12 +3654,13 @@
                 <div class="bg-white rounded-2xl shadow-lg p-6 border-l-4 border-blue-500">
                   <div class="flex items-center justify-between">
                     <div>
-                      <p class="text-gray-600 text-sm font-semibold uppercase">Active Nodes</p>
+                      <p class="text-gray-600 text-sm font-semibold uppercase">Ready Nodes</p>
                       <p class="text-4xl font-black text-gray-900 mt-2"
-                        x-text="dashboard?.clusterOverview?.totalNodes || 0">0</p>
+                        x-text="getNodeConditionCount('ready')">0</p>
+                      <p class="text-xs text-gray-500 mt-1"><span x-text="dashboard?.clusterOverview?.totalNodes || 0"></span> total</p>
                     </div>
                     <div class="w-14 h-14 bg-blue-100 rounded-xl flex items-center justify-center">
-                      <i class="fas fa-layer-group text-blue-600 text-2xl"></i>
+                      <i class="fas fa-server text-blue-600 text-2xl"></i>
                     </div>
                   </div>
                 </div>
@@ -3319,11 +3985,12 @@
                     </thead>
                     <tbody>
                       <template x-for="container in getFilteredContainers().slice(0, 50)" :key="container.id">
-                        <tr class="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                        <tr class="border-b border-gray-100 hover:bg-indigo-50 transition-colors cursor-pointer"
+                            @click="selectedContainer = container; showContainerModal = true">
                           <td class="py-3 px-4">
                             <div class="flex items-center gap-2">
                               <i class="fas fa-cube text-indigo-500"></i>
-                              <span class="font-mono text-sm font-semibold" x-text="container.name"></span>
+                              <span class="font-mono text-sm font-semibold text-indigo-700 hover:underline" x-text="container.name"></span>
                             </div>
                           </td>
                           <td class="py-3 px-4 font-mono text-xs text-gray-600" x-text="container.pod"></td>
@@ -3392,6 +4059,145 @@
                   </div>
                 </div>
               </section>
+
+              <!-- Container Detail Modal -->
+              <div x-show="showContainerModal" x-cloak
+                   class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+                   @click.self="showContainerModal = false"
+                   x-transition:enter="transition ease-out duration-200"
+                   x-transition:enter-start="opacity-0"
+                   x-transition:enter-end="opacity-100"
+                   x-transition:leave="transition ease-in duration-150"
+                   x-transition:leave-start="opacity-100"
+                   x-transition:leave-end="opacity-0">
+                <div class="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto"
+                     x-transition:enter="transition ease-out duration-200"
+                     x-transition:enter-start="opacity-0 scale-95"
+                     x-transition:enter-end="opacity-100 scale-100">
+                  <!-- Modal Header -->
+                  <div class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-6 py-4 rounded-t-2xl">
+                    <div class="flex items-center justify-between">
+                      <div class="flex items-center gap-3">
+                        <div class="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
+                          <i class="fas fa-cube text-2xl"></i>
+                        </div>
+                        <div>
+                          <h3 class="text-xl font-bold" x-text="selectedContainer?.name">Container</h3>
+                          <p class="text-indigo-200 text-sm font-mono" x-text="'Pod: ' + (selectedContainer?.pod || 'N/A')">Pod</p>
+                        </div>
+                      </div>
+                      <button @click="showContainerModal = false" class="w-10 h-10 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-colors">
+                        <i class="fas fa-times text-lg"></i>
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Modal Content -->
+                  <div class="p-6 space-y-6">
+                    <!-- Status Badge -->
+                    <div class="flex items-center gap-4">
+                      <span class="px-4 py-2 rounded-full text-sm font-bold" :class="{
+                        'bg-green-100 text-green-700': selectedContainer?.state === 'running',
+                        'bg-amber-100 text-amber-700': selectedContainer?.state === 'waiting',
+                        'bg-red-100 text-red-700': selectedContainer?.state === 'terminated'
+                      }">
+                        <i :class="{
+                          'fas fa-check-circle mr-2': selectedContainer?.state === 'running',
+                          'fas fa-clock mr-2': selectedContainer?.state === 'waiting',
+                          'fas fa-times-circle mr-2': selectedContainer?.state === 'terminated'
+                        }"></i>
+                        <span x-text="selectedContainer?.state ? selectedContainer.state.charAt(0).toUpperCase() + selectedContainer.state.slice(1) : 'Unknown'"></span>
+                      </span>
+                      <span class="px-3 py-1 rounded-full text-sm font-medium" :class="selectedContainer?.ready ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'">
+                        <i :class="selectedContainer?.ready ? 'fas fa-check mr-1' : 'fas fa-times mr-1'"></i>
+                        <span x-text="selectedContainer?.ready ? 'Ready' : 'Not Ready'"></span>
+                      </span>
+                      <span class="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm font-medium" x-show="selectedContainer?.restartCount > 0">
+                        <i class="fas fa-redo-alt mr-1"></i>
+                        <span x-text="(selectedContainer?.restartCount || 0) + ' Restarts'"></span>
+                      </span>
+                    </div>
+
+                    <!-- Resource Usage Grid -->
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <!-- CPU Usage -->
+                      <div class="bg-blue-50 rounded-xl p-4 border border-blue-200">
+                        <div class="flex items-center gap-2 mb-2">
+                          <i class="fas fa-microchip text-blue-600"></i>
+                          <span class="text-sm font-semibold text-gray-700">CPU Usage</span>
+                        </div>
+                        <p class="text-3xl font-black text-blue-700" x-text="((selectedContainer?.cpuUsage || 0).toFixed(1)) + 'm'">0m</p>
+                        <p class="text-xs text-gray-500 mt-1">millicores</p>
+                      </div>
+
+                      <!-- Memory Usage -->
+                      <div class="bg-purple-50 rounded-xl p-4 border border-purple-200">
+                        <div class="flex items-center gap-2 mb-2">
+                          <i class="fas fa-memory text-purple-600"></i>
+                          <span class="text-sm font-semibold text-gray-700">Memory Usage</span>
+                        </div>
+                        <p class="text-3xl font-black text-purple-700" x-text="((selectedContainer?.memoryUsage || 0).toFixed(0)) + ' Mi'">0 Mi</p>
+                        <p class="text-xs text-gray-500 mt-1">mebibytes</p>
+                      </div>
+
+                      <!-- Filesystem Usage -->
+                      <div class="bg-teal-50 rounded-xl p-4 border border-teal-200">
+                        <div class="flex items-center gap-2 mb-2">
+                          <i class="fas fa-hdd text-teal-600"></i>
+                          <span class="text-sm font-semibold text-gray-700">FS Usage</span>
+                        </div>
+                        <p class="text-3xl font-black text-teal-700" x-text="((selectedContainer?.fsUsage || 0).toFixed(2)) + ' GB'">0 GB</p>
+                        <p class="text-xs text-gray-500 mt-1">gigabytes</p>
+                      </div>
+                    </div>
+
+                    <!-- Container Details Table -->
+                    <div class="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                      <h4 class="text-sm font-bold text-gray-700 mb-4 flex items-center gap-2">
+                        <i class="fas fa-info-circle text-gray-500"></i>
+                        Container Details
+                      </h4>
+                      <div class="space-y-3">
+                        <div class="flex items-start justify-between py-2 border-b border-gray-200">
+                          <span class="text-sm font-medium text-gray-600">Namespace</span>
+                          <span class="text-sm font-mono text-gray-900 bg-gray-200 px-2 py-1 rounded" x-text="selectedContainer?.namespace || 'N/A'">N/A</span>
+                        </div>
+                        <div class="flex items-start justify-between py-2 border-b border-gray-200">
+                          <span class="text-sm font-medium text-gray-600">Pod</span>
+                          <span class="text-sm font-mono text-gray-900 bg-gray-200 px-2 py-1 rounded max-w-md truncate" x-text="selectedContainer?.pod || 'N/A'">N/A</span>
+                        </div>
+                        <div class="flex items-start justify-between py-2 border-b border-gray-200">
+                          <span class="text-sm font-medium text-gray-600">Image</span>
+                          <span class="text-sm font-mono text-gray-900 bg-gray-200 px-2 py-1 rounded max-w-md truncate" x-text="selectedContainer?.image || 'N/A'" :title="selectedContainer?.image">N/A</span>
+                        </div>
+                        <div class="flex items-start justify-between py-2 border-b border-gray-200">
+                          <span class="text-sm font-medium text-gray-600">Container ID</span>
+                          <span class="text-sm font-mono text-gray-900 bg-gray-200 px-2 py-1 rounded max-w-md truncate" x-text="selectedContainer?.id || 'N/A'" :title="selectedContainer?.id">N/A</span>
+                        </div>
+                        <div class="flex items-start justify-between py-2">
+                          <span class="text-sm font-medium text-gray-600">Restart Count</span>
+                          <span class="text-sm font-mono rounded px-2 py-1"
+                                :class="(selectedContainer?.restartCount || 0) > 0 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'"
+                                x-text="selectedContainer?.restartCount || 0">0</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Quick Actions -->
+                    <div class="flex items-center justify-end gap-3 pt-4 border-t border-gray-200">
+                      <button @click="podSearchFilter = selectedContainer?.pod || ''; activeTab = 'pods'; showContainerModal = false"
+                              class="px-4 py-2 bg-indigo-100 text-indigo-700 rounded-lg font-medium hover:bg-indigo-200 transition-colors flex items-center gap-2">
+                        <i class="fas fa-box"></i>
+                        View Pod
+                      </button>
+                      <button @click="showContainerModal = false"
+                              class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300 transition-colors">
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
 
             </div>
 
@@ -3995,20 +4801,30 @@
             </div>
 
             <!-- Integration Guide Modal -->
-            <div x-show="showIntegrationGuide" x-cloak @click.self="showIntegrationGuide = false"
-              class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-6"
+            <div x-show="showIntegrationGuide" x-cloak @click.self="showIntegrationGuide = false" x-data="{
+                activeGuideSection: 'overview',
+                copiedId: null,
+                copyCode(id) {
+                  const el = document.getElementById(id);
+                  if (el) {
+                    navigator.clipboard.writeText(el.textContent);
+                    this.copiedId = id;
+                    setTimeout(() => this.copiedId = null, 2000);
+                  }
+                }
+              }" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4"
               style="backdrop-filter: blur(4px);">
-              <div @click.stop class="bg-white rounded-2xl shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-y-auto">
+              <div @click.stop class="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[95vh] flex flex-col">
                 <!-- Modal Header -->
                 <div
-                  class="sticky top-0 bg-gradient-to-r from-indigo-600 to-violet-700 text-white p-6 rounded-t-2xl flex items-center justify-between z-10">
+                  class="sticky top-0 bg-gradient-to-r from-indigo-600 to-violet-700 text-white p-5 rounded-t-2xl flex items-center justify-between z-10 flex-shrink-0">
                   <div class="flex items-center gap-4">
                     <div class="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
                       <i class="fas fa-book-reader text-2xl"></i>
                     </div>
                     <div>
-                      <h2 class="text-2xl font-bold">Cluster Integration Guide</h2>
-                      <p class="text-indigo-100 text-sm mt-1">Setup monitoring, security & compliance tools</p>
+                      <h2 class="text-xl font-bold">Complete Monitoring Setup Guide for EKS Clusters</h2>
+                      <p class="text-indigo-100 text-sm mt-1">OpenTelemetry + Prometheus + Falco + Cost Monitoring</p>
                     </div>
                   </div>
                   <button @click="showIntegrationGuide = false"
@@ -4017,190 +4833,1451 @@
                   </button>
                 </div>
 
-                <!-- Modal Content -->
-                <div class="p-8 space-y-8">
-                  <!-- Introduction -->
-                  <div class="bg-indigo-50 border-l-4 border-indigo-500 p-6 rounded-r-xl">
-                    <h3 class="font-bold text-indigo-900 text-lg mb-2">Unlock Full Observability</h3>
-                    <p class="text-indigo-800 text-sm leading-relaxed">
-                      To unlock the full potential of XamOps—including real-time cost analysis, security vulnerability
-                      scanning,
-                      and compliance auditing—you must configure your infrastructure to expose the necessary data.
-                    </p>
+                <div class="flex flex-1 overflow-hidden">
+                  <!-- Sidebar Navigation -->
+                  <div class="w-64 bg-slate-50 border-r border-slate-200 p-4 overflow-y-auto flex-shrink-0">
+                    <nav class="space-y-1">
+                      <div class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Table of Contents
+                      </div>
+                      <button @click="activeGuideSection = 'overview'"
+                        :class="activeGuideSection === 'overview' ? 'bg-indigo-100 text-indigo-700 border-indigo-300' : 'hover:bg-slate-100 text-slate-600'"
+                        class="w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors border border-transparent">
+                        <i class="fas fa-info-circle mr-2"></i>Overview
+                      </button>
+                      <button @click="activeGuideSection = 'prerequisites'"
+                        :class="activeGuideSection === 'prerequisites' ? 'bg-indigo-100 text-indigo-700 border-indigo-300' : 'hover:bg-slate-100 text-slate-600'"
+                        class="w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors border border-transparent">
+                        <i class="fas fa-clipboard-check mr-2"></i>Prerequisites
+                      </button>
+                      <div class="text-xs font-bold text-slate-400 uppercase tracking-wider mt-4 mb-2">Part 1:
+                        Monitoring Instance</div>
+                      <button @click="activeGuideSection = 'part1-docker'"
+                        :class="activeGuideSection === 'part1-docker' ? 'bg-indigo-100 text-indigo-700 border-indigo-300' : 'hover:bg-slate-100 text-slate-600'"
+                        class="w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors border border-transparent">
+                        <i class="fab fa-docker mr-2"></i>1.1 Install Docker
+                      </button>
+                      <button @click="activeGuideSection = 'part1-prometheus'"
+                        :class="activeGuideSection === 'part1-prometheus' ? 'bg-indigo-100 text-indigo-700 border-indigo-300' : 'hover:bg-slate-100 text-slate-600'"
+                        class="w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors border border-transparent">
+                        <i class="fas fa-chart-bar mr-2"></i>1.2 Prometheus Config
+                      </button>
+                      <button @click="activeGuideSection = 'part1-otel'"
+                        :class="activeGuideSection === 'part1-otel' ? 'bg-indigo-100 text-indigo-700 border-indigo-300' : 'hover:bg-slate-100 text-slate-600'"
+                        class="w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors border border-transparent">
+                        <i class="fas fa-satellite-dish mr-2"></i>1.3 OTel Gateway Config
+                      </button>
+                      <button @click="activeGuideSection = 'part1-compose'"
+                        :class="activeGuideSection === 'part1-compose' ? 'bg-indigo-100 text-indigo-700 border-indigo-300' : 'hover:bg-slate-100 text-slate-600'"
+                        class="w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors border border-transparent">
+                        <i class="fas fa-layer-group mr-2"></i>1.4 Docker Compose
+                      </button>
+                      <button @click="activeGuideSection = 'part1-start'"
+                        :class="activeGuideSection === 'part1-start' ? 'bg-indigo-100 text-indigo-700 border-indigo-300' : 'hover:bg-slate-100 text-slate-600'"
+                        class="w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors border border-transparent">
+                        <i class="fas fa-play mr-2"></i>1.5 Start Stack
+                      </button>
+                      <div class="text-xs font-bold text-slate-400 uppercase tracking-wider mt-4 mb-2">Part 2: Cluster
+                        Setup</div>
+                      <button @click="activeGuideSection = 'part2-helm'"
+                        :class="activeGuideSection === 'part2-helm' ? 'bg-indigo-100 text-indigo-700 border-indigo-300' : 'hover:bg-slate-100 text-slate-600'"
+                        class="w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors border border-transparent">
+                        <i class="fas fa-dharmachakra mr-2"></i>2.1 Helm Repos
+                      </button>
+                      <button @click="activeGuideSection = 'part2-otel'"
+                        :class="activeGuideSection === 'part2-otel' ? 'bg-indigo-100 text-indigo-700 border-indigo-300' : 'hover:bg-slate-100 text-slate-600'"
+                        class="w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors border border-transparent">
+                        <i class="fas fa-network-wired mr-2"></i>2.2 OTel Agent Values
+                      </button>
+                      <button @click="activeGuideSection = 'part2-deploy-otel'"
+                        :class="activeGuideSection === 'part2-deploy-otel' ? 'bg-indigo-100 text-indigo-700 border-indigo-300' : 'hover:bg-slate-100 text-slate-600'"
+                        class="w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors border border-transparent">
+                        <i class="fas fa-rocket mr-2"></i>2.3 Deploy OTel
+                      </button>
+                      <button @click="activeGuideSection = 'part2-ksm'"
+                        :class="activeGuideSection === 'part2-ksm' ? 'bg-indigo-100 text-indigo-700 border-indigo-300' : 'hover:bg-slate-100 text-slate-600'"
+                        class="w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors border border-transparent">
+                        <i class="fas fa-cubes mr-2"></i>2.4 Kube-State-Metrics
+                      </button>
+                      <button @click="activeGuideSection = 'part2-falco'"
+                        :class="activeGuideSection === 'part2-falco' ? 'bg-indigo-100 text-indigo-700 border-indigo-300' : 'hover:bg-slate-100 text-slate-600'"
+                        class="w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors border border-transparent">
+                        <i class="fas fa-shield-alt mr-2"></i>2.5 Falco Security
+                      </button>
+                      <button @click="activeGuideSection = 'part2-cost-iam'"
+                        :class="activeGuideSection === 'part2-cost-iam' ? 'bg-indigo-100 text-indigo-700 border-indigo-300' : 'hover:bg-slate-100 text-slate-600'"
+                        class="w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors border border-transparent">
+                        <i class="fas fa-key mr-2"></i>2.6 Cost IAM Role
+                      </button>
+                      <button @click="activeGuideSection = 'part2-cost-deploy'"
+                        :class="activeGuideSection === 'part2-cost-deploy' ? 'bg-indigo-100 text-indigo-700 border-indigo-300' : 'hover:bg-slate-100 text-slate-600'"
+                        class="w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors border border-transparent">
+                        <i class="fas fa-dollar-sign mr-2"></i>2.7 Cost Exporter
+                      </button>
+                      <div class="text-xs font-bold text-slate-400 uppercase tracking-wider mt-4 mb-2">Part 3: Storage
+                        &amp; Scanners</div>
+                      <button @click="activeGuideSection = 'part3-ebs'"
+                        :class="activeGuideSection === 'part3-ebs' ? 'bg-indigo-100 text-indigo-700 border-indigo-300' : 'hover:bg-slate-100 text-slate-600'"
+                        class="w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors border border-transparent">
+                        <i class="fas fa-hdd mr-2"></i>3.1 EBS CSI Driver
+                      </button>
+                      <button @click="activeGuideSection = 'part3-trivy'"
+                        :class="activeGuideSection === 'part3-trivy' ? 'bg-indigo-100 text-indigo-700 border-indigo-300' : 'hover:bg-slate-100 text-slate-600'"
+                        class="w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors border border-transparent">
+                        <i class="fas fa-search mr-2"></i>3.2 Trivy Scanner
+                      </button>
+                      <button @click="activeGuideSection = 'part3-kubescape'"
+                        :class="activeGuideSection === 'part3-kubescape' ? 'bg-indigo-100 text-indigo-700 border-indigo-300' : 'hover:bg-slate-100 text-slate-600'"
+                        class="w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors border border-transparent">
+                        <i class="fas fa-shield-alt mr-2"></i>3.3 Kubescape
+                      </button>
+                      <button @click="activeGuideSection = 'part3-verify'"
+                        :class="activeGuideSection === 'part3-verify' ? 'bg-indigo-100 text-indigo-700 border-indigo-300' : 'hover:bg-slate-100 text-slate-600'"
+                        class="w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors border border-transparent">
+                        <i class="fas fa-check-circle mr-2"></i>3.4 Verification
+                      </button>
+                      <button @click="activeGuideSection = 'part3-kubeconfig'"
+                        :class="activeGuideSection === 'part3-kubeconfig' ? 'bg-indigo-100 text-indigo-700 border-indigo-300' : 'hover:bg-slate-100 text-slate-600'"
+                        class="w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors border border-transparent">
+                        <i class="fas fa-file-code mr-2"></i>3.5 Generate Kubeconfig
+                      </button>
+                      <div class="text-xs font-bold text-slate-400 uppercase tracking-wider mt-4 mb-2">Reference</div>
+                      <button @click="activeGuideSection = 'reference'"
+                        :class="activeGuideSection === 'reference' ? 'bg-indigo-100 text-indigo-700 border-indigo-300' : 'hover:bg-slate-100 text-slate-600'"
+                        class="w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors border border-transparent">
+                        <i class="fas fa-book mr-2"></i>Port Reference
+                      </button>
+                    </nav>
                   </div>
 
-                  <!-- Step 1: EC2 Gateway -->
-                  <div class="space-y-4">
-                    <div class="flex items-center gap-3">
-                      <div
-                        class="w-10 h-10 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-full flex items-center justify-center text-white font-bold">
-                        1
+                  <!-- Content Area -->
+                  <div class="flex-1 overflow-y-auto p-6">
+                    <!-- Overview Section -->
+                    <div x-show="activeGuideSection === 'overview'" class="space-y-6">
+                      <div class="bg-indigo-50 border-l-4 border-indigo-500 p-6 rounded-r-xl">
+                        <h3 class="font-bold text-indigo-900 text-lg mb-2">Complete Monitoring Setup Guide</h3>
+                        <p class="text-indigo-800 text-sm leading-relaxed">This guide will help you set up a complete
+                          monitoring solution that collects:</p>
+                        <ul class="mt-3 space-y-2 text-indigo-800 text-sm">
+                          <li><i class="fas fa-microchip mr-2"></i><strong>System Metrics:</strong> CPU, memory, disk,
+                            network from nodes</li>
+                          <li><i class="fas fa-cubes mr-2"></i><strong>Kubernetes Metrics:</strong> Pods, deployments,
+                            nodes, services</li>
+                          <li><i class="fas fa-shield-alt mr-2"></i><strong>Security Events:</strong> Runtime security
+                            alerts via Falco</li>
+                          <li><i class="fas fa-dollar-sign mr-2"></i><strong>Cost Metrics:</strong> AWS EC2 instance
+                            costs per node</li>
+                        </ul>
                       </div>
-                      <h3 class="text-2xl font-bold text-slate-800">Setup Metrics Gateway (EC2 Instance)</h3>
+                      <div class="bg-slate-50 rounded-xl p-6 border border-slate-200">
+                        <h4 class="font-bold text-slate-800 mb-4">Metric Naming Convention</h4>
+                        <p class="text-sm text-slate-600 mb-4">The XamOps application expects specific metric naming
+                          patterns:</p>
+                        <div class="overflow-x-auto">
+                          <table class="w-full text-sm">
+                            <thead class="bg-slate-100">
+                              <tr>
+                                <th class="px-4 py-2 text-left font-semibold text-slate-700">Data Type</th>
+                                <th class="px-4 py-2 text-left font-semibold text-slate-700">Metric Prefix</th>
+                                <th class="px-4 py-2 text-left font-semibold text-slate-700">Example</th>
+                              </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-200">
+                              <tr>
+                                <td class="px-4 py-2">OTel/System Metrics</td>
+                                <td class="px-4 py-2 font-mono text-xs">xamops_eks_</td>
+                                <td class="px-4 py-2 font-mono text-xs">xamops_eks_k8s_node_cpu_usage</td>
+                              </tr>
+                              <tr>
+                                <td class="px-4 py-2">Kube-State Metrics</td>
+                                <td class="px-4 py-2 font-mono text-xs">xamops_eks_</td>
+                                <td class="px-4 py-2 font-mono text-xs">xamops_eks_kube_pod_info</td>
+                              </tr>
+                              <tr>
+                                <td class="px-4 py-2">Cost Metrics</td>
+                                <td class="px-4 py-2 font-mono text-xs">xamops_eks_xamops_eks_</td>
+                                <td class="px-4 py-2 font-mono text-xs">xamops_eks_xamops_eks_cluster_total_daily_cost
+                                </td>
+                              </tr>
+                              <tr>
+                                <td class="px-4 py-2">Falco Security</td>
+                                <td class="px-4 py-2 font-mono text-xs">xamops_eks_falcosecurity_...</td>
+                                <td class="px-4 py-2 font-mono text-xs">
+                                  xamops_eks_falcosecurity_falcosidekick_falco_events_total</td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                        <div class="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                          <p class="text-amber-800 text-xs"><i
+                              class="fas fa-info-circle mr-2"></i><strong>Note:</strong> Cost metrics have a double
+                            prefix (xamops_eks_xamops_eks_) by design because the cost-exporter exports with xamops_eks_
+                            prefix, and OTel adds another xamops_eks_ prefix during collection.</p>
+                        </div>
+                      </div>
                     </div>
-                    <div class="bg-amber-50 border border-amber-200 rounded-xl p-4">
-                      <p class="text-amber-800 text-sm font-semibold">
-                        <i class="fas fa-exclamation-triangle mr-2"></i>
-                        <strong>Prerequisite:</strong> Ubuntu t3.medium EC2 • Open Ports 9090 & 4318
-                      </p>
+
+                    <!-- Prerequisites Section -->
+                    <div x-show="activeGuideSection === 'prerequisites'" class="space-y-6">
+                      <h3 class="text-xl font-bold text-slate-800">Prerequisites</h3>
+                      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="bg-blue-50 border border-blue-200 rounded-xl p-5">
+                          <h4 class="font-bold text-blue-800 mb-3"><i class="fab fa-aws mr-2"></i>AWS Requirements</h4>
+                          <ul class="space-y-2 text-blue-700 text-sm">
+                            <li><i class="fas fa-check mr-2"></i>AWS Account with EKS cluster access</li>
+                            <li><i class="fas fa-check mr-2"></i>IAM permissions to create roles and policies</li>
+                            <li><i class="fas fa-check mr-2"></i>VPC with proper networking (private/public subnets)
+                            </li>
+                            <li><i class="fas fa-check mr-2"></i>EC2 instance for monitoring stack (t3.medium or larger,
+                              20GB+ storage)</li>
+                          </ul>
+                        </div>
+                        <div class="bg-green-50 border border-green-200 rounded-xl p-5">
+                          <h4 class="font-bold text-green-800 mb-3"><i class="fas fa-tools mr-2"></i>Tools Required</h4>
+                          <ul class="space-y-2 text-green-700 text-sm">
+                            <li><i class="fas fa-check mr-2"></i>kubectl (v1.28+)</li>
+                            <li><i class="fas fa-check mr-2"></i>helm (v3.12+)</li>
+                            <li><i class="fas fa-check mr-2"></i>aws-cli (v2.x)</li>
+                            <li><i class="fas fa-check mr-2"></i>docker and docker-compose</li>
+                            <li><i class="fas fa-check mr-2"></i>SSH access to EC2 instances</li>
+                          </ul>
+                        </div>
+                      </div>
+                      <div class="bg-amber-50 border border-amber-200 rounded-xl p-5">
+                        <h4 class="font-bold text-amber-800 mb-3"><i class="fas fa-network-wired mr-2"></i>Network
+                          Requirements</h4>
+                        <p class="text-amber-700 text-sm mb-3">Security Group for monitoring instance must allow:</p>
+                        <div class="grid grid-cols-2 gap-2 text-sm">
+                          <div class="bg-white rounded-lg p-2 border border-amber-200"><strong>Port 4317</strong> (gRPC)
+                            - Inbound from EKS cluster CIDR</div>
+                          <div class="bg-white rounded-lg p-2 border border-amber-200"><strong>Port 4318</strong> (HTTP)
+                            - Inbound from EKS cluster CIDR</div>
+                          <div class="bg-white rounded-lg p-2 border border-amber-200"><strong>Port 9090</strong>
+                            (Prometheus UI) - Inbound from your IP/application</div>
+                          <div class="bg-white rounded-lg p-2 border border-amber-200"><strong>Port 22</strong> (SSH) -
+                            Inbound from your IP</div>
+                        </div>
+                      </div>
                     </div>
-                    <p class="text-gray-600 text-sm">SSH into your EC2 instance and run the following commands:</p>
-                    <pre class="bg-slate-900 text-slate-200 p-4 rounded-xl overflow-x-auto text-xs font-mono"># Install Docker
-sudo apt-get update && sudo apt-get install -y docker.io docker-compose
 
-# Create directory structure
-mkdir -p ~/xamops-gateway/config && cd ~/xamops-gateway
+                    <!-- Part 1.1: Install Docker -->
+                    <div x-show="activeGuideSection === 'part1-docker'" class="space-y-6">
+                      <div class="flex items-center gap-3 mb-4">
+                        <div
+                          class="w-10 h-10 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-full flex items-center justify-center text-white font-bold">
+                          1.1</div>
+                        <h3 class="text-xl font-bold text-slate-800">SSH into Instance and Install Docker</h3>
+                      </div>
+                      <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
+                        <p class="text-amber-800 text-sm"><i
+                            class="fas fa-exclamation-triangle mr-2"></i><strong>Prerequisite:</strong> Launch an EC2
+                          instance with: AMI: Amazon Linux 2023 or Ubuntu 22.04 | Instance Type: t3.medium (2 vCPU, 4GB
+                          RAM minimum) | Storage: 20GB GP3 | VPC: Same VPC as EKS cluster</p>
+                      </div>
+                      <div class="relative">
+                        <div class="absolute top-2 right-2 z-10">
+                          <button @click="copyCode('code-docker-install')"
+                            class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs rounded-lg transition-colors flex items-center gap-2">
+                            <i :class="copiedId === 'code-docker-install' ? 'fas fa-check' : 'fas fa-copy'"></i>
+                            <span x-text="copiedId === 'code-docker-install' ? 'Copied!' : 'Copy'"></span>
+                          </button>
+                        </div>
+                        <pre id="code-docker-install"
+                          class="bg-slate-900 text-slate-200 p-4 pt-12 rounded-xl overflow-x-auto text-xs font-mono whitespace-pre"># SSH into the monitoring instance
+ssh -i your-key.pem ec2-user@&lt;MONITORING_INSTANCE_IP&gt;
 
-# Create Prometheus Configuration
-cat &lt;&lt;'EOFPROM' &gt; config/prometheus.yaml
+# For Amazon Linux 2023
+sudo yum update -y
+sudo yum install -y docker
+sudo systemctl start docker
+sudo systemctl enable docker
+sudo usermod -aG docker $USER
+
+# For Ubuntu
+sudo apt-get update
+sudo apt-get install -y docker.io docker-compose
+sudo systemctl start docker
+sudo systemctl enable docker
+sudo usermod -aG docker $USER
+
+# Log out and log back in for group changes to take effect
+exit
+ssh -i your-key.pem ec2-user@&lt;MONITORING_INSTANCE_IP&gt;
+
+# Verify Docker is running
+docker --version
+docker ps
+
+# Install Docker Compose (if not already installed)
+sudo curl -L "https://github.com/docker/compose/releases/download/v2.24.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+sudo chmod +x /usr/local/bin/docker-compose
+
+# Verify installation
+docker-compose --version
+
+# Create directory for all monitoring configs
+mkdir -p ~/monitoring
+cd ~/monitoring</pre>
+                      </div>
+                    </div>
+
+                    <!-- Part 1.2: Prometheus Configuration -->
+                    <div x-show="activeGuideSection === 'part1-prometheus'" class="space-y-6">
+                      <div class="flex items-center gap-3 mb-4">
+                        <div
+                          class="w-10 h-10 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-full flex items-center justify-center text-white font-bold">
+                          1.2</div>
+                        <h3 class="text-xl font-bold text-slate-800">Create Prometheus Configuration</h3>
+                      </div>
+                      <p class="text-slate-600 text-sm">Create the Prometheus configuration file that defines how
+                        Prometheus scrapes metrics and stores data:</p>
+                      <div class="relative">
+                        <div class="absolute top-2 right-2 z-10">
+                          <button @click="copyCode('code-prometheus-config')"
+                            class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs rounded-lg transition-colors flex items-center gap-2">
+                            <i :class="copiedId === 'code-prometheus-config' ? 'fas fa-check' : 'fas fa-copy'"></i>
+                            <span x-text="copiedId === 'code-prometheus-config' ? 'Copied!' : 'Copy'"></span>
+                          </button>
+                        </div>
+                        <pre id="code-prometheus-config"
+                          class="bg-slate-900 text-slate-200 p-4 pt-12 rounded-xl overflow-x-auto text-xs font-mono whitespace-pre"># Create Prometheus configuration file
+cat &gt; ~/monitoring/prometheus.yml &lt;&lt; 'EOF'
+# Prometheus Configuration
+# This file defines how Prometheus scrapes metrics and stores data
+
 global:
+  # How often to scrape targets by default
   scrape_interval: 15s
+
+  # How often to evaluate alerting rules
+  evaluation_interval: 15s
+
+# Remote write allows Prometheus to accept metrics from remote sources
+remote_write:
+  - url: http://localhost:9090/api/v1/write
+
+# Scrape configurations define what endpoints Prometheus will scrape
 scrape_configs:
+  # Job 1: Scrape the OTel Gateway's Prometheus exporter endpoint
+  # The OTel Gateway exposes metrics about itself and forwards cluster metrics
+  - job_name: 'otel-gateway'
+    static_configs:
+      - targets: ['otel-gateway:8889']  # OTel Gateway's metrics endpoint
+    scrape_interval: 30s  # Scrape every 30 seconds
+
+  # Job 2: Scrape Prometheus itself for self-monitoring
   - job_name: 'prometheus'
     static_configs:
-      - targets: ['localhost:9090']
-EOFPROM
+      - targets: ['localhost:9090']  # Prometheus self-monitoring
+EOF</pre>
+                      </div>
+                    </div>
 
-# Create Docker Compose
-cat &lt;&lt;'EOFDOCKER' &gt; docker-compose.yaml
-version: '3'
-services:
+                    <!-- Part 1.3: OTel Gateway Configuration -->
+                    <div x-show="activeGuideSection === 'part1-otel'" class="space-y-6">
+                      <div class="flex items-center gap-3 mb-4">
+                        <div
+                          class="w-10 h-10 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-full flex items-center justify-center text-white font-bold">
+                          1.3</div>
+                        <h3 class="text-xl font-bold text-slate-800">Create OTel Gateway Configuration</h3>
+                      </div>
+                      <div class="bg-red-50 border border-red-200 rounded-xl p-4 mb-4">
+                        <p class="text-red-800 text-sm"><i
+                            class="fas fa-exclamation-circle mr-2"></i><strong>IMPORTANT:</strong> Replace <code
+                            class="bg-red-100 px-1 rounded">&lt;YOUR_CLUSTER_NAME&gt;</code> with your actual cluster
+                          name in 2 places in this file.</p>
+                      </div>
+                      <div class="relative">
+                        <div class="absolute top-2 right-2 z-10">
+                          <button @click="copyCode('code-otel-gateway')"
+                            class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs rounded-lg transition-colors flex items-center gap-2">
+                            <i :class="copiedId === 'code-otel-gateway' ? 'fas fa-check' : 'fas fa-copy'"></i>
+                            <span x-text="copiedId === 'code-otel-gateway' ? 'Copied!' : 'Copy'"></span>
+                          </button>
+                        </div>
+                        <pre id="code-otel-gateway"
+                          class="bg-slate-900 text-slate-200 p-4 pt-12 rounded-xl overflow-x-auto text-xs font-mono whitespace-pre"># Create OTel Gateway configuration file
+cat &gt; ~/monitoring/otel-gateway-config.yaml &lt;&lt; 'EOF'
+# OpenTelemetry Gateway Configuration
+# This gateway receives metrics from EKS clusters and forwards to Prometheus
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: "0.0.0.0:4317"
+      http:
+        endpoint: "0.0.0.0:4318"
+
+exporters:
+  prometheusremotewrite:
+    endpoint: "http://prometheus:9090/api/v1/write"
+    namespace: xamops_eks
+    tls:
+      insecure: true
+
   prometheus:
-    image: prom/prometheus:latest
-    volumes:
-      - ./config/prometheus.yaml:/etc/prometheus/prometheus.yml
-    ports:
-      - "9090:9090"
+    endpoint: "0.0.0.0:8889"
+    namespace: xamops_eks
+
+processors:
+  batch:
+    timeout: 10s
+    send_batch_size: 1024
+
+  resource:
+    attributes:
+      - key: cluster_name
+        value: &lt;YOUR_CLUSTER_NAME&gt;  # CHANGE THIS to your cluster name
+        action: insert
+
+  attributes:
+    actions:
+      - key: cluster_name
+        value: &lt;YOUR_CLUSTER_NAME&gt;  # CHANGE THIS to your cluster name
+        action: insert
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [batch, resource, attributes]
+      exporters: [prometheusremotewrite, prometheus]
+EOF</pre>
+                      </div>
+                    </div>
+
+                    <!-- Part 1.4: Docker Compose -->
+                    <div x-show="activeGuideSection === 'part1-compose'" class="space-y-6">
+                      <div class="flex items-center gap-3 mb-4">
+                        <div
+                          class="w-10 h-10 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-full flex items-center justify-center text-white font-bold">
+                          1.4</div>
+                        <h3 class="text-xl font-bold text-slate-800">Create Docker Compose File</h3>
+                      </div>
+                      <div class="relative">
+                        <div class="absolute top-2 right-2 z-10">
+                          <button @click="copyCode('code-docker-compose')"
+                            class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs rounded-lg transition-colors flex items-center gap-2">
+                            <i :class="copiedId === 'code-docker-compose' ? 'fas fa-check' : 'fas fa-copy'"></i>
+                            <span x-text="copiedId === 'code-docker-compose' ? 'Copied!' : 'Copy'"></span>
+                          </button>
+                        </div>
+                        <pre id="code-docker-compose"
+                          class="bg-slate-900 text-slate-200 p-4 pt-12 rounded-xl overflow-x-auto text-xs font-mono whitespace-pre"># Create Docker Compose orchestration file
+cat &gt; ~/monitoring/docker-compose.yml &lt;&lt; 'EOF'
+version: '3.8'
+
+services:
   otel-gateway:
     image: otel/opentelemetry-collector-contrib:latest
-    command: ["--config=/etc/otel-collector-config.yaml"]
+    container_name: otel-gateway
     volumes:
-      - ./config/otel-gateway.yaml:/etc/otel-collector-config.yaml
+      - ./otel-gateway-config.yaml:/etc/otelcol/config.yaml
     ports:
       - "4318:4318"
-EOFDOCKER
+      - "4317:4317"
+      - "8889:8889"
+    command: ["--config=/etc/otelcol/config.yaml"]
+    restart: unless-stopped
+    networks:
+      - monitoring
 
-# Start Services
-sudo docker-compose up -d</pre>
-                  </div>
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=7d'
+      - '--storage.tsdb.retention.size=15GB'
+      - '--web.enable-remote-write-receiver'
+      - '--enable-feature=native-histograms'
+      - '--storage.tsdb.allow-overlapping-blocks'
+      - '--storage.tsdb.out-of-order.time-window=30m'
+    restart: unless-stopped
+    networks:
+      - monitoring
 
-                  <!-- Step 2: EKS Agents -->
-                  <div class="space-y-4">
-                    <div class="flex items-center gap-3">
-                      <div
-                        class="w-10 h-10 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-full flex items-center justify-center text-white font-bold">
-                        2
+networks:
+  monitoring:
+    driver: bridge
+
+volumes:
+  prometheus-data:
+EOF</pre>
                       </div>
-                      <h3 class="text-2xl font-bold text-slate-800">Install Cluster Monitoring Agents</h3>
                     </div>
-                    <pre class="bg-slate-900 text-slate-200 p-4 rounded-xl overflow-x-auto text-xs font-mono"># Install Kube State Metrics
+
+                    <!-- Part 1.5: Start Stack -->
+                    <div x-show="activeGuideSection === 'part1-start'" class="space-y-6">
+                      <div class="flex items-center gap-3 mb-4">
+                        <div
+                          class="w-10 h-10 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-full flex items-center justify-center text-white font-bold">
+                          1.5</div>
+                        <h3 class="text-xl font-bold text-slate-800">Start Monitoring Stack</h3>
+                      </div>
+                      <div class="relative">
+                        <div class="absolute top-2 right-2 z-10">
+                          <button @click="copyCode('code-start-stack')"
+                            class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs rounded-lg transition-colors flex items-center gap-2">
+                            <i :class="copiedId === 'code-start-stack' ? 'fas fa-check' : 'fas fa-copy'"></i>
+                            <span x-text="copiedId === 'code-start-stack' ? 'Copied!' : 'Copy'"></span>
+                          </button>
+                        </div>
+                        <pre id="code-start-stack"
+                          class="bg-slate-900 text-slate-200 p-4 pt-12 rounded-xl overflow-x-auto text-xs font-mono whitespace-pre"># Start all services using Docker Compose
+cd ~/monitoring
+docker-compose up -d
+
+# Verify containers are running
+docker ps
+
+# Check logs to ensure no errors
+docker-compose logs -f
+
+# Test Prometheus is accessible
+curl http://localhost:9090/api/v1/status/config
+
+# Access Prometheus UI: http://&lt;MONITORING_PUBLIC_IP&gt;:9090</pre>
+                      </div>
+                      <div class="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                        <h4 class="font-bold text-amber-800 mb-2"><i class="fas fa-shield-alt mr-2"></i>Security Group
+                          Configuration</h4>
+                        <div class="relative mt-3">
+                          <div class="absolute top-2 right-2 z-10">
+                            <button @click="copyCode('code-security-group')"
+                              class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs rounded-lg transition-colors flex items-center gap-2">
+                              <i :class="copiedId === 'code-security-group' ? 'fas fa-check' : 'fas fa-copy'"></i>
+                              <span x-text="copiedId === 'code-security-group' ? 'Copied!' : 'Copy'"></span>
+                            </button>
+                          </div>
+                          <pre id="code-security-group"
+                            class="bg-slate-900 text-slate-200 p-4 pt-12 rounded-xl overflow-x-auto text-xs font-mono whitespace-pre"># Add security group rules
+aws ec2 authorize-security-group-ingress --group-id &lt;YOUR_SG_ID&gt; --protocol tcp --port 4318 --cidr &lt;EKS_CLUSTER_VPC_CIDR&gt;
+aws ec2 authorize-security-group-ingress --group-id &lt;YOUR_SG_ID&gt; --protocol tcp --port 4317 --cidr &lt;EKS_CLUSTER_VPC_CIDR&gt;
+aws ec2 authorize-security-group-ingress --group-id &lt;YOUR_SG_ID&gt; --protocol tcp --port 9090 --cidr &lt;YOUR_APPLICATION_IP&gt;/32</pre>
+                        </div>
+                      </div>
+                      <div class="bg-green-50 border border-green-200 rounded-xl p-5">
+                        <h4 class="font-bold text-green-800 mb-2"><i class="fas fa-check-circle mr-2"></i>Part 1
+                          Complete!</h4>
+                        <ul class="mt-2 space-y-1 text-green-700 text-sm">
+                          <li><i class="fas fa-check mr-2"></i>OTel Gateway running on port 4318</li>
+                          <li><i class="fas fa-check mr-2"></i>Prometheus running on port 9090</li>
+                        </ul>
+                      </div>
+                    </div>
+
+                    <!-- Part 2.1: Helm Repos -->
+                    <div x-show="activeGuideSection === 'part2-helm'" class="space-y-6">
+                      <div class="flex items-center gap-3 mb-4">
+                        <div
+                          class="w-10 h-10 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-full flex items-center justify-center text-white font-bold">
+                          2.1</div>
+                        <h3 class="text-xl font-bold text-slate-800">Add Helm Repositories</h3>
+                      </div>
+                      <div class="relative">
+                        <div class="absolute top-2 right-2 z-10">
+                          <button @click="copyCode('code-helm-repos')"
+                            class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs rounded-lg transition-colors flex items-center gap-2">
+                            <i :class="copiedId === 'code-helm-repos' ? 'fas fa-check' : 'fas fa-copy'"></i>
+                            <span x-text="copiedId === 'code-helm-repos' ? 'Copied!' : 'Copy'"></span>
+                          </button>
+                        </div>
+                        <pre id="code-helm-repos"
+                          class="bg-slate-900 text-slate-200 p-4 pt-12 rounded-xl overflow-x-auto text-xs font-mono whitespace-pre"># Verify kubectl and helm
+kubectl cluster-info
+helm version
+
+# Get cluster details
+CLUSTER_NAME=$(kubectl config current-context | cut -d'/' -f2)
+AWS_REGION="&lt;YOUR_REGION&gt;"
+AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+echo "Cluster: $CLUSTER_NAME | Region: $AWS_REGION | Account: $AWS_ACCOUNT_ID"
+
+# Add Helm repositories
+helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm install kube-state-metrics prometheus-community/kube-state-metrics --namespace kube-system
-
-# Install Falco (Security)
 helm repo add falcosecurity https://falcosecurity.github.io/charts
-helm install falco falcosecurity/falco --namespace falco --create-namespace \
-  --set falcosidekick.enabled=true --set falcosidekick.config.prometheus.enabled=true</pre>
-                  </div>
+helm repo update
+helm repo list</pre>
+                      </div>
+                    </div>
 
-                  <!-- Step 3: Compliance Scanning -->
-                  <div class="space-y-4">
-                    <div class="flex items-center gap-3">
-                      <div
-                        class="w-10 h-10 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-full flex items-center justify-center text-white font-bold">
-                        3
+                    <!-- Part 2.2: OTel Agent Values -->
+                    <div x-show="activeGuideSection === 'part2-otel'" class="space-y-6">
+                      <div class="flex items-center gap-3 mb-4">
+                        <div
+                          class="w-10 h-10 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-full flex items-center justify-center text-white font-bold">
+                          2.2</div>
+                        <h3 class="text-xl font-bold text-slate-800">Create OTel Agent Values File</h3>
                       </div>
-                      <h3 class="text-2xl font-bold text-slate-800">Install Compliance & Vulnerability Scanners</h3>
-                    </div>
-                    <div class="grid grid-cols-2 gap-4">
-                      <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
-                        <h4 class="font-bold text-emerald-700 mb-2"><i class="fas fa-shield-check mr-2"></i>Kubescape
-                        </h4>
-                        <pre class="bg-slate-900 text-slate-200 p-3 rounded-lg overflow-x-auto text-xs font-mono">helm repo add kubescape https://kubescape.github.io/helm-charts/
-helm install kubescape kubescape/kubescape-operator \
-  --namespace kubescape --create-namespace \
-  --set clusterName=YOUR_CLUSTER</pre>
+                      <div class="bg-red-50 border border-red-200 rounded-xl p-4 mb-4">
+                        <p class="text-red-800 text-sm"><i
+                            class="fas fa-exclamation-circle mr-2"></i><strong>CRITICAL:</strong> Replace <code
+                            class="bg-red-100 px-1 rounded">&lt;YOUR_CLUSTER_NAME&gt;</code> and <code
+                            class="bg-red-100 px-1 rounded">&lt;MONITORING_INSTANCE_PRIVATE_IP&gt;</code></p>
                       </div>
-                      <div class="bg-blue-50 border border-blue-200 rounded-xl p-4">
-                        <h4 class="font-bold text-blue-700 mb-2"><i class="fas fa-search mr-2"></i>Trivy</h4>
-                        <pre class="bg-slate-900 text-slate-200 p-3 rounded-lg overflow-x-auto text-xs font-mono">helm repo add aqua https://aquasecurity.github.io/helm-charts/
-helm install trivy-operator aqua/trivy-operator \
-  --namespace trivy-system --create-namespace</pre>
-                      </div>
-                    </div>
-                  </div>
+                      <div class="relative">
+                        <div class="absolute top-2 right-2 z-10">
+                          <button @click="copyCode('code-otel-agent-values')"
+                            class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs rounded-lg transition-colors flex items-center gap-2">
+                            <i :class="copiedId === 'code-otel-agent-values' ? 'fas fa-check' : 'fas fa-copy'"></i>
+                            <span x-text="copiedId === 'code-otel-agent-values' ? 'Copied!' : 'Copy'"></span>
+                          </button>
+                        </div>
+                        <pre id="code-otel-agent-values"
+                          class="bg-slate-900 text-slate-200 p-4 pt-12 rounded-xl overflow-x-auto text-xs font-mono whitespace-pre"
+                          style="max-height: 400px;">mkdir -p ~/cluster-monitoring && cd ~/cluster-monitoring
 
-                  <!-- Step 4: Connect to XamOps -->
-                  <div class="space-y-4">
-                    <div class="flex items-center gap-3">
-                      <div
-                        class="w-10 h-10 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-full flex items-center justify-center text-white font-bold">
-                        4
+cat &gt; otel-agent-values.yaml &lt;&lt; 'EOF'
+mode: daemonset
+image:
+  repository: otel/opentelemetry-collector-contrib
+  tag: "0.142.0"
+serviceAccount:
+  create: true
+clusterRole:
+  create: true
+  rules:
+    - apiGroups: [""]
+      resources: ["pods", "namespaces", "nodes"]
+      verbs: ["get", "list", "watch"]
+    - apiGroups: ["apps"]
+      resources: ["replicasets", "daemonsets", "deployments", "statefulsets"]
+      verbs: ["get", "list", "watch"]
+    - apiGroups: ["batch"]
+      resources: ["jobs", "cronjobs"]
+      verbs: ["get", "list", "watch"]
+ports:
+  otlp:
+    enabled: true
+    containerPort: 4317
+    servicePort: 4317
+    protocol: TCP
+  metrics:
+    enabled: true
+    containerPort: 8888
+    servicePort: 8888
+    protocol: TCP
+config:
+  receivers:
+    kubeletstats:
+      collection_interval: 20s
+      auth_type: serviceAccount
+      endpoint: ${env:K8S_NODE_IP}:10250
+      insecure_skip_verify: true
+    hostmetrics:
+      collection_interval: 30s
+      scrapers:
+        cpu: {}
+        disk: {}
+        filesystem: {}
+        memory: {}
+        network: {}
+    prometheus:
+      config:
+        scrape_configs:
+          - job_name: kube-state-metrics
+            scrape_interval: 30s
+            static_configs:
+              - targets: ['kube-state-metrics.kube-system.svc.cluster.local:8080']
+          - job_name: falco-sidekick
+            scrape_interval: 30s
+            static_configs:
+              - targets: ['falco-falcosidekick.falco.svc.cluster.local:2801']
+          - job_name: cost-exporter
+            scrape_interval: 30s
+            metric_relabel_configs:
+              - source_labels: [__name__]
+                regex: xamops_eks_.*
+                action: keep
+            static_configs:
+              - targets: ['cost-exporter.default.svc.cluster.local:8080']
+  processors:
+    batch:
+      timeout: 10s
+      send_batch_size: 1024
+    memory_limiter:
+      check_interval: 5s
+      limit_percentage: 80
+      spike_limit_percentage: 25
+    k8sattributes:
+      auth_type: serviceAccount
+      passthrough: false
+      filter:
+        node_from_env_var: K8S_NODE_NAME
+      extract:
+        metadata:
+          - k8s.namespace.name
+          - k8s.pod.name
+          - k8s.node.name
+          - k8s.deployment.name
+          - k8s.container.name
+    resource:
+      attributes:
+        - key: cluster_name
+          value: &lt;YOUR_CLUSTER_NAME&gt;
+          action: insert
+  exporters:
+    debug:
+      verbosity: detailed
+    otlphttp:
+      endpoint: http://&lt;MONITORING_INSTANCE_PRIVATE_IP&gt;:4318
+      tls:
+        insecure: true
+  extensions:
+    health_check:
+      endpoint: ${env:MY_POD_IP}:13133
+  service:
+    extensions: [health_check]
+    pipelines:
+      metrics:
+        receivers: [prometheus, hostmetrics, kubeletstats]
+        processors: [k8sattributes, batch, resource]
+        exporters: [otlphttp, debug]
+extraEnvs:
+  - name: MY_POD_IP
+    valueFrom:
+      fieldRef:
+        fieldPath: status.podIP
+  - name: K8S_NODE_NAME
+    valueFrom:
+      fieldRef:
+        fieldPath: spec.nodeName
+  - name: K8S_NODE_IP
+    valueFrom:
+      fieldRef:
+        fieldPath: status.hostIP
+EOF</pre>
                       </div>
-                      <h3 class="text-2xl font-bold text-slate-800">Generate Kubeconfig for XamOps</h3>
                     </div>
-                    <p class="text-gray-600 text-sm">Create a restricted service account for XamOps to read security
-                      scan
-                      results:</p>
-                    <pre class="bg-slate-900 text-slate-200 p-4 rounded-xl overflow-x-auto text-xs font-mono"># Create Service Account
-kubectl apply -f - &lt;&lt;'EOFSA'
+
+                    <!-- Part 2.3: Deploy OTel -->
+                    <div x-show="activeGuideSection === 'part2-deploy-otel'" class="space-y-6">
+                      <div class="flex items-center gap-3 mb-4">
+                        <div
+                          class="w-10 h-10 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-full flex items-center justify-center text-white font-bold">
+                          2.3</div>
+                        <h3 class="text-xl font-bold text-slate-800">Deploy OpenTelemetry Collector</h3>
+                      </div>
+                      <div class="relative">
+                        <div class="absolute top-2 right-2 z-10">
+                          <button @click="copyCode('code-deploy-otel')"
+                            class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs rounded-lg transition-colors flex items-center gap-2">
+                            <i :class="copiedId === 'code-deploy-otel' ? 'fas fa-check' : 'fas fa-copy'"></i>
+                            <span x-text="copiedId === 'code-deploy-otel' ? 'Copied!' : 'Copy'"></span>
+                          </button>
+                        </div>
+                        <pre id="code-deploy-otel"
+                          class="bg-slate-900 text-slate-200 p-4 pt-12 rounded-xl overflow-x-auto text-xs font-mono whitespace-pre"># Deploy OTel collector
+helm upgrade --install otel-agent open-telemetry/opentelemetry-collector \
+  --namespace default \
+  --values otel-agent-values.yaml \
+  --wait
+
+# Verify deployment
+kubectl get daemonset -l app.kubernetes.io/name=opentelemetry-collector
+kubectl get pods -l app.kubernetes.io/name=opentelemetry-collector -o wide
+kubectl logs -l app.kubernetes.io/name=opentelemetry-collector --tail=50</pre>
+                      </div>
+                    </div>
+
+                    <!-- Part 2.4: Kube-State-Metrics -->
+                    <div x-show="activeGuideSection === 'part2-ksm'" class="space-y-6">
+                      <div class="flex items-center gap-3 mb-4">
+                        <div
+                          class="w-10 h-10 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-full flex items-center justify-center text-white font-bold">
+                          2.4</div>
+                        <h3 class="text-xl font-bold text-slate-800">Install Kube-State-Metrics</h3>
+                      </div>
+                      <div class="relative">
+                        <div class="absolute top-2 right-2 z-10">
+                          <button @click="copyCode('code-ksm')"
+                            class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs rounded-lg transition-colors flex items-center gap-2">
+                            <i :class="copiedId === 'code-ksm' ? 'fas fa-check' : 'fas fa-copy'"></i>
+                            <span x-text="copiedId === 'code-ksm' ? 'Copied!' : 'Copy'"></span>
+                          </button>
+                        </div>
+                        <pre id="code-ksm"
+                          class="bg-slate-900 text-slate-200 p-4 pt-12 rounded-xl overflow-x-auto text-xs font-mono whitespace-pre"># Install Kube-State-Metrics
+helm install kube-state-metrics prometheus-community/kube-state-metrics \
+  --namespace kube-system \
+  --wait
+
+# Verify
+kubectl get deployment -n kube-system kube-state-metrics
+kubectl get svc -n kube-system kube-state-metrics</pre>
+                      </div>
+                    </div>
+
+                    <!-- Part 2.5: Falco Security -->
+                    <div x-show="activeGuideSection === 'part2-falco'" class="space-y-6">
+                      <div class="flex items-center gap-3 mb-4">
+                        <div
+                          class="w-10 h-10 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-full flex items-center justify-center text-white font-bold">
+                          2.5</div>
+                        <h3 class="text-xl font-bold text-slate-800">Install Falco Security</h3>
+                      </div>
+                      <div class="bg-red-50 border border-red-200 rounded-xl p-4 mb-4">
+                        <p class="text-red-800 text-sm"><i
+                            class="fas fa-exclamation-circle mr-2"></i><strong>IMPORTANT:</strong> Replace <code
+                            class="bg-red-100 px-1 rounded">&lt;YOUR_CLUSTER_NAME&gt;</code></p>
+                      </div>
+                      <div class="relative">
+                        <div class="absolute top-2 right-2 z-10">
+                          <button @click="copyCode('code-falco')"
+                            class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs rounded-lg transition-colors flex items-center gap-2">
+                            <i :class="copiedId === 'code-falco' ? 'fas fa-check' : 'fas fa-copy'"></i>
+                            <span x-text="copiedId === 'code-falco' ? 'Copied!' : 'Copy'"></span>
+                          </button>
+                        </div>
+                        <pre id="code-falco"
+                          class="bg-slate-900 text-slate-200 p-4 pt-12 rounded-xl overflow-x-auto text-xs font-mono whitespace-pre"># Install Falco with Falcosidekick
+helm install falco falcosecurity/falco \
+  --namespace falco \
+  --create-namespace \
+  --set tty=true \
+  --set falco.grpc.enabled=true \
+  --set falco.grpcOutput.enabled=true \
+  --set falcosidekick.enabled=true \
+  --set falcosidekick.webui.enabled=false \
+  --set falcosidekick.config.prometheus.extralabels="cluster_name:&lt;YOUR_CLUSTER_NAME&gt;" \
+  --wait
+
+# Verify
+kubectl get daemonset -n falco
+kubectl get deployment -n falco falco-falcosidekick</pre>
+                      </div>
+                    </div>
+
+                    <!-- Part 2.6: Cost IAM Role -->
+                    <div x-show="activeGuideSection === 'part2-cost-iam'" class="space-y-6">
+                      <div class="flex items-center gap-3 mb-4">
+                        <div
+                          class="w-10 h-10 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-full flex items-center justify-center text-white font-bold">
+                          2.6</div>
+                        <h3 class="text-xl font-bold text-slate-800">Create IAM Role for Cost Exporter</h3>
+                      </div>
+                      <div class="bg-red-50 border border-red-200 rounded-xl p-4 mb-4">
+                        <p class="text-red-800 text-sm"><i
+                            class="fas fa-exclamation-circle mr-2"></i><strong>IMPORTANT:</strong> Replace <code
+                            class="bg-red-100 px-1 rounded">&lt;YOUR_CLUSTER_NAME&gt;</code> and <code
+                            class="bg-red-100 px-1 rounded">&lt;YOUR_REGION&gt;</code></p>
+                      </div>
+                      <div class="relative">
+                        <div class="absolute top-2 right-2 z-10">
+                          <button @click="copyCode('code-cost-iam')"
+                            class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs rounded-lg transition-colors flex items-center gap-2">
+                            <i :class="copiedId === 'code-cost-iam' ? 'fas fa-check' : 'fas fa-copy'"></i>
+                            <span x-text="copiedId === 'code-cost-iam' ? 'Copied!' : 'Copy'"></span>
+                          </button>
+                        </div>
+                        <pre id="code-cost-iam"
+                          class="bg-slate-900 text-slate-200 p-4 pt-12 rounded-xl overflow-x-auto text-xs font-mono whitespace-pre"
+                          style="max-height: 350px;">cat &gt; create-cost-exporter-role.sh &lt;&lt; 'SCRIPT'
+#!/bin/bash
+CLUSTER_NAME="&lt;YOUR_CLUSTER_NAME&gt;"
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+REGION="&lt;YOUR_REGION&gt;"
+
+OIDC_PROVIDER=$(aws eks describe-cluster --name $CLUSTER_NAME --region $REGION \
+  --query "cluster.identity.oidc.issuer" --output text | sed -e "s/^https:\/\///")
+
+cat &gt; /tmp/trust-policy.json &lt;&lt; TRUST
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {"Federated": "arn:aws:iam::${ACCOUNT_ID}:oidc-provider/${OIDC_PROVIDER}"},
+    "Action": "sts:AssumeRoleWithWebIdentity",
+    "Condition": {
+      "StringEquals": {
+        "${OIDC_PROVIDER}:sub": "system:serviceaccount:default:cost-exporter",
+        "${OIDC_PROVIDER}:aud": "sts.amazonaws.com"
+      }
+    }
+  }]
+}
+TRUST
+
+cat &gt; /tmp/cost-exporter-policy.json &lt;&lt; POLICY
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": ["ec2:DescribeInstances", "ec2:DescribeTags", "ce:GetCostAndUsage"],
+    "Resource": "*"
+  }]
+}
+POLICY
+
+aws iam create-role --role-name ${CLUSTER_NAME}-CostExporterRole --assume-role-policy-document file:///tmp/trust-policy.json
+aws iam put-role-policy --role-name ${CLUSTER_NAME}-CostExporterRole --policy-name CostExporterPolicy --policy-document file:///tmp/cost-exporter-policy.json
+
+echo "Role ARN: arn:aws:iam::${ACCOUNT_ID}:role/${CLUSTER_NAME}-CostExporterRole"
+SCRIPT
+
+chmod +x create-cost-exporter-role.sh
+./create-cost-exporter-role.sh</pre>
+                      </div>
+                    </div>
+
+                    <!-- Part 2.7: Cost Exporter Deploy -->
+                    <div x-show="activeGuideSection === 'part2-cost-deploy'" class="space-y-6">
+                      <div class="flex items-center gap-3 mb-4">
+                        <div
+                          class="w-10 h-10 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-full flex items-center justify-center text-white font-bold">
+                          2.7</div>
+                        <h3 class="text-xl font-bold text-slate-800">Deploy Cost Exporter</h3>
+                      </div>
+                      <div class="bg-red-50 border border-red-200 rounded-xl p-4 mb-4">
+                        <p class="text-red-800 text-sm"><i class="fas fa-exclamation-circle mr-2"></i>Replace <code
+                            class="bg-red-100 px-1 rounded">&lt;AWS_ACCOUNT_ID&gt;</code>, <code
+                            class="bg-red-100 px-1 rounded">&lt;YOUR_CLUSTER_NAME&gt;</code>, <code
+                            class="bg-red-100 px-1 rounded">&lt;YOUR_REGION&gt;</code></p>
+                      </div>
+                      <div class="relative">
+                        <div class="absolute top-2 right-2 z-10">
+                          <button @click="copyCode('code-cost-deploy')"
+                            class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs rounded-lg transition-colors flex items-center gap-2">
+                            <i :class="copiedId === 'code-cost-deploy' ? 'fas fa-check' : 'fas fa-copy'"></i>
+                            <span x-text="copiedId === 'code-cost-deploy' ? 'Copied!' : 'Copy'"></span>
+                          </button>
+                        </div>
+                        <pre id="code-cost-deploy"
+                          class="bg-slate-900 text-slate-200 p-4 pt-12 rounded-xl overflow-x-auto text-xs font-mono whitespace-pre"
+                          style="max-height: 350px;"># Create Service Account
+cat &gt; cost-exporter-sa.yaml &lt;&lt; 'EOF'
 apiVersion: v1
 kind: ServiceAccount
-metadata: { name: xamops-reader, namespace: default }
+metadata:
+  name: cost-exporter
+  namespace: default
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::&lt;AWS_ACCOUNT_ID&gt;:role/&lt;YOUR_CLUSTER_NAME&gt;-CostExporterRole
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
-metadata: { name: xamops-reader-role }
+metadata:
+  name: cost-exporter
 rules:
-- apiGroups: ["aquasecurity.github.io", "spdx.softwarecomposition.kubescape.io"]
-  resources: ["vulnerabilityreports", "configurationscansummaries"]
-  verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["nodes", "pods"]
+    verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
-metadata: { name: xamops-reader-binding }
+metadata:
+  name: cost-exporter
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cost-exporter
 subjects:
-- kind: ServiceAccount
-  name: xamops-reader
+  - kind: ServiceAccount
+    name: cost-exporter
+    namespace: default
+EOF
+
+kubectl apply -f cost-exporter-sa.yaml
+
+# Create ConfigMap with cost calculation script
+cat &gt; cost-exporter-script.yaml &lt;&lt; 'EOF'
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cost-exporter-script
   namespace: default
+data:
+  exporter.py: |
+    #!/usr/bin/env python3
+    import boto3
+    import os
+    from prometheus_client import start_http_server, Gauge
+    import time
+
+    NODE_COST_GAUGE = Gauge('xamops_eks_node_cost_per_hour',
+                            'Cost per hour for each node',
+                            ['cluster_name', 'node_name', 'instance_type', 'instance_id'])
+    NODE_DAILY_COST_GAUGE = Gauge('xamops_eks_node_daily_cost',
+                                   'Daily cost for each node',
+                                   ['cluster_name', 'node_name', 'instance_type', 'instance_id'])
+    CLUSTER_TOTAL_COST_GAUGE = Gauge('xamops_eks_cluster_total_daily_cost',
+                                      'Total cluster daily cost',
+                                      ['cluster_name'])
+
+    CLUSTER_NAME = os.getenv('CLUSTER_NAME', '&lt;YOUR_CLUSTER_NAME&gt;')
+    REGION = os.getenv('AWS_REGION', '&lt;YOUR_REGION&gt;')
+
+    INSTANCE_PRICING = {
+        't3.micro': 0.0104, 't3.small': 0.0208, 't3.medium': 0.0416,
+        't3.large': 0.0832, 't3.xlarge': 0.1664, 't3.2xlarge': 0.3328,
+        't2.small': 0.023, 't2.medium': 0.046, 't2.large': 0.093,
+        'm5.large': 0.096, 'm5.xlarge': 0.192, 'm5.2xlarge': 0.384,
+        'm6i.large': 0.096, 'm6i.xlarge': 0.192, 'c5.large': 0.085,
+        'c5.xlarge': 0.17, 'c6i.large': 0.085, 'c6i.xlarge': 0.17,
+    }
+
+    def get_instance_cost(instance_type):
+        return INSTANCE_PRICING.get(instance_type, 0.10)
+
+    def get_cluster_nodes():
+        ec2 = boto3.client('ec2', region_name=REGION)
+        response = ec2.describe_instances(
+            Filters=[
+                {'Name': 'tag:eks:cluster-name', 'Values': [CLUSTER_NAME]},
+                {'Name': 'instance-state-name', 'Values': ['running']}
+            ]
+        )
+        nodes = []
+        for reservation in response['Reservations']:
+            for instance in reservation['Instances']:
+                node_name = instance['PrivateDnsName']
+                for tag in instance.get('Tags', []):
+                    if tag['Key'] == 'Name':
+                        node_name = tag['Value']
+                        break
+                nodes.append({
+                    'node_name': node_name,
+                    'instance_id': instance['InstanceId'],
+                    'instance_type': instance['InstanceType']
+                })
+        return nodes
+
+    def update_metrics():
+        try:
+            nodes = get_cluster_nodes()
+            total_daily_cost = 0
+            for node in nodes:
+                cost_per_hour = get_instance_cost(node['instance_type'])
+                daily_cost = cost_per_hour * 24
+                NODE_COST_GAUGE.labels(
+                    cluster_name=CLUSTER_NAME, node_name=node['node_name'],
+                    instance_type=node['instance_type'], instance_id=node['instance_id']
+                ).set(cost_per_hour)
+                NODE_DAILY_COST_GAUGE.labels(
+                    cluster_name=CLUSTER_NAME, node_name=node['node_name'],
+                    instance_type=node['instance_type'], instance_id=node['instance_id']
+                ).set(daily_cost)
+                total_daily_cost += daily_cost
+            CLUSTER_TOTAL_COST_GAUGE.labels(cluster_name=CLUSTER_NAME).set(total_daily_cost)
+            print(f"Updated metrics for {len(nodes)} nodes. Total daily cost: ${total_daily_cost:.2f}")
+        except Exception as e:
+            print(f"Error updating metrics: {e}")
+
+    if __name__ == '__main__':
+        start_http_server(8080)
+        print("Cost exporter started on port 8080")
+        while True:
+            update_metrics()
+            time.sleep(300)
+EOF
+
+kubectl apply -f cost-exporter-script.yaml
+
+# Create cost exporter deployment
+cat &gt; cost-exporter-deployment.yaml &lt;&lt; 'EOF'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cost-exporter
+  namespace: default
+  labels:
+    app: cost-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cost-exporter
+  template:
+    metadata:
+      labels:
+        app: cost-exporter
+    spec:
+      serviceAccountName: cost-exporter
+      containers:
+      - name: cost-exporter
+        image: python:3.9-slim
+        command:
+          - /bin/bash
+          - -c
+          - |
+            pip install boto3 prometheus-client
+            python /scripts/exporter.py
+        env:
+        - name: CLUSTER_NAME
+          value: "&lt;YOUR_CLUSTER_NAME&gt;"
+        - name: AWS_REGION
+          value: "&lt;YOUR_REGION&gt;"
+        ports:
+        - containerPort: 8080
+          name: metrics
+        volumeMounts:
+        - name: scripts
+          mountPath: /scripts
+      volumes:
+      - name: scripts
+        configMap:
+          name: cost-exporter-script
+EOF
+
+kubectl apply -f cost-exporter-deployment.yaml
+
+# Create cost exporter service
+cat &gt; cost-exporter-svc.yaml &lt;&lt; 'EOF'
+apiVersion: v1
+kind: Service
+metadata:
+  name: cost-exporter
+  namespace: default
+spec:
+  type: ClusterIP
+  ports:
+  - name: metrics
+    port: 8080
+    targetPort: 8080
+  selector:
+    app: cost-exporter
+EOF
+
+kubectl apply -f cost-exporter-svc.yaml</pre>
+                      </div>
+                    </div>
+
+                    <!-- Part 3.1: EBS CSI Driver -->
+                    <div x-show="activeGuideSection === 'part3-ebs'" class="space-y-6">
+                      <div class="flex items-center gap-3 mb-4">
+                        <div
+                          class="w-10 h-10 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-full flex items-center justify-center text-white font-bold">
+                          3.1</div>
+                        <h3 class="text-xl font-bold text-slate-800">Enable Storage (EBS CSI Driver)</h3>
+                      </div>
+                      <div class="bg-red-50 border border-red-200 rounded-xl p-4 mb-4">
+                        <p class="text-red-800 text-sm"><i class="fas fa-exclamation-circle mr-2"></i>Replace <code
+                            class="bg-red-100 px-1 rounded">&lt;CLUSTER_NAME&gt;</code> and <code
+                            class="bg-red-100 px-1 rounded">&lt;REGION&gt;</code></p>
+                      </div>
+                      <div class="relative">
+                        <div class="absolute top-2 right-2 z-10">
+                          <button @click="copyCode('code-ebs-csi')"
+                            class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs rounded-lg transition-colors flex items-center gap-2">
+                            <i :class="copiedId === 'code-ebs-csi' ? 'fas fa-check' : 'fas fa-copy'"></i>
+                            <span x-text="copiedId === 'code-ebs-csi' ? 'Copied!' : 'Copy'"></span>
+                          </button>
+                        </div>
+                        <pre id="code-ebs-csi"
+                          class="bg-slate-900 text-slate-200 p-4 pt-12 rounded-xl overflow-x-auto text-xs font-mono whitespace-pre"># Associate OIDC provider
+eksctl utils associate-iam-oidc-provider --cluster &lt;CLUSTER_NAME&gt; --region &lt;REGION&gt; --approve
+
+# Create IAM Role for EBS CSI
+eksctl create iamserviceaccount \
+  --name ebs-csi-controller-sa \
+  --namespace kube-system \
+  --cluster &lt;CLUSTER_NAME&gt; \
+  --attach-policy-arn arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy \
+  --approve \
+  --role-only
+
+# Install EBS CSI Addon
+eksctl create addon --name aws-ebs-csi-driver --cluster &lt;CLUSTER_NAME&gt; --force
+
+# Create gp3 StorageClass
+cat &lt;&lt;EOF | kubectl apply -f -
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp3
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: ebs.csi.aws.com
+parameters:
+  type: gp3
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+EOF</pre>
+                      </div>
+                    </div>
+
+                    <!-- Part 3.2: Trivy Scanner -->
+                    <div x-show="activeGuideSection === 'part3-trivy'" class="space-y-6">
+                      <div class="flex items-center gap-3 mb-4">
+                        <div
+                          class="w-10 h-10 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-full flex items-center justify-center text-white font-bold">
+                          3.2</div>
+                        <h3 class="text-xl font-bold text-slate-800">Install Trivy (Vulnerability Scanner)</h3>
+                      </div>
+                      <div class="relative">
+                        <div class="absolute top-2 right-2 z-10">
+                          <button @click="copyCode('code-trivy')"
+                            class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs rounded-lg transition-colors flex items-center gap-2">
+                            <i :class="copiedId === 'code-trivy' ? 'fas fa-check' : 'fas fa-copy'"></i>
+                            <span x-text="copiedId === 'code-trivy' ? 'Copied!' : 'Copy'"></span>
+                          </button>
+                        </div>
+                        <pre id="code-trivy"
+                          class="bg-slate-900 text-slate-200 p-4 pt-12 rounded-xl overflow-x-auto text-xs font-mono whitespace-pre"># Add Aqua helm repo
+helm repo add aqua https://aquasecurity.github.io/helm-charts/
+helm repo update
+
+# Install Trivy operator
+helm upgrade --install trivy-operator aqua/trivy-operator \
+  --namespace trivy-system \
+  --create-namespace \
+  --set trivy.ignoreUnfixed=true \
+  --set operator.scanJobTimeout=15m \
+  --set operator.scanJobsConcurrentLimit=3 \
+  --wait</pre>
+                      </div>
+                    </div>
+
+                    <!-- Part 3.3: Kubescape -->
+                    <div x-show="activeGuideSection === 'part3-kubescape'" class="space-y-6">
+                      <div class="flex items-center gap-3 mb-4">
+                        <div
+                          class="w-10 h-10 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-full flex items-center justify-center text-white font-bold">
+                          3.3</div>
+                        <h3 class="text-xl font-bold text-slate-800">Install Kubescape (Compliance Scanner)</h3>
+                      </div>
+                      <div class="bg-red-50 border border-red-200 rounded-xl p-4 mb-4">
+                        <p class="text-red-800 text-sm"><i class="fas fa-exclamation-circle mr-2"></i>Replace <code
+                            class="bg-red-100 px-1 rounded">&lt;CLUSTER_NAME&gt;</code></p>
+                      </div>
+                      <div class="relative">
+                        <div class="absolute top-2 right-2 z-10">
+                          <button @click="copyCode('code-kubescape')"
+                            class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs rounded-lg transition-colors flex items-center gap-2">
+                            <i :class="copiedId === 'code-kubescape' ? 'fas fa-check' : 'fas fa-copy'"></i>
+                            <span x-text="copiedId === 'code-kubescape' ? 'Copied!' : 'Copy'"></span>
+                          </button>
+                        </div>
+                        <pre id="code-kubescape"
+                          class="bg-slate-900 text-slate-200 p-4 pt-12 rounded-xl overflow-x-auto text-xs font-mono whitespace-pre"># Add Kubescape helm repo
+helm repo add kubescape https://kubescape.github.io/helm-charts/
+helm repo update
+
+# Install Kubescape
+helm upgrade --install kubescape kubescape/kubescape-operator -n kubescape --create-namespace \
+  --set clusterName=&lt;CLUSTER_NAME&gt; \
+  --set capabilities.configurationScan=enable \
+  --set capabilities.continuousScan=enable \
+  --set capabilities.vulnerabilityScan=enable \
+  --set storage.persistence.enable=true \
+  --set storage.persistence.size=2Gi \
+  --wait</pre>
+                      </div>
+                    </div>
+
+                    <!-- Part 3.4: Verification -->
+                    <div x-show="activeGuideSection === 'part3-verify'" class="space-y-6">
+                      <div class="flex items-center gap-3 mb-4">
+                        <div
+                          class="w-10 h-10 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-full flex items-center justify-center text-white font-bold">
+                          3.4</div>
+                        <h3 class="text-xl font-bold text-slate-800">Verification</h3>
+                      </div>
+                      <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
+                        <p class="text-amber-800 text-sm"><i class="fas fa-clock mr-2"></i>Wait 5 minutes after
+                          installation before running these commands.</p>
+                      </div>
+                      <div class="relative">
+                        <div class="absolute top-2 right-2 z-10">
+                          <button @click="copyCode('code-verify')"
+                            class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs rounded-lg transition-colors flex items-center gap-2">
+                            <i :class="copiedId === 'code-verify' ? 'fas fa-check' : 'fas fa-copy'"></i>
+                            <span x-text="copiedId === 'code-verify' ? 'Copied!' : 'Copy'"></span>
+                          </button>
+                        </div>
+                        <pre id="code-verify"
+                          class="bg-slate-900 text-slate-200 p-4 pt-12 rounded-xl overflow-x-auto text-xs font-mono whitespace-pre"># Verify Trivy
+kubectl get vulnerabilityreports -A
+
+# Verify Kubescape
+kubectl get configurationscansummaries -A
+kubectl get vulnerabilitymanifestsummaries -A
+
+# Check all components
+echo "=== OTel ===" && kubectl get pods -l app.kubernetes.io/name=opentelemetry-collector
+echo "=== KSM ===" && kubectl get deployment -n kube-system kube-state-metrics
+echo "=== Falco ===" && kubectl get daemonset -n falco falco
+echo "=== Cost ===" && kubectl get deployment cost-exporter</pre>
+                      </div>
+                    </div>
+
+                    <!-- Part 3.5: Generate Kubeconfig -->
+                    <div x-show="activeGuideSection === 'part3-kubeconfig'" class="space-y-6">
+                      <div class="flex items-center gap-3 mb-4">
+                        <div
+                          class="w-10 h-10 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-full flex items-center justify-center text-white font-bold">
+                          3.5</div>
+                        <h3 class="text-xl font-bold text-slate-800">Generate Kubeconfig for XamOps</h3>
+                      </div>
+                      <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
+                        <p class="text-amber-800 text-sm"><i class="fas fa-exclamation-triangle mr-2"></i>Run ONLY after
+                          verification shows data. Creates a read-only user for XamOps.</p>
+                      </div>
+                      <div class="relative">
+                        <div class="absolute top-2 right-2 z-10">
+                          <button @click="copyCode('code-kubeconfig')"
+                            class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs rounded-lg transition-colors flex items-center gap-2">
+                            <i :class="copiedId === 'code-kubeconfig' ? 'fas fa-check' : 'fas fa-copy'"></i>
+                            <span x-text="copiedId === 'code-kubeconfig' ? 'Copied!' : 'Copy'"></span>
+                          </button>
+                        </div>
+                        <pre id="code-kubeconfig"
+                          class="bg-slate-900 text-slate-200 p-4 pt-12 rounded-xl overflow-x-auto text-xs font-mono whitespace-pre"
+                          style="max-height: 400px;"># Create ServiceAccount, ClusterRole, and Secret
+cat &lt;&lt;EOF | kubectl apply -f -
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: xamops-dashboard-sa
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: xamops-dashboard-role
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "nodes", "namespaces", "services", "deployments", "daemonsets", "replicationcontrollers", "statefulsets", "jobs", "cronjobs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["spdx.softwarecomposition.kubescape.io", "kubescape.io"]
+    resources: ["configurationscansummaries", "vulnerabilitymanifestsummaries"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["aquasecurity.github.io"]
+    resources: ["vulnerabilityreports", "configauditreports", "exposedsecretreports", "rbacassessmentreports"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: xamops-dashboard-binding
+subjects:
+  - kind: ServiceAccount
+    name: xamops-dashboard-sa
+    namespace: kube-system
 roleRef:
   kind: ClusterRole
-  name: xamops-reader-role
-EOFSA
+  name: xamops-dashboard-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: xamops-dashboard-token
+  namespace: kube-system
+  annotations:
+    kubernetes.io/service-account.name: xamops-dashboard-sa
+type: kubernetes.io/service-account-token
+EOF
 
-# Generate kubeconfig (save output to file)
-kubectl create token xamops-reader --duration=87600h</pre>
-                  </div>
+# Generate kubeconfig file
+TOKEN=$(kubectl get secret xamops-dashboard-token -n kube-system -o jsonpath='{.data.token}' | base64 --decode)
+CA_CERT=$(kubectl get secret xamops-dashboard-token -n kube-system -o jsonpath='{.data.ca\.crt}')
+SERVER=$(kubectl config view --minify --output jsonpath='{.clusters[0].cluster.server}')
 
-                  <!-- Next Steps -->
-                  <div class="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-6">
-                    <h3 class="font-bold text-green-900 text-lg mb-3 flex items-center gap-2">
-                      <i class="fas fa-check-circle text-green-600"></i>
-                      Next Steps
-                    </h3>
-                    <ul class="space-y-2 text-green-800 text-sm">
-                      <li class="flex items-start gap-2">
-                        <i class="fas fa-arrow-right mt-1 text-green-600"></i>
-                        <span>Save your EC2 public IP (e.g., http://1.2.3.4:9090) for Prometheus queries</span>
-                      </li>
-                      <li class="flex items-start gap-2">
-                        <i class="fas fa-arrow-right mt-1 text-green-600"></i>
-                        <span>Wait 5-10 minutes for initial security scans to complete</span>
-                      </li>
-                      <li class="flex items-start gap-2">
-                        <i class="fas fa-arrow-right mt-1 text-green-600"></i>
-                        <span>Provide the kubeconfig token to XamOps for integration</span>
-                      </li>
-                    </ul>
-                  </div>
+cat &lt;&lt;EOF &gt; xamops-kubeconfig.yaml
+apiVersion: v1
+kind: Config
+clusters:
+- cluster:
+    certificate-authority-data: $CA_CERT
+    server: $SERVER
+  name: cluster-data
+contexts:
+- context:
+    cluster: cluster-data
+    user: xamops-user
+  name: xamops-context
+current-context: xamops-context
+users:
+- name: xamops-user
+  user:
+    token: $TOKEN
+EOF
 
-                  <!-- View Full Guide Link -->
-                  <div class="text-center pt-4">
-                    <a href="/integration-guide.html" target="_blank"
-                      class="inline-flex items-center gap-2 text-indigo-600 hover:text-indigo-700 font-semibold text-sm">
-                      <i class="fas fa-external-link-alt"></i>
-                      View Full Detailed Guide
-                    </a>
+echo "--- COPY BELOW ---"
+cat xamops-kubeconfig.yaml</pre>
+                      </div>
+                    </div>
+
+                    <!-- Reference Section -->
+                    <div x-show="activeGuideSection === 'reference'" class="space-y-6">
+                      <h3 class="text-xl font-bold text-slate-800">Port Reference</h3>
+                      <div class="overflow-x-auto">
+                        <table class="w-full text-sm border border-slate-200 rounded-lg overflow-hidden">
+                          <thead class="bg-slate-100">
+                            <tr>
+                              <th class="px-4 py-3 text-left font-semibold text-slate-700">Service</th>
+                              <th class="px-4 py-3 text-left font-semibold text-slate-700">Port</th>
+                              <th class="px-4 py-3 text-left font-semibold text-slate-700">Protocol</th>
+                              <th class="px-4 py-3 text-left font-semibold text-slate-700">Purpose</th>
+                            </tr>
+                          </thead>
+                          <tbody class="divide-y divide-slate-200">
+                            <tr>
+                              <td class="px-4 py-2">OTel Gateway</td>
+                              <td class="px-4 py-2 font-mono">4317</td>
+                              <td class="px-4 py-2">gRPC</td>
+                              <td class="px-4 py-2">OTLP gRPC</td>
+                            </tr>
+                            <tr class="bg-green-50">
+                              <td class="px-4 py-2 font-semibold">OTel Gateway</td>
+                              <td class="px-4 py-2 font-mono font-bold">4318</td>
+                              <td class="px-4 py-2">HTTP</td>
+                              <td class="px-4 py-2 font-semibold">OTLP HTTP (main)</td>
+                            </tr>
+                            <tr>
+                              <td class="px-4 py-2">OTel Gateway</td>
+                              <td class="px-4 py-2 font-mono">8889</td>
+                              <td class="px-4 py-2">HTTP</td>
+                              <td class="px-4 py-2">Prometheus scrape</td>
+                            </tr>
+                            <tr>
+                              <td class="px-4 py-2">Prometheus</td>
+                              <td class="px-4 py-2 font-mono">9090</td>
+                              <td class="px-4 py-2">HTTP</td>
+                              <td class="px-4 py-2">Web UI &amp; API</td>
+                            </tr>
+                            <tr>
+                              <td class="px-4 py-2">Kube-State-Metrics</td>
+                              <td class="px-4 py-2 font-mono">8080</td>
+                              <td class="px-4 py-2">HTTP</td>
+                              <td class="px-4 py-2">Metrics</td>
+                            </tr>
+                            <tr>
+                              <td class="px-4 py-2">Falcosidekick</td>
+                              <td class="px-4 py-2 font-mono">2801</td>
+                              <td class="px-4 py-2">HTTP</td>
+                              <td class="px-4 py-2">Metrics</td>
+                            </tr>
+                            <tr>
+                              <td class="px-4 py-2">Cost Exporter</td>
+                              <td class="px-4 py-2 font-mono">8080</td>
+                              <td class="px-4 py-2">HTTP</td>
+                              <td class="px-4 py-2">Metrics</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                      <div class="bg-green-50 border border-green-200 rounded-xl p-6 mt-6">
+                        <h4 class="font-bold text-green-800 mb-3"><i class="fas fa-check-circle mr-2"></i>Summary</h4>
+                        <ul class="grid grid-cols-2 gap-2 text-green-700 text-sm">
+                          <li><i class="fas fa-check mr-2"></i>System metrics (CPU, memory, disk, network)</li>
+                          <li><i class="fas fa-check mr-2"></i>Kubernetes metrics (pods, deployments, nodes)</li>
+                          <li><i class="fas fa-check mr-2"></i>Security events via Falco</li>
+                          <li><i class="fas fa-check mr-2"></i>AWS costs per node</li>
+                          <li><i class="fas fa-check mr-2"></i>All metrics exported to Prometheus</li>
+                          <li><i class="fas fa-check mr-2"></i>XamOps integration ready</li>
+                        </ul>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -4241,6 +6318,9 @@ kubectl create token xamops-reader --duration=87600h</pre>
         containerSearchQuery: '',
         containerNamespaceFilter: 'falco',
         openInfoPopover: null, // Tracks which popover is currently open
+        selectedContainer: null, // For container detail modal
+        showContainerModal: false,
+        podSearchFilter: '', // Global pod search filter for cross-tab navigation
 
         // Caching is handled by backend Redis (2-minute TTL)
         // Frontend does NOT cache - always fetches from API
@@ -4404,6 +6484,10 @@ kubectl create token xamops-reader --duration=87600h</pre>
         },
 
         getCostEfficiency() {
+          // Prefer OpenCost efficiency if available
+          if (this.dashboard?.openCost?.enabled && this.dashboard?.openCost?.summary?.totalEfficiency) {
+            return Math.round(this.dashboard.openCost.summary.totalEfficiency * 100);
+          }
           const cpu = this.dashboard?.clusterOverview?.cpuUsagePercent || 0;
           const memory = this.dashboard?.clusterOverview?.memoryUsagePercent || 0;
           return Math.round((cpu + memory) / 2);
@@ -4414,8 +6498,237 @@ kubectl create token xamops-reader --duration=87600h</pre>
           return Math.max(0, 100 - efficiency);
         },
 
+        // OpenCost helper functions
+        isOpenCostEnabled() {
+          return this.dashboard?.openCost?.enabled === true;
+        },
+
+        getOpenCostDailyCost() {
+          if (this.isOpenCostEnabled()) {
+            return this.dashboard.openCost.summary?.totalDailyCost || 0;
+          }
+          return this.dashboard?.costMetrics?.dailyCost || 0;
+        },
+
+        getOpenCostMonthlyCost() {
+          if (this.isOpenCostEnabled()) {
+            return this.dashboard.openCost.summary?.totalMonthlyCost || 0;
+          }
+          return (this.dashboard?.costMetrics?.dailyCost || 0) * 30;
+        },
+
+        getOpenCostCpuEfficiency() {
+          if (this.isOpenCostEnabled()) {
+            return (this.dashboard.openCost.summary?.cpuEfficiency || 0) * 100;
+          }
+          return this.dashboard?.clusterOverview?.cpuUsagePercent || 0;
+        },
+
+        getOpenCostRamEfficiency() {
+          if (this.isOpenCostEnabled()) {
+            return (this.dashboard.openCost.summary?.ramEfficiency || 0) * 100;
+          }
+          return this.dashboard?.clusterOverview?.memoryUsagePercent || 0;
+        },
+
+        getOpenCostIdleCost() {
+          if (this.isOpenCostEnabled()) {
+            return this.dashboard.openCost.summary?.idleCost || 0;
+          }
+          return this.getOpenCostDailyCost() * (this.getIdleCostPercentage() / 100);
+        },
+
+        getNamespaceCosts() {
+          // Prefer OpenCost namespace allocations if available
+          const openCost = this.dashboard?.openCost;
+          if (this.isOpenCostEnabled() && openCost?.namespaceAllocations?.length > 0) {
+            return openCost.namespaceAllocations.map(ns => ({
+              namespace: ns.namespace || 'Unknown',
+              podCount: 0, // OpenCost doesn't track pod count per namespace in allocation
+              // Use cpuCores (requested) as primary, cpuCoreUsageAverage as actual usage
+              cpuUsageMillicores: (ns.cpuCores || ns.cpuCoreUsageAverage || 0) * 1000,
+              memoryUsageMb: (ns.ramBytes || ns.ramByteUsageAverage || 0) / (1024 * 1024),
+              costPercentage: ns.costPercentage || 0,
+              dailyCost: ns.totalCost || 0,
+              monthlyCost: ns.monthlyCost || (ns.totalCost || 0) * 30,
+              cpuCost: ns.cpuCost || 0,
+              ramCost: ns.ramCost || 0,
+              pvCost: ns.pvCost || 0,
+              networkCost: ns.networkCost || 0,
+              cpuEfficiency: (ns.cpuEfficiency || 0) * 100,
+              ramEfficiency: (ns.ramEfficiency || 0) * 100,
+              totalEfficiency: (ns.totalEfficiency || 0) * 100
+            }))
+            // Show all namespaces from OpenCost - don't filter by cost/usage as they may be 0 initially
+            .filter(ns => ns.namespace && ns.namespace !== 'Unknown')
+            .sort((a, b) => b.dailyCost - a.dailyCost || a.namespace.localeCompare(b.namespace));
+          }
+          return this.dashboard?.costMetrics?.namespaceCosts || [];
+        },
+
+        getWorkloadCosts() {
+          // Prefer OpenCost controller allocations if available
+          const openCost = this.dashboard?.openCost;
+          if (this.isOpenCostEnabled() && openCost?.controllerAllocations?.length > 0) {
+            return openCost.controllerAllocations.map(wl => ({
+              name: wl.controller || 'Unknown',
+              namespace: wl.namespace || '',
+              kind: wl.controllerKind || 'Unknown',
+              replicas: wl.podCount || 0,
+              // Use cpuCores (requested) as primary, cpuCoreUsageAverage as actual usage
+              cpuUsageMillicores: (wl.cpuCores || wl.cpuCoreUsageAverage || 0) * 1000,
+              memoryUsageMb: (wl.ramBytes || wl.ramByteUsageAverage || 0) / (1024 * 1024),
+              dailyCost: wl.totalCost || 0,
+              monthlyCost: wl.monthlyCost || (wl.totalCost || 0) * 30,
+              cpuEfficiency: (wl.cpuEfficiency || 0) * 100,
+              ramEfficiency: (wl.ramEfficiency || 0) * 100,
+              totalEfficiency: (wl.totalEfficiency || 0) * 100
+            }))
+            // Show all workloads from OpenCost - don't filter by cost/usage as they may be 0 initially
+            .filter(wl => wl.name && wl.name !== 'Unknown' && wl.name !== '__unallocated__')
+            .sort((a, b) => b.dailyCost - a.dailyCost || a.name.localeCompare(b.name));
+          }
+          return this.dashboard?.costMetrics?.workloadCosts || [];
+        },
+
+        // Filter workloads by kind - Deployments (case-insensitive)
+        getDeploymentCosts() {
+          return this.getWorkloadCosts()
+            .filter(wl => {
+              const kind = (wl.kind || '').toLowerCase();
+              return kind === 'deployment' || kind === 'replicaset';
+            })
+            .sort((a, b) => b.dailyCost - a.dailyCost);
+        },
+
+        // Filter workloads by kind - DaemonSets (case-insensitive)
+        getDaemonSetCosts() {
+          return this.getWorkloadCosts()
+            .filter(wl => {
+              const kind = (wl.kind || '').toLowerCase();
+              return kind === 'daemonset';
+            })
+            .sort((a, b) => b.dailyCost - a.dailyCost);
+        },
+
+        // Filter workloads by kind - StatefulSets (case-insensitive)
+        getStatefulSetCosts() {
+          return this.getWorkloadCosts()
+            .filter(wl => {
+              const kind = (wl.kind || '').toLowerCase();
+              return kind === 'statefulset';
+            })
+            .sort((a, b) => b.dailyCost - a.dailyCost);
+        },
+
+        getCostBreakdown() {
+          const openCost = this.dashboard?.openCost;
+          if (this.isOpenCostEnabled() && openCost?.summary) {
+            const summary = openCost.summary;
+            return {
+              cpu: summary.cpuCost || 0,
+              ram: summary.ramCost || 0,
+              storage: summary.pvCost || 0,
+              network: summary.networkCost || 0,
+              loadBalancer: summary.loadBalancerCost || 0,
+              gpu: summary.gpuCost || 0
+            };
+          }
+          return {
+            cpu: 0,
+            ram: 0,
+            storage: 0,
+            network: 0,
+            loadBalancer: 0,
+            gpu: 0
+          };
+        },
+
+        getOptimizations() {
+          if (this.isOpenCostEnabled() && this.dashboard.openCost.optimizations) {
+            return this.dashboard.openCost.optimizations;
+          }
+          return [];
+        },
+
+        getTotalPotentialSavings() {
+          const optimizations = this.getOptimizations();
+          return optimizations.reduce((sum, opt) => sum + (opt.estimatedMonthlySavings || 0), 0);
+        },
+
+        getOptimizationsByType(type) {
+          return this.getOptimizations().filter(opt => opt.type === type);
+        },
+
+        getHighSeverityOptimizations() {
+          return this.getOptimizations().filter(opt => opt.severity === 'HIGH');
+        },
+
+        getNodeRightsizingRecommendations() {
+          return this.getOptimizations().filter(opt =>
+            opt.type === 'NODE_RIGHTSIZING' || opt.type === 'UNDERUTILIZED_NODE'
+          );
+        },
+
+        getWorkloadOptimizations() {
+          return this.getOptimizations().filter(opt =>
+            opt.type === 'OVER_PROVISIONED' || opt.resourceType === 'WORKLOAD'
+          );
+        },
+
+        getUnderutilizedNodeCount() {
+          const nodes = this.getNodeCosts();
+          return nodes.filter(n => {
+            const avgEff = ((n.cpuUsagePercent || n.cpuEfficiency || 0) + (n.memoryUsagePercent || n.ramEfficiency || 0)) / 2;
+            return avgEff < 40;
+          }).length;
+        },
+
+        getNodeCosts() {
+          // Prefer OpenCost node allocations if available
+          if (this.isOpenCostEnabled() && this.dashboard.openCost.nodeAllocations?.length > 0) {
+            return this.dashboard.openCost.nodeAllocations.map(node => ({
+              nodeName: node.node,
+              instanceType: node.instanceType || 'Unknown',
+              dailyCost: node.totalCost || 0,
+              hourlyRate: (node.totalCost || 0) / 24,
+              cpuCost: node.cpuCost || 0,
+              ramCost: node.ramCost || 0,
+              cpuCores: node.cpuCores || 0,
+              ramBytes: node.ramBytes || 0,
+              cpuUsagePercent: (node.cpuEfficiency || 0) * 100,
+              memoryUsagePercent: (node.ramEfficiency || 0) * 100,
+              cpuEfficiency: (node.cpuEfficiency || 0) * 100,
+              ramEfficiency: (node.ramEfficiency || 0) * 100
+            })).sort((a, b) => b.dailyCost - a.dailyCost);
+          }
+          return this.dashboard?.costMetrics?.nodeCosts || [];
+        },
+
+        getPodCosts() {
+          // Prefer OpenCost pod allocations if available
+          if (this.isOpenCostEnabled() && this.dashboard.openCost.podAllocations?.length > 0) {
+            return this.dashboard.openCost.podAllocations.map(pod => ({
+              podName: pod.pod,
+              namespace: pod.namespace,
+              node: pod.node,
+              controller: pod.controller,
+              controllerKind: pod.controllerKind,
+              dailyCost: pod.totalCost || 0,
+              cpuCost: pod.cpuCost || 0,
+              ramCost: pod.ramCost || 0,
+              cpuCores: (pod.cpuCores || 0) * 1000, // Convert to millicores
+              ramBytes: (pod.ramBytes || 0) / (1024 * 1024), // Convert to MB
+              cpuEfficiency: (pod.cpuEfficiency || 0) * 100,
+              ramEfficiency: (pod.ramEfficiency || 0) * 100,
+              totalEfficiency: (pod.totalEfficiency || 0) * 100
+            })).sort((a, b) => b.dailyCost - a.dailyCost);
+          }
+          return [];
+        },
+
         getSortedNodesByCost() {
-          const costNodes = this.dashboard?.costMetrics?.nodeCosts || [];
+          const costNodes = this.getNodeCosts();
           const resourceNodes = this.dashboard?.resourceUtilization?.nodes || [];
 
           // Create index for quick lookup
@@ -4685,6 +6998,92 @@ kubectl create token xamops-reader --duration=87600h</pre>
           });
         },
 
+        // Get detailed description and recommendation for Falco alerts
+        getFalcoAlertDetails(ruleName) {
+          const alertDetails = {
+            // File System Related
+            'Write below root': {
+              description: 'A process attempted to write files in a root-level directory. This could indicate an attempt to modify system configuration or install malware.',
+              impact: 'System compromise, persistence mechanisms, or configuration tampering.',
+              recommendation: 'Review the container image and ensure it follows least-privilege principles. Use read-only root filesystems where possible. Investigate the process making the write attempt.'
+            },
+            'Read sensitive file untrusted': {
+              description: 'An untrusted process attempted to read sensitive files like /etc/shadow, /etc/passwd, or private keys.',
+              impact: 'Credential theft, privilege escalation, or reconnaissance for further attacks.',
+              recommendation: 'Ensure containers run as non-root users. Use Kubernetes SecurityContext to drop capabilities. Review why the application needs access to these files.'
+            },
+            'Write below etc': {
+              description: 'A process wrote to the /etc directory, which contains critical system configuration files.',
+              impact: 'System misconfiguration, backdoor installation, or service disruption.',
+              recommendation: 'Use immutable container filesystems. Implement Pod Security Standards. Review the container for unexpected write operations.'
+            },
+            // Process Related
+            'Terminal shell in container': {
+              description: 'An interactive shell session was started in a container. This could be legitimate debugging or malicious access.',
+              impact: 'Potential for manual exploitation, data exfiltration, or lateral movement.',
+              recommendation: 'Audit shell access patterns. Consider disabling shell access in production containers. Use kubectl exec logging and monitoring.'
+            },
+            'Run shell untrusted': {
+              description: 'A shell was spawned by an untrusted or unexpected parent process.',
+              impact: 'Indicates potential code execution vulnerability exploitation or container escape attempt.',
+              recommendation: 'Review the parent process. Check for vulnerabilities in applications running in the container. Consider using distroless images.'
+            },
+            'Spawned process in container': {
+              description: 'A new process was created in a running container that may not be part of the expected application behavior.',
+              impact: 'Could indicate malicious activity, vulnerability exploitation, or misconfiguration.',
+              recommendation: 'Define and enforce allowed processes per container using security policies. Review container images for unnecessary binaries.'
+            },
+            // Network Related
+            'Unexpected outbound connection': {
+              description: 'A container made an outbound network connection to an unexpected destination.',
+              impact: 'Data exfiltration, command-and-control communication, or cryptocurrency mining.',
+              recommendation: 'Implement Network Policies to restrict egress traffic. Monitor and audit outbound connections. Use DNS filtering.'
+            },
+            'Unexpected inbound connection': {
+              description: 'A container received an inbound connection on an unexpected port or from an unexpected source.',
+              impact: 'Unauthorized access, backdoor communication, or service exploitation.',
+              recommendation: 'Review Service and NetworkPolicy configurations. Ensure only necessary ports are exposed. Implement ingress filtering.'
+            },
+            // Privilege Escalation
+            'Privilege escalation': {
+              description: 'A process attempted to gain elevated privileges within the container or host system.',
+              impact: 'Container escape, host compromise, or access to sensitive cluster resources.',
+              recommendation: 'Ensure containers run as non-root. Drop all capabilities and only add required ones. Use PodSecurityPolicies or Pod Security Standards.'
+            },
+            'Container drift detected': {
+              description: 'The container filesystem has been modified from its original state, indicating potential tampering.',
+              impact: 'Persistence mechanisms, malware installation, or configuration drift.',
+              recommendation: 'Use immutable container images. Implement continuous image scanning. Consider read-only root filesystems.'
+            },
+            // Kubernetes Specific
+            'K8s secret access': {
+              description: 'A process accessed Kubernetes secrets which may contain sensitive credentials.',
+              impact: 'Credential theft, lateral movement, or privilege escalation within the cluster.',
+              recommendation: 'Use RBAC to limit secret access. Implement secret encryption at rest. Consider using external secret management solutions.'
+            },
+            'Packet socket created': {
+              description: 'A raw packet socket was created, which allows direct access to network traffic.',
+              impact: 'Network sniffing, man-in-the-middle attacks, or traffic interception.',
+              recommendation: 'Drop NET_RAW capability from containers. Review why the application needs raw socket access. Use network policies.'
+            },
+            // Default fallback
+            'default': {
+              description: 'This security alert was triggered by Falco runtime security monitoring. It indicates potentially suspicious behavior that should be investigated.',
+              impact: 'The impact depends on the specific rule triggered. Review the rule documentation for details.',
+              recommendation: 'Investigate the affected pod and namespace. Review container logs and events. Consider implementing additional security controls based on the alert type.'
+            }
+          };
+
+          // Find matching rule or return default
+          const lowerRule = (ruleName || '').toLowerCase();
+          for (const [key, details] of Object.entries(alertDetails)) {
+            if (key !== 'default' && lowerRule.includes(key.toLowerCase())) {
+              return details;
+            }
+          }
+          return alertDetails['default'];
+        },
+
         // NEW FUNCTIONS FOR PHASE 1
 
         // Health Score Calculation (0-100)
@@ -4736,8 +7135,21 @@ kubectl create token xamops-reader --duration=87600h</pre>
         },
 
         getPotentialSavings() {
-          const nodeCosts = this.dashboard?.costMetrics?.nodeCosts || [];
+          // Use OpenCost idle cost if available
+          if (this.isOpenCostEnabled()) {
+            const idleCost = this.dashboard.openCost.summary?.idleCost || 0;
+            const nodeCosts = this.getNodeCosts();
+            const underutilizedNodes = nodeCosts.filter(node =>
+              (node.cpuUsagePercent || node.cpuEfficiency || 0) < 40
+            );
+            return {
+              daily: idleCost,
+              monthly: idleCost * 30,
+              affectedNodes: underutilizedNodes.length
+            };
+          }
 
+          const nodeCosts = this.dashboard?.costMetrics?.nodeCosts || [];
           const underutilizedNodes = nodeCosts.filter(node =>
             node.cpuUsagePercent < 40
           );
@@ -4833,7 +7245,7 @@ kubectl create token xamops-reader --duration=87600h</pre>
             timestamp: Date.now(),
             cpu: this.dashboard.clusterOverview?.cpuUsagePercent || 0,
             memory: this.dashboard.clusterOverview?.memoryUsagePercent || 0,
-            cost: this.dashboard.costMetrics?.dailyCost || 0,
+            cost: this.getOpenCostDailyCost(),
             securityEvents: this.dashboard.securityMetrics?.totalEvents || 0
           };
 

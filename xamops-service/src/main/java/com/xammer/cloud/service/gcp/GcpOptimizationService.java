@@ -50,6 +50,14 @@ public class GcpOptimizationService {
     private final ExecutorService executor = Executors.newCachedThreadPool();
     private final GcpDataService gcpDataService;
     private final CloudAccountService cloudAccountService;
+    private final GcpMetricsService gcpMetricsService;
+
+    // Utilization thresholds for validation (similar to AWS approach)
+    private static final double HIGH_CPU_THRESHOLD = 80.0; // Recommend upgrade if CPU > 80% (Increased from 50.0)
+    private static final double LOW_CPU_THRESHOLD = 20.0; // Recommend downgrade if CPU < 20%
+    private static final double HIGH_MEMORY_THRESHOLD = 85.0; // Recommend upgrade if Memory > 85% (Increased from 70.0)
+    private static final double LOW_MEMORY_THRESHOLD = 30.0; // Recommend downgrade if Memory < 30%
+    private static final int LOOKBACK_DAYS = 14; // Look back 14 days for metrics
 
     // Full GCP region-to-location mapping (as of Oct 2025; source:
     // cloud.google.com/compute/docs/regions-zones)
@@ -110,10 +118,12 @@ public class GcpOptimizationService {
     public GcpOptimizationService(
             GcpClientProvider gcpClientProvider,
             @Lazy GcpDataService gcpDataService,
-            CloudAccountService cloudAccountService) {
+            CloudAccountService cloudAccountService,
+            GcpMetricsService gcpMetricsService) {
         this.gcpClientProvider = gcpClientProvider;
         this.gcpDataService = gcpDataService;
         this.cloudAccountService = cloudAccountService;
+        this.gcpMetricsService = gcpMetricsService;
     }
 
     @Cacheable(value = "gcpCommittedUseDiscounts", key = "'gcp:committed-use-discounts:' + #gcpProjectId")
@@ -217,10 +227,35 @@ public class GcpOptimizationService {
                 .flatMap(List::stream)
                 .collect(Collectors.toList());
 
-        enhanceCloudSqlRecommendationsWithHistoricalCost(gcpProjectId, results);
+        // ✅ Deduplication logic - similar to AWS implementation
+        List<GcpOptimizationRecommendation> uniqueRecommendations = results.stream()
+                .collect(Collectors.toMap(
+                        GcpOptimizationRecommendation::getResourceName, // Use resource name as key
+                        rec -> rec,
+                        (existing, replacement) -> {
+                            // Keep the one with higher savings
+                            if (existing.getMonthlySavings() >= replacement.getMonthlySavings()) {
+                                return existing;
+                            }
+                            return replacement;
+                        }))
+                .values()
+                .stream()
+                .collect(Collectors.toList());
 
-        log.info("✅ Total rightsizing recommendations found: {}", results.size());
-        return results;
+        int duplicateCount = results.size() - uniqueRecommendations.size();
+        if (duplicateCount > 0) {
+            log.info("✅ Removed {} duplicate recommendations (kept highest savings)", duplicateCount);
+        }
+
+        enhanceCloudSqlRecommendationsWithHistoricalCost(gcpProjectId, uniqueRecommendations);
+
+        // Filter and validate recommendations based on actual utilization
+        List<GcpOptimizationRecommendation> validatedRecommendations = filterAndValidateRecommendations(gcpProjectId,
+                uniqueRecommendations);
+
+        log.info("✅ Total validated rightsizing recommendations found: {}", validatedRecommendations.size());
+        return validatedRecommendations;
     }
 
     // Dynamic region fetcher
@@ -559,24 +594,48 @@ public class GcpOptimizationService {
         log.info("Starting waste report generation for GCP project: {}", gcpProjectId);
         List<CompletableFuture<List<GcpWasteItem>>> futures = new ArrayList<>();
 
-        futures.add(
-                findIdleResources(gcpProjectId, "google.compute.disk.IdleResourceRecommender", "Idle Persistent Disk"));
-        futures.add(
-                findIdleResources(gcpProjectId, "google.compute.address.IdleResourceRecommender", "Unused IP Address"));
-        futures.add(
-                findIdleResources(gcpProjectId, "google.compute.instance.IdleResourceRecommender", "Idle VM Instance"));
-        futures.add(
-                findIdleResources(gcpProjectId, "google.cloudsql.instance.IdleRecommender", "Idle Cloud SQL Instance"));
+        // Get dynamic regions for regional recommenders
+        List<String> locations = getDynamicRegions(gcpProjectId);
+
+        // ✅ Idle Persistent Disks - zone-based recommender
+        for (String location : locations) {
+            futures.add(findIdleResources(gcpProjectId, "google.compute.disk.IdleResourceRecommender",
+                    "Idle Persistent Disk", location));
+        }
+
+        // ✅ Unused IP Addresses - region-based recommender
+        for (String location : locations) {
+            futures.add(findIdleResources(gcpProjectId, "google.compute.address.IdleResourceRecommender",
+                    "Unused IP Address", location));
+        }
+
+        // ✅ Idle VM Instances - zone-based recommender
+        for (String location : locations) {
+            futures.add(findIdleResources(gcpProjectId, "google.compute.instance.IdleResourceRecommender",
+                    "Idle VM Instance", location));
+        }
+
+        // ✅ Idle Cloud SQL - region-based recommender
+        for (String location : locations) {
+            futures.add(findIdleResources(gcpProjectId, "google.cloudsql.instance.IdleRecommender",
+                    "Idle Cloud SQL Instance", location));
+        }
+
+        // Custom waste detection (not from Recommender API)
         futures.add(findUnattachedDisks(gcpProjectId));
         futures.add(findUnusedCustomImages(gcpProjectId));
         futures.add(findUnusedFirewallRules(gcpProjectId));
         futures.add(findOldSqlSnapshots(gcpProjectId));
 
         CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-        return futures.stream()
+
+        List<GcpWasteItem> allWaste = futures.stream()
                 .map(CompletableFuture::join)
                 .flatMap(List::stream)
                 .collect(Collectors.toList());
+
+        log.info("✅ Total waste items found: {}", allWaste.size());
+        return allWaste;
     }
 
     //
@@ -772,17 +831,34 @@ public class GcpOptimizationService {
 
                 log.info("Raw recommendations count: {} for parent: {}", recommendations.size(), parent);
 
-                if (!recommendations.isEmpty()) {
-                    Recommendation firstRec = recommendations.get(0);
+                // ✅ Filter by recommendation state - only include ACTIVE and CLAIMED
+                List<Recommendation> filteredRecommendations = recommendations.stream()
+                        .filter(rec -> {
+                            String state = rec.getStateInfo().getState().name();
+                            boolean isValid = "ACTIVE".equals(state) || "CLAIMED".equals(state);
+                            if (!isValid) {
+                                log.debug("Filtering out recommendation {} with state: {}", rec.getName(), state);
+                            }
+                            return isValid;
+                        })
+                        .collect(Collectors.toList());
+
+                int filteredCount = recommendations.size() - filteredRecommendations.size();
+                if (filteredCount > 0) {
+                    log.info("✅ Filtered {} recommendations by state (keeping only ACTIVE/CLAIMED)", filteredCount);
+                }
+
+                if (!filteredRecommendations.isEmpty()) {
+                    Recommendation firstRec = filteredRecommendations.get(0);
                     log.debug("Sample recommendation - Name: {}, Description: {}, State: {}", // Changed to debug
                             firstRec.getName(),
                             firstRec.getDescription(),
                             firstRec.getStateInfo().getState());
                 } else {
-                    log.info("No recommendations found for parent: {}", parent);
+                    log.info("No active recommendations found for parent: {}", parent);
                 }
 
-                return recommendations.stream()
+                return filteredRecommendations.stream()
                         .map(mapper)
                         .filter(Objects::nonNull) // Ensure mapper doesn't return null
                         .collect(Collectors.toList());
@@ -954,7 +1030,8 @@ public class GcpOptimizationService {
     private CompletableFuture<List<GcpWasteItem>> findIdleResources(
             String gcpProjectId,
             String recommenderId,
-            String wasteType) {
+            String wasteType,
+            String location) {
 
         return CompletableFuture.supplyAsync(() -> {
             Optional<RecommenderClient> clientOpt = gcpClientProvider.getRecommenderClient(gcpProjectId);
@@ -962,10 +1039,10 @@ public class GcpOptimizationService {
                 return new ArrayList<>();
 
             try (RecommenderClient client = clientOpt.get()) {
-                // Most idle recommenders are global, but check specific recommender docs if
-                // needed
-                RecommenderName recommenderName = RecommenderName.of(gcpProjectId, "global", recommenderId);
-                log.info("Querying recommender '{}' for project {}", recommenderId, gcpProjectId);
+                // ✅ Use provided location instead of hardcoded "global"
+                RecommenderName recommenderName = RecommenderName.of(gcpProjectId, location, recommenderId);
+                log.info("Querying recommender '{}' for project {} in location {}", recommenderId, gcpProjectId,
+                        location);
 
                 return StreamSupport.stream(
                         client.listRecommendations(recommenderName).iterateAll().spliterator(),
@@ -974,8 +1051,8 @@ public class GcpOptimizationService {
                         .filter(Objects::nonNull) // Filter out nulls if mapping fails
                         .collect(Collectors.toList());
             } catch (Exception e) {
-                log.error("Failed to get waste report for recommender {} in project {}",
-                        recommenderId, gcpProjectId, e);
+                log.error("Failed to get waste report for recommender {} in project {} at location {}",
+                        recommenderId, gcpProjectId, location, e);
                 return new ArrayList<>();
             }
         }, executor);
@@ -1463,6 +1540,163 @@ public class GcpOptimizationService {
     @Deprecated
     private String extractLocationFromRecommendationName(String recommendationName) {
         return extractLocation(recommendationName);
+    }
+
+    /**
+     * Enriches a recommendation with actual utilization metrics from Cloud
+     * Monitoring.
+     * For Compute Engine instances and Cloud SQL instances.
+     */
+    private void enrichWithUtilizationMetrics(String gcpProjectId, GcpOptimizationRecommendation recommendation) {
+        try {
+            String resourceName = recommendation.getResourceName();
+            String service = recommendation.getService();
+
+            if ("Cloud SQL".equals(service)) {
+                // Fetch Cloud SQL metrics
+                Double avgCpu = gcpMetricsService.getCloudSqlAverageCpuUtilization(gcpProjectId, resourceName,
+                        LOOKBACK_DAYS);
+                Double maxCpu = gcpMetricsService.getCloudSqlMaxCpuUtilization(gcpProjectId, resourceName,
+                        LOOKBACK_DAYS);
+                Double avgMemory = gcpMetricsService.getCloudSqlAverageMemoryUtilization(gcpProjectId, resourceName,
+                        LOOKBACK_DAYS);
+                Double maxMemory = gcpMetricsService.getCloudSqlMaxMemoryUtilization(gcpProjectId, resourceName,
+                        LOOKBACK_DAYS);
+
+                recommendation.setAverageCpuUtilization(avgCpu);
+                recommendation.setMaxCpuUtilization(maxCpu);
+                recommendation.setAverageMemoryUtilization(avgMemory);
+                recommendation.setMaxMemoryUtilization(maxMemory);
+
+                // Build detailed utilization-based reason
+                recommendation.setUtilizationBasedReason(buildUtilizationReason(avgCpu, maxCpu, avgMemory, maxMemory));
+
+            } else if ("Compute Engine".equals(service)) {
+                // For Compute Engine, we need instance ID not name
+                // This requires fetching instance details or using the resource name if it's
+                // the instance ID
+                // For now, skip Compute Engine enrichment unless instance ID is available
+                log.debug("Skipping utilization enrichment for Compute Engine instance: {}", resourceName);
+            }
+        } catch (Exception e) {
+            log.error("Failed to enrich recommendation with utilization metrics for resource {}: {}",
+                    recommendation.getResourceName(), e.getMessage());
+        }
+    }
+
+    /**
+     * Builds a detailed utilization-based reason text
+     */
+    private String buildUtilizationReason(Double avgCpu, Double maxCpu, Double avgMemory, Double maxMemory) {
+        StringBuilder reason = new StringBuilder();
+        reason.append("Performance metrics (last 14 days): ");
+
+        if (avgCpu != null && maxCpu != null) {
+            reason.append(String.format("CPU: avg %.1f%%, max %.1f%%", avgCpu, maxCpu));
+        } else {
+            reason.append("CPU: metrics unavailable");
+        }
+
+        if (avgMemory != null && maxMemory != null) {
+            reason.append(String.format(" | Memory: avg %.1f%%, max %.1f%%", avgMemory, maxMemory));
+        } else {
+            reason.append(" | Memory: metrics unavailable");
+        }
+
+        return reason.toString();
+    }
+
+    /**
+     * Validates if a recommendation should be shown based on actual utilization.
+     * Returns true if the recommendation is valid, false otherwise.
+     */
+    private boolean isRecommendationValid(GcpOptimizationRecommendation recommendation) {
+        String recommendationType = recommendation.getRecommendationType();
+        Double avgCpu = recommendation.getAverageCpuUtilization();
+        Double maxCpu = recommendation.getMaxCpuUtilization();
+        Double avgMemory = recommendation.getAverageMemoryUtilization();
+        Double maxMemory = recommendation.getMaxMemoryUtilization();
+
+        // If we don't have utilization data, follow GCP's recommendation for
+        // COST_SAVINGS
+        // but reject PERFORMANCE_IMPROVEMENT to avoid "illogical" expensive upgrades
+        // without evidence.
+        if (avgCpu == null && avgMemory == null) {
+            if ("PERFORMANCE_IMPROVEMENT".equals(recommendationType)) {
+                log.info(
+                        "Filtering out upgrade recommendation for {}: No utilization metrics available to justify high cost performance improvement",
+                        recommendation.getResourceName());
+                return false;
+            }
+            log.debug("No utilization metrics available for {}. Allowing recommendation (benefit of the doubt).",
+                    recommendation.getResourceName());
+            return true;
+        }
+
+        if ("COST_SAVINGS".equals(recommendationType)) {
+            // Downgrade recommendation - validate that resource is actually underutilized
+            if (avgCpu != null && avgCpu > LOW_CPU_THRESHOLD) {
+                log.info(
+                        "Filtering out downgrade recommendation for {}: CPU utilization ({:.1f}%) is above threshold ({:.1f}%)",
+                        recommendation.getResourceName(), avgCpu, LOW_CPU_THRESHOLD);
+                return false;
+            }
+            if (avgMemory != null && avgMemory > LOW_MEMORY_THRESHOLD) {
+                log.info(
+                        "Filtering out downgrade recommendation for {}: Memory utilization ({:.1f}%) is above threshold ({:.1f}%)",
+                        recommendation.getResourceName(), avgMemory, LOW_MEMORY_THRESHOLD);
+                return false;
+            }
+            // Valid downgrade recommendation
+            return true;
+
+        } else if ("PERFORMANCE_IMPROVEMENT".equals(recommendationType)) {
+            // Upgrade recommendation - validate that resource is actually overutilized
+            boolean cpuOverutilized = avgCpu != null && avgCpu > HIGH_CPU_THRESHOLD;
+            boolean memoryOverutilized = avgMemory != null && avgMemory > HIGH_MEMORY_THRESHOLD;
+
+            if (!cpuOverutilized && !memoryOverutilized) {
+                log.info(
+                        "Filtering out upgrade recommendation for {}: CPU ({:.1f}%) and Memory ({:.1f}%) are below thresholds",
+                        recommendation.getResourceName(),
+                        avgCpu != null ? avgCpu : 0.0,
+                        avgMemory != null ? avgMemory : 0.0);
+                return false;
+            }
+            // Valid upgrade recommendation
+            return true;
+        }
+
+        // For other types (OPTIMIZATION, etc.), allow by default
+        return true;
+    }
+
+    /**
+     * Filters and validates a list of recommendations based on utilization metrics
+     */
+    private List<GcpOptimizationRecommendation> filterAndValidateRecommendations(
+            String gcpProjectId,
+            List<GcpOptimizationRecommendation> recommendations) {
+
+        log.info("Filtering {} recommendations with utilization validation", recommendations.size());
+
+        List<GcpOptimizationRecommendation> validRecommendations = new ArrayList<>();
+
+        for (GcpOptimizationRecommendation recommendation : recommendations) {
+            // Enrich with utilization metrics
+            enrichWithUtilizationMetrics(gcpProjectId, recommendation);
+
+            // Validate the recommendation
+            if (isRecommendationValid(recommendation)) {
+                validRecommendations.add(recommendation);
+            } else {
+                log.info("Filtered out invalid recommendation for resource: {}", recommendation.getResourceName());
+            }
+        }
+
+        log.info("Filtered recommendations: {} valid out of {} total", validRecommendations.size(),
+                recommendations.size());
+        return validRecommendations;
     }
 
     /** Calculates estimated monthly disk cost in INR */

@@ -51,4 +51,22 @@ public class CacheService {
             logger.info("Evicted finopsReport cache for account: {}", accountId);
         }
     }
+
+    public void evictGcpRightsizingCache(String gcpProjectId) {
+        Cache rightsizingCache = cacheManager.getCache("gcpRightsizingRecommendations");
+        if (rightsizingCache != null) {
+            String cacheKey = "gcp:rightsizing-recommendations:" + gcpProjectId;
+            rightsizingCache.evict(cacheKey);
+            logger.info("Evicted gcpRightsizingRecommendations cache for project: {}", gcpProjectId);
+        }
+    }
+
+    public void evictGcpWasteCache(String gcpProjectId) {
+        Cache wasteCache = cacheManager.getCache("gcpWasteReport");
+        if (wasteCache != null) {
+            String cacheKey = "gcp:waste-report:" + gcpProjectId;
+            wasteCache.evict(cacheKey);
+            logger.info("Evicted gcpWasteReport cache for project: {}", gcpProjectId);
+        }
+    }
 }
