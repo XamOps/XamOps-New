@@ -280,9 +280,28 @@ const BillOpsTicketDetailPage: React.FC = () => {
 
   /**
    * Go back to tickets list
+   * Navigates to admin tickets if user is admin and came from admin tickets page
    */
   const goBackToTickets = () => {
-    navigate('/billops-tickets');
+    // Check if we can go back in history and if the referrer contains admin tickets
+    if (window.history.length > 1) {
+      const referrer = document.referrer;
+      if (referrer.includes('/billops-admin-tickets') || referrer.includes('/billops/admin_tickets')) {
+        navigate('/billops-admin-tickets');
+        return;
+      }
+      if (referrer.includes('/billops-tickets') || referrer.includes('/billops/tickets')) {
+        navigate('/billops-tickets');
+        return;
+      }
+    }
+
+    // Fallback: Navigate based on user role
+    if (isAdmin) {
+      navigate('/billops-admin-tickets');
+    } else {
+      navigate('/billops-tickets');
+    }
   };
 
   /**

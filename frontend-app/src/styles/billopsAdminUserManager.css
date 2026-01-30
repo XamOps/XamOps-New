@@ -1,0 +1,484 @@
+/**
+ * BillOps Admin User Manager Page Styles
+ * 
+ * Professional modern design with glassmorphism effects
+ * Consistent with other BillOps admin pages
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+/* Page Container */
+.user-manager-page {
+    min-height: 100vh;
+    padding: 1.5rem 2rem;
+    background: linear-gradient(135deg, #f0f4f8 0%, #e2e8f0 50%, #f0f4f8 100%);
+    font-family: 'Inter', sans-serif;
+}
+
+/* Header */
+.user-manager-header {
+    margin-bottom: 2rem;
+}
+
+.user-manager-header-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.user-manager-title-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.user-manager-title {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: #1e293b;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.user-manager-title-icon {
+    font-size: 1.5rem;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.user-manager-subtitle {
+    font-size: 0.875rem;
+    color: #64748b;
+}
+
+.user-manager-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+/* Create Button */
+.user-manager-create-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 0.75rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 6px -1px rgba(102, 126, 234, 0.3);
+}
+
+.user-manager-create-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 15px -3px rgba(102, 126, 234, 0.4);
+}
+
+.user-manager-create-btn:active {
+    transform: translateY(0);
+}
+
+/* Form Card */
+.user-manager-form-card {
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    border-radius: 1rem;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+    animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.user-manager-form-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.user-manager-form-header i {
+    color: #667eea;
+    font-size: 1.25rem;
+}
+
+.user-manager-form-header h2 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #1e293b;
+    margin: 0;
+}
+
+.user-manager-form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.25rem;
+}
+
+.user-manager-form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.user-manager-form-group.full-width {
+    grid-column: 1 / -1;
+}
+
+.user-manager-form-label {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #374151;
+}
+
+.user-manager-form-input,
+.user-manager-form-select {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    border: 1px solid #d1d5db;
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    font-family: inherit;
+    transition: all 0.2s ease;
+    background: white;
+}
+
+.user-manager-form-input:focus,
+.user-manager-form-select:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+}
+
+.user-manager-form-input:disabled {
+    background-color: #f3f4f6;
+    color: #6b7280;
+    cursor: not-allowed;
+}
+
+.user-manager-form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid #e2e8f0;
+}
+
+.user-manager-btn-cancel {
+    padding: 0.625rem 1.25rem;
+    border: 1px solid #d1d5db;
+    border-radius: 0.5rem;
+    background: white;
+    color: #374151;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.user-manager-btn-cancel:hover {
+    background: #f3f4f6;
+}
+
+.user-manager-btn-save {
+    padding: 0.625rem 1.5rem;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 0.5rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(102, 126, 234, 0.3);
+}
+
+.user-manager-btn-save:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(102, 126, 234, 0.4);
+}
+
+/* Table Card */
+.user-manager-table-card {
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    border-radius: 1rem;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    overflow: hidden;
+}
+
+.user-manager-table-container {
+    overflow-x: auto;
+}
+
+.user-manager-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.user-manager-table thead {
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.user-manager-table th {
+    padding: 1rem 1.5rem;
+    text-align: left;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #64748b;
+}
+
+.user-manager-table tbody tr {
+    border-bottom: 1px solid #f1f5f9;
+    transition: all 0.2s ease;
+}
+
+.user-manager-table tbody tr:hover {
+    background: linear-gradient(135deg, #f8fafc 0%, #faf5ff 100%);
+}
+
+.user-manager-table td {
+    padding: 1rem 1.5rem;
+    font-size: 0.875rem;
+    color: #374151;
+}
+
+/* User Info Cell */
+.user-manager-user-info {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.user-manager-avatar {
+    width: 2.5rem;
+    height: 2.5rem;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: 700;
+    font-size: 0.875rem;
+    box-shadow: 0 2px 4px rgba(102, 126, 234, 0.3);
+}
+
+.user-manager-user-details {
+    display: flex;
+    flex-direction: column;
+}
+
+.user-manager-client-name {
+    font-weight: 600;
+    color: #1e293b;
+}
+
+.user-manager-username {
+    font-size: 0.75rem;
+    color: #64748b;
+}
+
+/* Role Badge */
+.user-manager-role-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.user-manager-role-badge.admin {
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+    color: #92400e;
+    border: 1px solid #fcd34d;
+}
+
+.user-manager-role-badge.user {
+    background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+    color: #1e40af;
+    border: 1px solid #93c5fd;
+}
+
+/* Actions */
+.user-manager-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.user-manager-action-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 0.5rem;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.user-manager-action-btn.edit {
+    background: #eef2ff;
+    color: #4f46e5;
+}
+
+.user-manager-action-btn.edit:hover {
+    background: #e0e7ff;
+    transform: scale(1.1);
+}
+
+.user-manager-action-btn.delete {
+    background: #fef2f2;
+    color: #dc2626;
+}
+
+.user-manager-action-btn.delete:hover {
+    background: #fee2e2;
+    transform: scale(1.1);
+}
+
+/* Empty State */
+.user-manager-empty {
+    padding: 4rem 2rem;
+    text-align: center;
+}
+
+.user-manager-empty-icon {
+    width: 5rem;
+    height: 5rem;
+    margin: 0 auto 1.5rem;
+    background: linear-gradient(135deg, #f0f4f8 0%, #e2e8f0 100%);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2rem;
+    color: #94a3b8;
+}
+
+.user-manager-empty h3 {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: #374151;
+    margin: 0 0 0.5rem 0;
+}
+
+.user-manager-empty p {
+    font-size: 0.875rem;
+    color: #64748b;
+    margin: 0;
+}
+
+/* Loading State */
+.user-manager-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 2rem;
+    gap: 1rem;
+}
+
+.user-manager-spinner {
+    width: 3rem;
+    height: 3rem;
+    border: 3px solid #e2e8f0;
+    border-top-color: #667eea;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.user-manager-loading p {
+    font-size: 0.875rem;
+    color: #64748b;
+}
+
+/* Error State */
+.user-manager-error {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1rem 1.5rem;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 0.75rem;
+    margin-bottom: 1.5rem;
+}
+
+.user-manager-error i {
+    color: #dc2626;
+    font-size: 1.25rem;
+}
+
+.user-manager-error p {
+    color: #dc2626;
+    font-size: 0.875rem;
+    margin: 0;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .user-manager-page {
+        padding: 1rem;
+    }
+
+    .user-manager-header-content {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .user-manager-form-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .user-manager-table th,
+    .user-manager-table td {
+        padding: 0.75rem 1rem;
+    }
+
+    .user-manager-form-actions {
+        flex-direction: column;
+    }
+
+    .user-manager-btn-cancel,
+    .user-manager-btn-save {
+        width: 100%;
+        justify-content: center;
+    }
+}

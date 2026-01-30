@@ -5,8 +5,8 @@
  */
 
 export type TicketStatus = 'OPEN' | 'CLOSED' | 'IN_PROGRESS';
-export type TicketSeverity = 'Low' | 'Medium' | 'High' | 'Critical';
-export type TicketCategory = 'Account and Billing';
+export type TicketSeverity = 'Low' | 'Medium' | 'Normal' | 'High' | 'Critical' | 'Urgent' | 'Info';
+export type TicketCategory = 'Account and Billing' | 'Technical';
 
 export interface BillOpsTicket {
   id: number;

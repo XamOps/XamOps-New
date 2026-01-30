@@ -1,0 +1,445 @@
+/**
+ * Support Dashboard Styles
+ *
+ * Styles for the BillOps Admin Support Console page.
+ * Includes chat styling, animations, and responsive design.
+ *
+ * Converted from: billops/support-dashboard.html (inline styles)
+ */
+
+/* ============================================
+   PAGE CONTAINER
+   ============================================ */
+.support-dashboard-page {
+  font-family: 'Inter', sans-serif;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  min-height: 100%;
+}
+
+/* ============================================
+   CUSTOM SCROLLBAR
+   ============================================ */
+.support-dashboard-page .custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.support-dashboard-page .custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.support-dashboard-page .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+.support-dashboard-page .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* ============================================
+   GLASS CARD EFFECT
+   ============================================ */
+.support-dashboard-page .glass-card {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+}
+
+/* ============================================
+   HEADER STYLES
+   ============================================ */
+.support-dashboard-page header {
+  background: linear-gradient(to right, #ffffff 0%, #fafafa 100%);
+}
+
+.support-dashboard-page header h1 {
+  background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ============================================
+   CONVERSATION LIST PANEL
+   ============================================ */
+.support-dashboard-page .conversation-list-panel {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+}
+
+/* Conversation Item */
+.support-dashboard-page .conversation-item {
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.support-dashboard-page .conversation-item:hover {
+  background: #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.support-dashboard-page .conversation-item.active {
+  background: rgba(99, 102, 241, 0.1);
+  border-left: 4px solid #6366f1;
+}
+
+.support-dashboard-page .conversation-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: transparent;
+  transition: background 0.2s ease;
+}
+
+.support-dashboard-page .conversation-item:hover::before {
+  background: #e0e7ff;
+}
+
+.support-dashboard-page .conversation-item.active::before {
+  background: #6366f1;
+}
+
+/* ============================================
+   PROVIDER BADGES
+   ============================================ */
+.support-dashboard-page .provider-badge {
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: white;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.support-dashboard-page .provider-badge.aws {
+  background: linear-gradient(135deg, #FF9900 0%, #FF7700 100%);
+}
+
+.support-dashboard-page .provider-badge.azure {
+  background: linear-gradient(135deg, #0078D4 0%, #0058A3 100%);
+}
+
+.support-dashboard-page .provider-badge.gcp {
+  background: linear-gradient(135deg, #34A853 0%, #2D9048 100%);
+}
+
+/* ============================================
+   CHAT PANEL
+   ============================================ */
+.support-dashboard-page .chat-panel {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+}
+
+/* Chat Header */
+.support-dashboard-page .chat-header {
+  background: linear-gradient(to right, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.8));
+  backdrop-filter: blur(10px);
+}
+
+/* Chat Messages Area */
+.support-dashboard-page .chat-messages {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+}
+
+/* ============================================
+   MESSAGE BUBBLES
+   ============================================ */
+/* User Message (from customer) */
+.support-dashboard-page .message-bubble.user {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 1rem;
+  border-top-left-radius: 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+/* Admin Message (from support) */
+.support-dashboard-page .message-bubble.admin {
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  color: white;
+  border-radius: 1rem;
+  border-top-right-radius: 0;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+}
+
+/* Message Content */
+.support-dashboard-page .message-content {
+  word-wrap: break-word;
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+
+/* Message Timestamp */
+.support-dashboard-page .message-timestamp {
+  font-size: 10px;
+  opacity: 0.7;
+  margin-top: 4px;
+}
+
+.support-dashboard-page .message-bubble.user .message-timestamp {
+  color: #94a3b8;
+}
+
+.support-dashboard-page .message-bubble.admin .message-timestamp {
+  color: rgba(255, 255, 255, 0.8);
+  text-align: right;
+}
+
+/* ============================================
+   REPLY INPUT
+   ============================================ */
+.support-dashboard-page .reply-input-container {
+  background: linear-gradient(to right, #ffffff 0%, #fafafa 100%);
+}
+
+.support-dashboard-page .reply-input {
+  transition: all 0.2s ease;
+}
+
+.support-dashboard-page .reply-input:focus {
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+.support-dashboard-page .send-button {
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  transition: all 0.2s ease;
+}
+
+.support-dashboard-page .send-button:hover:not(:disabled) {
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+  transform: translateY(-1px);
+}
+
+.support-dashboard-page .send-button:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.support-dashboard-page .send-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ============================================
+   EMPTY STATES
+   ============================================ */
+.support-dashboard-page .empty-state {
+  animation: fadeIn 0.3s ease;
+}
+
+.support-dashboard-page .empty-state-icon {
+  background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+/* ============================================
+   SEARCH INPUT
+   ============================================ */
+.support-dashboard-page .search-input {
+  transition: all 0.2s ease;
+}
+
+.support-dashboard-page .search-input:focus {
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+/* ============================================
+   DROPDOWN MENU
+   ============================================ */
+.support-dashboard-page .dropdown-menu {
+  animation: slideDown 0.15s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ============================================
+   LOADING STATES
+   ============================================ */
+.support-dashboard-page .loading-skeleton {
+  background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* ============================================
+   ANIMATIONS
+   ============================================ */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.support-dashboard-page .animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* ============================================
+   RESPONSIVE DESIGN
+   ============================================ */
+@media (max-width: 1024px) {
+  .support-dashboard-page .main-content {
+    flex-direction: column;
+  }
+
+  .support-dashboard-page .conversation-list-panel {
+    width: 100% !important;
+    min-width: 100% !important;
+    max-height: 300px;
+  }
+
+  .support-dashboard-page .chat-panel {
+    flex: 1;
+    min-height: 400px;
+  }
+}
+
+@media (max-width: 640px) {
+  .support-dashboard-page header {
+    padding: 0.75rem 1rem;
+  }
+
+  .support-dashboard-page header h1 {
+    font-size: 1rem;
+  }
+
+  .support-dashboard-page .main-content {
+    padding: 1rem;
+    gap: 1rem;
+  }
+
+  .support-dashboard-page .message-bubble {
+    max-width: 90%;
+  }
+
+  .support-dashboard-page .reply-input-container {
+    padding: 0.75rem;
+  }
+
+  .support-dashboard-page .send-button {
+    padding: 0.5rem 1rem;
+  }
+}
+
+/* ============================================
+   LIVE INDICATOR
+   ============================================ */
+.support-dashboard-page .live-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #64748b;
+  background: #f1f5f9;
+  padding: 4px 12px;
+  border-radius: 9999px;
+  border: 1px solid #e2e8f0;
+}
+
+.support-dashboard-page .live-indicator .dot {
+  width: 8px;
+  height: 8px;
+  background: #22c55e;
+  border-radius: 50%;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+/* ============================================
+   REFRESH BUTTON
+   ============================================ */
+.support-dashboard-page .refresh-button {
+  transition: all 0.2s ease;
+}
+
+.support-dashboard-page .refresh-button:hover {
+  background: #f1f5f9;
+  color: #6366f1;
+}
+
+.support-dashboard-page .refresh-button:active {
+  transform: scale(0.95);
+}
+
+/* ============================================
+   ACCOUNT ID BADGE
+   ============================================ */
+.support-dashboard-page .account-id-badge {
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Mono', 'Droid Sans Mono', monospace;
+  font-size: 11px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  padding: 2px 8px;
+  border-radius: 4px;
+  color: #64748b;
+}
+
+/* ============================================
+   SCROLLBAR THIN
+   ============================================ */
+.support-dashboard-page .scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+/* ============================================
+   TRANSITION UTILITIES
+   ============================================ */
+.support-dashboard-page .transition-all {
+  transition-property: all;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 200ms;
+}
+
+.support-dashboard-page .transition-colors {
+  transition-property: color, background-color, border-color;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+
+.support-dashboard-page .transition-transform {
+  transition-property: transform;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}

@@ -1,0 +1,465 @@
+/**
+ * BillOps Admin Dashboard Styles
+ *
+ * Converted from: billops/dashboard_admin.html inline styles
+ * Enhanced for a more professional, smooth UI
+ */
+
+/* Page Container */
+.admin-dashboard {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ef 100%);
+  color: #1f2937;
+}
+
+/* Glass Card Effect */
+.admin-glass-card {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.admin-glass-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  transition: left 0.5s;
+}
+
+.admin-glass-card:hover::before {
+  left: 100%;
+}
+
+.admin-glass-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08);
+  border-color: rgba(99, 102, 241, 0.2);
+}
+
+/* Metric Cards */
+.admin-metric-card {
+  position: relative;
+  z-index: 1;
+}
+
+.admin-metric-value {
+  font-weight: 800;
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Border Colors */
+.admin-border-indigo {
+  border-left: 4px solid #6366f1;
+}
+
+.admin-border-purple {
+  border-left: 4px solid #a855f7;
+}
+
+.admin-border-blue {
+  border-left: 4px solid #3b82f6;
+}
+
+.admin-border-orange {
+  border-left: 4px solid #f97316;
+}
+
+.admin-border-cyan {
+  border-left: 4px solid #06b6d4;
+}
+
+.admin-border-top-indigo {
+  border-top: 4px solid #6366f1;
+}
+
+.admin-border-top-purple {
+  border-top: 4px solid #a855f7;
+}
+
+/* Shimmer Loading Animation */
+.admin-shimmer {
+  background: #f6f7f8;
+  background-image: linear-gradient(to right, #f6f7f8 0%, #edeef1 20%, #f6f7f8 40%, #f6f7f8 100%);
+  background-repeat: no-repeat;
+  background-size: 800px 100%;
+  animation: adminShimmer 1.5s linear infinite forwards;
+}
+
+@keyframes adminShimmer {
+  0% {
+    background-position: -468px 0;
+  }
+  100% {
+    background-position: 468px 0;
+  }
+}
+
+/* Fade In Animation */
+.admin-fade-in {
+  animation: adminFadeIn 0.5s ease-out forwards;
+}
+
+@keyframes adminFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Provider Colors */
+.admin-provider-aws {
+  color: #FF9900;
+}
+
+.admin-provider-gcp {
+  color: #34A853;
+}
+
+.admin-provider-azure {
+  color: #0078D4;
+}
+
+/* Header Styles */
+.admin-header {
+  background: linear-gradient(to right, #ffffff, #f9fafb, #ffffff);
+  border-bottom: 1px solid #e5e7eb;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+  backdrop-filter: blur(8px);
+}
+
+.admin-header-icon {
+  background: linear-gradient(135deg, #6366f1 0%, #a855f7 50%, #6366f1 100%);
+  box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
+}
+
+.admin-header-icon:hover {
+  transform: scale(1.05);
+}
+
+/* Refresh Button */
+.admin-refresh-btn {
+  background: linear-gradient(135deg, #6366f1, #a855f7);
+  transition: all 0.2s ease;
+}
+
+.admin-refresh-btn:hover {
+  background: linear-gradient(135deg, #4f46e5, #9333ea);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+}
+
+.admin-refresh-btn:active {
+  transform: scale(0.95);
+}
+
+.admin-refresh-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* Icon Backgrounds */
+.admin-icon-indigo {
+  background: linear-gradient(135deg, #eef2ff 0%, #e9d5ff 100%);
+}
+
+.admin-icon-purple {
+  background: linear-gradient(135deg, #faf5ff 0%, #fce7f3 100%);
+}
+
+.admin-icon-blue {
+  background: linear-gradient(135deg, #eff6ff 0%, #ecfeff 100%);
+}
+
+.admin-icon-orange {
+  background: linear-gradient(135deg, #fff7ed 0%, #fef3c7 100%);
+}
+
+.admin-icon-cyan {
+  background: linear-gradient(135deg, #ecfeff 0%, #cffafe 100%);
+}
+
+/* Provider Badge */
+.admin-provider-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 500;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  border: 1px solid #f3f4f6;
+}
+
+/* Status Badges */
+.admin-status-badge {
+  padding: 4px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  border-radius: 9999px;
+}
+
+.admin-status-badge-sm {
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  border-radius: 9999px;
+}
+
+.admin-status-active {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.admin-status-pending {
+  background: #fef9c3;
+  color: #a16207;
+}
+
+.admin-status-inactive {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+/* Invoice/Ticket Status */
+.admin-status-draft {
+  background: #fef9c3;
+  color: #a16207;
+}
+
+.admin-status-finalized {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.admin-status-paid {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.admin-status-overdue {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.admin-status-open {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.admin-status-in-progress {
+  background: #fef9c3;
+  color: #a16207;
+}
+
+.admin-status-closed {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+/* Severity Colors */
+.admin-severity-low {
+  color: #3b82f6;
+}
+
+.admin-severity-medium {
+  color: #ca8a04;
+}
+
+.admin-severity-high,
+.admin-severity-critical {
+  color: #ef4444;
+}
+
+/* Table Row */
+.admin-table-row {
+  transition: all 0.2s ease;
+}
+
+.admin-table-row:hover {
+  background: rgba(99, 102, 241, 0.05);
+}
+
+/* List Items */
+.admin-list-item {
+  background: rgba(249, 250, 251, 0.8);
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+}
+
+.admin-list-item:hover {
+  background: #ffffff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  border-color: #f3f4f6;
+}
+
+/* Custom Scrollbar */
+.admin-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.admin-scrollbar::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+.admin-scrollbar::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+.admin-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Chart Container */
+.admin-chart-container {
+  position: relative;
+  width: 100%;
+  height: 300px;
+}
+
+/* Error Alert */
+.admin-error-alert {
+  background: #fef2f2;
+  border-left: 4px solid #ef4444;
+  animation: adminSlideIn 0.3s ease-out;
+}
+
+@keyframes adminSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Live Indicator */
+.admin-live-indicator {
+  animation: adminLivePulse 2s infinite;
+}
+
+@keyframes adminLivePulse {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+  }
+  50% {
+    opacity: 0.8;
+    box-shadow: 0 0 0 4px rgba(34, 197, 94, 0);
+  }
+}
+
+/* Provider Icon Stack */
+.admin-provider-stack {
+  display: flex;
+  margin-left: -8px;
+}
+
+.admin-provider-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  margin-left: -8px;
+}
+
+.admin-provider-icon:first-child {
+  margin-left: 0;
+  z-index: 30;
+}
+
+.admin-provider-icon:nth-child(2) {
+  z-index: 20;
+}
+
+.admin-provider-icon:nth-child(3) {
+  z-index: 10;
+}
+
+/* Responsive Grid */
+@media (max-width: 1024px) {
+  .admin-chart-container {
+    height: 250px;
+  }
+}
+
+@media (max-width: 768px) {
+  .admin-header {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+}
+
+/* Spin Animation for Refresh */
+.admin-spin {
+  animation: adminSpin 1s linear infinite;
+}
+
+@keyframes adminSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Table Enhancements */
+.admin-glass-card table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.admin-glass-card table thead th {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-bottom: 2px solid #e2e8f0;
+}
+
+.admin-glass-card table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Hover effects for cards */
+.admin-metric-card:hover .admin-icon-indigo,
+.admin-metric-card:hover .admin-icon-purple,
+.admin-metric-card:hover .admin-icon-blue,
+.admin-metric-card:hover .admin-icon-orange,
+.admin-metric-card:hover .admin-icon-cyan {
+  transform: scale(1.1);
+  transition: transform 0.3s ease;
+}
+
+/* Empty State */
+.admin-empty-state {
+  background: rgba(249, 250, 251, 0.5);
+  border: 2px dashed #e5e7eb;
+  padding: 2rem;
+  text-align: center;
+  color: #9ca3af;
+}
