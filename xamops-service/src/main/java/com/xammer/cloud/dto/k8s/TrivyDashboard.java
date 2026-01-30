@@ -106,6 +106,7 @@ public class TrivyDashboard {
         private int medium;
         private int low;
         private String lastScanTime;
+        private List<VulnerabilityDetail> vulnerabilities = new ArrayList<>();
 
         // Getters and Setters
         public String getName() {
@@ -186,6 +187,108 @@ public class TrivyDashboard {
 
         public void setLastScanTime(String lastScanTime) {
             this.lastScanTime = lastScanTime;
+        }
+
+        public List<VulnerabilityDetail> getVulnerabilities() {
+            return vulnerabilities;
+        }
+
+        public void setVulnerabilities(List<VulnerabilityDetail> vulnerabilities) {
+            this.vulnerabilities = vulnerabilities;
+        }
+    }
+
+    // Detailed vulnerability information including CVE, package, etc.
+    public static class VulnerabilityDetail {
+        private String vulnerabilityId;  // CVE ID (e.g., CVE-2023-12345)
+        private String severity;          // CRITICAL, HIGH, MEDIUM, LOW
+        private String packageName;       // Affected package name
+        private String installedVersion;  // Currently installed version
+        private String fixedVersion;      // Version where vulnerability is fixed
+        private String title;             // Brief title/description
+        private String description;       // Full description
+        private Double score;             // CVSS score
+        private String target;            // Target file/component
+        private String primaryLink;       // Link to CVE details
+
+        public String getVulnerabilityId() {
+            return vulnerabilityId;
+        }
+
+        public void setVulnerabilityId(String vulnerabilityId) {
+            this.vulnerabilityId = vulnerabilityId;
+        }
+
+        public String getSeverity() {
+            return severity;
+        }
+
+        public void setSeverity(String severity) {
+            this.severity = severity;
+        }
+
+        public String getPackageName() {
+            return packageName;
+        }
+
+        public void setPackageName(String packageName) {
+            this.packageName = packageName;
+        }
+
+        public String getInstalledVersion() {
+            return installedVersion;
+        }
+
+        public void setInstalledVersion(String installedVersion) {
+            this.installedVersion = installedVersion;
+        }
+
+        public String getFixedVersion() {
+            return fixedVersion;
+        }
+
+        public void setFixedVersion(String fixedVersion) {
+            this.fixedVersion = fixedVersion;
+        }
+
+        public String getTitle() {
+            return title;
+        }
+
+        public void setTitle(String title) {
+            this.title = title;
+        }
+
+        public String getDescription() {
+            return description;
+        }
+
+        public void setDescription(String description) {
+            this.description = description;
+        }
+
+        public Double getScore() {
+            return score;
+        }
+
+        public void setScore(Double score) {
+            this.score = score;
+        }
+
+        public String getTarget() {
+            return target;
+        }
+
+        public void setTarget(String target) {
+            this.target = target;
+        }
+
+        public String getPrimaryLink() {
+            return primaryLink;
+        }
+
+        public void setPrimaryLink(String primaryLink) {
+            this.primaryLink = primaryLink;
         }
     }
 

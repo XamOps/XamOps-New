@@ -156,6 +156,10 @@ public class TrivyService {
                         vuln.setMedium(getIntValue(summary, "mediumCount"));
                         vuln.setLow(getIntValue(summary, "lowCount"));
                     }
+
+                    // Extract detailed vulnerability information (P1 enhancement)
+                    List<VulnerabilityDetail> vulnerabilityDetails = extractVulnerabilityDetails(report);
+                    vuln.setVulnerabilities(vulnerabilityDetails);
                 }
                 results.add(vuln);
             } catch (Exception e) {
@@ -163,6 +167,135 @@ public class TrivyService {
             }
         }
         return results;
+    }
+
+    /**
+     * Extract detailed vulnerability information from Trivy report
+     * This includes CVE IDs, affected packages, severity, and fix versions
+     */
+    @SuppressWarnings("unchecked")
+    private List<VulnerabilityDetail> extractVulnerabilityDetails(Map<String, Object> report) {
+        List<VulnerabilityDetail> details = new ArrayList<>();
+        try {
+            List<Map<String, Object>> allVulnerabilities = new ArrayList<>();
+
+            // Try direct vulnerabilities array first (Trivy Operator v0.16+)
+            List<Map<String, Object>> directVulns = (List<Map<String, Object>>) report.get("vulnerabilities");
+            if (directVulns != null && !directVulns.isEmpty()) {
+                allVulnerabilities.addAll(directVulns);
+            }
+
+            // Also try results array (older Trivy format: report.results[].vulnerabilities)
+            List<Map<String, Object>> results = (List<Map<String, Object>>) report.get("results");
+            if (results != null) {
+                for (Map<String, Object> result : results) {
+                    String target = getStringValue(result, "Target");
+                    List<Map<String, Object>> resultVulns = (List<Map<String, Object>>) result.get("Vulnerabilities");
+                    if (resultVulns != null) {
+                        for (Map<String, Object> v : resultVulns) {
+                            // Add target info to each vulnerability
+                            v.put("target", target);
+                            allVulnerabilities.add(v);
+                        }
+                    }
+                }
+            }
+
+            if (allVulnerabilities.isEmpty()) {
+                return details;
+            }
+
+            // Limit to top 50 vulnerabilities per workload to avoid response bloat
+            int limit = Math.min(allVulnerabilities.size(), 50);
+            for (int i = 0; i < limit; i++) {
+                Map<String, Object> v = allVulnerabilities.get(i);
+                VulnerabilityDetail detail = new VulnerabilityDetail();
+
+                // Try different field name formats (camelCase and PascalCase)
+                detail.setVulnerabilityId(coalesce(getStringValue(v, "vulnerabilityID"), getStringValue(v, "VulnerabilityID")));
+                detail.setSeverity(coalesce(getStringValue(v, "severity"), getStringValue(v, "Severity")));
+                detail.setPackageName(coalesce(getStringValue(v, "pkgName"), getStringValue(v, "PkgName")));
+                detail.setInstalledVersion(coalesce(getStringValue(v, "installedVersion"), getStringValue(v, "InstalledVersion")));
+                detail.setFixedVersion(coalesce(getStringValue(v, "fixedVersion"), getStringValue(v, "FixedVersion")));
+                detail.setTitle(coalesce(getStringValue(v, "title"), getStringValue(v, "Title")));
+                detail.setDescription(truncateDescription(coalesce(getStringValue(v, "description"), getStringValue(v, "Description")), 500));
+                detail.setPrimaryLink(coalesce(getStringValue(v, "primaryURL"), getStringValue(v, "PrimaryURL")));
+                detail.setTarget(coalesce(getStringValue(v, "target"), getStringValue(v, "Target")));
+
+                // Extract CVSS score if available
+                Double score = extractCvssScore(v);
+                detail.setScore(score);
+
+                // Only add if we have a valid vulnerability ID
+                if (detail.getVulnerabilityId() != null && !detail.getVulnerabilityId().isEmpty()) {
+                    details.add(detail);
+                }
+            }
+
+            // Sort by severity (CRITICAL > HIGH > MEDIUM > LOW)
+            details.sort((a, b) -> {
+                int severityA = getSeverityWeight(a.getSeverity());
+                int severityB = getSeverityWeight(b.getSeverity());
+                return severityB - severityA;
+            });
+
+        } catch (Exception e) {
+            logger.warn("Error extracting vulnerability details: {}", e.getMessage());
+        }
+        return details;
+    }
+
+    private String coalesce(String... values) {
+        for (String v : values) {
+            if (v != null && !v.isEmpty()) return v;
+        }
+        return null;
+    }
+
+    private String getStringValue(Map<String, Object> map, String key) {
+        Object val = map.get(key);
+        return val != null ? val.toString() : null;
+    }
+
+    private String truncateDescription(String description, int maxLength) {
+        if (description == null) return null;
+        if (description.length() <= maxLength) return description;
+        return description.substring(0, maxLength) + "...";
+    }
+
+    @SuppressWarnings("unchecked")
+    private Double extractCvssScore(Map<String, Object> vulnerability) {
+        try {
+            // Try cvss.nvd.V3Score first
+            Map<String, Object> cvss = (Map<String, Object>) vulnerability.get("cvss");
+            if (cvss != null) {
+                Map<String, Object> nvd = (Map<String, Object>) cvss.get("nvd");
+                if (nvd != null) {
+                    Object v3Score = nvd.get("V3Score");
+                    if (v3Score instanceof Number) {
+                        return ((Number) v3Score).doubleValue();
+                    }
+                }
+            }
+            // Fallback to score field directly
+            Object score = vulnerability.get("score");
+            if (score instanceof Number) {
+                return ((Number) score).doubleValue();
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    private int getSeverityWeight(String severity) {
+        if (severity == null) return 0;
+        switch (severity.toUpperCase()) {
+            case "CRITICAL": return 4;
+            case "HIGH": return 3;
+            case "MEDIUM": return 2;
+            case "LOW": return 1;
+            default: return 0;
+        }
     }
 
     private List<ConfigAudit> transformConfigAudits(List<Map<String, Object>> data) {

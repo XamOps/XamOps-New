@@ -21,7 +21,7 @@ public class GcpDashboardData {
     private double monthToDateSpend;
     private double forecastedSpend;
     private double lastMonthSpend;
-    private List<GcpCostDto> costHistory; // DETAILED historical data for the chart
+    private DashboardData.CostHistory costHistory; // DETAILED historical data for the chart
     private List<GcpCostDto> billingSummary; // DETAILED billing data for the table
 
     // Optimization Data

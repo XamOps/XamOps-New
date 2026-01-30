@@ -135,7 +135,8 @@
                     </div>
                     <div class="flex items-center space-x-4">
                         <!-- Date Range Filter -->
-                        <div class="flex items-center space-x-2 bg-white border border-gray-300 rounded-lg px-4 py-2 shadow-sm">
+                        <div
+                            class="flex items-center space-x-2 bg-white border border-gray-300 rounded-lg px-4 py-2 shadow-sm">
                             <i class="fas fa-calendar text-gray-400"></i>
                             <input type="date" x-model="dateFilter.startDate"
                                 class="border-0 focus:ring-0 text-sm text-gray-700 bg-transparent"
@@ -144,18 +145,15 @@
                             <span class="text-gray-400">to</span>
                             <input type="date" x-model="dateFilter.endDate"
                                 class="border-0 focus:ring-0 text-sm text-gray-700 bg-transparent"
-                                :min="dateFilter.startDate"
-                                :max="new Date().toISOString().split('T')[0]"
+                                :min="dateFilter.startDate" :max="new Date().toISOString().split('T')[0]"
                                 placeholder="End Date">
                             <button @click="applyDateFilter()"
                                 class="ml-2 px-3 py-1 bg-indigo-600 text-white text-xs font-semibold rounded hover:bg-indigo-700 transition-all"
                                 :disabled="!dateFilter.startDate || !dateFilter.endDate">
                                 Apply
                             </button>
-                            <button @click="clearDateFilter()"
-                                x-show="dateFilter.startDate || dateFilter.endDate"
-                                class="text-gray-400 hover:text-gray-600"
-                                title="Clear filter">
+                            <button @click="clearDateFilter()" x-show="dateFilter.startDate || dateFilter.endDate"
+                                class="text-gray-400 hover:text-gray-600" title="Clear filter">
                                 <i class="fas fa-times"></i>
                             </button>
                         </div>
@@ -389,11 +387,16 @@
                                 <div class="bg-gray-50 border border-gray-200 rounded-xl p-6">
                                     <div class="flex items-center justify-between mb-4">
                                         <h4 class="text-sm font-medium text-gray-600">Compliance Rate</h4>
-                                        <div class="p-2 rounded-lg" :class="(reportData.taggingCompliance?.compliancePercentage || 0) >= 80 ? 'bg-green-100' : (reportData.taggingCompliance?.compliancePercentage || 0) >= 50 ? 'bg-yellow-100' : 'bg-red-100'">
-                                            <i class="fas fa-percentage" :class="(reportData.taggingCompliance?.compliancePercentage || 0) >= 80 ? 'text-green-500' : (reportData.taggingCompliance?.compliancePercentage || 0) >= 50 ? 'text-yellow-500' : 'text-red-500'"></i>
+                                        <div class="p-2 rounded-lg"
+                                            :class="(reportData.taggingCompliance?.compliancePercentage || 0) >= 80 ? 'bg-green-100' : (reportData.taggingCompliance?.compliancePercentage || 0) >= 50 ? 'bg-yellow-100' : 'bg-red-100'">
+                                            <i class="fas fa-percentage"
+                                                :class="(reportData.taggingCompliance?.compliancePercentage || 0) >= 80 ? 'text-green-500' : (reportData.taggingCompliance?.compliancePercentage || 0) >= 50 ? 'text-yellow-500' : 'text-red-500'"></i>
                                         </div>
                                     </div>
-                                    <p class="text-3xl font-bold mb-2" :class="(reportData.taggingCompliance?.compliancePercentage || 0) >= 80 ? 'text-green-600' : (reportData.taggingCompliance?.compliancePercentage || 0) >= 50 ? 'text-yellow-600' : 'text-red-600'" x-text="`${(reportData.taggingCompliance?.compliancePercentage || 0).toFixed(1)}%`"></p>
+                                    <p class="text-3xl font-bold mb-2"
+                                        :class="(reportData.taggingCompliance?.compliancePercentage || 0) >= 80 ? 'text-green-600' : (reportData.taggingCompliance?.compliancePercentage || 0) >= 50 ? 'text-yellow-600' : 'text-red-600'"
+                                        x-text="`${(reportData.taggingCompliance?.compliancePercentage || 0).toFixed(1)}%`">
+                                    </p>
                                     <div class="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
                                         <div class="h-2.5 rounded-full transition-all duration-500"
                                             :class="(reportData.taggingCompliance?.compliancePercentage || 0) >= 80 ? 'bg-gradient-to-r from-green-400 to-green-600' : (reportData.taggingCompliance?.compliancePercentage || 0) >= 50 ? 'bg-gradient-to-r from-yellow-400 to-orange-500' : 'bg-gradient-to-r from-red-500 to-red-600'"
@@ -410,7 +413,9 @@
                                             <i class="fas fa-server text-blue-500"></i>
                                         </div>
                                     </div>
-                                    <p class="text-3xl font-bold text-gray-900" x-text="(reportData.taggingCompliance?.totalResourcesScanned || 0).toLocaleString()"></p>
+                                    <p class="text-3xl font-bold text-gray-900"
+                                        x-text="(reportData.taggingCompliance?.totalResourcesScanned || 0).toLocaleString()">
+                                    </p>
                                     <p class="text-sm text-gray-500 mt-2">Total resources analyzed</p>
                                 </div>
 
@@ -418,11 +423,16 @@
                                 <div class="bg-gray-50 border border-gray-200 rounded-xl p-6">
                                     <div class="flex items-center justify-between mb-4">
                                         <h4 class="text-sm font-medium text-gray-600">Untagged Resources</h4>
-                                        <div class="p-2 rounded-lg" :class="(reportData.taggingCompliance?.untaggedResourcesCount || 0) === 0 ? 'bg-green-100' : 'bg-red-100'">
-                                            <i class="fas fa-exclamation-circle" :class="(reportData.taggingCompliance?.untaggedResourcesCount || 0) === 0 ? 'text-green-500' : 'text-red-500'"></i>
+                                        <div class="p-2 rounded-lg"
+                                            :class="(reportData.taggingCompliance?.untaggedResourcesCount || 0) === 0 ? 'bg-green-100' : 'bg-red-100'">
+                                            <i class="fas fa-exclamation-circle"
+                                                :class="(reportData.taggingCompliance?.untaggedResourcesCount || 0) === 0 ? 'text-green-500' : 'text-red-500'"></i>
                                         </div>
                                     </div>
-                                    <p class="text-3xl font-bold" :class="(reportData.taggingCompliance?.untaggedResourcesCount || 0) === 0 ? 'text-green-600' : 'text-red-600'" x-text="(reportData.taggingCompliance?.untaggedResourcesCount || 0).toLocaleString()"></p>
+                                    <p class="text-3xl font-bold"
+                                        :class="(reportData.taggingCompliance?.untaggedResourcesCount || 0) === 0 ? 'text-green-600' : 'text-red-600'"
+                                        x-text="(reportData.taggingCompliance?.untaggedResourcesCount || 0).toLocaleString()">
+                                    </p>
                                     <p class="text-sm text-gray-500 mt-2">Resources missing required tags</p>
                                 </div>
                             </div>
@@ -433,11 +443,14 @@
                                     <h4 class="text-lg font-semibold text-gray-800 flex items-center">
                                         <i class="fas fa-list-ul text-teal-500 mr-2"></i>
                                         Untagged Resources Details
-                                        <span class="ml-2 px-2 py-0.5 text-xs font-medium bg-red-100 text-red-600 rounded-full" x-text="`${reportData.taggingCompliance?.untaggedResourcesCount || 0} total`"></span>
+                                        <span
+                                            class="ml-2 px-2 py-0.5 text-xs font-medium bg-red-100 text-red-600 rounded-full"
+                                            x-text="`${reportData.taggingCompliance?.untaggedResourcesCount || 0} total`"></span>
                                     </h4>
                                     <div class="flex items-center space-x-2">
                                         <label for="taggingItemsPerPage" class="text-sm text-gray-600">Show:</label>
-                                        <select id="taggingItemsPerPage" x-model="taggingPagination.itemsPerPage" @change="taggingPagination.currentPage = 1"
+                                        <select id="taggingItemsPerPage" x-model="taggingPagination.itemsPerPage"
+                                            @change="taggingPagination.currentPage = 1"
                                             class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500">
                                             <option value="10">10</option>
                                             <option value="25">25</option>
@@ -457,15 +470,20 @@
                                             </tr>
                                         </thead>
                                         <tbody class="divide-y divide-gray-200">
-                                            <template x-for="resource in paginatedUntaggedResources" :key="resource.resourceId">
+                                            <template x-for="resource in paginatedUntaggedResources"
+                                                :key="resource.resourceId">
                                                 <tr class="hover:bg-gray-50">
-                                                    <td class="px-6 py-4 font-mono text-xs text-gray-800" x-text="resource.resourceId"></td>
+                                                    <td class="px-6 py-4 font-mono text-xs text-gray-800"
+                                                        x-text="resource.resourceId"></td>
                                                     <td class="px-6 py-4">
-                                                        <span class="px-2 py-1 text-xs font-medium bg-indigo-100 text-indigo-700 rounded-full" x-text="resource.resourceType"></span>
+                                                        <span
+                                                            class="px-2 py-1 text-xs font-medium bg-indigo-100 text-indigo-700 rounded-full"
+                                                            x-text="resource.resourceType"></span>
                                                     </td>
                                                     <td class="px-6 py-4" x-text="resource.region"></td>
                                                     <td class="px-6 py-4">
-                                                        <span class="px-2 py-1 text-xs font-medium bg-red-100 text-red-600 rounded-full">
+                                                        <span
+                                                            class="px-2 py-1 text-xs font-medium bg-red-100 text-red-600 rounded-full">
                                                             <i class="fas fa-times-circle mr-1"></i>Missing
                                                         </span>
                                                     </td>
@@ -477,30 +495,39 @@
                                 <!-- Pagination Controls -->
                                 <div class="flex items-center justify-between mt-4 px-2">
                                     <p class="text-sm text-gray-600">
-                                        Showing <span class="font-semibold" x-text="((taggingPagination.currentPage - 1) * taggingPagination.itemsPerPage) + 1"></span>
-                                        to <span class="font-semibold" x-text="Math.min(taggingPagination.currentPage * taggingPagination.itemsPerPage, reportData.taggingCompliance?.untaggedResourcesCount || 0)"></span>
-                                        of <span class="font-semibold" x-text="reportData.taggingCompliance?.untaggedResourcesCount || 0"></span> resources
+                                        Showing <span class="font-semibold"
+                                            x-text="((taggingPagination.currentPage - 1) * taggingPagination.itemsPerPage) + 1"></span>
+                                        to <span class="font-semibold"
+                                            x-text="Math.min(taggingPagination.currentPage * taggingPagination.itemsPerPage, reportData.taggingCompliance?.untaggedResourcesCount || 0)"></span>
+                                        of <span class="font-semibold"
+                                            x-text="reportData.taggingCompliance?.untaggedResourcesCount || 0"></span>
+                                        resources
                                     </p>
                                     <div class="flex items-center space-x-2">
-                                        <button @click="taggingGoToPage(1)" :disabled="taggingPagination.currentPage === 1"
+                                        <button @click="taggingGoToPage(1)"
+                                            :disabled="taggingPagination.currentPage === 1"
                                             class="px-3 py-1.5 text-sm font-medium rounded-lg border transition-all"
                                             :class="taggingPagination.currentPage === 1 ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'">
                                             <i class="fas fa-angle-double-left"></i>
                                         </button>
-                                        <button @click="taggingPrevPage()" :disabled="taggingPagination.currentPage === 1"
+                                        <button @click="taggingPrevPage()"
+                                            :disabled="taggingPagination.currentPage === 1"
                                             class="px-3 py-1.5 text-sm font-medium rounded-lg border transition-all"
                                             :class="taggingPagination.currentPage === 1 ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'">
                                             <i class="fas fa-angle-left"></i>
                                         </button>
                                         <span class="px-4 py-1.5 text-sm font-medium text-gray-700">
-                                            Page <span x-text="taggingPagination.currentPage"></span> of <span x-text="taggingTotalPages"></span>
+                                            Page <span x-text="taggingPagination.currentPage"></span> of <span
+                                                x-text="taggingTotalPages"></span>
                                         </span>
-                                        <button @click="taggingNextPage()" :disabled="taggingPagination.currentPage >= taggingTotalPages"
+                                        <button @click="taggingNextPage()"
+                                            :disabled="taggingPagination.currentPage >= taggingTotalPages"
                                             class="px-3 py-1.5 text-sm font-medium rounded-lg border transition-all"
                                             :class="taggingPagination.currentPage >= taggingTotalPages ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'">
                                             <i class="fas fa-angle-right"></i>
                                         </button>
-                                        <button @click="taggingGoToPage(taggingTotalPages)" :disabled="taggingPagination.currentPage >= taggingTotalPages"
+                                        <button @click="taggingGoToPage(taggingTotalPages)"
+                                            :disabled="taggingPagination.currentPage >= taggingTotalPages"
                                             class="px-3 py-1.5 text-sm font-medium rounded-lg border transition-all"
                                             :class="taggingPagination.currentPage >= taggingTotalPages ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'">
                                             <i class="fas fa-angle-double-right"></i>
@@ -510,9 +537,11 @@
                             </div>
 
                             <!-- Empty State -->
-                            <div x-show="!reportData.taggingCompliance?.untaggedResources?.length && reportData.taggingCompliance?.totalResourcesScanned > 0" x-cloak
+                            <div x-show="!reportData.taggingCompliance?.untaggedResources?.length && reportData.taggingCompliance?.totalResourcesScanned > 0"
+                                x-cloak
                                 class="text-center py-12 rounded-2xl border-2 border-dashed border-green-300 bg-green-50/50">
-                                <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <div
+                                    class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
                                     <i class="fas fa-check-circle text-green-500 text-2xl"></i>
                                 </div>
                                 <h4 class="text-lg font-bold text-green-800 mb-2">All Resources Tagged</h4>
@@ -522,11 +551,13 @@
                             <!-- No Data State -->
                             <div x-show="!reportData.taggingCompliance?.totalResourcesScanned" x-cloak
                                 class="text-center py-12 rounded-2xl border-2 border-dashed border-gray-300 bg-gray-50/50">
-                                <div class="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <div
+                                    class="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
                                     <i class="fas fa-tags text-gray-400 text-2xl"></i>
                                 </div>
                                 <h4 class="text-lg font-bold text-gray-800 mb-2">No Tagging Data Available</h4>
-                                <p class="text-gray-600">Tagging compliance data will appear here once resources are scanned.</p>
+                                <p class="text-gray-600">Tagging compliance data will appear here once resources are
+                                    scanned.</p>
                             </div>
                         </div>
                     </div>
@@ -581,11 +612,14 @@
                                 <h4 class="text-lg font-semibold text-gray-800 flex items-center">
                                     <i class="fas fa-cogs text-green-500 mr-2"></i>
                                     Rightsizing Recommendations
-                                    <span class="ml-2 px-2 py-0.5 text-xs font-medium bg-green-100 text-green-600 rounded-full" x-text="`${reportData.rightsizingRecommendations?.length || 0} total`"></span>
+                                    <span
+                                        class="ml-2 px-2 py-0.5 text-xs font-medium bg-green-100 text-green-600 rounded-full"
+                                        x-text="`${reportData.rightsizingRecommendations?.length || 0} total`"></span>
                                 </h4>
                                 <div class="flex items-center space-x-2">
                                     <label for="rightsizingItemsPerPage" class="text-sm text-gray-600">Show:</label>
-                                    <select id="rightsizingItemsPerPage" x-model="rightsizingPagination.itemsPerPage" @change="rightsizingPagination.currentPage = 1"
+                                    <select id="rightsizingItemsPerPage" x-model="rightsizingPagination.itemsPerPage"
+                                        @change="rightsizingPagination.currentPage = 1"
                                         class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500">
                                         <option value="10">10</option>
                                         <option value="25">25</option>
@@ -624,30 +658,38 @@
                             <!-- Pagination Controls -->
                             <div class="flex items-center justify-between mt-4 px-2" x-show="rightsizingTotalPages > 1">
                                 <p class="text-sm text-gray-600">
-                                    Showing <span class="font-semibold" x-text="((rightsizingPagination.currentPage - 1) * rightsizingPagination.itemsPerPage) + 1"></span>
-                                    to <span class="font-semibold" x-text="Math.min(rightsizingPagination.currentPage * rightsizingPagination.itemsPerPage, reportData.rightsizingRecommendations?.length || 0)"></span>
-                                    of <span class="font-semibold" x-text="reportData.rightsizingRecommendations?.length || 0"></span>
+                                    Showing <span class="font-semibold"
+                                        x-text="((rightsizingPagination.currentPage - 1) * rightsizingPagination.itemsPerPage) + 1"></span>
+                                    to <span class="font-semibold"
+                                        x-text="Math.min(rightsizingPagination.currentPage * rightsizingPagination.itemsPerPage, reportData.rightsizingRecommendations?.length || 0)"></span>
+                                    of <span class="font-semibold"
+                                        x-text="reportData.rightsizingRecommendations?.length || 0"></span>
                                 </p>
                                 <div class="flex items-center space-x-2">
-                                    <button @click="rightsizingGoToPage(1)" :disabled="rightsizingPagination.currentPage === 1"
+                                    <button @click="rightsizingGoToPage(1)"
+                                        :disabled="rightsizingPagination.currentPage === 1"
                                         class="px-3 py-1.5 text-sm font-medium rounded-lg border transition-all"
                                         :class="rightsizingPagination.currentPage === 1 ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'">
                                         <i class="fas fa-angle-double-left"></i>
                                     </button>
-                                    <button @click="rightsizingPrevPage()" :disabled="rightsizingPagination.currentPage === 1"
+                                    <button @click="rightsizingPrevPage()"
+                                        :disabled="rightsizingPagination.currentPage === 1"
                                         class="px-3 py-1.5 text-sm font-medium rounded-lg border transition-all"
                                         :class="rightsizingPagination.currentPage === 1 ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'">
                                         <i class="fas fa-angle-left"></i>
                                     </button>
                                     <span class="px-4 py-1.5 text-sm font-medium text-gray-700">
-                                        Page <span x-text="rightsizingPagination.currentPage"></span> of <span x-text="rightsizingTotalPages"></span>
+                                        Page <span x-text="rightsizingPagination.currentPage"></span> of <span
+                                            x-text="rightsizingTotalPages"></span>
                                     </span>
-                                    <button @click="rightsizingNextPage()" :disabled="rightsizingPagination.currentPage >= rightsizingTotalPages"
+                                    <button @click="rightsizingNextPage()"
+                                        :disabled="rightsizingPagination.currentPage >= rightsizingTotalPages"
                                         class="px-3 py-1.5 text-sm font-medium rounded-lg border transition-all"
                                         :class="rightsizingPagination.currentPage >= rightsizingTotalPages ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'">
                                         <i class="fas fa-angle-right"></i>
                                     </button>
-                                    <button @click="rightsizingGoToPage(rightsizingTotalPages)" :disabled="rightsizingPagination.currentPage >= rightsizingTotalPages"
+                                    <button @click="rightsizingGoToPage(rightsizingTotalPages)"
+                                        :disabled="rightsizingPagination.currentPage >= rightsizingTotalPages"
                                         class="px-3 py-1.5 text-sm font-medium rounded-lg border transition-all"
                                         :class="rightsizingPagination.currentPage >= rightsizingTotalPages ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'">
                                         <i class="fas fa-angle-double-right"></i>
@@ -662,11 +704,14 @@
                                 <h4 class="text-lg font-semibold text-gray-800 flex items-center">
                                     <i class="fas fa-trash-alt text-red-500 mr-2"></i>
                                     Wasted Resources
-                                    <span class="ml-2 px-2 py-0.5 text-xs font-medium bg-red-100 text-red-600 rounded-full" x-text="`${reportData.wastedResources?.length || 0} total`"></span>
+                                    <span
+                                        class="ml-2 px-2 py-0.5 text-xs font-medium bg-red-100 text-red-600 rounded-full"
+                                        x-text="`${reportData.wastedResources?.length || 0} total`"></span>
                                 </h4>
                                 <div class="flex items-center space-x-2">
                                     <label for="wastedItemsPerPage" class="text-sm text-gray-600">Show:</label>
-                                    <select id="wastedItemsPerPage" x-model="wastedPagination.itemsPerPage" @change="wastedPagination.currentPage = 1"
+                                    <select id="wastedItemsPerPage" x-model="wastedPagination.itemsPerPage"
+                                        @change="wastedPagination.currentPage = 1"
                                         class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500">
                                         <option value="10">10</option>
                                         <option value="25">25</option>
@@ -704,9 +749,12 @@
                             <!-- Pagination Controls -->
                             <div class="flex items-center justify-between mt-4 px-2" x-show="wastedTotalPages > 1">
                                 <p class="text-sm text-gray-600">
-                                    Showing <span class="font-semibold" x-text="((wastedPagination.currentPage - 1) * wastedPagination.itemsPerPage) + 1"></span>
-                                    to <span class="font-semibold" x-text="Math.min(wastedPagination.currentPage * wastedPagination.itemsPerPage, reportData.wastedResources?.length || 0)"></span>
-                                    of <span class="font-semibold" x-text="reportData.wastedResources?.length || 0"></span>
+                                    Showing <span class="font-semibold"
+                                        x-text="((wastedPagination.currentPage - 1) * wastedPagination.itemsPerPage) + 1"></span>
+                                    to <span class="font-semibold"
+                                        x-text="Math.min(wastedPagination.currentPage * wastedPagination.itemsPerPage, reportData.wastedResources?.length || 0)"></span>
+                                    of <span class="font-semibold"
+                                        x-text="reportData.wastedResources?.length || 0"></span>
                                 </p>
                                 <div class="flex items-center space-x-2">
                                     <button @click="wastedGoToPage(1)" :disabled="wastedPagination.currentPage === 1"
@@ -720,14 +768,17 @@
                                         <i class="fas fa-angle-left"></i>
                                     </button>
                                     <span class="px-4 py-1.5 text-sm font-medium text-gray-700">
-                                        Page <span x-text="wastedPagination.currentPage"></span> of <span x-text="wastedTotalPages"></span>
+                                        Page <span x-text="wastedPagination.currentPage"></span> of <span
+                                            x-text="wastedTotalPages"></span>
                                     </span>
-                                    <button @click="wastedNextPage()" :disabled="wastedPagination.currentPage >= wastedTotalPages"
+                                    <button @click="wastedNextPage()"
+                                        :disabled="wastedPagination.currentPage >= wastedTotalPages"
                                         class="px-3 py-1.5 text-sm font-medium rounded-lg border transition-all"
                                         :class="wastedPagination.currentPage >= wastedTotalPages ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'">
                                         <i class="fas fa-angle-right"></i>
                                     </button>
-                                    <button @click="wastedGoToPage(wastedTotalPages)" :disabled="wastedPagination.currentPage >= wastedTotalPages"
+                                    <button @click="wastedGoToPage(wastedTotalPages)"
+                                        :disabled="wastedPagination.currentPage >= wastedTotalPages"
                                         class="px-3 py-1.5 text-sm font-medium rounded-lg border transition-all"
                                         :class="wastedPagination.currentPage >= wastedTotalPages ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'">
                                         <i class="fas fa-angle-double-right"></i>
@@ -819,7 +870,72 @@
                                         <option value="DAILY">Daily (at 6 PM)</option>
                                         <option value="WEEKLY">Weekly (Friday at 6 PM)</option>
                                         <option value="MONTHLY">Monthly (30th at 6 PM)</option>
+                                        <option value="CUSTOM">Custom Time</option>
                                     </select>
+                                </div>
+
+                                <!-- Custom Time Fields (shown when CUSTOM is selected) -->
+                                <div x-show="newSchedule.frequency === 'CUSTOM'" x-cloak
+                                    class="space-y-4 p-4 bg-indigo-50 rounded-lg border border-indigo-200">
+                                    <h4 class="text-sm font-semibold text-gray-800 mb-3">Custom Schedule Settings</h4>
+
+                                    <!-- Frequency Type -->
+                                    <div>
+                                        <label class="block text-sm font-semibold text-gray-700 mb-2">Schedule
+                                            Type</label>
+                                        <select x-model="newSchedule.customFrequencyType"
+                                            class="w-full px-4 py-2 rounded-lg border border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all">
+                                            <option value="DAILY">Daily</option>
+                                            <option value="WEEKLY">Weekly</option>
+                                            <option value="MONTHLY">Monthly</option>
+                                        </select>
+                                    </div>
+
+                                    <!-- Time Selection -->
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label class="block text-sm font-semibold text-gray-700 mb-2">Hour
+                                                (0-23)</label>
+                                            <input type="number" x-model.number="newSchedule.customHour" min="0"
+                                                max="23"
+                                                class="w-full px-4 py-2 rounded-lg border border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all"
+                                                placeholder="18">
+                                        </div>
+                                        <div>
+                                            <label class="block text-sm font-semibold text-gray-700 mb-2">Minute
+                                                (0-59)</label>
+                                            <input type="number" x-model.number="newSchedule.customMinute" min="0"
+                                                max="59"
+                                                class="w-full px-4 py-2 rounded-lg border border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all"
+                                                placeholder="0">
+                                        </div>
+                                    </div>
+
+                                    <!-- Day of Week (for Weekly) -->
+                                    <div x-show="newSchedule.customFrequencyType === 'WEEKLY'" x-cloak>
+                                        <label class="block text-sm font-semibold text-gray-700 mb-2">Day of
+                                            Week</label>
+                                        <select x-model.number="newSchedule.customDayOfWeek"
+                                            class="w-full px-4 py-2 rounded-lg border border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all">
+                                            <option value="1">Monday</option>
+                                            <option value="2">Tuesday</option>
+                                            <option value="3">Wednesday</option>
+                                            <option value="4">Thursday</option>
+                                            <option value="5">Friday</option>
+                                            <option value="6">Saturday</option>
+                                            <option value="7">Sunday</option>
+                                        </select>
+                                    </div>
+
+                                    <!-- Day of Month (for Monthly) -->
+                                    <div x-show="newSchedule.customFrequencyType === 'MONTHLY'" x-cloak>
+                                        <label class="block text-sm font-semibold text-gray-700 mb-2">Day of Month
+                                            (1-31)</label>
+                                        <input type="number" x-model.number="newSchedule.customDayOfMonth" min="1"
+                                            max="31"
+                                            class="w-full px-4 py-2 rounded-lg border border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all"
+                                            placeholder="1">
+                                    </div>
                                 </div>
                             </div>
 
@@ -880,7 +996,12 @@
                             newSchedule: {
                                 email: '',
                                 frequency: '',
-                                cloudAccountId: null
+                                cloudAccountId: null,
+                                customHour: 18,
+                                customMinute: 0,
+                                customDayOfWeek: 5,
+                                customDayOfMonth: 1,
+                                customFrequencyType: 'DAILY'
                             },
                             showScheduleSuccessToast: false,
                             lastScheduleFrequency: '',
@@ -1356,59 +1477,92 @@
                                         if (!res.ok) throw new Error('Failed to delete budget.');
                                         this.reportData.budgets = this.reportData.budgets.filter(b => b.budgetName !== budgetName);
                                     })
-                                    .catch(err => alert(err.message));
-                            },
+                                createSchedule() {
+                                    if (!this.newSchedule.email || !this.newSchedule.frequency || !this.newSchedule.cloudAccountId) {
+                                        alert('Please fill out all fields and ensure an account is selected.');
+                                        return;
+                                    }
 
-                            createSchedule() {
-                                if (!this.newSchedule.email || !this.newSchedule.frequency || !this.newSchedule.cloudAccountId) {
-                                    alert('Please fill out all fields and ensure an account is selected.');
-                                    return;
+                                    // Validate custom time fields if CUSTOM frequency is selected
+                                    if (this.newSchedule.frequency === 'CUSTOM') {
+                                        if (this.newSchedule.customHour == null || this.newSchedule.customHour < 0 || this.newSchedule.customHour > 23) {
+                                            alert('Please enter a valid hour (0-23).');
+                                            return;
+                                        }
+                                        if (this.newSchedule.customMinute == null || this.newSchedule.customMinute < 0 || this.newSchedule.customMinute > 59) {
+                                            alert('Please enter a valid minute (0-59).');
+                                            return;
+                                        }
+                                        if (this.newSchedule.customFrequencyType === 'WEEKLY' &&
+                                            (this.newSchedule.customDayOfWeek == null || this.newSchedule.customDayOfWeek < 1 || this.newSchedule.customDayOfWeek > 7)) {
+                                            alert('Please select a valid day of week.');
+                                            return;
+                                        }
+                                        if (this.newSchedule.customFrequencyType === 'MONTHLY' &&
+                                            (this.newSchedule.customDayOfMonth == null || this.newSchedule.customDayOfMonth < 1 || this.newSchedule.customDayOfMonth > 31)) {
+                                            alert('Please enter a valid day of month (1-31).');
+                                            return;
+                                        }
+                                    }
+
+                                    this.isScheduleCreating = true;
+
+                                    fetch('/api/xamops/finops-schedules', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify(this.newSchedule)
+                                    })
+                                        .then(res => {
+                                            if (!res.ok) throw new Error('Failed to create schedule.');
+                                            return res.json();
+                                        })
+                                        .then(createdSchedule => {
+                                            this.reportSchedules.push(createdSchedule);
+                                            this.isScheduleModalOpen = false;
+
+                                            // Display appropriate success message
+                                            let frequencyMsg = this.newSchedule.frequency.toLowerCase();
+                                            if (this.newSchedule.frequency === 'CUSTOM') {
+                                                const hour = String(this.newSchedule.customHour).padStart(2, '0');
+                                                const minute = String(this.newSchedule.customMinute).padStart(2, '0');
+                                                frequencyMsg = `custom ${this.newSchedule.customFrequencyType.toLowerCase()} at ${hour}:${minute}`;
+                                            }
+                                            this.lastScheduleFrequency = frequencyMsg;
+                                            this.showScheduleSuccessToast = true;
+                                            setTimeout(() => this.showScheduleSuccessToast = false, 5000);
+
+                                            // Reset form
+                                            this.newSchedule.email = '';
+                                            this.newSchedule.frequency = '';
+                                            this.newSchedule.customHour = 18;
+                                            this.newSchedule.customMinute = 0;
+                                            this.newSchedule.customDayOfWeek = 5;
+                                            this.newSchedule.customDayOfMonth = 1;
+                                            this.newSchedule.customFrequencyType = 'DAILY';
+                                        })
+                                        .catch(err => {
+                                            console.error('Create schedule error:', err);
+                                            alert(err.message);
+                                        })
+                                        .finally(() => this.isScheduleCreating = false);
+                                },
+
+                                deleteSchedule(scheduleId) {
+                                    if (!confirm('Are you sure you want to delete this report schedule?')) {
+                                        return;
+                                    }
+
+                                    fetch(`/api/xamops/finops-schedules/${scheduleId}`, {
+                                        method: 'DELETE'
+                                    })
+                                        .then(res => {
+                                            if (!res.ok) throw new Error('Failed to delete schedule.');
+                                            this.reportSchedules = this.reportSchedules.filter(s => s.id !== scheduleId);
+                                        })
+                                        .catch(err => alert(err.message));
                                 }
-                                this.isScheduleCreating = true;
-
-                                fetch('/api/xamops/finops-schedules', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify(this.newSchedule)
-                                })
-                                    .then(res => {
-                                        if (!res.ok) throw new Error('Failed to create schedule. Check console.');
-                                        return res.json();
-                                    })
-                                    .then(createdSchedule => {
-                                        this.reportSchedules.push(createdSchedule);
-                                        this.isScheduleModalOpen = false;
-
-                                        this.lastScheduleFrequency = this.newSchedule.frequency;
-                                        this.showScheduleSuccessToast = true;
-                                        setTimeout(() => this.showScheduleSuccessToast = false, 4000);
-
-                                        this.newSchedule.email = '';
-                                        this.newSchedule.frequency = '';
-                                    })
-                                    .catch(err => {
-                                        console.error('Create schedule error:', err);
-                                        alert(err.message);
-                                    })
-                                    .finally(() => this.isScheduleCreating = false);
-                            },
-
-                            deleteSchedule(scheduleId) {
-                                if (!confirm('Are you sure you want to delete this report schedule?')) {
-                                    return;
-                                }
-
-                                fetch(`/api/xamops/finops-schedules/${scheduleId}`, {
-                                    method: 'DELETE'
-                                })
-                                    .then(res => {
-                                        if (!res.ok) throw new Error('Failed to delete schedule.');
-                                        this.reportSchedules = this.reportSchedules.filter(s => s.id !== scheduleId);
-                                    })
-                                    .catch(err => alert(err.message));
                             }
                         }
-                    }
                 </script>
             </main>
         </div>

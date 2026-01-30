@@ -753,7 +753,7 @@
                                 const forecastedSpend = account.forecastedSpend || 0;
                                 const potentialSavings = (account.optimizationSummary && account.optimizationSummary.totalPotentialSavings) ? account.optimizationSummary.totalPotentialSavings : 0;
 
-                                const costHistoryAmounts = account.costHistory ? account.costHistory.map(c => c.amount) : [];
+                                const costHistoryAmounts = (account.costHistory && account.costHistory.costs) ? account.costHistory.costs : [];
 
                                 const kpis = [
                                     {

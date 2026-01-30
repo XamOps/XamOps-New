@@ -8,6 +8,7 @@ import com.xammer.cloud.dto.k8s.EksCompleteDashboardDto.*;
 import com.xammer.cloud.dto.k8s.KubescapeDashboard;
 import com.xammer.cloud.dto.k8s.TrivyDashboard;
 import com.xammer.cloud.dto.k8s.KarpenterDashboard;
+import com.xammer.cloud.dto.k8s.OpenCostDashboard;
 import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
 import com.xammer.cloud.repository.KubernetesClusterRepository;
 import io.fabric8.kubernetes.api.model.Pod;
@@ -34,6 +35,7 @@ public class EksDashboardService {
     private final KubescapeService kubescapeService;
     private final TrivyService trivyService;
     private final KarpenterService karpenterService;
+    private final OpenCostService openCostService;
     private final K8sClientFactory k8sClientFactory;
     private final RedisCacheService redisCacheService;
 
@@ -43,6 +45,7 @@ public class EksDashboardService {
             KubescapeService kubescapeService,
             TrivyService trivyService,
             KarpenterService karpenterService,
+            OpenCostService openCostService,
             K8sClientFactory k8sClientFactory,
             RedisCacheService redisCacheService) {
         this.prometheusService = prometheusService;
@@ -51,6 +54,7 @@ public class EksDashboardService {
         this.kubescapeService = kubescapeService;
         this.trivyService = trivyService;
         this.karpenterService = karpenterService;
+        this.openCostService = openCostService;
         this.k8sClientFactory = k8sClientFactory;
         this.redisCacheService = redisCacheService;
     }
@@ -199,7 +203,25 @@ public class EksDashboardService {
                                             karpenterEx);
                                 }
 
-                                // 4. Pod Enrichment (Independent)
+                                // 4. OpenCost (Conditional - based on opencostEnabled flag)
+                                if (Boolean.TRUE.equals(config.getOpencostEnabled())) {
+                                    try {
+                                        OpenCostDashboard ocDashboard = openCostService.fetchDashboardData(client);
+                                        ocDashboard.setClusterName(clusterName);
+                                        dashboard.setOpenCost(ocDashboard);
+                                        logger.info("💰 OpenCost data fetched: enabled={}, namespaces={}, dailyCost=${}",
+                                                ocDashboard.isEnabled(),
+                                                ocDashboard.getNamespaceAllocations().size(),
+                                                String.format("%.2f", ocDashboard.getSummary().getTotalDailyCost()));
+                                    } catch (Exception openCostEx) {
+                                        logger.error("❌ Error fetching OpenCost data for cluster: {}", clusterName,
+                                                openCostEx);
+                                    }
+                                } else {
+                                    logger.info("ℹ️ OpenCost is NOT enabled for cluster: {}", clusterName);
+                                }
+
+                                // 5. Pod Enrichment (Independent)
                                 WorkloadHealth currentWorkload = dashboard.getWorkloadHealth();
                                 if (currentWorkload != null) {
                                     List<WorkloadHealth.PodHealth> enrichedPods = buildPodHealth(promUrl, clusterName,
@@ -302,23 +324,216 @@ public class EksDashboardService {
         List<Map<String, String>> nodeInfoList = prometheusService.getNodeInfo(promUrl, clusterName);
         Map<String, String> instanceIdToNodeName = buildInstanceIdToNodeNameMap(nodeInfoList);
 
+        // P2: Get node labels for capacity type detection
+        List<Map<String, String>> nodeLabels = prometheusService.getNodeLabels(promUrl, clusterName);
+        Map<String, Map<String, String>> nodeLabelMap = new HashMap<>();
+        for (Map<String, String> label : nodeLabels) {
+            String nodeName = label.get("node");
+            if (nodeName != null) {
+                nodeLabelMap.put(nodeName, label);
+            }
+        }
+
+        // P2: Get node CPU usage for cost allocation weighting
+        Map<String, Double> nodeCpuUsage = prometheusService.getNodeCpuUsage(promUrl, clusterName);
+
         List<CostMetrics.NodeCost> nodeCosts = new ArrayList<>();
 
         // ✅ Iterate through instance IDs and map to node names
         for (String instanceId : hourlyCostsByInstanceId.keySet()) {
-            String nodeName = instanceIdToNodeName.getOrDefault(instanceId, instanceId); // Fallback to instance_id if
-                                                                                         // mapping fails
+            String nodeName = instanceIdToNodeName.getOrDefault(instanceId, instanceId);
 
-            nodeCosts.add(new CostMetrics.NodeCost(
+            // P2: Extract capacity type, instance type, and node group from labels
+            Map<String, String> labels = nodeLabelMap.get(nodeName);
+            String capacityType = "on-demand"; // Default
+            String instanceType = "Unknown"; // Default - will be updated from labels
+            String nodeGroupName = null;
+
+            if (labels != null) {
+                // Get instance type from node labels
+                if (labels.containsKey("label_node_kubernetes_io_instance_type")) {
+                    instanceType = labels.get("label_node_kubernetes_io_instance_type");
+                }
+
+                // Check EKS managed node group labels
+                if (labels.containsKey("label_eks_amazonaws_com_capacityType")) {
+                    capacityType = labels.get("label_eks_amazonaws_com_capacityType").toLowerCase();
+                }
+                // Check Karpenter labels
+                else if (labels.containsKey("label_karpenter_sh_capacity_type")) {
+                    capacityType = labels.get("label_karpenter_sh_capacity_type").toLowerCase();
+                }
+
+                // Get node group name
+                if (labels.containsKey("label_eks_amazonaws_com_nodegroup")) {
+                    nodeGroupName = labels.get("label_eks_amazonaws_com_nodegroup");
+                } else if (labels.containsKey("label_karpenter_sh_nodepool")) {
+                    nodeGroupName = labels.get("label_karpenter_sh_nodepool");
+                }
+            }
+
+            CostMetrics.NodeCost nc = new CostMetrics.NodeCost(
                     nodeName,
                     hourlyCostsByInstanceId.get(instanceId),
                     dailyCostsByInstanceId.getOrDefault(instanceId, 0.0),
-                    "t3.medium"));
+                    instanceType,
+                    capacityType,
+                    nodeGroupName);
+            nc.setCpuUsagePercent(nodeCpuUsage.getOrDefault(nodeName, 0.0));
+            nodeCosts.add(nc);
         }
 
         cost.setNodeCosts(nodeCosts);
 
+        // P2: Build namespace cost allocation
+        cost.setNamespaceCosts(buildNamespaceCostAllocation(promUrl, clusterName, dailyCost));
+
+        // P2: Build workload cost allocation
+        cost.setWorkloadCosts(buildWorkloadCostAllocation(promUrl, clusterName, dailyCost));
+
         return cost;
+    }
+
+    /**
+     * P2: Calculate cost allocation per namespace based on resource usage
+     * Cost is allocated proportionally based on CPU + Memory usage ratio
+     */
+    private List<CostMetrics.NamespaceCostAllocation> buildNamespaceCostAllocation(
+            String promUrl, String clusterName, Double totalDailyCost) {
+
+        List<CostMetrics.NamespaceCostAllocation> allocations = new ArrayList<>();
+
+        try {
+            Map<String, Double> namespaceCpu = prometheusService.getNamespaceCpuUsage(promUrl, clusterName);
+            Map<String, Double> namespaceMem = prometheusService.getNamespaceMemoryUsage(promUrl, clusterName);
+            Map<String, Double> namespacePodCount = prometheusService.getNamespacePodCount(promUrl, clusterName);
+
+            // Calculate total resource usage for proportional allocation
+            double totalCpu = namespaceCpu.values().stream().mapToDouble(Double::doubleValue).sum();
+            double totalMem = namespaceMem.values().stream().mapToDouble(Double::doubleValue).sum();
+
+            Set<String> allNamespaces = new HashSet<>();
+            allNamespaces.addAll(namespaceCpu.keySet());
+            allNamespaces.addAll(namespaceMem.keySet());
+
+            for (String namespace : allNamespaces) {
+                CostMetrics.NamespaceCostAllocation alloc = new CostMetrics.NamespaceCostAllocation();
+                alloc.setNamespace(namespace);
+
+                double cpuUsage = namespaceCpu.getOrDefault(namespace, 0.0);
+                double memUsage = namespaceMem.getOrDefault(namespace, 0.0);
+                int podCount = namespacePodCount.getOrDefault(namespace, 0.0).intValue();
+
+                alloc.setCpuUsageMillicores(cpuUsage);
+                alloc.setMemoryUsageMb(memUsage);
+                alloc.setPodCount(podCount);
+
+                // Calculate cost percentage (weighted average of CPU and Memory ratio)
+                double cpuRatio = totalCpu > 0 ? cpuUsage / totalCpu : 0;
+                double memRatio = totalMem > 0 ? memUsage / totalMem : 0;
+                double costPercentage = (cpuRatio + memRatio) / 2 * 100;
+                alloc.setCostPercentage(Math.round(costPercentage * 100.0) / 100.0);
+
+                // Calculate daily and monthly cost
+                double nsDailyCost = totalDailyCost != null ? totalDailyCost * (costPercentage / 100) : 0;
+                alloc.setDailyCost(Math.round(nsDailyCost * 100.0) / 100.0);
+                alloc.setMonthlyCost(Math.round(nsDailyCost * 30 * 100.0) / 100.0);
+
+                allocations.add(alloc);
+            }
+
+            // Sort by daily cost descending
+            allocations.sort((a, b) -> Double.compare(b.getDailyCost(), a.getDailyCost()));
+
+        } catch (Exception e) {
+            logger.error("Error building namespace cost allocation: {}", e.getMessage());
+        }
+
+        return allocations;
+    }
+
+    /**
+     * P2: Calculate cost allocation per workload (deployment/daemonset) based on resource usage
+     */
+    private List<CostMetrics.WorkloadCostAllocation> buildWorkloadCostAllocation(
+            String promUrl, String clusterName, Double totalDailyCost) {
+
+        List<CostMetrics.WorkloadCostAllocation> allocations = new ArrayList<>();
+
+        try {
+            // Get deployment replicas for workload identification
+            Map<String, Double> deploymentReplicas = prometheusService.getDeploymentReplicasDesired(promUrl, clusterName);
+            Map<String, Double> deploymentAvailable = prometheusService.getDeploymentReplicasAvailable(promUrl, clusterName);
+
+            // Get CPU and Memory usage aggregated by deployment
+            Map<String, Map<String, Double>> deploymentCpu = prometheusService.getDeploymentCpuUsage(promUrl, clusterName);
+            Map<String, Map<String, Double>> deploymentMem = prometheusService.getDeploymentMemoryUsage(promUrl, clusterName);
+
+            // Calculate total cluster resource usage
+            double totalCpu = deploymentCpu.values().stream()
+                    .mapToDouble(m -> m.getOrDefault("cpu", 0.0))
+                    .sum();
+            double totalMem = deploymentMem.values().stream()
+                    .mapToDouble(m -> m.getOrDefault("memory", 0.0))
+                    .sum();
+
+            // Process deployments
+            for (String deployment : deploymentReplicas.keySet()) {
+                CostMetrics.WorkloadCostAllocation alloc = new CostMetrics.WorkloadCostAllocation();
+
+                // Parse namespace/name if combined
+                String namespace = "default";
+                String name = deployment;
+                if (deployment.contains("/")) {
+                    String[] parts = deployment.split("/");
+                    namespace = parts[0];
+                    name = parts[1];
+                }
+
+                alloc.setName(name);
+                alloc.setNamespace(namespace);
+                alloc.setKind("Deployment");
+                alloc.setReplicas(deploymentReplicas.getOrDefault(deployment, 0.0).intValue());
+                alloc.setPodCount(deploymentAvailable.getOrDefault(deployment, 0.0).intValue());
+
+                // Get resource usage
+                String key = namespace + "/" + name;
+                Map<String, Double> cpuMetrics = deploymentCpu.getOrDefault(key, new HashMap<>());
+                Map<String, Double> memMetrics = deploymentMem.getOrDefault(key, new HashMap<>());
+
+                double cpuUsage = cpuMetrics.getOrDefault("cpu", 0.0);
+                double memUsage = memMetrics.getOrDefault("memory", 0.0);
+
+                alloc.setCpuUsageMillicores(cpuUsage);
+                alloc.setMemoryUsageMb(memUsage);
+
+                // Calculate cost (weighted average of CPU and Memory ratio)
+                double cpuRatio = totalCpu > 0 ? cpuUsage / totalCpu : 0;
+                double memRatio = totalMem > 0 ? memUsage / totalMem : 0;
+                double costFraction = (cpuRatio + memRatio) / 2;
+
+                double workloadDailyCost = totalDailyCost != null ? totalDailyCost * costFraction : 0;
+                alloc.setDailyCost(Math.round(workloadDailyCost * 100.0) / 100.0);
+                alloc.setMonthlyCost(Math.round(workloadDailyCost * 30 * 100.0) / 100.0);
+
+                if (alloc.getDailyCost() > 0 || alloc.getReplicas() > 0) {
+                    allocations.add(alloc);
+                }
+            }
+
+            // Sort by daily cost descending
+            allocations.sort((a, b) -> Double.compare(b.getDailyCost(), a.getDailyCost()));
+
+            // Limit to top 50 workloads
+            if (allocations.size() > 50) {
+                allocations = allocations.subList(0, 50);
+            }
+
+        } catch (Exception e) {
+            logger.error("Error building workload cost allocation: {}", e.getMessage());
+        }
+
+        return allocations;
     }
 
     private SecurityMetrics buildSecurityMetrics(String promUrl, String clusterName) {
@@ -615,22 +830,78 @@ public class EksDashboardService {
         Map<String, Double> available = prometheusService.getDeploymentReplicasAvailable(promUrl, clusterName);
         Map<String, Double> desired = prometheusService.getDeploymentReplicasDesired(promUrl, clusterName);
 
+        // Get deployment info with namespaces for lookup
+        List<Map<String, String>> deploymentInfo = prometheusService.getClusterDeployments(promUrl, clusterName);
+        Map<String, String> deploymentNamespaces = new HashMap<>();
+        for (Map<String, String> info : deploymentInfo) {
+            String name = info.get("deployment");
+            String ns = info.get("namespace");
+            if (name != null && ns != null) {
+                deploymentNamespaces.put(name, ns);
+            }
+        }
+
+        // P1: Get resource usage for deployments
+        Map<String, Map<String, Double>> deploymentCpu = prometheusService.getDeploymentCpuUsage(promUrl, clusterName);
+        Map<String, Map<String, Double>> deploymentMem = prometheusService.getDeploymentMemoryUsage(promUrl, clusterName);
+
         List<WorkloadHealth.DeploymentHealth> deployments = new ArrayList<>();
 
+        // Iterate over desired deployments (original working approach)
         for (String deploymentName : desired.keySet()) {
+            String namespace = deploymentNamespaces.getOrDefault(deploymentName, "default");
+
             WorkloadHealth.DeploymentHealth deployment = new WorkloadHealth.DeploymentHealth();
             deployment.setName(deploymentName);
-            deployment.setNamespace("default");
+            deployment.setNamespace(namespace);
 
-            int desiredCount = desired.get(deploymentName).intValue();
+            int desiredCount = desired.getOrDefault(deploymentName, 0.0).intValue();
             int availableCount = available.getOrDefault(deploymentName, 0.0).intValue();
 
             deployment.setDesired(desiredCount);
             deployment.setAvailable(availableCount);
-            deployment.setUnavailable(desiredCount - availableCount);
+            deployment.setUnavailable(Math.max(0, desiredCount - availableCount));
             deployment.setUpdated(availableCount);
 
-            double healthScore = desiredCount > 0 ? (availableCount * 100.0 / desiredCount) : 0.0;
+            // P1: Set replica counts
+            deployment.setReplicas(desiredCount);
+            deployment.setReadyReplicas(availableCount);
+
+            // P1: Set resource usage - try multiple key formats
+            String key = namespace + "/" + deploymentName;
+            Map<String, Double> cpuMetrics = deploymentCpu.getOrDefault(key, new HashMap<>());
+            Map<String, Double> memMetrics = deploymentMem.getOrDefault(key, new HashMap<>());
+
+            // If not found, try with ReplicaSet suffix pattern
+            if (cpuMetrics.isEmpty()) {
+                for (String k : deploymentCpu.keySet()) {
+                    if (k.startsWith(namespace + "/") && k.contains(deploymentName)) {
+                        cpuMetrics = deploymentCpu.get(k);
+                        break;
+                    }
+                }
+            }
+            if (memMetrics.isEmpty()) {
+                for (String k : deploymentMem.keySet()) {
+                    if (k.startsWith(namespace + "/") && k.contains(deploymentName)) {
+                        memMetrics = deploymentMem.get(k);
+                        break;
+                    }
+                }
+            }
+
+            deployment.setCpuUsageMillicores(cpuMetrics.getOrDefault("cpu", 0.0));
+            deployment.setMemoryUsageMb(memMetrics.getOrDefault("memory", 0.0));
+
+            // Fix: Health score should be 0 when no replicas are desired (scaled to 0)
+            // and 100 only when all desired replicas are available
+            double healthScore;
+            if (desiredCount == 0) {
+                // Scaled to 0 intentionally - consider it healthy but inactive
+                healthScore = availableCount == 0 ? 100.0 : 0.0;
+            } else {
+                healthScore = (availableCount * 100.0 / desiredCount);
+            }
             deployment.setHealthScore(healthScore);
 
             deployments.add(deployment);
@@ -643,21 +914,76 @@ public class EksDashboardService {
         Map<String, Double> desired = prometheusService.getDaemonsetDesired(promUrl, clusterName);
         Map<String, Double> ready = prometheusService.getDaemonsetReady(promUrl, clusterName);
 
+        // Get daemonset info with namespaces for lookup
+        List<Map<String, String>> daemonsetInfo = prometheusService.getClusterDaemonsets(promUrl, clusterName);
+        Map<String, String> daemonsetNamespaces = new HashMap<>();
+        for (Map<String, String> info : daemonsetInfo) {
+            String name = info.get("daemonset");
+            String ns = info.get("namespace");
+            if (name != null && ns != null) {
+                daemonsetNamespaces.put(name, ns);
+            }
+        }
+
+        // P1: Get resource usage for daemonsets
+        Map<String, Map<String, Double>> daemonsetCpu = prometheusService.getDeploymentCpuUsage(promUrl, clusterName);
+        Map<String, Map<String, Double>> daemonsetMem = prometheusService.getDeploymentMemoryUsage(promUrl, clusterName);
+
         List<WorkloadHealth.DaemonsetHealth> daemonsets = new ArrayList<>();
 
+        // Iterate over desired daemonsets (original working approach)
         for (String daemonsetName : desired.keySet()) {
+            String namespace = daemonsetNamespaces.getOrDefault(daemonsetName, "kube-system");
+
             WorkloadHealth.DaemonsetHealth daemonset = new WorkloadHealth.DaemonsetHealth();
             daemonset.setName(daemonsetName);
-            daemonset.setNamespace("kube-system");
+            daemonset.setNamespace(namespace);
 
-            int desiredCount = desired.get(daemonsetName).intValue();
+            int desiredCount = desired.getOrDefault(daemonsetName, 0.0).intValue();
             int readyCount = ready.getOrDefault(daemonsetName, 0.0).intValue();
 
             daemonset.setDesired(desiredCount);
             daemonset.setReady(readyCount);
-            daemonset.setUnavailable(desiredCount - readyCount);
+            daemonset.setUnavailable(Math.max(0, desiredCount - readyCount));
 
-            double healthScore = desiredCount > 0 ? (readyCount * 100.0 / desiredCount) : 0.0;
+            // P1: Set scheduling counts
+            daemonset.setCurrentNumberScheduled(desiredCount);
+            daemonset.setNumberReady(readyCount);
+
+            // P1: Set resource usage - try multiple key formats
+            String key = namespace + "/" + daemonsetName;
+            Map<String, Double> cpuMetrics = daemonsetCpu.getOrDefault(key, new HashMap<>());
+            Map<String, Double> memMetrics = daemonsetMem.getOrDefault(key, new HashMap<>());
+
+            // If not found, try to match by partial name
+            if (cpuMetrics.isEmpty()) {
+                for (String k : daemonsetCpu.keySet()) {
+                    if (k.startsWith(namespace + "/") && k.contains(daemonsetName)) {
+                        cpuMetrics = daemonsetCpu.get(k);
+                        break;
+                    }
+                }
+            }
+            if (memMetrics.isEmpty()) {
+                for (String k : daemonsetMem.keySet()) {
+                    if (k.startsWith(namespace + "/") && k.contains(daemonsetName)) {
+                        memMetrics = daemonsetMem.get(k);
+                        break;
+                    }
+                }
+            }
+
+            daemonset.setCpuUsageMillicores(cpuMetrics.getOrDefault("cpu", 0.0));
+            daemonset.setMemoryUsageMb(memMetrics.getOrDefault("memory", 0.0));
+
+            // Fix: Health score calculation
+            double healthScore;
+            if (desiredCount == 0) {
+                // No nodes need this daemonset - consider healthy
+                healthScore = readyCount == 0 ? 100.0 : 0.0;
+            } else {
+                healthScore = (readyCount * 100.0 / desiredCount);
+            }
             daemonset.setHealthScore(healthScore);
 
             daemonsets.add(daemonset);
