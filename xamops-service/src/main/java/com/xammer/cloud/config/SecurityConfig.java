@@ -132,6 +132,7 @@ public class SecurityConfig {
                                                                 new AntPathRequestMatcher("/gcp-security"),
                                                                 new AntPathRequestMatcher("/gcp-performance"),
                                                                 new AntPathRequestMatcher("/gcp-alerts"),
+                                                                new AntPathRequestMatcher("/terminal"),
 
                                                                 // Public APIs
                                                                 // new AntPathRequestMatcher("/api/ai/**"),
@@ -144,7 +145,6 @@ public class SecurityConfig {
                                                                 new AntPathRequestMatcher("/api/karpenter/**"),
 
                                                                 new AntPathRequestMatcher("/api/autospotting/**"),
-                                                                new AntPathRequestMatcher("/api/dev_ops_script"),
                                                                 new AntPathRequestMatcher("/api/dev_ops_script/**"),
                                                                 // ✅ TEAM CODE: Preserved AWS Calculator API
                                                                 new AntPathRequestMatcher("/api/aws/**"))
@@ -175,6 +175,7 @@ public class SecurityConfig {
                 configuration.setAllowedOrigins(Arrays.asList(
                                 "http://localhost:5173",
                                 "https://live.xamops.com",
+                                "https://prep.xamops.com",
                                 "https://uat.xamops.com"));
                 configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
                 configuration.setAllowedHeaders(Arrays.asList("*"));
