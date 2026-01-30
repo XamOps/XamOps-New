@@ -24,3 +24,23 @@ export interface UseAgreementsResult {
   accountName: string;
   fetchAgreements: () => Promise<void>;
 }
+
+/**
+ * Admin Agreements Hook Result
+ * Extended interface for admin operations (upload, finalize, delete)
+ */
+export interface UseAdminAgreementsResult extends UseAgreementsResult {
+  // File upload state
+  selectedFile: File | null;
+  uploading: boolean;
+  uploadError: string | null;
+  uploadSuccess: boolean;
+
+  // Admin operations
+  handleFileSelect: (event: React.ChangeEvent<HTMLInputElement>) => void;
+  uploadAgreement: () => Promise<void>;
+  finalizeAgreement: (agreement: Agreement) => Promise<void>;
+  deleteAgreement: (agreement: Agreement) => Promise<void>;
+  clearUploadState: () => void;
+}
+

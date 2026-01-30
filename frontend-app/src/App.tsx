@@ -51,12 +51,20 @@ import InvoicesPage from './pages/InvoicesPage';
 import CreditsPage from './pages/CreditsPage';
 import BillOpsTicketsPage from './pages/BillOpsTicketsPage';
 import BillOpsTicketDetailPage from './pages/BillOpsTicketDetailPage';
+import BillOpsSupportDashboardPage from './pages/BillOpsSupportDashboardPage';
+import BillOpsAdminDashboardPage from './pages/BillOpsAdminDashboardPage';
+import BillOpsAdminInvoicesPage from './pages/BillOpsAdminInvoicesPage';
+import BillOpsAdminCreditsPage from './pages/BillOpsAdminCreditsPage';
+import BillOpsAdminTicketsPage from './pages/BillOpsAdminTicketsPage';
 import AgreementsPage from './pages/AgreementsPage';
+import BillOpsAdminAgreementsPage from './pages/BillOpsAdminAgreementsPage';
 import MarketplacePurchasesPage from './pages/MarketplacePurchasesPage';
 import WorkspaceLicensesPage from './pages/WorkspaceLicensesPage';
 import UserManagementPage from './pages/UserManagementPage';
 import MyProfilePage from './pages/MyProfilePage';
 import ComplianceOpsPage from './pages/ComplianceOpsPage';
+import BillOpsAdminUserManagerPage from './pages/BillOpsAdminUserManagerPage';
+import GcpDashboard from './pages/GcpDashboard';
 
 
 // Import styles
@@ -93,11 +101,19 @@ import './styles/invoices.css';
 import './styles/credits.css';
 import './styles/billopsTickets.css';
 import './styles/billopsTicketDetail.css';
+import './styles/supportDashboard.css';
+import './styles/billopsAdminDashboard.css';
+import './styles/billopsAdminInvoices.css';
+import './styles/billopsAdminCredits.css';
+import './styles/billopsAdminTickets.css';
 import './styles/agreements.css';
+import './styles/billopsAdminAgreements.css';
 import './styles/marketplacePurchases.css';
 import './styles/workspaceLicenses.css';
 import './styles/userManagement.css';
 import './styles/myProfile.css';
+import './styles/billopsAdminUserManager.css';
+import './styles/gcpDashboard.css';
 
 // Helper function to check authentication
 // Note: Since cookies might be HttpOnly, we check by making an API call
@@ -197,6 +213,18 @@ const AppContent: React.FC = () => {
           <ProtectedRoute>
             <AuthenticatedLayout>
               <Dashboard />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* GCP Dashboard Route (converted from gcp_dashboard.html) */}
+      <Route
+        path="/gcp-dashboard"
+        element={
+          <ProtectedRoute>
+            <AuthenticatedLayout>
+              <GcpDashboard />
             </AuthenticatedLayout>
           </ProtectedRoute>
         }
@@ -586,6 +614,66 @@ const AppContent: React.FC = () => {
         }
       />
 
+      {/* BillOps Support Dashboard Route (converted from billops/support-dashboard.html) */}
+      <Route
+        path="/billops-support-dashboard"
+        element={
+          <ProtectedRoute>
+            <AuthenticatedLayout>
+              <BillOpsSupportDashboardPage />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* BillOps Admin Dashboard Route (converted from billops/dashboard_admin.html) */}
+      <Route
+        path="/billops-admin-dashboard"
+        element={
+          <ProtectedRoute>
+            <AuthenticatedLayout>
+              <BillOpsAdminDashboardPage />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* BillOps Admin Invoices Route (converted from billops/admin_invoices.html) */}
+      <Route
+        path="/billops-admin-invoices"
+        element={
+          <ProtectedRoute>
+            <AuthenticatedLayout>
+              <BillOpsAdminInvoicesPage />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* BillOps Admin Credits Route (converted from billops/admin_credits.html) */}
+      <Route
+        path="/billops-admin-credits"
+        element={
+          <ProtectedRoute>
+            <AuthenticatedLayout>
+              <BillOpsAdminCreditsPage />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* BillOps Admin Tickets Route (converted from billops/admin_tickets.html) */}
+      <Route
+        path="/billops-admin-tickets"
+        element={
+          <ProtectedRoute>
+            <AuthenticatedLayout>
+              <BillOpsAdminTicketsPage />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
+
       {/* BillOps Agreements Route (converted from billops/agreements.html) */}
       <Route
         path="/billops-agreements"
@@ -593,6 +681,18 @@ const AppContent: React.FC = () => {
           <ProtectedRoute>
             <AuthenticatedLayout>
               <AgreementsPage />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* BillOps Admin Agreements Route (converted from billops/admin_agreements.html) */}
+      <Route
+        path="/billops-admin-agreements"
+        element={
+          <ProtectedRoute>
+            <AuthenticatedLayout>
+              <BillOpsAdminAgreementsPage />
             </AuthenticatedLayout>
           </ProtectedRoute>
         }
@@ -653,6 +753,18 @@ const AppContent: React.FC = () => {
           <ProtectedRoute>
             <AuthenticatedLayout>
               <ComplianceOpsPage />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* BillOps Admin User Manager Route (converted from user-manager.html) */}
+      <Route
+        path="/billops-admin-user-manager"
+        element={
+          <ProtectedRoute>
+            <AuthenticatedLayout>
+              <BillOpsAdminUserManagerPage />
             </AuthenticatedLayout>
           </ProtectedRoute>
         }

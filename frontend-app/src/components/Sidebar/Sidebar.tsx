@@ -34,7 +34,7 @@ import clsx from 'clsx';
 
 const Sidebar: React.FC = () => {
   const { hasAnyRole } = useAuth();
-  const { } = useAccounts();
+  const { selectedAccountDisplay } = useAccounts();
 
   // Dropdown state - only one can be open at a time
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
@@ -87,6 +87,7 @@ const Sidebar: React.FC = () => {
       return (
         currentPath === '/dashboard' ||
         currentPath === '/dashboard.html' ||
+        currentPath === '/gcp-dashboard' ||
         currentPath === '/gcp_dashboard.html' ||
         currentPath === '/azure_dashboard.html'
       );
@@ -278,6 +279,53 @@ const Sidebar: React.FC = () => {
         currentPath === '/my-profile.html';
     }
 
+    // Special case: BillOps Support Dashboard matches React route and HTML variants
+    if (path === '/billops-support-dashboard') {
+      return currentPath === '/billops-support-dashboard' ||
+        currentPath === '/billops/support-dashboard.html';
+    }
+
+    // Special case: BillOps Admin Dashboard matches React route and HTML variants
+    if (path === '/billops-admin-dashboard') {
+      return currentPath === '/billops-admin-dashboard' ||
+        currentPath === '/billops/dashboard_admin.html';
+    }
+
+    // Special case: BillOps Admin Invoices matches React route and HTML variants
+    if (path === '/billops-admin-invoices') {
+      return currentPath === '/billops-admin-invoices' ||
+        currentPath === '/billops/admin_invoices.html' ||
+        currentPath === '/billops/invoices_admin.html' ||
+        currentPath.startsWith('/billops-admin-invoice-detail');
+    }
+
+    // Special case: BillOps Admin Credits matches React route and HTML variants
+    if (path === '/billops-admin-credits') {
+      return currentPath === '/billops-admin-credits' ||
+        currentPath === '/billops/admin_credits.html';
+    }
+
+    // Special case: BillOps Admin Agreements matches React route and HTML variants
+    if (path === '/billops-admin-agreements') {
+      return currentPath === '/billops-admin-agreements' ||
+        currentPath === '/billops/admin_agreements.html';
+    }
+
+    // Special case: BillOps Admin Tickets matches React route and HTML variants
+    if (path === '/billops-admin-tickets') {
+      return currentPath === '/billops-admin-tickets' ||
+        currentPath === '/billops-ticket-detail' ||
+        currentPath === '/billops/admin_tickets.html' ||
+        currentPath === '/billops/tickets_admin.html' ||
+        currentPath === '/billops/ticket_detail.html';
+    }
+
+    // Special case: BillOps Admin User Manager matches React route and HTML variants
+    if (path === '/billops-admin-user-manager') {
+      return currentPath === '/billops-admin-user-manager' ||
+        currentPath === '/user-manager.html';
+    }
+
     // Special case: BillOps section matches any billops path
     if (path === '/billops/') {
       return currentPath.startsWith('/billops/');
@@ -383,9 +431,10 @@ const Sidebar: React.FC = () => {
           )}
 
           {/* Live Dashboard (React - Converted from dashboard.html) */}
+          {/* Provider-aware routing: GCP accounts go to /gcp-dashboard, others to /dashboard */}
           {hasAnyRole('ROLE_XAMOPS') && (
             <NavItem
-              href="/dashboard"
+              href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-dashboard' : '/dashboard'}
               icon="fas fa-chart-line"
               label="Account Dashboard"
               gradientClass="from-blue-500 to-indigo-600"
@@ -494,12 +543,21 @@ const Sidebar: React.FC = () => {
               {hasAnyRole('ROLE_BILLOPS_ADMIN') && (
                 <>
                   <NavItem
-                    href="/billops/dashboard_admin.html"
+                    href="/billops-admin-dashboard"
                     icon="fas fa-chart-bar"
                     label="Admin Dashboard"
+                    isActive={isActive('/billops-admin-dashboard')}
                   />
-                  <NavItem href="/billops/tickets_admin.html" icon="fas fa-ticket-alt" label="All Tickets" />
-                  <NavItem href="/billops/invoices_admin.html" icon="fas fa-file-invoice" label="All Invoices" />
+                  <NavItem
+                    href="/billops-support-dashboard"
+                    icon="fas fa-headset"
+                    label="Support Inbox"
+                    isActive={isActive('/billops-support-dashboard')}
+                  />
+                  <NavItem href="/billops-admin-tickets" icon="fas fa-ticket-alt" label="All Tickets" isActive={isActive('/billops-admin-tickets')} />
+                  <NavItem href="/billops-admin-invoices" icon="fas fa-file-invoice" label="All Invoices" isActive={isActive('/billops-admin-invoices')} />
+                  <NavItem href="/billops-admin-credits" icon="fas fa-coins" label="Credit Requests" isActive={isActive('/billops-admin-credits')} />
+                  <NavItem href="/billops-admin-agreements" icon="fas fa-file-signature" label="Agreement Admin" isActive={isActive('/billops-admin-agreements')} />
                   <NavItem href="/billops/customers.html" icon="fas fa-users" label="Customers" />
                 </>
               )}
@@ -532,6 +590,9 @@ const Sidebar: React.FC = () => {
           >
             {hasAnyRole('ROLE_XAMOPS') && (
               <NavItem href="/user-management" icon="fas fa-users-cog" label="User Management" isActive={isActive('/user-management')} />
+            )}
+            {hasAnyRole('ROLE_BILLOPS_ADMIN') && (
+              <NavItem href="/billops-admin-user-manager" icon="fas fa-user-cog" label="User Manager" isActive={isActive('/billops-admin-user-manager')} />
             )}
             <NavItem href="/my-profile" icon="fas fa-user" label="My Profile" isActive={isActive('/my-profile')} />
           </NavSection>
