@@ -29,12 +29,12 @@ public class SecurityConfig {
     private final CustomAuthenticationSuccessHandler authenticationSuccessHandler;
     private final CustomUserDetailsService userDetailsService; // Inject this
 
-    @Value("${cors.allowed-origins:http://localhost:5173,https://live.xamops.com,https://uat.xamops.com}")
+    @Value("${cors.allowed-origins:http://localhost:5173,https://live.xamops.com,https://prep.xamops.com,https://uat.xamops.com}")
     private String[] allowedOrigins;
 
     // Inject CustomUserDetailsService in constructor
-    public SecurityConfig(CustomAuthenticationSuccessHandler authenticationSuccessHandler, 
-                          CustomUserDetailsService userDetailsService) {
+    public SecurityConfig(CustomAuthenticationSuccessHandler authenticationSuccessHandler,
+            CustomUserDetailsService userDetailsService) {
         this.authenticationSuccessHandler = authenticationSuccessHandler;
         this.userDetailsService = userDetailsService;
     }
@@ -50,49 +50,50 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-            .cors(withDefaults())
-            .csrf(csrf -> csrf.disable())
-            .authorizeHttpRequests((requests) -> requests
-                .requestMatchers(
-                    new AntPathRequestMatcher("/"),
-                    new AntPathRequestMatcher("/index.html"),
-                    new AntPathRequestMatcher("/login"),
-                    new AntPathRequestMatcher("/css/**"),
-                    new AntPathRequestMatcher("/js/**"),
-                    new AntPathRequestMatcher("/icons/**"),
-                    // Add public API endpoints if needed
-                    new AntPathRequestMatcher("/api/admin/cloudfront/**")
-                ).permitAll()
-                // BillOps Admin Dashboard - only ROLE_BILLOPS_ADMIN
-                .requestMatchers(new AntPathRequestMatcher("/billops/dashboard_admin.html")).hasAuthority("ROLE_BILLOPS_ADMIN")
-                // BillOps User Dashboard - ROLE_BILLOPS and ROLE_BILLOPS_ADMIN
-                .requestMatchers(new AntPathRequestMatcher("/billops/dashboard_user.html")).hasAnyAuthority("ROLE_BILLOPS", "ROLE_BILLOPS_ADMIN")
-                // Unified Dashboard - ROLE_XAMOPS
-                .requestMatchers(new AntPathRequestMatcher("/unified-dashboard.html")).hasAuthority("ROLE_XAMOPS")
-                // All other BillOps pages - ROLE_BILLOPS and ROLE_BILLOPS_ADMIN
-                .requestMatchers(new AntPathRequestMatcher("/billops/**")).hasAnyAuthority("ROLE_BILLOPS", "ROLE_BILLOPS_ADMIN")
-                .anyRequest().authenticated()
-            )
-            .formLogin((form) -> form
-                .loginPage("/login")
-                .successHandler(authenticationSuccessHandler)
-                .failureHandler((req, res, ex) -> {
-                    res.setStatus(HttpStatus.UNAUTHORIZED.value());
-                    res.setContentType("application/json");
-                    res.getWriter().write("{\"message\": \"Invalid username or password.\"}");
-                })
-                .permitAll()
-            )
-            .logout((logout) -> logout
-                .logoutUrl("/logout")
-                .logoutSuccessUrl("/login?logout")
-                .invalidateHttpSession(true)
-                .deleteCookies("JSESSIONID")
-                .permitAll()
-            );
+                .cors(withDefaults())
+                .csrf(csrf -> csrf.disable())
+                .authorizeHttpRequests((requests) -> requests
+                        .requestMatchers(
+                                new AntPathRequestMatcher("/"),
+                                new AntPathRequestMatcher("/index.html"),
+                                new AntPathRequestMatcher("/login"),
+                                new AntPathRequestMatcher("/css/**"),
+                                new AntPathRequestMatcher("/js/**"),
+                                new AntPathRequestMatcher("/icons/**"),
+                                // Add public API endpoints if needed
+                                new AntPathRequestMatcher("/api/admin/cloudfront/**"))
+                        .permitAll()
+                        // BillOps Admin Dashboard - only ROLE_BILLOPS_ADMIN
+                        .requestMatchers(new AntPathRequestMatcher("/billops/dashboard_admin.html"))
+                        .hasAuthority("ROLE_BILLOPS_ADMIN")
+                        // BillOps User Dashboard - ROLE_BILLOPS and ROLE_BILLOPS_ADMIN
+                        .requestMatchers(new AntPathRequestMatcher("/billops/dashboard_user.html"))
+                        .hasAnyAuthority("ROLE_BILLOPS", "ROLE_BILLOPS_ADMIN")
+                        // Unified Dashboard - ROLE_XAMOPS
+                        .requestMatchers(new AntPathRequestMatcher("/unified-dashboard.html"))
+                        .hasAuthority("ROLE_XAMOPS")
+                        // All other BillOps pages - ROLE_BILLOPS and ROLE_BILLOPS_ADMIN
+                        .requestMatchers(new AntPathRequestMatcher("/billops/**"))
+                        .hasAnyAuthority("ROLE_BILLOPS", "ROLE_BILLOPS_ADMIN")
+                        .anyRequest().authenticated())
+                .formLogin((form) -> form
+                        .loginPage("/login")
+                        .successHandler(authenticationSuccessHandler)
+                        .failureHandler((req, res, ex) -> {
+                            res.setStatus(HttpStatus.UNAUTHORIZED.value());
+                            res.setContentType("application/json");
+                            res.getWriter().write("{\"message\": \"Invalid username or password.\"}");
+                        })
+                        .permitAll())
+                .logout((logout) -> logout
+                        .logoutUrl("/logout")
+                        .logoutSuccessUrl("/login?logout")
+                        .invalidateHttpSession(true)
+                        .deleteCookies("JSESSIONID")
+                        .permitAll());
         return http.build();
     }
-    
+
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();

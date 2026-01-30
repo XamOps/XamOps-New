@@ -180,6 +180,51 @@ public class MultiTenantDataSourceConfig {
 
     /**
      * ========================================================================
+     * PREPROD PROFILE: Simple Single-Database DataSource
+     * ========================================================================
+     * Used in pre-production environment.
+     * Connects to production database but without multi-tenant routing.
+     * No multi-tenancy, no routing - similar to UAT setup.
+     */
+    @Bean
+    @Primary
+    @ConditionalOnProperty(name = "spring.profiles.active", havingValue = "preprod")
+    public DataSource preprodDataSource() {
+        logger.info("========================================");
+        logger.info("PROFILE: PREPROD - Single Database Mode");
+        logger.info("========================================");
+        logger.info("Database URL: {}", dataSourceUrl);
+
+        HikariDataSource ds = new HikariDataSource();
+        ds.setJdbcUrl(dataSourceUrl);
+        ds.setUsername(dataSourceUsername);
+        ds.setPassword(dataSourcePassword);
+        ds.setDriverClassName(dataSourceDriver);
+
+        applyHikariSettings(ds, "PreprodPool");
+
+        logger.info("Preprod datasource initialized successfully (No Multi-Tenancy)");
+        return ds;
+    }
+
+    /**
+     * Master DataSource for Preprod Profile
+     * Points to the same Preprod DB - used for global_users table lookups
+     */
+    @Bean(name = "masterDataSource")
+    @ConditionalOnProperty(name = "spring.profiles.active", havingValue = "preprod")
+    public DataSource preprodMasterDataSource() {
+        logger.info("Creating masterDataSource bean pointing to Preprod DB for global_users lookups");
+        DriverManagerDataSource dataSource = new DriverManagerDataSource();
+        dataSource.setUrl(dataSourceUrl);
+        dataSource.setUsername(dataSourceUsername);
+        dataSource.setPassword(dataSourcePassword);
+        dataSource.setDriverClassName(dataSourceDriver);
+        return dataSource;
+    }
+
+    /**
+     * ========================================================================
      * PRODUCTION PROFILE: Multi-Tenant Routing DataSource
      * ========================================================================
      * Used in production environment.
