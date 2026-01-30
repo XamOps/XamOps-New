@@ -18,7 +18,8 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/billops/dashboard")
 @CrossOrigin(origins = { "http://localhost:5173", "http://127.0.0.1:5500", "https://uat.xamops.com",
-        "https://live.xamops.com" }, methods = { RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT,
+        "https://live.xamops.com", "https://prep.xamops.com" }, methods = { RequestMethod.GET, RequestMethod.POST,
+                RequestMethod.PUT,
                 RequestMethod.DELETE, RequestMethod.OPTIONS }, allowCredentials = "true")
 public class DashboardController {
 
@@ -29,15 +30,16 @@ public class DashboardController {
     private final AppUserRepository userRepository;
 
     public DashboardController(AdminDashboardService adminDashboardService,
-                              UserDashboardService userDashboardService,
-                              AppUserRepository userRepository) {
+            UserDashboardService userDashboardService,
+            AppUserRepository userRepository) {
         this.adminDashboardService = adminDashboardService;
         this.userDashboardService = userDashboardService;
         this.userRepository = userRepository;
     }
 
     /**
-     * Admin Dashboard endpoint - shows aggregated data across all clients and accounts
+     * Admin Dashboard endpoint - shows aggregated data across all clients and
+     * accounts
      * Only accessible by users with ROLE_BILLOPS_ADMIN
      */
     @GetMapping("/admin")
@@ -57,7 +59,8 @@ public class DashboardController {
     }
 
     /**
-     * User Dashboard endpoint - shows data specific to the logged-in user's accounts
+     * User Dashboard endpoint - shows data specific to the logged-in user's
+     * accounts
      * Accessible by users with ROLE_BILLOPS or ROLE_BILLOPS_ADMIN
      */
     @GetMapping("/user")
