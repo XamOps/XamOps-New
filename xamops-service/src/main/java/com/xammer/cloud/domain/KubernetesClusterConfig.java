@@ -32,6 +32,9 @@ public class KubernetesClusterConfig {
     @Column(name = "karpenter_enabled")
     private Boolean karpenterEnabled = false;
 
+    @Column(name = "opencost_enabled")
+    private Boolean opencostEnabled = false;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -112,6 +115,14 @@ public class KubernetesClusterConfig {
 
     public void setKarpenterEnabled(Boolean karpenterEnabled) {
         this.karpenterEnabled = karpenterEnabled;
+    }
+
+    public Boolean getOpencostEnabled() {
+        return opencostEnabled;
+    }
+
+    public void setOpencostEnabled(Boolean opencostEnabled) {
+        this.opencostEnabled = opencostEnabled;
     }
 
     public LocalDateTime getCreatedAt() {

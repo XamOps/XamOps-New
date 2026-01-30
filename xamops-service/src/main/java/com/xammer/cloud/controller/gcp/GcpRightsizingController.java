@@ -1,6 +1,7 @@
 package com.xammer.cloud.controller.gcp;
 
 import com.xammer.cloud.dto.gcp.GcpOptimizationRecommendation;
+import com.xammer.cloud.service.CacheService;
 import com.xammer.cloud.service.gcp.GcpOptimizationService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -19,9 +20,11 @@ import java.util.concurrent.CompletableFuture;
 public class GcpRightsizingController {
 
     private final GcpOptimizationService gcpOptimizationService;
+    private final CacheService cacheService;
 
-    public GcpRightsizingController(GcpOptimizationService gcpOptimizationService) {
+    public GcpRightsizingController(GcpOptimizationService gcpOptimizationService, CacheService cacheService) {
         this.gcpOptimizationService = gcpOptimizationService;
+        this.cacheService = cacheService;
     }
 
     /**
@@ -36,8 +39,8 @@ public class GcpRightsizingController {
 
         try {
             // Call the service method synchronously (it handles async internally)
-            List<GcpOptimizationRecommendation> recommendations =
-                    gcpOptimizationService.getRightsizingRecommendations(accountId);
+            List<GcpOptimizationRecommendation> recommendations = gcpOptimizationService
+                    .getRightsizingRecommendations(accountId);
 
             log.info("Successfully fetched {} recommendations for account: {}",
                     recommendations.size(), accountId);
@@ -68,8 +71,8 @@ public class GcpRightsizingController {
         log.info("Fetching rightsizing summary for account: {}", accountId);
 
         try {
-            List<GcpOptimizationRecommendation> recommendations =
-                    gcpOptimizationService.getRightsizingRecommendations(accountId);
+            List<GcpOptimizationRecommendation> recommendations = gcpOptimizationService
+                    .getRightsizingRecommendations(accountId);
 
             // Calculate summary statistics
             long totalRecommendations = recommendations.size();
@@ -81,14 +84,14 @@ public class GcpRightsizingController {
                     .count();
 
             double totalSavings = recommendations.stream()
-                    .filter(r -> r.getMonthlySavings() >= 0)
+                    .filter(r -> !r.isCostIncrease())
                     .mapToDouble(GcpOptimizationRecommendation::getMonthlySavings)
                     .sum();
 
-            double totalCostIncrease = Math.abs(recommendations.stream()
-                    .filter(r -> r.getMonthlySavings() < 0)
-                    .mapToDouble(GcpOptimizationRecommendation::getMonthlySavings)
-                    .sum());
+            double totalCostIncrease = recommendations.stream()
+                    .filter(GcpOptimizationRecommendation::isCostIncrease)
+                    .mapToDouble(GcpOptimizationRecommendation::getAbsoluteMonthlyCost)
+                    .sum();
 
             Map<String, Object> summary = new HashMap<>();
             summary.put("totalRecommendations", totalRecommendations);
@@ -97,6 +100,7 @@ public class GcpRightsizingController {
             summary.put("totalMonthlySavings", totalSavings);
             summary.put("totalMonthlyCostIncrease", totalCostIncrease);
             summary.put("netSavings", totalSavings - totalCostIncrease);
+            summary.put("totalPerformanceGapCost", totalCostIncrease); // Added explicit field for performance gap
 
             // Breakdown by service
             Map<String, Long> byService = recommendations.stream()
@@ -125,8 +129,8 @@ public class GcpRightsizingController {
         log.info("Fetching {} recommendations for account: {}", service, accountId);
 
         try {
-            List<GcpOptimizationRecommendation> recommendations =
-                    gcpOptimizationService.getRightsizingRecommendations(accountId);
+            List<GcpOptimizationRecommendation> recommendations = gcpOptimizationService
+                    .getRightsizingRecommendations(accountId);
 
             List<GcpOptimizationRecommendation> filtered = recommendations.stream()
                     .filter(r -> r.getService().equalsIgnoreCase(service))
@@ -155,8 +159,7 @@ public class GcpRightsizingController {
         Map<String, Object> debug = new HashMap<>();
 
         try {
-            List<GcpOptimizationRecommendation> recs =
-                    gcpOptimizationService.getRightsizingRecommendations(accountId);
+            List<GcpOptimizationRecommendation> recs = gcpOptimizationService.getRightsizingRecommendations(accountId);
 
             debug.put("totalCount", recs.size());
             debug.put("costIncreases", recs.stream().filter(GcpOptimizationRecommendation::isCostIncrease).count());
@@ -201,5 +204,34 @@ public class GcpRightsizingController {
         health.put("service", "GCP Rightsizing");
         health.put("timestamp", java.time.Instant.now().toString());
         return ResponseEntity.ok(health);
+    }
+
+    /**
+     * Clear cache for rightsizing recommendations
+     * This will force fresh data on next request
+     */
+    @PostMapping("/cache/clear")
+    public ResponseEntity<Map<String, String>> clearCache(@RequestParam String accountId) {
+        log.info("Clearing rightsizing cache for account: {}", accountId);
+
+        try {
+            cacheService.evictGcpRightsizingCache(accountId);
+            cacheService.evictGcpWasteCache(accountId);
+
+            Map<String, String> response = new HashMap<>();
+            response.put("status", "success");
+            response.put("message", "Cache cleared successfully for account: " + accountId);
+            response.put("timestamp", java.time.Instant.now().toString());
+
+            log.info("Successfully cleared cache for account: {}", accountId);
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            log.error("Failed to clear cache for account: {}", accountId, e);
+            Map<String, String> errorResponse = new HashMap<>();
+            errorResponse.put("status", "error");
+            errorResponse.put("message", "Failed to clear cache: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+        }
     }
 }

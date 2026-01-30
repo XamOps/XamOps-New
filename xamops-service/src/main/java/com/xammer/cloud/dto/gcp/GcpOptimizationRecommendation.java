@@ -67,6 +67,31 @@ public class GcpOptimizationRecommendation {
      */
     private Double last30DayCost;
 
+    /**
+     * Average CPU utilization over the last 14 days (percentage)
+     */
+    private Double averageCpuUtilization;
+
+    /**
+     * Maximum CPU utilization over the last 14 days (percentage)
+     */
+    private Double maxCpuUtilization;
+
+    /**
+     * Average Memory utilization over the last 14 days (percentage)
+     */
+    private Double averageMemoryUtilization;
+
+    /**
+     * Maximum Memory utilization over the last 14 days (percentage)
+     */
+    private Double maxMemoryUtilization;
+
+    /**
+     * Enhanced reason text with actual utilization metrics
+     */
+    private String utilizationBasedReason;
+
     // Constructor with 'reason' (9 args)
     public GcpOptimizationRecommendation(String resourceName, String currentMachineType,
                                          String recommendedMachineType, double monthlySavings,

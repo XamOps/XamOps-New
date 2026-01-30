@@ -39,7 +39,8 @@ public class FinOpsReportSchedule {
     public enum Frequency {
         DAILY,
         WEEKLY,
-        MONTHLY
+        MONTHLY,
+        CUSTOM
     }
 
     // --- Getters and Setters ---
@@ -85,7 +86,7 @@ public class FinOpsReportSchedule {
     }
 
     // --- NEW GETTER AND SETTER ---
-    
+
     public String getCronExpression() {
         return cronExpression;
     }
@@ -93,7 +94,7 @@ public class FinOpsReportSchedule {
     public void setCronExpression(String cronExpression) {
         this.cronExpression = cronExpression;
     }
-    
+
     // --- END NEW GETTER AND SETTER ---
 
     public boolean isActive() {
