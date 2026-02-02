@@ -196,34 +196,34 @@ body {
   z-index: 10;
 }
 
-.glass-card {
+.login-card-transparent {
   width: 100%;
   max-width: 480px;
-  padding: 3.5rem;
-  background: linear-gradient(135deg,
-      rgba(59, 130, 246, 0.12) 0%,
-      rgba(37, 99, 235, 0.05) 50%,
-      rgba(15, 23, 42, 0.75) 100%);
-  backdrop-filter: blur(24px) saturate(200%);
-  border: 1px solid rgba(59, 130, 246, 0.25);
-  border-radius: 2.5rem;
-  box-shadow:
-    0 25px 50px -12px rgba(0, 0, 0, 0.6),
-    inset 0 1px 1px rgba(255, 255, 255, 0.05),
-    0 0 60px rgba(59, 130, 246, 0.1);
+  padding: 3rem;
+  background: transparent;
+  box-shadow: none;
+  border: none;
   position: relative;
-  overflow: hidden;
+  z-index: 20;
+  border-radius: 2rem;
 }
 
-.glass-card::before {
-  content: '';
+/* Thin Gradient Border using Mask */
+.login-card-transparent::before {
+  content: "";
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, var(--primary-blue), transparent);
-  opacity: 0.5;
+  inset: 0;
+  border-radius: 2rem;
+  padding: 1px;
+  /* This controls the border thickness - very thin */
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.6), rgba(139, 92, 246, 0.6));
+  /* Professional gradient */
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  /* Ensure clicks pass through */
 }
 
 /* Brand Header from Image */
@@ -696,7 +696,7 @@ body {
 }
 
 @media (max-width: 480px) {
-  .glass-card {
+  .login-card-transparent {
     padding: 2rem;
     border-radius: 2rem;
   }

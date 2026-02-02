@@ -76,6 +76,11 @@ import GcpCloudK8sPage from './pages/GcpCloudK8sPage';
 import GcpSecurityPage from './pages/GcpSecurityPage';
 import GcpPerformancePage from './pages/GcpPerformancePage';
 import GcpAlertsPage from './pages/GcpAlertsPage';
+import GcpBillingPage from './pages/GcpBillingPage';
+import CalculatorPage from './pages/CalculatorPage';
+import GcpCloudListPage from './pages/GcpCloudListPage';
+import CloudMapPage from './pages/CloudMapPage';
+import GcpCloudMapPage from './pages/GcpCloudMapPage';
 
 
 // Import styles
@@ -88,6 +93,7 @@ import './styles/rightsizing.css';
 import './styles/reservation.css';
 import './styles/cloudsitter.css';
 import './styles/spotautomation.css';
+import './styles/actionsHistory.css';
 import './styles/grafana.css';
 import './styles/cloudk8s.css';
 import './styles/eks-details.css';
@@ -134,6 +140,11 @@ import './styles/gcpCloudK8s.css';
 import './styles/gcpSecurity.css';
 import './styles/gcpPerformance.css';
 import './styles/gcpAlerts.css';
+import './styles/gcpBilling.css';
+import './styles/calculator.css';
+import './styles/gcpCloudList.css';
+import './styles/cloudmap.css';
+import './styles/gcpCloudmap.css';
 
 // Helper function to check authentication
 // Note: Since cookies might be HttpOnly, we check by making an API call
@@ -577,6 +588,41 @@ const AppContent: React.FC = () => {
             </ProtectedRoute>
           }
         />
+        {/* CloudMap Route (converted from cloudmap.html) */}
+        <Route
+          path="/cloudmap"
+          element={
+            <ProtectedRoute>
+              <AuthenticatedLayout>
+                <CloudMapPage />
+              </AuthenticatedLayout>
+            </ProtectedRoute>
+          }
+        />
+
+        {/* GCP CloudMap Route (converted from gcp_cloudmap.html) */}
+        <Route
+          path="/gcp-cloudmap"
+          element={
+            <ProtectedRoute>
+              <AuthenticatedLayout>
+                <GcpCloudMapPage />
+              </AuthenticatedLayout>
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Account Manager Route (converted from account-manager.html) */}
+        <Route
+          path="/account-manager"
+          element={
+            <ProtectedRoute>
+              <AuthenticatedLayout>
+                <AccountManagerPage />
+              </AuthenticatedLayout>
+            </ProtectedRoute>
+          }
+        />
 
         {/* Add Account Route (converted from add-account.html) */}
         <Route
@@ -693,6 +739,53 @@ const AppContent: React.FC = () => {
             <ProtectedRoute>
               <AuthenticatedLayout>
                 <BillingPage />
+              </AuthenticatedLayout>
+            </ProtectedRoute>
+          }
+        />
+
+        {/* BillOps Invoices Route (converted from billops/invoices.html) */}
+        <Route
+          path="/billops-invoices"
+          element={
+            <ProtectedRoute>
+              <AuthenticatedLayout>
+                <InvoicesPage />
+              </AuthenticatedLayout>
+            </ProtectedRoute>
+          }
+        />
+        {/* BillOps GCP Billing Route (converted from billops/gcp-billing.html) */}
+        <Route
+          path="/billops-gcp-billing"
+          element={
+            <ProtectedRoute>
+              <AuthenticatedLayout>
+                <GcpBillingPage />
+              </AuthenticatedLayout>
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Calculator Route (converted from calculator.html) */}
+        <Route
+          path="/calculator"
+          element={
+            <ProtectedRoute>
+              <AuthenticatedLayout>
+                <CalculatorPage />
+              </AuthenticatedLayout>
+            </ProtectedRoute>
+          }
+        />
+
+        {/* GCP CloudList Route (converted from gcp_cloudlist.html) */}
+        <Route
+          path="/gcp-cloudlist"
+          element={
+            <ProtectedRoute>
+              <AuthenticatedLayout>
+                <GcpCloudListPage />
               </AuthenticatedLayout>
             </ProtectedRoute>
           }

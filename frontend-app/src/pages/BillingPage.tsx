@@ -128,11 +128,18 @@ const BillingPage: React.FC = () => {
     const ctx = costHistoryChartRef.current.getContext('2d');
     if (!ctx) return;
 
+    // Create gradient
+    const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+    gradient.addColorStop(0, 'rgba(99, 102, 241, 0.8)'); // Indigo-500
+    gradient.addColorStop(0.5, 'rgba(99, 102, 241, 0.4)');
+    gradient.addColorStop(1, 'rgba(99, 102, 241, 0.1)');
+
     const labels = billingData.costHistory.map((h) =>
       new Date(h.date).toLocaleString('default', { month: 'short' })
     );
     const data = billingData.costHistory.map((h) => (h.cost != null ? h.cost : 0));
 
+    // Cast to any to avoid complex Chart.js generic type mismatch
     costHistoryChartInstance.current = new Chart(ctx, {
       type: 'bar',
       data: {
@@ -141,18 +148,13 @@ const BillingPage: React.FC = () => {
           {
             label: 'Monthly Cost',
             data,
-            backgroundColor: (context) => {
-              const { ctx: chartCtx, chartArea } = context.chart;
-              if (!chartArea) return '#6366f1';
-              const gradient = chartCtx.createLinearGradient(0, chartArea.bottom, 0, chartArea.top);
-              gradient.addColorStop(0, '#6366f1');
-              gradient.addColorStop(1, '#8b5cf6');
-              return gradient;
-            },
+            backgroundColor: gradient,
             borderColor: '#6366f1',
-            borderWidth: 2,
+            borderWidth: 1,
             borderRadius: 6,
             borderSkipped: false,
+            barPercentage: 0.6,
+            hoverBackgroundColor: '#4f46e5',
           },
         ],
       },
@@ -168,19 +170,26 @@ const BillingPage: React.FC = () => {
             borderColor: '#e5e7eb',
             borderWidth: 1,
             padding: 12,
+            titleFont: { size: 13, weight: '600' },
+            bodyFont: { size: 13 },
             displayColors: false,
             callbacks: {
-              label: (context) => `Cost: ${formatCurrency(context.raw as number)}`,
+              label: (context: any) => `Cost: ${formatCurrency(context.raw as number)}`,
             },
           },
         },
         scales: {
           y: {
             beginAtZero: true,
-            grid: { color: '#f3f4f6' },
+            grid: {
+              color: '#f3f4f6',
+              drawBorder: false,
+            } as any,
             ticks: {
               color: '#9ca3af',
-              callback: (value) => {
+              font: { size: 11 },
+              padding: 10,
+              callback: (value: any) => {
                 const num = Number(value);
                 if (num >= 1000) return '$' + (num / 1000).toFixed(1) + 'k';
                 return '$' + num;
@@ -188,12 +197,15 @@ const BillingPage: React.FC = () => {
             },
           },
           x: {
-            grid: { display: false },
-            ticks: { color: '#9ca3af' },
+            grid: { display: false, drawBorder: false } as any,
+            ticks: {
+              color: '#9ca3af',
+              font: { size: 11 },
+            },
           },
         },
       },
-    });
+    } as any);
 
     return () => {
       if (costHistoryChartInstance.current) {
@@ -219,6 +231,7 @@ const BillingPage: React.FC = () => {
     const labels = billingData.serviceBreakdown.map((s) => s.name || 'Unknown');
     const data = billingData.serviceBreakdown.map((s) => (s.cost != null ? s.cost : 0));
 
+    // Cast to any to avoid complex Chart.js generic type mismatch
     serviceBreakdownChartInstance.current = new Chart(ctx, {
       type: 'doughnut',
       data: {
@@ -228,32 +241,35 @@ const BillingPage: React.FC = () => {
             label: 'Cost',
             data,
             backgroundColor: [
-              '#6366f1',
-              '#8b5cf6',
-              '#10b981',
-              '#f59e0b',
-              '#ef4444',
-              '#3b82f6',
-              '#ec4899',
-              '#14b8a6',
+              '#6366f1', // Indigo
+              '#8b5cf6', // Violet
+              '#d946ef', // Fuchsia
+              '#ec4899', // Pink
+              '#f43f5e', // Rose
+              '#f97316', // Orange
+              '#eab308', // Yellow
+              '#22c55e', // Green
             ],
-            borderWidth: 3,
+            borderWidth: 2,
             borderColor: '#ffffff',
-            hoverBorderWidth: 4,
-            hoverOffset: 8,
+            hoverBorderWidth: 0,
+            hoverOffset: 10,
           },
         ],
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        cutout: '70%',
         plugins: {
           legend: {
             position: 'right',
             labels: {
               usePointStyle: true,
-              padding: 16,
-              font: { weight: '500' },
+              pointStyle: 'circle',
+              padding: 20,
+              font: { weight: '500', size: 12 },
+              color: '#4b5563',
             },
           },
           tooltip: {
@@ -263,13 +279,14 @@ const BillingPage: React.FC = () => {
             borderColor: '#e5e7eb',
             borderWidth: 1,
             padding: 12,
+            usePointStyle: true,
             callbacks: {
-              label: (context) => `${context.label}: ${formatCurrency(context.raw as number)}`,
+              label: (context: any) => ` ${context.label}: ${formatCurrency(context.raw as number)}`,
             },
           },
         },
       },
-    });
+    } as any);
 
     return () => {
       if (serviceBreakdownChartInstance.current) {
@@ -279,21 +296,19 @@ const BillingPage: React.FC = () => {
   }, [billingData.serviceBreakdown]);
 
   return (
-    <div className="billing-page flex-1 flex flex-col h-screen overflow-hidden">
-      <main className="flex-1 overflow-y-auto p-10">
-        <div className="max-w-7xl mx-auto">
+    <div className="billing-page flex-1 flex flex-col h-screen overflow-hidden bg-gray-50/50">
+      <main className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+        <div className="w-full">
           {/* Loading Header Skeleton */}
           {loading && (
-            <div className="animate-pulse mb-6">
-              <div className="billing-card">
-                <div className="billing-header h-[85px]">
-                  <div className="flex justify-between items-center h-full">
-                    <div className="billing-skeleton-dark h-6 w-48"></div>
-                    <div className="flex items-center space-x-3">
-                      <div className="billing-skeleton-dark h-9 w-20 rounded-lg"></div>
-                      <div className="billing-skeleton-dark h-9 w-20 rounded-lg"></div>
-                      <div className="billing-skeleton-dark h-9 w-24 rounded-lg"></div>
-                    </div>
+            <div className="animate-pulse mb-8">
+              <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
+                <div className="h-[50px] flex justify-between items-center">
+                  <div className="bg-gray-200 h-8 w-48 rounded-lg"></div>
+                  <div className="flex items-center space-x-3">
+                    <div className="bg-gray-200 h-10 w-24 rounded-lg"></div>
+                    <div className="bg-gray-200 h-10 w-24 rounded-lg"></div>
+                    <div className="bg-gray-200 h-10 w-28 rounded-lg"></div>
                   </div>
                 </div>
               </div>
@@ -302,58 +317,59 @@ const BillingPage: React.FC = () => {
 
           {/* Header */}
           {!loading && (
-            <div className="billing-card mb-6">
-              <div className="billing-header">
-                <div className="flex justify-between items-center">
-                  <h1 className="billing-title flex items-center">
-                    Billing Dashboard
-                    {isUpdating && (
-                      <span className="billing-spinner ml-3" title="Refreshing data..." />
-                    )}
-                  </h1>
-                  <div className="flex items-center space-x-3">
-                    <select
-                      value={selectedYear}
-                      onChange={(e) => {
-                        setSelectedYear(Number(e.target.value));
-                        handleFilterChange();
-                      }}
-                      className="billing-filter-select"
-                      disabled={loading || isUpdating}
-                    >
-                      {availableYears.map((year) => (
-                        <option key={year} value={year}>
-                          {year}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      value={selectedMonth}
-                      onChange={(e) => {
-                        setSelectedMonth(Number(e.target.value));
-                        handleFilterChange();
-                      }}
-                      className="billing-filter-select"
-                      disabled={loading || isUpdating}
-                    >
-                      {availableMonths.map((month) => (
-                        <option key={month.value} value={month.value}>
-                          {month.name}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      onClick={() => fetchData(true)}
-                      className="billing-refresh-btn"
-                      disabled={loading || isUpdating}
-                    >
-                      <i
-                        className={`fas ${isUpdating ? 'fa-sync-alt fa-spin' : 'fa-sync-alt'}`}
-                      />
-                      <span className="ml-2">{isUpdating ? 'Refreshing...' : 'Refresh'}</span>
-                    </button>
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900 flex items-center">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-white mr-3 shadow-sm">
+                    <i className="fas fa-file-invoice-dollar text-lg"></i>
                   </div>
-                </div>
+                  Billing Dashboard
+                </h1>
+                <p className="text-gray-500 mt-1 ml-13">Overview of your AWS cloud spending and cost distribution</p>
+              </div>
+
+              <div className="flex items-center gap-3 bg-white p-1.5 rounded-xl border border-gray-200 shadow-sm">
+                <select
+                  value={selectedYear}
+                  onChange={(e) => {
+                    setSelectedYear(Number(e.target.value));
+                    handleFilterChange();
+                  }}
+                  className="bg-transparent border-none text-sm font-medium text-gray-700 focus:ring-0 cursor-pointer py-1.5 pl-3 pr-8 rounded-lg hover:bg-gray-50 transition-colors"
+                  disabled={loading || isUpdating}
+                >
+                  {availableYears.map((year) => (
+                    <option key={year} value={year}>
+                      {year}
+                    </option>
+                  ))}
+                </select>
+                <div className="w-px h-5 bg-gray-200"></div>
+                <select
+                  value={selectedMonth}
+                  onChange={(e) => {
+                    setSelectedMonth(Number(e.target.value));
+                    handleFilterChange();
+                  }}
+                  className="bg-transparent border-none text-sm font-medium text-gray-700 focus:ring-0 cursor-pointer py-1.5 pl-3 pr-8 rounded-lg hover:bg-gray-50 transition-colors"
+                  disabled={loading || isUpdating}
+                >
+                  {availableMonths.map((month) => (
+                    <option key={month.value} value={month.value}>
+                      {month.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => fetchData(true)}
+                  className="p-2 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all duration-200 ml-1"
+                  disabled={loading || isUpdating}
+                  title="Refresh Data"
+                >
+                  <i
+                    className={`fas ${isUpdating ? 'fa-sync-alt fa-spin' : 'fa-sync-alt'}`}
+                  />
+                </button>
               </div>
             </div>
           )}
@@ -362,67 +378,27 @@ const BillingPage: React.FC = () => {
           {loading && (
             <div className="animate-pulse space-y-8">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="billing-card">
-                  <div className="p-6 border-b border-gray-100">
-                    <div className="billing-skeleton h-5 w-3/5 mb-2"></div>
-                    <div className="billing-skeleton h-3 w-2/5"></div>
+                <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
+                  <div className="flex justify-between mb-6">
+                    <div className="bg-gray-200 h-6 w-1/3 rounded"></div>
                   </div>
-                  <div className="p-4">
-                    <div className="h-[280px] billing-skeleton rounded-lg"></div>
-                  </div>
+                  <div className="bg-gray-100 h-[280px] rounded-xl"></div>
                 </div>
-                <div className="billing-card">
-                  <div className="p-6 border-b border-gray-100">
-                    <div className="billing-skeleton h-5 w-3/5 mb-2"></div>
-                    <div className="billing-skeleton h-3 w-2/5"></div>
+                <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
+                  <div className="flex justify-between mb-6">
+                    <div className="bg-gray-200 h-6 w-1/3 rounded"></div>
                   </div>
-                  <div className="p-4">
-                    <div className="h-[280px] billing-skeleton rounded-lg"></div>
-                  </div>
+                  <div className="bg-gray-100 h-[280px] rounded-xl"></div>
                 </div>
               </div>
-              <div className="billing-card">
-                <div className="p-6 border-b border-gray-100">
-                  <div className="billing-skeleton h-5 w-2/5 mb-2"></div>
-                  <div className="billing-skeleton h-3 w-3/5"></div>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="billing-table">
-                    <thead>
-                      <tr>
-                        <th style={{ width: '60px' }}>
-                          <div className="billing-skeleton h-4 w-4 mx-auto"></div>
-                        </th>
-                        <th>
-                          <div className="billing-skeleton h-4 w-24"></div>
-                        </th>
-                        <th>
-                          <div className="billing-skeleton h-4 w-20 ml-auto"></div>
-                        </th>
-                        <th>
-                          <div className="billing-skeleton h-4 w-20 ml-auto"></div>
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {[1, 2, 3, 4, 5].map((i) => (
-                        <tr key={i}>
-                          <td>
-                            <div className="billing-skeleton h-6 w-6 mx-auto rounded-md"></div>
-                          </td>
-                          <td>
-                            <div className="billing-skeleton h-4 w-3/4"></div>
-                          </td>
-                          <td>
-                            <div className="billing-skeleton h-4 w-1/2 ml-auto"></div>
-                          </td>
-                          <td>
-                            <div className="billing-skeleton h-4 w-1/2 ml-auto"></div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+              <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
+                <div className="bg-gray-200 h-6 w-1/4 mb-6 rounded"></div>
+                <div className="space-y-4">
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <div key={i} className="flex gap-4">
+                      <div className="bg-gray-100 h-10 w-full rounded-lg"></div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
@@ -430,64 +406,78 @@ const BillingPage: React.FC = () => {
 
           {/* Error State */}
           {error && !hasData && !loading && (
-            <div className="billing-card p-8 text-center border-red-200 bg-red-50">
-              <i className="fas fa-exclamation-triangle text-red-500 text-2xl mb-3"></i>
-              <p className="text-red-700 font-medium">{error}</p>
+            <div className="bg-red-50 border border-red-200 p-8 rounded-xl text-center max-w-2xl mx-auto mt-10">
+              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4 text-red-600">
+                <i className="fas fa-exclamation-triangle text-2xl"></i>
+              </div>
+              <h3 className="text-xl font-bold text-red-900 mb-2">Failed to Load Data</h3>
+              <p className="text-red-700 font-medium mb-6">{error}</p>
+              <button
+                onClick={() => fetchData(true)}
+                className="px-6 py-2.5 bg-white border border-red-200 text-red-700 rounded-lg font-semibold hover:bg-red-50 transition-colors shadow-sm"
+              >
+                Try Again
+              </button>
             </div>
           )}
 
           {/* Update Error Warning */}
           {updateError && hasData && !loading && (
-            <div className="mb-4 p-3 text-sm text-yellow-800 rounded-lg bg-yellow-50 border border-yellow-200">
-              <i className="fas fa-exclamation-circle mr-2"></i>
-              <span>{updateError}</span>
+            <div className="mb-6 p-4 rounded-xl bg-orange-50 border border-orange-200 flex items-start gap-3 animate-fade-in">
+              <i className="fas fa-exclamation-circle text-orange-500 mt-0.5"></i>
+              <div>
+                <h4 className="text-sm font-semibold text-orange-900">Background Update Failed</h4>
+                <p className="text-sm text-orange-800 mt-1">{updateError}</p>
+              </div>
             </div>
           )}
 
           {/* Main Content */}
           {!loading && (hasData || isUpdating) && (
-            <div className="space-y-8">
+            <div className="space-y-6">
               {/* Charts Row */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Cost Over Time Chart */}
-                <div className="billing-card">
-                  <div className="p-6 border-b border-gray-100">
-                    <h2 className="text-xl font-semibold text-gray-800 flex items-center">
-                      <i className="fas fa-chart-bar text-blue-500 mr-3"></i>
-                      Cost Over Time
-                    </h2>
-                    <p className="text-sm text-gray-500 mt-1">Monthly spending trends</p>
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col">
+                  <div className="flex justify-between items-center mb-6">
+                    <div>
+                      <h2 className="text-lg font-bold text-gray-800">Cost Over Time</h2>
+                      <p className="text-sm text-gray-500">Monthly spending trends</p>
+                    </div>
+                    <div className="bg-indigo-50 p-2 rounded-lg text-indigo-600">
+                      <i className="fas fa-chart-bar"></i>
+                    </div>
                   </div>
-                  <div className="p-4">
+                  <div className="flex-1 min-h-[300px] relative">
                     {billingData.costHistory.length > 0 ? (
-                      <div className="billing-chart-container">
-                        <canvas ref={costHistoryChartRef}></canvas>
-                      </div>
+                      <canvas ref={costHistoryChartRef}></canvas>
                     ) : (
-                      <div className="text-center py-10 text-gray-500">
-                        No cost history data available.
+                      <div className="absolute inset-0 flex items-center justify-center text-gray-400 flex-col">
+                        <i className="fas fa-chart-bar text-4xl mb-2 opacity-50"></i>
+                        <p>No cost history data available.</p>
                       </div>
                     )}
                   </div>
                 </div>
 
                 {/* Service Breakdown Chart */}
-                <div className="billing-card">
-                  <div className="p-6 border-b border-gray-100">
-                    <h2 className="text-xl font-semibold text-gray-800 flex items-center">
-                      <i className="fas fa-chart-pie text-purple-500 mr-3"></i>
-                      Service Breakdown
-                    </h2>
-                    <p className="text-sm text-gray-500 mt-1">Distribution by AWS services</p>
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col">
+                  <div className="flex justify-between items-center mb-6">
+                    <div>
+                      <h2 className="text-lg font-bold text-gray-800">Service Breakdown</h2>
+                      <p className="text-sm text-gray-500">Distribution by AWS services</p>
+                    </div>
+                    <div className="bg-purple-50 p-2 rounded-lg text-purple-600">
+                      <i className="fas fa-chart-pie"></i>
+                    </div>
                   </div>
-                  <div className="p-4">
+                  <div className="flex-1 min-h-[300px] relative">
                     {billingData.serviceBreakdown.length > 0 ? (
-                      <div className="billing-chart-container">
-                        <canvas ref={serviceBreakdownChartRef}></canvas>
-                      </div>
+                      <canvas ref={serviceBreakdownChartRef}></canvas>
                     ) : (
-                      <div className="text-center py-10 text-gray-500">
-                        No service breakdown data available.
+                      <div className="absolute inset-0 flex items-center justify-center text-gray-400 flex-col">
+                        <i className="fas fa-chart-pie text-4xl mb-2 opacity-50"></i>
+                        <p>No service breakdown data available.</p>
                       </div>
                     )}
                   </div>
@@ -495,19 +485,19 @@ const BillingPage: React.FC = () => {
               </div>
 
               {/* Detailed Cost Breakdown Table */}
-              <div className="billing-card">
-                <div className="p-6 border-b border-gray-100">
-                  <h2 className="text-xl font-semibold text-gray-800 flex items-center">
-                    <i className="fas fa-table text-green-500 mr-3"></i>
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="p-6 border-b border-gray-100 bg-gray-50/30">
+                  <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                    <i className="fas fa-table text-indigo-500"></i>
                     Detailed Cost Breakdown
                   </h2>
-                  <p className="text-sm text-gray-500 mt-1">
+                  <p className="text-sm text-gray-500 mt-1 ml-6">
                     Expandable view of all services, regions, and resources
                   </p>
                 </div>
 
                 <div className="overflow-x-auto">
-                  <table className="billing-table">
+                  <table className="w-full text-left border-collapse">
                     <colgroup>
                       <col style={{ width: '60px' }} />
                       <col style={{ width: '45%' }} />
@@ -515,43 +505,43 @@ const BillingPage: React.FC = () => {
                       <col style={{ width: '25%' }} />
                     </colgroup>
                     <thead>
-                      <tr>
-                        <th></th>
-                        <th>Service / Resource</th>
-                        <th className="text-right">Usage Quantity</th>
-                        <th className="text-right">Amount (USD)</th>
+                      <tr className="bg-gray-50/50 border-b border-gray-100 text-xs uppercase tracking-wider">
+                        <th className="px-4 py-4"></th>
+                        <th className="px-4 py-4 font-semibold text-gray-500">Service / Resource</th>
+                        <th className="px-4 py-4 font-semibold text-gray-500 text-right">Usage Quantity</th>
+                        <th className="px-4 py-4 font-semibold text-gray-500 text-right">Amount (USD)</th>
                       </tr>
                     </thead>
-                    <tbody>
+                    <tbody className="divide-y divide-gray-50">
                       {detailedBreakdown.length > 0 ? (
                         detailedBreakdown.map((service: DetailedServiceBreakdown) => (
                           <React.Fragment key={service.serviceName}>
                             {/* Service Row */}
                             <tr
                               onClick={() => toggleService(service.serviceName)}
-                              className="billing-service-row cursor-pointer"
+                              className={`cursor-pointer transition-colors hover:bg-gray-50/80 ${expandedServices[service.serviceName] ? 'bg-indigo-50/30' : ''}`}
                             >
-                              <td>
-                                <div
-                                  className={`billing-expand-icon ${
-                                    expandedServices[service.serviceName] ? 'billing-rotate-90' : ''
-                                  }`}
-                                >
-                                  <i className="fas fa-chevron-right text-sm"></i>
+                              <td className="px-4 py-4 text-center text-gray-400">
+                                <i className={`fas fa-chevron-right text-sm transition-transform duration-200 ${expandedServices[service.serviceName] ? 'rotate-90 text-indigo-500' : ''
+                                  }`}></i>
+                              </td>
+                              <td className="px-4 py-4">
+                                <div className="flex items-center">
+                                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center mr-3 transition-colors ${expandedServices[service.serviceName] ? 'bg-indigo-100 text-indigo-600' : 'bg-gray-100 text-gray-500'}`}>
+                                    <i className="fas fa-cube text-xs"></i>
+                                  </div>
+                                  <span className="font-semibold text-gray-900">
+                                    {service.serviceName}
+                                  </span>
                                 </div>
                               </td>
-                              <td>
-                                <div className="billing-service-name font-semibold text-gray-800">
-                                  {service.serviceName}
-                                </div>
+                              <td className="px-4 py-4 text-right">
+                                <span className="text-gray-300 text-sm">-</span>
                               </td>
-                              <td className="text-right">
-                                <span className="text-gray-400">-</span>
-                              </td>
-                              <td>
-                                <div className="billing-amount text-blue-600">
+                              <td className="px-4 py-4 text-right">
+                                <span className="font-bold text-gray-900">
                                   {formatCurrency(service.totalCost)}
-                                </div>
+                                </span>
                               </td>
                             </tr>
 
@@ -561,31 +551,29 @@ const BillingPage: React.FC = () => {
                                 <React.Fragment key={`${service.serviceName}-${region.regionName}`}>
                                   <tr
                                     onClick={() => toggleRegion(service.serviceName, region.regionName)}
-                                    className="billing-region-row cursor-pointer"
+                                    className={`cursor-pointer transition-colors hover:bg-gray-50 ${expandedRegions[`${service.serviceName}-${region.regionName}`] ? 'bg-gray-50' : ''}`}
                                   >
-                                    <td>
-                                      <div
-                                        className={`billing-expand-icon ${
-                                          expandedRegions[`${service.serviceName}-${region.regionName}`]
-                                            ? 'billing-rotate-90'
-                                            : ''
-                                        }`}
-                                      >
-                                        <i className="fas fa-chevron-right text-xs"></i>
+                                    <td className="px-4 py-3 text-center text-gray-300">
+                                      <i className={`fas fa-chevron-right text-xs transition-transform duration-200 ml-2 ${expandedRegions[`${service.serviceName}-${region.regionName}`]
+                                        ? 'rotate-90 text-gray-500'
+                                        : ''
+                                        }`}></i>
+                                    </td>
+                                    <td className="px-4 py-3">
+                                      <div className="flex items-center pl-10">
+                                        <i className="fas fa-globe-americas text-gray-400 mr-2 text-xs"></i>
+                                        <span className="text-gray-700 font-medium text-sm">
+                                          {region.regionName}
+                                        </span>
                                       </div>
                                     </td>
-                                    <td>
-                                      <div className="billing-region-name pl-4 text-gray-700">
-                                        {region.regionName}
-                                      </div>
+                                    <td className="px-4 py-3 text-right">
+                                      <span className="text-gray-300 text-xs">-</span>
                                     </td>
-                                    <td className="text-right">
-                                      <span className="text-gray-400">-</span>
-                                    </td>
-                                    <td>
-                                      <div className="billing-amount text-blue-600">
+                                    <td className="px-4 py-3 text-right">
+                                      <span className="font-medium text-gray-700 text-sm">
                                         {formatCurrency(region.cost)}
-                                      </div>
+                                      </span>
                                     </td>
                                   </tr>
 
@@ -594,23 +582,26 @@ const BillingPage: React.FC = () => {
                                     region.resources.map((resource: ResourceItem, idx: number) => (
                                       <tr
                                         key={`${resource.resourceId}-${resource.cost}-${idx}`}
-                                        className="billing-resource-row"
+                                        className="hover:bg-gray-50/50 transition-colors"
                                       >
-                                        <td></td>
-                                        <td>
-                                          <div className="billing-resource-name pl-8 text-gray-600">
-                                            {resource.resourceName}
+                                        <td className="px-4 py-2"></td>
+                                        <td className="px-4 py-2">
+                                          <div className="pl-16 flex items-center">
+                                            <div className="w-1.5 h-1.5 bg-gray-300 rounded-full mr-3"></div>
+                                            <span className="text-gray-600 text-xs font-mono truncate max-w-md" title={resource.resourceName}>
+                                              {resource.resourceName}
+                                            </span>
                                           </div>
                                         </td>
-                                        <td className="text-right text-gray-600 text-sm">
+                                        <td className="px-4 py-2 text-right text-gray-500 text-xs font-mono">
                                           {resource.quantity != null
                                             ? `${formatNumber(resource.quantity)} ${resource.unit || ''}`
                                             : 'N/A'}
                                         </td>
-                                        <td>
-                                          <div className="billing-amount text-purple-600">
+                                        <td className="px-4 py-2 text-right">
+                                          <span className="text-gray-600 text-sm font-medium">
                                             {formatCurrency(resource.cost)}
-                                          </div>
+                                          </span>
                                         </td>
                                       </tr>
                                     ))}
@@ -620,8 +611,10 @@ const BillingPage: React.FC = () => {
                         ))
                       ) : (
                         <tr>
-                          <td colSpan={4} className="text-center py-12">
-                            <i className="fas fa-inbox text-gray-300 text-3xl mb-3"></i>
+                          <td colSpan={4} className="text-center py-16">
+                            <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-3">
+                              <i className="fas fa-inbox text-gray-300 text-2xl"></i>
+                            </div>
                             <p className="text-gray-500 font-medium">
                               No detailed cost data available for the selected period.
                             </p>
