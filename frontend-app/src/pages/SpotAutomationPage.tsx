@@ -31,6 +31,9 @@ import SpotAutomationChart from '../components/SpotAutomation/SpotAutomationChar
 import SpotAutomationASGTable from '../components/SpotAutomation/SpotAutomationASGTable';
 import DeploymentModal from '../components/SpotAutomation/DeploymentModal';
 import SyncAccountModal from '../components/SpotAutomation/SyncAccountModal';
+import ActionsHistory from '../components/ActionsHistory/ActionsHistory';
+import LaunchAnalytics from '../components/LaunchAnalytics/LaunchAnalytics';
+import RispCoverage from '../components/RispCoverage/RispCoverage';
 
 const SpotAutomationPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
@@ -59,6 +62,9 @@ const SpotAutomationPage: React.FC = () => {
   const [isDeploymentModalOpen, setIsDeploymentModalOpen] = useState(false);
   const [isSyncAccountModalOpen, setIsSyncAccountModalOpen] = useState(false);
   const [historyTimeRange, setHistoryTimeRange] = useState<'last24h' | 'last7d' | 'last30d'>('last7d');
+
+  // Tab state
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'analytics' | 'risp-coverage' | 'history'>('dashboard');
 
   // Toast notification state
   const [toast, setToast] = useState<{ show: boolean; message: string; type: 'success' | 'error' }>({
@@ -170,6 +176,56 @@ const SpotAutomationPage: React.FC = () => {
         onDeployToAWS={() => setIsDeploymentModalOpen(true)}
       />
 
+      {/* Tab Navigation */}
+      <div className="bg-white border-b border-gray-200 px-8">
+        <nav className="flex space-x-8" aria-label="Tabs">
+          <button
+            onClick={() => setActiveTab('dashboard')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+              activeTab === 'dashboard'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            <i className="fas fa-tachometer-alt mr-2"></i>
+            Dashboard
+          </button>
+          <button
+            onClick={() => setActiveTab('analytics')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+              activeTab === 'analytics'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            <i className="fas fa-chart-line mr-2"></i>
+            Launch Analytics
+          </button>
+          <button
+            onClick={() => setActiveTab('risp-coverage')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+              activeTab === 'risp-coverage'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            <i className="fas fa-chart-pie mr-2"></i>
+            RI/SP Coverage
+          </button>
+          <button
+            onClick={() => setActiveTab('history')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+              activeTab === 'history'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            <i className="fas fa-history mr-2"></i>
+            Actions History
+          </button>
+        </nav>
+      </div>
+
       {/* Main Content */}
       <div className="flex-1 p-8">
         {/* No Account Selected */}
@@ -196,36 +252,56 @@ const SpotAutomationPage: React.FC = () => {
 
         {/* Main Content - Data Loaded */}
         {selectedAccountId && !isLoading && (
-          <div className="space-y-8">
-            {/* KPIs */}
-            <SpotAutomationKPIs
-              costs={costs}
-              savings={savings}
-              enabledASGsCount={enabledASGsCount}
-              totalASGsCount={asgs.length}
-              enabledRegionsCount={enabledRegionsCount}
-            />
+          <>
+            {/* Dashboard Tab Content */}
+            {activeTab === 'dashboard' && (
+              <div className="space-y-8">
+                {/* KPIs */}
+                <SpotAutomationKPIs
+                  costs={costs}
+                  savings={savings}
+                  enabledASGsCount={enabledASGsCount}
+                  totalASGsCount={asgs.length}
+                  enabledRegionsCount={enabledRegionsCount}
+                />
 
-            {/* Savings Chart */}
-            <SpotAutomationChart
-              historyData={historyData}
-              historySummary={historySummary}
-              timeRange={historyTimeRange}
-              isLoading={isLoadingHistory}
-              onTimeRangeChange={handleTimeRangeChange}
-              onRefresh={() => fetchHistoryData(historyTimeRange)}
-            />
+                {/* Savings Chart */}
+                <SpotAutomationChart
+                  historyData={historyData}
+                  historySummary={historySummary}
+                  timeRange={historyTimeRange}
+                  isLoading={isLoadingHistory}
+                  onTimeRangeChange={handleTimeRangeChange}
+                  onRefresh={() => fetchHistoryData(historyTimeRange)}
+                />
 
-            {/* ASG Table */}
-            <SpotAutomationASGTable
-              asgs={asgs}
-              costs={costs}
-              totalInstances={totalInstances}
-              isLoading={isRefreshing}
-              onToggleASG={handleToggleASG}
-              onRefresh={() => fetchCostData(true)}
-            />
-          </div>
+                {/* ASG Table */}
+                <SpotAutomationASGTable
+                  asgs={asgs}
+                  costs={costs}
+                  totalInstances={totalInstances}
+                  isLoading={isRefreshing}
+                  onToggleASG={handleToggleASG}
+                  onRefresh={() => fetchCostData(true)}
+                />
+              </div>
+            )}
+
+            {/* Launch Analytics Tab Content */}
+            {activeTab === 'analytics' && (
+              <LaunchAnalytics accountId={selectedAccountId} />
+            )}
+
+            {/* RI/SP Coverage Tab Content */}
+            {activeTab === 'risp-coverage' && (
+              <RispCoverage accountId={selectedAccountId} />
+            )}
+
+            {/* Actions History Tab Content */}
+            {activeTab === 'history' && (
+              <ActionsHistory accountId={selectedAccountId} />
+            )}
+          </>
         )}
       </div>
 

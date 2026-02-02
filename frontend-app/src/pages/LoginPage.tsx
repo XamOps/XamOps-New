@@ -68,7 +68,7 @@ const LoginPage: React.FC = () => {
 
       {/* Right Section - Login/Forgot Password Card */}
       <div className="form-section">
-        <div className="glass-card">
+        <div className="login-card-transparent">
           {!showForgotPassword ? (
             <>
               <div className="brand-header">
