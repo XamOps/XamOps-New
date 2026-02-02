@@ -579,7 +579,27 @@ const Sidebar: React.FC = () => {
             </NavSection>
           )}
 
-          {/* BillOps Section */}
+
+          {/* Licenses Section for ROLE_XAMOPS */}
+          {hasAnyRole('ROLE_XAMOPS') && (
+            <NavSection
+              id="licenses"
+              icon="fas fa-key"
+              label="Licenses"
+              gradientClass="from-cyan-500 to-blue-600"
+              isOpen={openDropdown === 'licenses'}
+              onToggle={() => toggleDropdown('licenses')}
+            >
+              <NavItem href="/marketplace-purchases" icon="fas fa-store" label="MarketOps" isActive={isActive('/marketplace-purchases')} />
+              <NavItem href="/workspace-licenses" icon="fas fa-key" label="Licenses & Tools" isActive={isActive('/workspace-licenses')} />
+            </NavSection>
+          )}
+
+        </div>
+
+        {/* Footer - BillOps, Settings & Logout */}
+        <div className="p-4 border-t border-gray-200 space-y-2">
+          {/* BillOps Section moved to footer */}
           {hasAnyRole(['ROLE_BILLOPS', 'ROLE_BILLOPS_ADMIN', 'ROLE_XAMOPS']) && (
             <NavSection
               id="billops"
@@ -588,6 +608,7 @@ const Sidebar: React.FC = () => {
               gradientClass="from-cyan-500 to-blue-600"
               isOpen={openDropdown === 'billops'}
               onToggle={() => toggleDropdown('billops')}
+              direction="up"
             >
               {/* ROLE_XAMOPS users see standard BillOps items */}
               {hasAnyRole('ROLE_XAMOPS') && (
@@ -637,22 +658,7 @@ const Sidebar: React.FC = () => {
             </NavSection>
           )}
 
-          {/* Licenses Section for ROLE_XAMOPS */}
-          {hasAnyRole('ROLE_XAMOPS') && (
-            <NavSection
-              id="licenses"
-              icon="fas fa-key"
-              label="Licenses"
-              gradientClass="from-cyan-500 to-blue-600"
-              isOpen={openDropdown === 'licenses'}
-              onToggle={() => toggleDropdown('licenses')}
-            >
-              <NavItem href="/marketplace-purchases" icon="fas fa-store" label="MarketOps" isActive={isActive('/marketplace-purchases')} />
-              <NavItem href="/workspace-licenses" icon="fas fa-key" label="Licenses & Tools" isActive={isActive('/workspace-licenses')} />
-            </NavSection>
-          )}
-
-          {/* Settings Section */}
+          {/* Settings Section moved to footer */}
           <NavSection
             id="settings"
             icon="fas fa-cog"
@@ -660,6 +666,7 @@ const Sidebar: React.FC = () => {
             gradientClass="from-gray-500 to-gray-700"
             isOpen={openDropdown === 'settings'}
             onToggle={() => toggleDropdown('settings')}
+            direction="up"
           >
             {hasAnyRole('ROLE_XAMOPS') && (
               <NavItem href="/account-manager" icon="fas fa-cloud" label="Account Management" isActive={isActive('/account-manager')} />
@@ -672,10 +679,7 @@ const Sidebar: React.FC = () => {
             )}
             <NavItem href="/my-profile" icon="fas fa-user" label="My Profile" isActive={isActive('/my-profile')} />
           </NavSection>
-        </div>
 
-        {/* Footer - Logout */}
-        <div className="p-4 border-t border-gray-200">
           <button
             onClick={handleLogout}
             className="w-full flex items-center px-4 py-3 rounded-lg text-gray-700 hover:bg-red-50 hover:text-red-600 transition-colors"
