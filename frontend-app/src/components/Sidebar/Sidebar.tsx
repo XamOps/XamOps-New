@@ -23,6 +23,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useAccounts } from '../../contexts/AccountContext';
 import AccountSelector from './AccountSelector';
@@ -409,7 +410,7 @@ const Sidebar: React.FC = () => {
       >
         {/* Header - Logo */}
         <div className="p-4 border-b border-gray-200">
-          <a href="/" className="flex items-center space-x-3">
+          <Link to="/unified-dashboard" className="flex items-center space-x-3">
             <img src="/icons/XamOps.png" alt="XamOps Logo" className="w-10 h-10" />
             <div>
               <h1 className="text-xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
@@ -417,7 +418,7 @@ const Sidebar: React.FC = () => {
               </h1>
               <p className="text-xs text-gray-500">Cloud FinOps Platform</p>
             </div>
-          </a>
+          </Link>
         </div>
 
         {/* Super Admin Panel */}
@@ -438,16 +439,6 @@ const Sidebar: React.FC = () => {
 
         {/* Navigation Menu */}
         <div className="flex-1 overflow-y-auto sidebar-scroll p-4 space-y-2">
-          {/* Unified Dashboard (React - NEW) */}
-          {hasAnyRole('ROLE_XAMOPS') && (
-            <NavItem
-              href="/unified-dashboard"
-              icon="fas fa-layer-group"
-              label="Unified Dashboard"
-              gradientClass="from-indigo-500 to-purple-600"
-              isActive={isActive('/unified-dashboard')}
-            />
-          )}
 
 
           {/* Live Dashboard (React - Converted from dashboard.html) */}
