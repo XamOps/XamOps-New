@@ -34,7 +34,7 @@ import clsx from 'clsx';
 
 const Sidebar: React.FC = () => {
   const { hasAnyRole } = useAuth();
-  const { selectedAccountDisplay } = useAccounts();
+  const { selectedAccountDisplay, accounts, selectedAccountIds } = useAccounts();
 
   // Dropdown state - only one can be open at a time
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
@@ -68,6 +68,29 @@ const Sidebar: React.FC = () => {
   const closeMobileMenu = useCallback(() => {
     setMobileMenuOpen(false);
   }, []);
+
+  /**
+   * Get billing URL based on selected account provider
+   */
+  const getBillingUrl = useCallback((): string => {
+    // Get the first selected account to determine provider
+    if (selectedAccountIds.length > 0) {
+      const selectedAccount = accounts.find(acc => acc.id === selectedAccountIds[0]);
+      if (selectedAccount) {
+        switch (selectedAccount.provider) {
+          case 'GCP':
+            return '/billops-gcp-billing';
+          case 'Azure':
+            return '/billops/azure-billing.html';
+          case 'AWS':
+          default:
+            return '/billops-billing';
+        }
+      }
+    }
+    // Default to AWS billing
+    return '/billops-billing';
+  }, [selectedAccountIds, accounts]);
 
   /**
    * Check if current path matches the nav item
@@ -220,6 +243,11 @@ const Sidebar: React.FC = () => {
       return currentPath === '/cloudshell' || currentPath === '/cloudshell.html';
     }
 
+    // Special case: CloudMap matches both React route and HTML
+    if (path === '/cloudmap') {
+      return currentPath === '/cloudmap' || currentPath === '/cloudmap.html';
+    }
+
     // Special case: Account Manager matches both React route and HTML
     if (path === '/account-manager') {
       return currentPath === '/account-manager' || currentPath === '/account-manager.html';
@@ -263,6 +291,7 @@ const Sidebar: React.FC = () => {
     // Special case: BillOps billing matches React route and HTML variants
     if (path === '/billops-billing') {
       return currentPath === '/billops-billing' ||
+        currentPath === '/billops-gcp-billing' ||
         currentPath === '/billops/billing.html' ||
         currentPath === '/billops/gcp-billing.html' ||
         currentPath === '/billops/azure-billing.html';
@@ -542,6 +571,7 @@ const Sidebar: React.FC = () => {
             >
               <NavItem href="/cloudlist" icon="fas fa-list" label="CloudList" isActive={isActive('/cloudlist')} />
               <NavItem href="/cloudshell" icon="fas fa-terminal" label="CloudShell" isActive={isActive('/cloudshell')} />
+              <NavItem href="/cloudmap" icon="fas fa-project-diagram" label="CloudMap" isActive={isActive('/cloudmap')} />
               <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-cloudk8s' : '/cloudk8s'} icon="fas fa-dharmachakra" label="CloudK8s" isActive={isActive('/cloudk8s')} />
               <NavItem href="/sonarqube" icon="fas fa-chart-line" label="SonarQube" isActive={isActive('/sonarqube')} />
               <NavItem href="/cicd-pipelines" icon="fas fa-cogs" label="CICD Pipelines" isActive={isActive('/cicd-pipelines')} />
@@ -603,7 +633,7 @@ const Sidebar: React.FC = () => {
               {hasAnyRole('ROLE_XAMOPS') && (
                 <>
                   <NavItem href="/billops-dashboard" icon="fas fa-tachometer-alt" label="Dashboard" isActive={isActive('/billops-dashboard')} />
-                  <NavItem href="/billops-billing" icon="fas fa-dollar-sign" label="Billing" isActive={isActive('/billops-billing')} />
+                  <NavItem href={getBillingUrl()} icon="fas fa-dollar-sign" label="Billing" isActive={isActive('/billops-billing')} />
                   <NavItem href="/billops-invoices" icon="fas fa-file-invoice" label="Invoices" isActive={isActive('/billops-invoices')} />
                   <NavItem href="/billops-credits" icon="fas fa-coins" label="Credits" isActive={isActive('/billops-credits')} />
                   <NavItem href="/billops-tickets" icon="fas fa-ticket-alt" label="Tickets" isActive={isActive('/billops-tickets')} />

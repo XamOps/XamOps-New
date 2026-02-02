@@ -244,14 +244,14 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
     if (isBillOpsUser) {
       switch (provider) {
         case 'GCP':
-          targetPage = '/billops/gcp-billing.html';
+          targetPage = '/billops-gcp-billing';
           break;
         case 'Azure':
           targetPage = '/billops/azure-billing.html';
           break;
         case 'AWS':
         default:
-          targetPage = '/billops/billing.html';
+          targetPage = '/billops-billing';
           break;
       }
     } else {
@@ -279,6 +279,7 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
         '/account-manager',
         '/billops-dashboard',
         '/billops-billing',
+        '/billops-gcp-billing',
         '/gcp-dashboard',
         '/gcp-finops',
         '/gcp-cost',

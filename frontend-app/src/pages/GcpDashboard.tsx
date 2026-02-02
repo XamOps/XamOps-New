@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { Link } from 'react-router-dom';
 // Sidebar is now handled by global AuthenticatedLayout
 import {
   GcpDashboardData,
@@ -428,6 +429,15 @@ const DashboardHeader: React.FC<{
           <i className="fas fa-terminal"></i>
           CloudShell
         </a>
+        <Link
+          to="/calculator"
+          className="gcp-cloudshell-link"
+          title="Pricing Calculator"
+          style={{ textDecoration: 'none' }}
+        >
+          <i className="fas fa-calculator"></i>
+          Calculator
+        </Link>
         <button
           onClick={onRefresh}
           disabled={isRefreshing}
@@ -636,9 +646,9 @@ const InventorySection: React.FC<{
           ))
         ) : (
           resources.map((resource, index) => (
-            <a
+            <Link
               key={index}
-              href={`/gcp_cloudlist.html?service=${encodeURIComponent(resource.type)}&accountIds=${accountIds.join(',')}`}
+              to={`/gcp-cloudlist?service=${encodeURIComponent(resource.type)}&accountIds=${accountIds.join(',')}`}
               className="gcp-resource-card hover:bg-white/10 transition-colors"
               style={{ textDecoration: 'none' }}
             >
@@ -650,7 +660,7 @@ const InventorySection: React.FC<{
                 <p className="gcp-resource-type">{resource.type}</p>
               </div>
               <div className="gcp-resource-count">{formatCompactNumber(resource.count)}</div>
-            </a>
+            </Link>
           ))
         )}
       </div>
