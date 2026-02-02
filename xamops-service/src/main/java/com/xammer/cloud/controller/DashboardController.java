@@ -293,12 +293,12 @@ public class DashboardController {
     }
 
     @PostMapping("/dashboard/layout")
-    public ResponseEntity<Void> saveDashboardLayout(@RequestBody String layoutConfig) {
+    public ResponseEntity<java.util.Map<String, String>> saveDashboardLayout(@RequestBody String layoutConfig) {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         String username = authentication.getName();
         DashboardLayout layout = new DashboardLayout(username, layoutConfig);
         dashboardLayoutRepository.save(layout);
-        return ResponseEntity.ok().build();
+        return ResponseEntity.ok(java.util.Collections.singletonMap("message", "Layout saved successfully"));
     }
 
     @ExceptionHandler({ ExecutionException.class, InterruptedException.class })

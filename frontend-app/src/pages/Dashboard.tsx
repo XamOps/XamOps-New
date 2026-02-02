@@ -125,12 +125,12 @@ export const Dashboard: React.FC = () => {
       refreshDashboard();
     };
 
-    window.addEventListener('account-changed', handleAccountChanged);
-    window.addEventListener('multi-account-selection-changed', handleMultiAccountChanged);
+    globalThis.addEventListener('account-changed', handleAccountChanged);
+    globalThis.addEventListener('multi-account-selection-changed', handleMultiAccountChanged);
 
     return () => {
-      window.removeEventListener('account-changed', handleAccountChanged);
-      window.removeEventListener('multi-account-selection-changed', handleMultiAccountChanged);
+      globalThis.removeEventListener('account-changed', handleAccountChanged);
+      globalThis.removeEventListener('multi-account-selection-changed', handleMultiAccountChanged);
     };
   }, [refreshDashboard]);
 
@@ -169,7 +169,7 @@ export const Dashboard: React.FC = () => {
           <h2 className="text-2xl font-bold text-center mb-4 text-gray-800">Connection Error</h2>
           <p className="text-center text-gray-600 mb-6">{error.message}</p>
           <button
-            onClick={() => window.location.reload()}
+            onClick={() => globalThis.location.reload()}
             className="w-full bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 transition-colors"
           >
             Try Again
@@ -227,7 +227,7 @@ export const Dashboard: React.FC = () => {
             </div>
 
             {/* Map + Inventory Widget */}
-            <div id="widget-map" className="widget grid gap-6 lg:grid-cols-5 fade-in">
+            <div id="widget-middle" className="widget grid gap-6 lg:grid-cols-5 fade-in">
               <MapSection
                 regionStatus={dashboardData.regionStatus}
                 isLoading={loadingState.map}
