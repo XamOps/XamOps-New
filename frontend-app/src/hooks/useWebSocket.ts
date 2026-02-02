@@ -53,8 +53,8 @@ export const useWebSocket = ({
     try {
       console.log('🔌 Connecting to WebSocket for account:', accountId);
 
-      // Create SockJS connection - using the new path
-      const socket = new window.SockJS('/xamops-ws');
+      // Create SockJS connection - using the backend path
+      const socket = new window.SockJS('/ws');
       const client = window.Stomp.over(socket);
 
       // Disable debug logging in production

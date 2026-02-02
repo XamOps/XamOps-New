@@ -42,7 +42,7 @@ export const useWorkspaceLicenses = () => {
     setError(null);
     try {
       // const response = await apiClient.get('/api/billops/workspace-licenses');
-      // setLicenses(response.data);
+      // setLicenses(response);
     } catch (err) {
       setError('Failed to fetch licenses');
       console.error('Error fetching licenses:', err);

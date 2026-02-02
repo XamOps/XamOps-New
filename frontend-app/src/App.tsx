@@ -65,6 +65,15 @@ import MyProfilePage from './pages/MyProfilePage';
 import ComplianceOpsPage from './pages/ComplianceOpsPage';
 import BillOpsAdminUserManagerPage from './pages/BillOpsAdminUserManagerPage';
 import GcpDashboard from './pages/GcpDashboard';
+import GcpFinOpsPage from './pages/GcpFinOpsPage';
+import GcpCostPage from './pages/GcpCostPage';
+import GcpWastePage from './pages/GcpWastePage';
+import GcpRightsizingPage from './pages/GcpRightsizingPage';
+import GcpReservationsPage from './pages/GcpReservationsPage';
+import GcpCloudK8sPage from './pages/GcpCloudK8sPage';
+import GcpSecurityPage from './pages/GcpSecurityPage';
+import GcpPerformancePage from './pages/GcpPerformancePage';
+import GcpAlertsPage from './pages/GcpAlertsPage';
 
 
 // Import styles
@@ -114,6 +123,15 @@ import './styles/userManagement.css';
 import './styles/myProfile.css';
 import './styles/billopsAdminUserManager.css';
 import './styles/gcpDashboard.css';
+import './styles/gcpFinops.css';
+import './styles/gcpCost.css';
+import './styles/gcpWaste.css';
+import './styles/gcpRightsizing.css';
+import './styles/gcpReservations.css';
+import './styles/gcpCloudK8s.css';
+import './styles/gcpSecurity.css';
+import './styles/gcpPerformance.css';
+import './styles/gcpAlerts.css';
 
 // Helper function to check authentication
 // Note: Since cookies might be HttpOnly, we check by making an API call
@@ -242,6 +260,18 @@ const AppContent: React.FC = () => {
         }
       />
 
+      {/* GCP FinOps Report Route (converted from gcp_finops.html) */}
+      <Route
+        path="/gcp-finops"
+        element={
+          <ProtectedRoute>
+            <AuthenticatedLayout>
+              <GcpFinOpsPage />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
+
       {/* Cost Management Route (converted from cost.html) */}
       <Route
         path="/cost"
@@ -249,6 +279,18 @@ const AppContent: React.FC = () => {
           <ProtectedRoute>
             <AuthenticatedLayout>
               <CostPage />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* GCP Cost Management Route (converted from gcp_cost.html) */}
+      <Route
+        path="/gcp-cost"
+        element={
+          <ProtectedRoute>
+            <AuthenticatedLayout>
+              <GcpCostPage />
             </AuthenticatedLayout>
           </ProtectedRoute>
         }
@@ -266,6 +308,18 @@ const AppContent: React.FC = () => {
         }
       />
 
+      {/* GCP Waste Management Route (converted from gcp_waste.html) */}
+      <Route
+        path="/gcp-waste"
+        element={
+          <ProtectedRoute>
+            <AuthenticatedLayout>
+              <GcpWastePage />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
+
       {/* Rightsizing Route (converted from rightsizing.html) */}
       <Route
         path="/rightsizing"
@@ -278,6 +332,18 @@ const AppContent: React.FC = () => {
         }
       />
 
+      {/* GCP Rightsizing Route (converted from gcp_rightsizing.html) */}
+      <Route
+        path="/gcp-rightsizing"
+        element={
+          <ProtectedRoute>
+            <AuthenticatedLayout>
+              <GcpRightsizingPage />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
+
       {/* Reservation Management Route (converted from reservation.html) */}
       <Route
         path="/reservation"
@@ -285,6 +351,18 @@ const AppContent: React.FC = () => {
           <ProtectedRoute>
             <AuthenticatedLayout>
               <ReservationPage />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* GCP Reservations Route (converted from gcp_reservations.html) */}
+      <Route
+        path="/gcp-reservations"
+        element={
+          <ProtectedRoute>
+            <AuthenticatedLayout>
+              <GcpReservationsPage />
             </AuthenticatedLayout>
           </ProtectedRoute>
         }
@@ -338,6 +416,18 @@ const AppContent: React.FC = () => {
         }
       />
 
+      {/* GCP CloudK8s Route (GKE clusters) */}
+      <Route
+        path="/gcp-cloudk8s"
+        element={
+          <ProtectedRoute>
+            <AuthenticatedLayout>
+              <GcpCloudK8sPage />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
+
       {/* EKS Details Route (converted from eks-details.html) */}
       <Route
         path="/eks-details"
@@ -362,6 +452,18 @@ const AppContent: React.FC = () => {
         }
       />
 
+      {/* GCP Security Center Route (converted from gcp_security.html) */}
+      <Route
+        path="/gcp-security"
+        element={
+          <ProtectedRoute>
+            <AuthenticatedLayout>
+              <GcpSecurityPage />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
+
       {/* Performance Insights Route (converted from performance.html) */}
       <Route
         path="/performance"
@@ -374,6 +476,18 @@ const AppContent: React.FC = () => {
         }
       />
 
+      {/* GCP Performance Insights Route (converted from gcp_performance.html) */}
+      <Route
+        path="/gcp-performance"
+        element={
+          <ProtectedRoute>
+            <AuthenticatedLayout>
+              <GcpPerformancePage />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
+
       {/* Alerts Route (converted from alerts.html) */}
       <Route
         path="/alerts"
@@ -381,6 +495,18 @@ const AppContent: React.FC = () => {
           <ProtectedRoute>
             <AuthenticatedLayout>
               <AlertsPage />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* GCP Alerts Route */}
+      <Route
+        path="/gcp-alerts"
+        element={
+          <ProtectedRoute>
+            <AuthenticatedLayout>
+              <GcpAlertsPage />
             </AuthenticatedLayout>
           </ProtectedRoute>
         }

@@ -15,7 +15,9 @@ public class RootController {
     @GetMapping({ "/", "/login", "/unified-dashboard", "/dashboard", "/finops", "/cost", "/waste", "/rightsizing",
             "/reservation", "/cloudsitter", "/cloudlist", "/account-manager", "/security", "/performance", "/alerts",
             "/tickets", "/ticket-detail", "/cloudshell", "/add-account", "/devops-in-the-box", "/cicd-pipelines",
-            "/grafana-dashboard", "/cloudk8s", "/eks-details" })
+            "/grafana-dashboard", "/cloudk8s", "/eks-details",
+            "/gcp-dashboard", "/gcp-finops", "/gcp-cost", "/gcp-waste", "/gcp-rightsizing", "/gcp-reservations",
+            "/gcp-cloudk8s", "/gcp-security", "/gcp-performance", "/gcp-alerts" })
     public String redirectToFrontend() {
         // Redirect to Vite dev server during development
         return "redirect:http://localhost:5173/";

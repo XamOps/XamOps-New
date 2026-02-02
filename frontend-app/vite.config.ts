@@ -165,7 +165,7 @@ export default defineConfig({
         }
       },
       // General WebSocket proxy
-      '/xamops-ws': {
+      '/ws': {
         target: authTarget,
         ws: true,
         changeOrigin: true,

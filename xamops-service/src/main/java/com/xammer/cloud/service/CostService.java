@@ -195,7 +195,8 @@ public class CostService {
 
                 // Return mock data if mock mode is enabled
                 if (useMockData) {
-                        List<DetailedCostDto> mockResult = costMockService.getMockCostBreakdownByServiceAndRegion(accountId, startDate, endDate);
+                        List<DetailedCostDto> mockResult = costMockService
+                                        .getMockCostBreakdownByServiceAndRegion(accountId, startDate, endDate);
                         redisCache.put(cacheKey, mockResult, 60 * 6);
                         return CompletableFuture.completedFuture(mockResult);
                 }
@@ -271,7 +272,8 @@ public class CostService {
 
                 // Return mock data if mock mode is enabled
                 if (useMockData) {
-                        List<CostDto> mockResult = costMockService.getMockCostBreakdown(accountId, groupBy, tag, startDate, endDate);
+                        List<CostDto> mockResult = costMockService.getMockCostBreakdown(accountId, groupBy, tag,
+                                        startDate, endDate);
                         redisCache.put(cacheKey, mockResult, 10);
                         return CompletableFuture.completedFuture(mockResult);
                 }
@@ -346,7 +348,8 @@ public class CostService {
 
                 // Return mock data if mock mode is enabled
                 if (useMockData) {
-                        HistoricalCostDto mockResult = costMockService.getMockHistoricalCost(accountId, serviceName, regionName, days);
+                        HistoricalCostDto mockResult = costMockService.getMockHistoricalCost(accountId, serviceName,
+                                        regionName, days);
                         redisCache.put(cacheKey, mockResult, 10);
                         return CompletableFuture.completedFuture(mockResult);
                 }
@@ -453,7 +456,8 @@ public class CostService {
 
                 // Return mock data if mock mode is enabled
                 if (useMockData) {
-                        HistoricalCostDto mockResult = costMockService.getMockHistoricalCostForDimension(accountId, groupBy, dimensionValue, tagKey);
+                        HistoricalCostDto mockResult = costMockService.getMockHistoricalCostForDimension(accountId,
+                                        groupBy, dimensionValue, tagKey);
                         redisCache.put(cacheKey, mockResult, 10);
                         return CompletableFuture.completedFuture(mockResult);
                 }
@@ -519,7 +523,8 @@ public class CostService {
 
                 // Return mock data if mock mode is enabled
                 if (useMockData) {
-                        CostForecastDto mockResult = costMockService.getMockCostForecast(accountId, serviceName, periods);
+                        CostForecastDto mockResult = costMockService.getMockCostForecast(accountId, serviceName,
+                                        periods);
                         return CompletableFuture.completedFuture(mockResult);
                 }
 

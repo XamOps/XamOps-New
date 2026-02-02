@@ -122,6 +122,16 @@ public class SecurityConfig {
                                                                 new AntPathRequestMatcher("/cloudk8s"),
                                                                 new AntPathRequestMatcher("/eks-details"),
                                                                 new AntPathRequestMatcher("/terminal"),
+                                                                new AntPathRequestMatcher("/gcp-dashboard"),
+                                                                new AntPathRequestMatcher("/gcp-finops"),
+                                                                new AntPathRequestMatcher("/gcp-cost"),
+                                                                new AntPathRequestMatcher("/gcp-waste"),
+                                                                new AntPathRequestMatcher("/gcp-rightsizing"),
+                                                                new AntPathRequestMatcher("/gcp-reservations"),
+                                                                new AntPathRequestMatcher("/gcp-cloudk8s"),
+                                                                new AntPathRequestMatcher("/gcp-security"),
+                                                                new AntPathRequestMatcher("/gcp-performance"),
+                                                                new AntPathRequestMatcher("/gcp-alerts"),
 
                                                                 // Public APIs
                                                                 // new AntPathRequestMatcher("/api/ai/**"),
