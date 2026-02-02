@@ -1,35 +1,10 @@
-/**
- * LoginPage Component
- *
- * Converted from: index.html
- *
- * What changed:
- * - Migrated from vanilla HTML/JS to React with TypeScript
- * - Split UI into reusable components (LoginForm, ForgotPassword, etc.)
- * - Added proper type safety for all state and API calls
- * - Used React hooks (useState, useCallback) for state management
- * - Modern design with improved UX (you allowed design changes for index.html)
- *
- * What stayed the same:
- * - All API endpoints remain identical (/login, /api/auth/*)
- * - Same HTTP methods and request formats (URLSearchParams for login, query params for password reset)
- * - Same response handling and redirects
- * - Same credentials handling (cookies, sessionStorage for tenantId)
- * - All business logic preserved (3-step password reset flow, form validation)
- */
-
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import LoginForm from '../components/Login/LoginForm';
 import ForgotPassword from '../components/Login/ForgotPassword';
-import CloudProviderIcons from '../components/Login/CloudProviderIcons';
 import '../styles/login.css';
 
 const LoginPage: React.FC = () => {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
-
-  // Disabled: This was causing a redirect loop
-  // The ProtectedRoute component handles authentication checks
-  // If user is already logged in and tries to access /, they can just click "Unified Dashboard" link
 
   const handleToggleForgotPassword = useCallback(() => {
     setShowForgotPassword(true);
@@ -41,46 +16,84 @@ const LoginPage: React.FC = () => {
 
   return (
     <div className="login-container">
-      {/* Left Section - Visual with Cloud Provider Icons */}
-      <div className="left-section">
-        <div className="grid-background"></div>
-        <div className="shape shape-1"></div>
-        <div className="shape shape-2"></div>
-        <div className="shape shape-3"></div>
-        <CloudProviderIcons />
+      {/* Dynamic Background */}
+      <div className="bg-blur-circle circle-1"></div>
+      <div className="bg-blur-circle circle-2"></div>
+      <div className="grid-overlay"></div>
+
+      {/* Left Section - Branding & Value Props */}
+      <div className="visual-section">
+        <div className="brand-hero">
+          <div className="hero-tag">
+            <i className="fas fa-sparkles mr-2"></i>
+            Next-Gen Cloud Management
+          </div>
+          <h1 className="hero-title">
+            Optimize your <br />
+            <span className="hero-gradient">Cloud Operations</span>
+          </h1>
+          <p className="hero-subtitle">
+            Enterprise-grade FinOps and DevOps platform. <br />
+            Manage AWS, Azure, and GCP with precision and ease.
+          </p>
+
+          <div className="feature-glass-grid">
+            <div className="feature-pill">
+              <div className="pill-icon">
+                <i className="fas fa-chart-line text-white"></i>
+              </div>
+              <span className="pill-text">Cost Analytics</span>
+            </div>
+            <div className="feature-pill">
+              <div className="pill-icon">
+                <i className="fas fa-bolt text-white"></i>
+              </div>
+              <span className="pill-text">Smart Automation</span>
+            </div>
+            <div className="feature-pill">
+              <div className="pill-icon">
+                <i className="fas fa-shield-alt text-white"></i>
+              </div>
+              <span className="pill-text">Security Ops</span>
+            </div>
+            <div className="feature-pill">
+              <div className="pill-icon">
+                <i className="fas fa-sync text-white"></i>
+              </div>
+              <span className="pill-text">CI/CD Control</span>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* Right Section - Form */}
-      <div className="right-section">
-        <div className="form-container">
+      {/* Right Section - Login/Forgot Password Card */}
+      <div className="form-section">
+        <div className="glass-card">
           {!showForgotPassword ? (
             <>
-              {/* Logo Section */}
-              <div className="logo-section">
+              <div className="brand-header">
+                <span className="welcome-label">Welcome to</span>
                 <h1 className="brand-title">
-                  <span className="welcome-text">Welcome to</span>
-                  <br />
-                  <span className="brand-gradient">XamOps</span>
-                  <sup className="beta-badge">beta</sup>
+                  XamOps <span className="beta-badge">BETA</span>
                 </h1>
                 <p className="brand-subtitle">Cloud FinOps & DevOps Platform</p>
+                <p className="form-instruction">Please enter your details to sign in</p>
               </div>
 
-              {/* Login Form */}
               <LoginForm onForgotPassword={handleToggleForgotPassword} />
             </>
           ) : (
-            /* Forgot Password Flow */
             <ForgotPassword onBackToLogin={handleBackToLogin} />
           )}
 
-          {/* Footer */}
-          <div className="form-footer">
+          <div className="footer-note">
             <p className="footer-text">
-              Already logged in? <a href="/unified-dashboard" className="forgot-link">Go to Dashboard →</a>
+              Already logged in? <a href="/unified-dashboard" className="text-link">Go to Dashboard →</a>
             </p>
-            <p className="footer-text">Secure • Compliant • Enterprise Ready</p>
-            <p className="footer-text footer-copyright">
+            <p className="footer-text mt-2">
+              Secure • Compliant • <span className="footer-highlight">Enterprise Ready</span>
+            </p>
+            <p className="footer-text mt-1 opacity-50">
               © 2025 Xammer. All rights reserved.
             </p>
           </div>

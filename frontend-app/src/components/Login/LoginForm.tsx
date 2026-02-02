@@ -14,20 +14,20 @@ const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword }) => {
   const navigate = useNavigate();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const togglePasswordVisibility = () => {
+    setShowPassword(!showPassword);
+  };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
     setIsLoading(true);
 
-    console.log('🔵 Login attempt started');
-    console.log('📧 Username:', username);
-    console.log('🍪 Cookies before login:', document.cookie);
-
-    // Create FormData exactly as the original code does
     const formData = new URLSearchParams();
     formData.append('username', username);
     formData.append('password', password);
@@ -36,7 +36,6 @@ const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword }) => {
     }
 
     try {
-      // Use the exact same endpoint and configuration as the original
       const response = await fetch('/login', {
         method: 'POST',
         body: formData,
@@ -44,38 +43,21 @@ const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword }) => {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       });
 
-      console.log('📡 Response status:', response.status);
-      console.log('📡 Response URL:', response.url);
-      console.log('🍪 Cookies after login:', document.cookie);
-
-      // Check if redirected to login?error (authentication failed)
       if (response.url.includes('/login?error')) {
         throw new Error('Invalid username or password');
       }
 
       if (response.ok) {
         const contentType = response.headers.get('content-type');
-        console.log('✅ Login successful!');
-        console.log('📄 Content-Type:', contentType);
-
-        if (contentType && contentType.includes('application/json')) {
+        if (contentType?.includes('application/json')) {
           const data: LoginResponse = await response.json();
-          console.log('📦 Response data:', data);
-
           if (data.tenantId) {
             sessionStorage.setItem('selectedTenantId', data.tenantId);
-            console.log('💾 Saved tenantId:', data.tenantId);
           }
-
-          // Use navigate instead of window.location to avoid full page reload
-          console.log('🔄 Redirecting to /unified-dashboard...');
-          // Small delay to ensure cookies are set
           setTimeout(() => {
             navigate('/unified-dashboard', { replace: true });
           }, 200);
         } else {
-          // If response is not JSON, navigate to unified dashboard
-          console.log('🔄 Redirecting to /unified-dashboard (non-JSON response)...');
           setTimeout(() => {
             navigate('/unified-dashboard', { replace: true });
           }, 200);
@@ -84,7 +66,6 @@ const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword }) => {
         throw new Error(`Authentication failed: Status ${response.status}`);
       }
     } catch (err) {
-      console.error('❌ Login error:', err);
       setError(err instanceof Error ? err.message : 'Invalid credentials. Please verify and try again.');
       setIsLoading(false);
     }
@@ -94,29 +75,29 @@ const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword }) => {
     <>
       {/* Error Alert */}
       {error && (
-        <div className="error-alert" role="alert">
+        <div className="error-box" role="alert">
           <i className="fas fa-exclamation-triangle"></i>
           <div className="error-alert-content">
-            <h4>Authentication Failed</h4>
-            <p>{error}</p>
+            <h4 className="error-title">Access Denied</h4>
+            <p className="error-msg">{error}</p>
           </div>
         </div>
       )}
 
       {/* Login Form */}
-      <form onSubmit={handleSubmit} id="loginForm">
+      <form onSubmit={handleSubmit} id="loginForm" className="form-stack">
         <div className="input-group">
-          <label htmlFor="username" className="input-label">
-            Username
+          <label htmlFor="username" className="label-text">
+            Username or Email
           </label>
-          <div className="input-wrapper">
-            <i className="fas fa-user input-icon"></i>
+          <div className="input-container">
+            <i className="fas fa-user-circle input-icon-left"></i>
             <input
               type="text"
               id="username"
               name="username"
-              className="form-input"
-              placeholder="Enter your username"
+              className="input-field"
+              placeholder="name@company.com"
               required
               autoFocus
               value={username}
@@ -126,57 +107,67 @@ const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword }) => {
         </div>
 
         <div className="input-group">
-          <label htmlFor="password" className="input-label">
-            Password
-          </label>
-          <div className="input-wrapper">
-            <i className="fas fa-lock input-icon"></i>
+          <div className="label-row">
+            <label htmlFor="password" className="label-text">
+              Security Password
+            </label>
+            <button
+              type="button"
+              onClick={onForgotPassword}
+              className="text-link"
+              style={{ fontSize: '0.8125rem' }}
+            >
+              Recover Password
+            </button>
+          </div>
+          <div className="input-container">
+            <i className="fas fa-key-skeleton input-icon-left"></i>
             <input
-              type="password"
+              type={showPassword ? 'text' : 'password'}
               id="password"
               name="password"
-              className="form-input"
-              placeholder="Enter your password"
+              className="input-field pr-12"
+              placeholder="••••••••"
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
+            <button
+              type="button"
+              className="password-toggle-btn"
+              onClick={togglePasswordVisibility}
+              aria-label={showPassword ? "Hide password" : "Show password"}
+            >
+              <i className={`fas ${showPassword ? 'fa-eye-slash' : 'fa-eye'}`}></i>
+            </button>
           </div>
         </div>
 
-        <div className="form-row">
-          <label className="checkbox-label">
+        <div className="options-row mb-2">
+          <label className="checkbox-wrap">
             <input
               type="checkbox"
-              className="checkbox-input"
+              className="hidden-checkbox"
               id="rememberMe"
               name="rememberMe"
               checked={rememberMe}
               onChange={(e) => setRememberMe(e.target.checked)}
             />
-            <span>Remember me</span>
+            <span>Stay signed in for smoother access</span>
           </label>
-          <button
-            type="button"
-            onClick={onForgotPassword}
-            className="forgot-link"
-          >
-            Forgot password?
-          </button>
         </div>
 
-        <button type="submit" className="btn-primary" disabled={isLoading}>
+        <button type="submit" className="submit-btn shimmer-effect" disabled={isLoading}>
           {isLoading ? (
             <>
-              <span>Authenticating...</span>
-              <span className="loading-dots">
-                <span></span>
-                <span></span>
-                <span></span>
-              </span>
+              <div className="loading-ring"></div>
+              <span>Verifying Identity...</span>
             </>
           ) : (
-            <span>Sign In</span>
+            <>
+              <span>Authorize & Sign In</span>
+              <i className="fas fa-shield-check ml-2"></i>
+            </>
           )}
         </button>
       </form>
