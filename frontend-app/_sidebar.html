@@ -639,21 +639,18 @@
             }
         } else {
             switch (provider) {
-                case 'GCP': targetPage = '/gcp_dashboard.html'; break;
-                case 'Azure': targetPage = '/azure_dashboard.html'; break;
-                case 'AWS': default: targetPage = '/dashboard.html'; break;
+                case 'GCP': targetPage = '/gcp-dashboard'; break;
+                case 'Azure': targetPage = '/dashboard'; break;
+                case 'AWS': default: targetPage = '/dashboard'; break;
             }
 
             // Exception: Allow CloudShell to stay on page (supports soft nav)
-            if (window.location.pathname === '/cloudshell.html') {
-                targetPage = '/cloudshell.html';
+            if (window.location.pathname === '/cloudshell') {
+                targetPage = '/cloudshell';
             }
             // Exception: Allow CloudList to stay on page (supports soft nav via account-changed event)
-            if (window.location.pathname.includes('cloudlist.html')) {
-                // Determine the correct cloudlist page based on provider
-                if (provider === 'GCP') targetPage = '/gcp_cloudlist.html';
-                else if (provider === 'Azure') targetPage = '/azure_cloudlist.html';
-                else targetPage = '/cloudlist.html';
+            if (window.location.pathname.includes('cloudlist')) {
+                targetPage = '/cloudlist';
             }
         }
         console.log('[Sidebar] Target Page:', targetPage);
@@ -903,7 +900,7 @@
 }">
 
     <div class="flex-shrink-0 flex items-center justify-center h-16 border-b bg-white">
-        <a href="/unified-dashboard.html" class="nav-item"><img src="/icons/xlogo.png" alt="XamOps Logo"
+        <a href="/unified-dashboard" class="nav-item"><img src="/icons/xlogo.png" alt="XamOps Logo"
                 class="h-40 w-100"></a>
     </div>
 

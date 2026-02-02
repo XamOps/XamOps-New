@@ -5,7 +5,8 @@
  * Converted from: _sidebar.html (account management logic)
  */
 
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode, useMemo, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import apiClient from '../utils/apiClient';
 import { Account, CloudProvider } from '../types/account';
 
@@ -48,6 +49,9 @@ interface AccountContextValue {
 const AccountContext = createContext<AccountContextValue | undefined>(undefined);
 
 export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const location = useLocation();
+  const navigate = useNavigate();
+
   // Load from cache immediately to prevent flicker
   const [accounts, setAccounts] = useState<Account[]>(() => {
     const cached = sessionStorage.getItem('cached_accounts');
@@ -72,20 +76,19 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [isBillingPage, setIsBillingPage] = useState<boolean>(false);
 
   // Initialization guard to prevent double mounting in React Strict Mode
-  const initializedRef = React.useRef(false);
+  const initializedRef = useRef(false);
 
   /**
    * Check current page type
    */
   const checkCurrentPage = useCallback(() => {
-    const path = window.location.pathname;
+    const path = location.pathname;
     setIsDashboardPage(path.includes('dashboard'));
-    setIsBillingPage(path.includes('billing'));
-  }, []);
+    setIsBillingPage(path.includes('billing') || path.includes('finops'));
+  }, [location.pathname]);
 
   /**
    * Fetch accounts from backend
-   * Note: This function should not trigger re-renders or loops
    */
   const fetchAccounts = useCallback(async () => {
     setIsLoading(true);
@@ -105,15 +108,68 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
         setSelectedAccountIds([firstId]);
         setTempSelectedAccounts([firstId]);
         sessionStorage.setItem('selectedAccountIds', JSON.stringify([firstId]));
-        // Note: Don't auto-apply on unified-dashboard React page 
-        // The page doesn't need account-specific navigation
       }
     } catch (err) {
       console.error('Failed to fetch accounts:', err);
     } finally {
       setIsLoading(false);
     }
-  }, []); // No dependencies to prevent re-creation
+  }, []);
+
+  /**
+   * Initialize on mount
+   */
+  useEffect(() => {
+    if (initializedRef.current) return;
+    initializedRef.current = true;
+
+    console.log('🚀 Account Context Init - Starting...');
+    checkCurrentPage();
+    fetchAccounts();
+
+    // Listen for account changes from legacy scripts
+    const handleAccountChangedEvent = () => {
+      console.log('🔄 Account changed event received, fetching accounts...');
+      fetchAccounts();
+    };
+    globalThis.addEventListener('account-changed', handleAccountChangedEvent);
+
+    return () => {
+      globalThis.removeEventListener('account-changed', handleAccountChangedEvent);
+    };
+  }, [checkCurrentPage, fetchAccounts]);
+
+  /**
+   * Handle browser back/forward buttons (PopState)
+   */
+  useEffect(() => {
+    const handlePopState = () => {
+      console.log('[AccountContext] Popstate event detected:', globalThis.location.href);
+      const urlParams = new URLSearchParams(globalThis.location.search);
+      const urlAccountIds = urlParams.get('accountIds');
+      const urlAccountId = urlParams.get('accountId');
+      const urlProjectId = urlParams.get('projectId');
+
+      let recoveredIds: string[] = [];
+      if (urlAccountIds) {
+        recoveredIds = urlAccountIds.split(',');
+      } else if (urlAccountId) {
+        recoveredIds = [urlAccountId];
+      } else if (urlProjectId) {
+        recoveredIds = [urlProjectId];
+      }
+
+      if (recoveredIds.length > 0) {
+        console.log('[AccountContext] Restoring selection from history:', recoveredIds);
+        setSelectedAccountIds(recoveredIds);
+        setTempSelectedAccounts(recoveredIds);
+        sessionStorage.setItem('selectedAccountIds', JSON.stringify(recoveredIds));
+      }
+    };
+
+    globalThis.addEventListener('popstate', handlePopState);
+    return () => globalThis.removeEventListener('popstate', handlePopState);
+  }, []);
 
   /**
    * Toggle account selection
@@ -123,13 +179,15 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
       const account = accounts.find(a => a.id === accountId);
       if (!account) return;
 
-      // Check if account is disabled
-      if (isAccountDisabled(accountId)) {
+      // Check for provider mismatch in multi-mode
+      if (multiAccountMode && isDashboardPage && tempSelectedAccounts.length > 0) {
         const firstAccount = accounts.find(a => a.id === tempSelectedAccounts[0]);
-        alert(
-          `Cannot select ${account.provider} accounts. You have already selected ${firstAccount?.provider} accounts. Please clear your selection first.`
-        );
-        return;
+        if (firstAccount && account.provider !== firstAccount.provider) {
+          alert(
+            `Cannot select ${account.provider} accounts. You have already selected ${firstAccount.provider} accounts. Please clear your selection first.`
+          );
+          return;
+        }
       }
 
       if (multiAccountMode && isDashboardPage) {
@@ -150,35 +208,21 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
     [accounts, tempSelectedAccounts, multiAccountMode, isDashboardPage]
   );
 
-  /**
-   * Check if account should be disabled (different provider in multi-account mode)
-   */
   const isAccountDisabled = useCallback(
     (accountId: string): boolean => {
-      if (!multiAccountMode || !isDashboardPage) return false;
-      if (tempSelectedAccounts.length === 0) return false;
-
+      if (!multiAccountMode || !isDashboardPage || tempSelectedAccounts.length === 0) return false;
       const account = accounts.find(a => a.id === accountId);
       const firstAccount = accounts.find(a => a.id === tempSelectedAccounts[0]);
-
       return !!(account && firstAccount && account.provider !== firstAccount.provider);
     },
     [accounts, tempSelectedAccounts, multiAccountMode, isDashboardPage]
   );
 
-  /**
-   * Check if account is selected
-   */
   const isAccountSelected = useCallback(
-    (accountId: string): boolean => {
-      return tempSelectedAccounts.includes(accountId);
-    },
+    (accountId: string): boolean => tempSelectedAccounts.includes(accountId),
     [tempSelectedAccounts]
   );
 
-  /**
-   * Select all AWS accounts
-   */
   const selectAllAws = useCallback(() => {
     const awsIds = accounts
       .filter(acc => acc.provider === 'AWS')
@@ -187,9 +231,6 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
     setTempSelectedAccounts(awsIds);
   }, [accounts]);
 
-  /**
-   * Select all GCP accounts
-   */
   const selectAllGcp = useCallback(() => {
     const gcpIds = accounts
       .filter(acc => acc.provider === 'GCP')
@@ -198,9 +239,6 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
     setTempSelectedAccounts(gcpIds);
   }, [accounts]);
 
-  /**
-   * Select all Azure accounts
-   */
   const selectAllAzure = useCallback(() => {
     const azureIds = accounts
       .filter(acc => acc.provider === 'Azure')
@@ -209,19 +247,13 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
     setTempSelectedAccounts(azureIds);
   }, [accounts]);
 
-  /**
-   * Clear all selections
-   */
-  const clearAllSelections = useCallback(() => {
-    setTempSelectedAccounts([]);
-  }, []);
+  const clearAllSelections = useCallback(() => setTempSelectedAccounts([]), []);
 
   /**
-   * Apply selection and navigate
-   * This is the core navigation logic from the original sidebar
+   * Apply selection and navigate using React Router (Soft Navigation)
    */
   const applySelection = useCallback(() => {
-    console.log('[Sidebar] applySelection called');
+    console.log('[AccountContext] applySelection called');
     if (tempSelectedAccounts.length === 0) {
       alert('Please select at least one account');
       return;
@@ -231,109 +263,20 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
     sessionStorage.setItem('selectedAccountIds', JSON.stringify(tempSelectedAccounts));
     sessionStorage.setItem('multiAccountMode', String(multiAccountMode));
 
-    // Determine provider context
     const firstSelectedId = tempSelectedAccounts[0];
     const account = accounts.find(a => a.id === firstSelectedId);
     const provider = account?.provider || 'AWS';
-    console.log('[Sidebar] Selected Provider:', provider);
 
-    // Determine target page based on role and provider
-    let targetPage: string;
-    const isBillOpsUser = false; // This should come from useAuth, but we'll handle it in the component
+    // Determine target page
+    let targetPage = '/dashboard';
+    if (provider === 'GCP') targetPage = '/gcp-dashboard';
 
-    if (isBillOpsUser) {
-      switch (provider) {
-        case 'GCP':
-          targetPage = '/billops/gcp-billing.html';
-          break;
-        case 'Azure':
-          targetPage = '/billops/azure-billing.html';
-          break;
-        case 'AWS':
-        default:
-          targetPage = '/billops/billing.html';
-          break;
-      }
-    } else {
-      // List of routes that have been converted to React
-      const reactRoutes = [
-        '/dashboard',
-        '/unified-dashboard',
-        '/cloudshell',
-        '/cloudlist',
-        '/finops',
-        '/cost',
-        '/waste',
-        '/rightsizing',
-        '/reservation',
-        '/cloudsitter',
-        '/spot-automation',
-        '/grafana-dashboard',
-        '/cloudk8s',
-        '/eks-details',
-        '/security',
-        '/performance',
-        '/alerts',
-        '/tickets',
-        '/ticket-detail',
-        '/account-manager',
-        '/billops-dashboard',
-        '/billops-billing',
-        '/gcp-dashboard',
-        '/gcp-finops',
-        '/gcp-cost',
-        '/gcp-waste'
-      ];
-
-      const currentPath = window.location.pathname;
-      const isReactRoute = reactRoutes.some(route => currentPath === route || currentPath.startsWith(route + '/'));
-
-      if (isReactRoute) {
-        targetPage = currentPath; // Stay on React route
-      } else {
-        // Default to HTML pages based on provider
-        switch (provider) {
-          case 'GCP':
-            targetPage = '/gcp_dashboard.html';
-            break;
-          case 'Azure':
-            targetPage = '/azure_dashboard.html';
-            break;
-          case 'AWS':
-          default:
-            targetPage = '/dashboard.html';
-            break;
-        }
-
-        // Exceptions for special pages (legacy compatibility)
-        if (window.location.pathname === '/cloudshell.html') {
-          targetPage = '/cloudshell.html';
-        }
-        if (window.location.pathname.includes('cloudlist.html')) {
-          if (provider === 'GCP') targetPage = '/gcp_cloudlist.html';
-          else if (provider === 'Azure') targetPage = '/azure_cloudlist.html';
-          else targetPage = '/cloudlist.html';
-        }
-      }
+    // If on a specialized page, stay there
+    if (location.pathname.includes('billing') || location.pathname.includes('finops') || location.pathname.includes('cloudlist')) {
+      targetPage = location.pathname;
     }
 
-    console.log('[Sidebar] Target Page:', targetPage);
-
-    // Handle multi-account mode with soft navigation
-    if (multiAccountMode && tempSelectedAccounts.length > 1 && isDashboardPage) {
-      if (window.location.pathname === targetPage) {
-        console.log('[Sidebar] Multi-account soft update. Dispatching event.');
-        window.dispatchEvent(
-          new CustomEvent('multi-account-selection-changed', {
-            detail: { accountIds: tempSelectedAccounts },
-          })
-        );
-        return;
-      }
-    }
-
-    // Construct URL
-    const urlParams = new URLSearchParams();
+    const urlParams = new URL(globalThis.location.href).searchParams;
     urlParams.set('accountIds', tempSelectedAccounts.join(','));
 
     if (account && tempSelectedAccounts.length === 1) {
@@ -347,157 +290,58 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
 
     const targetUrl = `${targetPage}?${urlParams.toString()}`;
-    console.log('[Sidebar] Constructed Target URL:', targetUrl);
 
-    // Smart navigation check
-    if (window.location.pathname === targetPage) {
-      console.log('[Sidebar] Soft navigation detected. Updating state and dispatching account-changed.');
-      window.history.pushState(null, '', targetUrl);
-      window.dispatchEvent(
-        new CustomEvent('account-changed', {
-          detail: { accountId: firstSelectedId, accountIds: tempSelectedAccounts },
-        })
-      );
+    if (location.pathname === targetPage) {
+      console.log('[AccountContext] Soft navigation same page. Updating URL.');
+      navigate(targetUrl, { replace: true });
+      globalThis.dispatchEvent(new CustomEvent('account-changed', {
+        detail: { accountId: firstSelectedId, accountIds: tempSelectedAccounts }
+      }));
     } else {
-      console.log('[Sidebar] Hard navigation required. Redirecting...');
-      window.location.href = targetUrl;
+      console.log('[AccountContext] Navigating to:', targetPage);
+      navigate(targetUrl);
     }
-  }, [tempSelectedAccounts, accounts, multiAccountMode, isDashboardPage]);
+  }, [tempSelectedAccounts, accounts, multiAccountMode, location.pathname, navigate]);
 
-  /**
-   * Toggle multi-account mode
-   */
   const toggleMultiAccountMode = useCallback(() => {
     setMultiAccountMode(prev => !prev);
-  }, []);
+    sessionStorage.setItem('multiAccountMode', String(!multiAccountMode));
+  }, [multiAccountMode]);
 
-  /**
-   * Get provider icon
-   */
   const getProviderIcon = useCallback((provider: CloudProvider): string => {
     switch (provider) {
-      case 'GCP':
-        return '/icons/gcp-icon.png';
-      case 'Azure':
-        return '/icons/azure-icon.png';
-      case 'AWS':
-      default:
-        return '/icons/default-icon.png';
+      case 'GCP': return '/icons/gcp-icon.png';
+      case 'Azure': return '/icons/azure-icon.png';
+      default: return '/icons/aws-icon.png';
     }
   }, []);
 
   // Computed values
-  const selectedAccountDisplay = React.useMemo(() => {
-    if (selectedAccountIds.length === 0) {
-      return {
-        name: 'Select Accounts',
-        id: accounts.length === 0 && !isLoading ? 'No accounts connected' : 'No account selected',
-      };
-    }
-    if (selectedAccountIds.length === 1) {
-      const account = accounts.find(a => a.id === selectedAccountIds[0]);
-      return {
-        name: account?.name || 'Loading...',
-        id: account?.id || '',
-        provider: account?.provider || 'AWS',
-      };
-    }
-
-    const firstAccount = accounts.find(a => a.id === selectedAccountIds[0]);
-    const provider = firstAccount?.provider || 'AWS';
-    return {
-      name: `${selectedAccountIds.length} ${provider} Accounts`,
-      id: 'Multi-Account View',
-      provider: provider,
-    };
-  }, [selectedAccountIds, accounts, isLoading]);
-
-  const filteredAccounts = React.useMemo(() => {
-    if (searchTerm === '') return accounts;
+  const filteredAccounts = useMemo(() => {
+    if (!searchTerm) return accounts;
     const term = searchTerm.toLowerCase();
-    return accounts.filter(
-      account =>
-        account.name.toLowerCase().includes(term) ||
-        (account.id && account.id.toLowerCase().includes(term))
+    return accounts.filter(acc =>
+      acc.name.toLowerCase().includes(term) || acc.id.toLowerCase().includes(term)
     );
   }, [accounts, searchTerm]);
 
-  const awsAccounts = React.useMemo(
-    () => filteredAccounts.filter(acc => acc.provider === 'AWS'),
-    [filteredAccounts]
-  );
+  const awsAccounts = useMemo(() => filteredAccounts.filter(a => a.provider === 'AWS'), [filteredAccounts]);
+  const gcpAccounts = useMemo(() => filteredAccounts.filter(a => a.provider === 'GCP'), [filteredAccounts]);
+  const azureAccounts = useMemo(() => filteredAccounts.filter(a => a.provider === 'Azure'), [filteredAccounts]);
 
-  const gcpAccounts = React.useMemo(
-    () => filteredAccounts.filter(acc => acc.provider === 'GCP'),
-    [filteredAccounts]
-  );
-
-  const azureAccounts = React.useMemo(
-    () => filteredAccounts.filter(acc => acc.provider === 'Azure'),
-    [filteredAccounts]
-  );
-
-  // Initialize on mount - with guard for React Strict Mode
-  useEffect(() => {
-    // Guard against double initialization
-    if (initializedRef.current) {
-      return;
+  const selectedAccountDisplay = useMemo(() => {
+    if (selectedAccountIds.length === 0) {
+      return { name: 'Select Accounts', id: accounts.length === 0 && !isLoading ? 'No accounts connected' : 'No account selected' };
     }
-    initializedRef.current = true;
+    if (selectedAccountIds.length > 1) {
+      const firstAcc = accounts.find(a => a.id === selectedAccountIds[0]);
+      return { name: `${selectedAccountIds.length} ${firstAcc?.provider || ''} Accounts`, id: 'Multi-Account View', provider: firstAcc?.provider };
+    }
+    const acc = accounts.find(a => a.id === selectedAccountIds[0]);
+    return { name: acc?.name || 'Selected Account', id: acc?.id || selectedAccountIds[0], provider: acc?.provider };
+  }, [accounts, selectedAccountIds, isLoading]);
 
-    console.log('🚀 Account Context Init - Starting...');
-    checkCurrentPage();
-    fetchAccounts();
-
-    // Listen for account changes
-    const handleAccountChanged = () => {
-      console.log('🔄 Account changed event received, fetching accounts...');
-      fetchAccounts();
-    };
-    window.addEventListener('account-changed', handleAccountChanged);
-
-    // Handle browser back/forward buttons
-    const handlePopState = () => {
-      console.log('[AccountContext] Popstate event detected:', window.location.href);
-      const urlParams = new URLSearchParams(window.location.search);
-      const urlAccountIds = urlParams.get('accountIds');
-      const urlAccountId = urlParams.get('accountId');
-      const urlProjectId = urlParams.get('projectId');
-
-      let recoveredIds: string[] = [];
-      if (urlAccountIds) {
-        recoveredIds = urlAccountIds.split(',');
-      } else if (urlAccountId) {
-        recoveredIds = [urlAccountId];
-      } else if (urlProjectId) {
-        recoveredIds = [urlProjectId];
-      }
-
-      if (recoveredIds.length > 0) {
-        console.log('[AccountContext] Restoring selection from history:', recoveredIds);
-        setSelectedAccountIds(recoveredIds);
-        setTempSelectedAccounts(recoveredIds);
-        sessionStorage.setItem('selectedAccountIds', JSON.stringify(recoveredIds));
-
-        window.dispatchEvent(
-          new CustomEvent('account-changed', {
-            detail: {
-              accountId: recoveredIds[0],
-              accountIds: recoveredIds,
-            },
-          })
-        );
-      }
-    };
-    window.addEventListener('popstate', handlePopState);
-
-    return () => {
-      window.removeEventListener('account-changed', handleAccountChanged);
-      window.removeEventListener('popstate', handlePopState);
-    };
-  }, []); // Empty dependency array - only run on mount
-
-  const value: AccountContextValue = {
+  const value = useMemo(() => ({
     accounts,
     selectedAccountIds,
     tempSelectedAccounts,
@@ -523,18 +367,27 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
     toggleMultiAccountMode,
     setSearchTerm,
     getProviderIcon,
-  };
+  }), [
+    accounts, selectedAccountIds, tempSelectedAccounts, multiAccountMode, searchTerm, isLoading,
+    isDashboardPage, isBillingPage, selectedAccountDisplay, filteredAccounts, awsAccounts,
+    gcpAccounts, azureAccounts, fetchAccounts, toggleAccount, isAccountDisabled, isAccountSelected,
+    selectAllAws, selectAllGcp, selectAllAzure, clearAllSelections, applySelection,
+    toggleMultiAccountMode, getProviderIcon,
+  ]);
 
-  return <AccountContext.Provider value={value}>{children}</AccountContext.Provider>;
+  return (
+    <AccountContext.Provider value={value}>
+      {children}
+    </AccountContext.Provider>
+  );
 };
 
-/**
- * Custom hook to use account context
- */
 export const useAccounts = () => {
   const context = useContext(AccountContext);
-  if (!context) {
-    throw new Error('useAccounts must be used within AccountProvider');
+  if (context === undefined) {
+    throw new Error('useAccounts must be used within an AccountProvider');
   }
   return context;
 };
+
+export default AccountProvider;
