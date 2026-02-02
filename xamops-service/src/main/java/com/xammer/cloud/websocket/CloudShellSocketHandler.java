@@ -160,61 +160,62 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
         log.info("Setting up GCP shell for project: {}", projectId);
         String encodedKey = Base64.getEncoder().encodeToString(serviceAccountKey.getBytes());
 
-        String bashCommand = String.format(
+        // Use environment variables for project ID to prevent shell injection
+        String bashCommand =
                 "echo \"$GCP_KEY_B64\" | base64 -d > /tmp/gcp_key.json && " +
                         "gcloud auth activate-service-account --key-file=/tmp/gcp_key.json --quiet && " +
-                        "gcloud config set project %s --quiet && " +
+                        "gcloud config set project \"$GCP_PROJECT\" --quiet && " +
                         "rm -f /tmp/gcp_key.json && " +
                         "echo '' && " +
-                        "echo 'Authenticated to GCP Project: %s' && " +
+                        "echo \"Authenticated to GCP Project: $GCP_PROJECT\" && " +
                         "echo '' && " +
                         "export TMOUT=1800 && " + // 30 minute shell timeout
-                        "/bin/bash -i",
-                projectId, projectId);
+                        "/bin/bash -i";
 
         return new ProcessBuilder(
                 "docker", "run", "--rm", "-i",
                 "--memory=512m", "--cpus=0.5",
                 "-e", "GCP_KEY_B64=" + encodedKey,
+                "-e", "GCP_PROJECT=" + projectId,
                 "-e", "TMOUT=1800",
                 "shivam777707/xamops-shell:fixed-08-Dec",
                 "script", "-qfc", bashCommand, "/dev/null");
     }
 
     private ProcessBuilder setupAzureProcess(String sessionId, CloudAccount account) {
-    String clientId = account.getAzureClientId();
-    String clientSecret = account.getAzureClientSecret();
-    String tenantId = account.getAzureTenantId();
-    String subscriptionId = account.getAzureSubscriptionId();
+        String clientId = account.getAzureClientId();
+        String clientSecret = account.getAzureClientSecret();
+        String tenantId = account.getAzureTenantId();
+        String subscriptionId = account.getAzureSubscriptionId();
 
-    if (clientId == null || clientSecret == null || tenantId == null) {
-        throw new RuntimeException("Azure credentials not configured");
+        if (clientId == null || clientSecret == null || tenantId == null) {
+            throw new RuntimeException("Azure credentials not configured");
+        }
+
+        log.info("Setting up Azure shell for subscription: {}", subscriptionId);
+
+        // Use environment variables for subscription ID to prevent shell injection
+        String bashCommand =
+                "az login --service-principal -u \"$AZ_CLIENT\" -p \"$AZ_SECRET\" --tenant \"$AZ_TENANT\" --output none 2>/dev/null && " +
+                        "az account set --subscription \"$AZ_SUBSCRIPTION\" --output none 2>/dev/null && " +
+                        "echo '' && " +
+                        "echo -e \"\\033[1;32mAuthenticated to Azure Subscription: $AZ_SUBSCRIPTION\\033[0m\" && " +
+                        "echo '' && " +
+                        "export TMOUT=1800 && " +
+                        "export PS1='\\[\\e[1;32m\\]\\u@\\h\\[\\e[0m\\]:\\[\\e[1;34m\\]\\w\\[\\e[0m\\]# ' && " +
+                        "exec /bin/bash -i";
+
+        return new ProcessBuilder(
+                "docker", "run", "--rm", "-i",
+                "--memory=512m", "--cpus=0.5",
+                "-e", "AZ_CLIENT=" + clientId,
+                "-e", "AZ_SECRET=" + clientSecret,
+                "-e", "AZ_TENANT=" + tenantId,
+                "-e", "AZ_SUBSCRIPTION=" + subscriptionId,
+                "-e", "TMOUT=1800",
+                "shivam777707/xamops-shell:fixed-08-Dec",
+                "/bin/bash", "-c", bashCommand);
     }
-
-    log.info("Setting up Azure shell for subscription: {}", subscriptionId);
-
-    // Fixed: Use exec to replace the script process with bash, ensuring proper PTY handling
-    String bashCommand = String.format(
-            "az login --service-principal -u \"$AZ_CLIENT\" -p \"$AZ_SECRET\" --tenant \"$AZ_TENANT\" --output none 2>/dev/null && " +
-                    "az account set --subscription %s --output none 2>/dev/null && " +
-                    "echo '' && " +
-                    "echo '\033[1;32mAuthenticated to Azure Subscription: %s\033[0m' && " +
-                    "echo '' && " +
-                    "export TMOUT=1800 && " +
-                    "export PS1='\\[\\e[1;32m\\]\\u@\\h\\[\\e[0m\\]:\\[\\e[1;34m\\]\\w\\[\\e[0m\\]# ' && " +
-                    "exec /bin/bash -i",
-            subscriptionId, subscriptionId);
-
-    return new ProcessBuilder(
-            "docker", "run", "--rm", "-i",
-            "--memory=512m", "--cpus=0.5",
-            "-e", "AZ_CLIENT=" + clientId,
-            "-e", "AZ_SECRET=" + clientSecret,
-            "-e", "AZ_TENANT=" + tenantId,
-            "-e", "TMOUT=1800",
-            "shivam777707/xamops-shell:fixed-08-Dec",
-            "/bin/bash", "-c", bashCommand);
-}
 
     private void streamProcessOutput(Process process, WebSocketSession session) {
         try (InputStream is = process.getInputStream()) {
