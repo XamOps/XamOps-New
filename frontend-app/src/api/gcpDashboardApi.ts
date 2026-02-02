@@ -65,7 +65,7 @@ export const fetchGcpMultiAccountDashboardData = async (
     if (axios.isAxiosError(error)) {
       throw new Error(
         error.response?.data?.message ||
-          'Failed to fetch multi-account GCP dashboard data'
+        'Failed to fetch multi-account GCP dashboard data'
       );
     }
     throw error;
@@ -189,85 +189,85 @@ export const mapInventoryToResources = (
     {
       name: 'GCE Instances',
       type: 'Compute Engine',
-      icon: 'gcp-compute-engine.png',
+      icon: '/icons/gcp-compute-engine.png',
       count: inventory.gceInstances || 0,
     },
     {
       name: 'Cloud Storage Buckets',
       type: 'Cloud Storage',
-      icon: 'gcp-cloud-storage.png',
+      icon: '/icons/gcp-cloud-storage.png',
       count: inventory.cloudStorageBuckets || 0,
     },
     {
       name: 'Cloud SQL Instances',
       type: 'Cloud SQL',
-      icon: 'gcp-cloud-sql.png',
+      icon: '/icons/gcp-cloud-sql.png',
       count: inventory.cloudSqlInstances || 0,
     },
     {
       name: 'GKE Clusters',
       type: 'Kubernetes Engine',
-      icon: 'gcp-gke.png',
+      icon: '/icons/gcp-gke.png',
       count: inventory.gkeClusters || 0,
     },
     {
       name: 'VPC Networks',
       type: 'VPC Network',
-      icon: 'gcp-vpc.png',
+      icon: '/icons/gcp-vpc.png',
       count: inventory.vpcNetworks || 0,
     },
     {
       name: 'Cloud DNS Zones',
       type: 'Cloud DNS',
-      icon: 'gcp-cloud-dns.png',
+      icon: '/icons/gcp-cloud-dns.png',
       count: inventory.cloudDnsZones || 0,
     },
     {
       name: 'Load Balancers',
       type: 'Load Balancer',
-      icon: 'gcp-load-balancer.png',
+      icon: '/icons/gcp-load-balancer.png',
       count: inventory.loadBalancers || 0,
     },
     {
       name: 'Cloud NAT Gateways',
       type: 'Cloud NAT',
-      icon: 'gcp-nat.png',
+      icon: '/icons/gcp-nat.png',
       count: inventory.cloudNatGateways || 0,
     },
     {
       name: 'Artifact Repositories',
       type: 'Artifact Registry',
-      icon: 'gcp-artifact-registry.png',
+      icon: '/icons/gcp-artifact-registry.png',
       count: inventory.artifactRepositories || 0,
     },
     {
       name: 'KMS Keys',
       type: 'Cloud KMS',
-      icon: 'gcp-kms.png',
+      icon: '/icons/gcp-kms.png',
       count: inventory.kmsKeys || 0,
     },
     {
       name: 'Cloud Functions',
       type: 'Cloud Function',
-      icon: 'gcp-cloud-functions.png',
+      icon: '/icons/gcp-cloud-functions.png',
       count: inventory.cloudFunctions || 0,
     },
     {
       name: 'Cloud Build Triggers',
       type: 'Cloud Build',
-      icon: 'gcp-cloud-build.png',
+      icon: '/icons/gcp-cloud-build.png',
       count: inventory.cloudBuildTriggers || 0,
     },
     {
       name: 'Secrets',
       type: 'Secret Manager',
-      icon: 'gcp-secret-manager.png',
+      icon: '/icons/gcp-secret-manager.png',
       count: inventory.secrets || 0,
     },
     {
       name: 'Cloud Armor Policies',
       type: 'Cloud Armor',
-      icon: 'gcp-cloud-armor.png',
+      icon: '/icons/gcp-cloud-armor.png',
       count: inventory.cloudArmorPolicies || 0,
     },
   ];

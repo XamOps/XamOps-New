@@ -52,7 +52,10 @@ export const useGcpDashboardData = ({
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
 
   const refreshTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const isLoadingRef = useRef(false);
+  // Refs for stable execution
+  const isFetchingRef = useRef(false);
+  const previousAccountIdsRef = useRef<string[]>([]);
+  const initializedRef = useRef(false);
 
   // Get cache key
   const getCacheKey = useCallback(() => {
@@ -103,12 +106,12 @@ export const useGcpDashboardData = ({
         return;
       }
 
-      if (isLoadingRef.current) {
+      if (isFetchingRef.current && !forceRefresh) {
         console.log('🔷 GCP Dashboard: Already loading, skipping');
         return;
       }
 
-      isLoadingRef.current = true;
+      isFetchingRef.current = true;
       setLoading((prev) => ({ ...prev, global: true }));
       setError(null);
 
@@ -117,7 +120,7 @@ export const useGcpDashboardData = ({
         if (!forceRefresh) {
           const cachedData = loadFromCache();
           if (cachedData) {
-            console.log('🔷 GCP Dashboard: Loaded from cache', cachedData);
+            console.log('🔷 GCP Dashboard: Loaded from cache');
             setData(cachedData);
             setLoading({
               global: false,
@@ -127,7 +130,7 @@ export const useGcpDashboardData = ({
               optimization: false,
               map: false,
             });
-            isLoadingRef.current = false;
+            isFetchingRef.current = false;
             return;
           }
         }
@@ -137,30 +140,23 @@ export const useGcpDashboardData = ({
         let dashboardData: GcpDashboardData | GcpMultiAccountDashboardData;
 
         if (multiAccountMode && accountIds.length > 1) {
-          console.log('🔷 GCP Dashboard: Multi-account mode', accountIds);
           dashboardData = await fetchGcpMultiAccountDashboardData(accountIds);
         } else {
-          console.log('🔷 GCP Dashboard: Single account mode', accountIds[0]);
           dashboardData = await fetchGcpDashboardData(accountIds[0], forceRefresh);
         }
 
-        console.log('🔷 GCP Dashboard: Data received', dashboardData);
-
-        // Update state
         setData(dashboardData);
 
         let updateTimestamp: string | null = null;
         if (dashboardData) {
           if ('lastUpdated' in dashboardData) {
-            updateTimestamp = dashboardData.lastUpdated;
+            updateTimestamp = (dashboardData as any).lastUpdated;
           } else if ('aggregated' in dashboardData && dashboardData.aggregated) {
             updateTimestamp = dashboardData.aggregated.lastUpdated;
           }
         }
 
         setLastUpdated(updateTimestamp || new Date().toISOString());
-
-        // Save to cache
         saveToCache(dashboardData);
       } catch (err: any) {
         console.error('❌ GCP Dashboard: Failed to load data:', err);
@@ -178,7 +174,7 @@ export const useGcpDashboardData = ({
           optimization: false,
           map: false,
         });
-        isLoadingRef.current = false;
+        isFetchingRef.current = false;
       }
     },
     [accountIds, multiAccountMode, loadFromCache, saveToCache]
@@ -186,7 +182,7 @@ export const useGcpDashboardData = ({
 
   // Refresh handler
   const refresh = useCallback(async () => {
-    await loadDashboardData(false); // Note: forceRefresh is ignored by backend for security
+    await loadDashboardData(true);
   }, [loadDashboardData]);
 
   // Clear error
@@ -200,10 +196,6 @@ export const useGcpDashboardData = ({
       if (!data) return;
 
       console.log('📦 GCP Dashboard: Real-time inventory update received:', inventory);
-
-      // Update the dashboard data with new inventory
-      // Note: The inventory object from WebSocket may have different structure
-      // We'll refresh the data from cache or trigger a reload
       setLastUpdated(new Date().toISOString());
     },
     [data]
@@ -235,10 +227,22 @@ export const useGcpDashboardData = ({
     };
   }, [autoRefresh, refreshInterval, accountIds, loadDashboardData]);
 
-  // Initial load
+  // Initial load & account change guard
   useEffect(() => {
-    loadDashboardData(false);
-  }, [accountIds, multiAccountMode]);
+    if (accountIds.length > 0) {
+      const idsChanged = JSON.stringify(previousAccountIdsRef.current) !== JSON.stringify(accountIds);
+
+      if (idsChanged || !initializedRef.current) {
+        console.log('🔷 GCP Dashboard: Account changed or Initial load, fetching data...');
+        previousAccountIdsRef.current = [...accountIds];
+        initializedRef.current = true;
+        loadDashboardData(false);
+      }
+    } else {
+      setData(null);
+      setLoading(prev => ({ ...prev, global: false }));
+    }
+  }, [accountIds, multiAccountMode, loadDashboardData]);
 
   return {
     data,

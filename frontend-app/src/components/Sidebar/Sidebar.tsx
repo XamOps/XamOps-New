@@ -98,14 +98,29 @@ const Sidebar: React.FC = () => {
       return currentPath === '/cost' || currentPath === '/cost.html';
     }
 
+    // Special case: GCP Cost Management matches both React route and HTML
+    if (path === '/gcp-cost') {
+      return currentPath === '/gcp-cost' || currentPath === '/gcp_cost.html';
+    }
+
     // Special case: Waste Management matches both React route and HTML
     if (path === '/waste') {
       return currentPath === '/waste' || currentPath === '/waste.html';
     }
 
+    // Special case: GCP Waste Management matches both React route and HTML
+    if (path === '/gcp-waste') {
+      return currentPath === '/gcp-waste' || currentPath === '/gcp_waste.html';
+    }
+
     // Special case: Rightsizing matches both React route and HTML
     if (path === '/rightsizing') {
       return currentPath === '/rightsizing' || currentPath === '/rightsizing.html';
+    }
+
+    // Special case: GCP Rightsizing matches both React route and HTML
+    if (path === '/gcp-rightsizing') {
+      return currentPath === '/gcp-rightsizing' || currentPath === '/gcp_rightsizing.html';
     }
 
     // Special case: CloudList matches both React route and HTML
@@ -116,6 +131,11 @@ const Sidebar: React.FC = () => {
     // Special case: Reservation matches both React route and HTML
     if (path === '/reservation') {
       return currentPath === '/reservation' || currentPath === '/reservation.html';
+    }
+
+    // Special case: GCP Reservations matches both React route and HTML
+    if (path === '/gcp-reservations') {
+      return currentPath === '/gcp-reservations' || currentPath === '/gcp_reservations.html';
     }
 
     // Special case: CloudSitter matches both React route and HTML
@@ -138,7 +158,10 @@ const Sidebar: React.FC = () => {
       return (
         currentPath === '/cloudk8s' ||
         currentPath === '/cloudk8s.html' ||
-        currentPath.startsWith('/eks-details')
+        currentPath === '/gcp-cloudk8s' ||
+        currentPath === '/gcp_cloudk8s.html' ||
+        currentPath.startsWith('/eks-details') ||
+        currentPath.startsWith('/gke-details')
       );
     }
 
@@ -147,14 +170,34 @@ const Sidebar: React.FC = () => {
       return currentPath === '/security' || currentPath === '/security.html';
     }
 
+    // Special case: GCP Security matches both React route and HTML
+    if (path === '/gcp-security') {
+      return currentPath === '/gcp-security' || currentPath === '/gcp_security.html';
+    }
+
     // Special case: ComplianceOps matches both React route and HTML
     if (path === '/complianceops') {
       return currentPath === '/complianceops' || currentPath === '/complianceops.html';
     }
 
+    // Special case: FinOps matches both React route and HTML
+    if (path === '/finops') {
+      return currentPath === '/finops' || currentPath === '/finops.html';
+    }
+
+    // Special case: GCP FinOps matches both React route and HTML
+    if (path === '/gcp-finops') {
+      return currentPath === '/gcp-finops' || currentPath === '/gcp_finops.html';
+    }
+
     // Special case: Performance matches both React route and HTML
     if (path === '/performance') {
-      return currentPath === '/performance' || currentPath === '/performance.html';
+      return currentPath === '/performance' || currentPath === '/performance.html' || currentPath === '/gcp-performance' || currentPath === '/gcp_performance.html';
+    }
+
+    // Special case: GCP Performance matches both React route and HTML
+    if (path === '/gcp-performance') {
+      return currentPath === '/gcp-performance' || currentPath === '/gcp_performance.html';
     }
 
     // Special case: Alerts matches both React route and HTML
@@ -452,11 +495,36 @@ const Sidebar: React.FC = () => {
               isOpen={openDropdown === 'finops'}
               onToggle={() => toggleDropdown('finops')}
             >
-              <NavItem href="/cost" icon="fas fa-dollar-sign" label="Cost Management" isActive={isActive('/cost')} />
-              <NavItem href="/reservation" icon="fas fa-file-contract" label="Reservation Management" isActive={isActive('/reservation')} />
-              <NavItem href="/finops" icon="fas fa-file-invoice-dollar" label="FinOps Reports" isActive={isActive('/finops')} />
-              <NavItem href="/waste" icon="fas fa-recycle" label="Waste Management" isActive={isActive('/waste')} />
-              <NavItem href="/rightsizing" icon="fas fa-compress-arrows-alt" label="Rightsizing" isActive={isActive('/rightsizing')} />
+              <NavItem
+                href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-cost' : '/cost'}
+                icon="fas fa-dollar-sign"
+                label="Cost Management"
+                isActive={isActive('/cost') || isActive('/gcp-cost')}
+              />
+              <NavItem
+                href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-reservations' : '/reservation'}
+                icon="fas fa-file-contract"
+                label="Reservation Management"
+                isActive={isActive('/reservation') || isActive('/gcp-reservations')}
+              />
+              <NavItem
+                href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-finops' : '/finops'}
+                icon="fas fa-file-invoice-dollar"
+                label="FinOps Reports"
+                isActive={isActive('/finops') || isActive('/gcp-finops')}
+              />
+              <NavItem
+                href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-waste' : '/waste'}
+                icon="fas fa-recycle"
+                label="Waste Management"
+                isActive={isActive('/waste') || isActive('/gcp-waste')}
+              />
+              <NavItem
+                href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-rightsizing' : '/rightsizing'}
+                icon="fas fa-compress-arrows-alt"
+                label="Rightsizing"
+                isActive={isActive('/rightsizing') || isActive('/gcp-rightsizing')}
+              />
               <NavItem href="/cloudsitter" icon="fas fa-clock" label="CloudSitter" isActive={isActive('/cloudsitter')} />
               <NavItem href="/spot-automation" icon="fas fa-bolt" label="Spot Automation" isActive={isActive('/spot-automation')} />
             </NavSection>
@@ -474,7 +542,7 @@ const Sidebar: React.FC = () => {
             >
               <NavItem href="/cloudlist" icon="fas fa-list" label="CloudList" isActive={isActive('/cloudlist')} />
               <NavItem href="/cloudshell" icon="fas fa-terminal" label="CloudShell" isActive={isActive('/cloudshell')} />
-              <NavItem href="/cloudk8s" icon="fas fa-dharmachakra" label="CloudK8s" isActive={isActive('/cloudk8s')} />
+              <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-cloudk8s' : '/cloudk8s'} icon="fas fa-dharmachakra" label="CloudK8s" isActive={isActive('/cloudk8s')} />
               <NavItem href="/sonarqube" icon="fas fa-chart-line" label="SonarQube" isActive={isActive('/sonarqube')} />
               <NavItem href="/cicd-pipelines" icon="fas fa-cogs" label="CICD Pipelines" isActive={isActive('/cicd-pipelines')} />
               <NavItem href="/devops-in-the-box" icon="fas fa-toolbox" label="DevOps-in-the-Box" isActive={isActive('/devops-in-the-box')} />
@@ -495,10 +563,25 @@ const Sidebar: React.FC = () => {
               isOpen={openDropdown === 'security'}
               onToggle={() => toggleDropdown('security')}
             >
-              <NavItem href="/security" icon="fas fa-shield-alt" label="Security Center" isActive={isActive('/security')} />
+              <NavItem
+                href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-security' : '/security'}
+                icon="fas fa-shield-alt"
+                label="Security Center"
+                isActive={isActive('/security') || isActive('/gcp-security')}
+              />
               <NavItem href="/complianceops" icon="fas fa-file-contract" label="ComplianceOps" isActive={isActive('/complianceops')} />
-              <NavItem href="/performance" icon="fas fa-chart-line" label="Performance Insights" isActive={isActive('/performance')} />
-              <NavItem href="/alerts" icon="fas fa-bell" label="Alerts" isActive={isActive('/alerts')} />
+              <NavItem
+                href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-performance' : '/performance'}
+                icon="fas fa-chart-line"
+                label="Performance Insights"
+                isActive={isActive('/performance') || isActive('/gcp-performance')}
+              />
+              <NavItem
+                href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-alerts' : '/alerts'}
+                icon="fas fa-bell"
+                label="Alerts"
+                isActive={isActive('/alerts') || isActive('/gcp-alerts')}
+              />
               {/* <NavItem href="/security/compliance.html" icon="fas fa-check-circle" label="Compliance" /> */}
               {/* <NavItem href="/security/vulnerabilities.html" icon="fas fa-bug" label="Vulnerabilities" /> */}
               {/* <NavItem href="/security/iam-analysis.html" icon="fas fa-user-shield" label="IAM Analysis" /> */}

@@ -368,9 +368,8 @@ export const UnifiedDashboard: React.FC = () => {
             >
               <div className="mt-4 flex items-center gap-2">
                 <span
-                  className={`text-xs font-semibold px-3 py-1.5 rounded-full flex items-center gap-1.5 ${
-                    getBudgetPercent() > 100 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
-                  }`}
+                  className={`text-xs font-semibold px-3 py-1.5 rounded-full flex items-center gap-1.5 ${getBudgetPercent() > 100 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+                    }`}
                 >
                   <i className={`fas ${getBudgetPercent() > 100 ? 'fa-arrow-up' : 'fa-check'}`}></i>
                   <span>{getBudgetPercent() > 100 ? 'Over Budget' : 'On Track'}</span>

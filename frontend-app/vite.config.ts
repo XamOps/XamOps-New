@@ -169,7 +169,6 @@ export default defineConfig({
       '/api/ai': { target: authTarget, changeOrigin: true, secure: false }, // ✅ Added missing proxy rule
 
 
-
     }
   },
 

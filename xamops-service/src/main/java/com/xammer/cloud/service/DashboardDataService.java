@@ -12,6 +12,7 @@ import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.FinOpsReportDto;
 import com.xammer.cloud.dto.gcp.GcpCostDto;
 import com.xammer.cloud.dto.gcp.GcpDashboardData;
+import com.xammer.cloud.dto.gcp.GcpFinOpsReportDto;
 import com.xammer.cloud.dto.sonarqube.SonarQubeMetricsDto;
 import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
@@ -79,6 +80,7 @@ public class DashboardDataService {
     private final CachedDataRepository cachedDataRepository;
     private final CostService costService;
     private final com.xammer.cloud.service.azure.AzureDashboardService azureDashboardService;
+    private final com.xammer.cloud.service.gcp.GcpFinOpsReportService gcpFinOpsReportService;
     private final SonarQubeService sonarQubeService;
     private final UserRepository userRepository;
 
@@ -105,6 +107,7 @@ public class DashboardDataService {
             CachedDataRepository cachedDataRepository,
             @Lazy CostService costService,
             @Lazy com.xammer.cloud.service.azure.AzureDashboardService azureDashboardService,
+            @Lazy com.xammer.cloud.service.gcp.GcpFinOpsReportService gcpFinOpsReportService,
             @Lazy SonarQubeService sonarQubeService,
             UserRepository userRepository,
             JobExecutionHistoryRepository jobExecutionHistoryRepository,
@@ -123,6 +126,7 @@ public class DashboardDataService {
         this.cachedDataRepository = cachedDataRepository;
         this.costService = costService;
         this.azureDashboardService = azureDashboardService;
+        this.gcpFinOpsReportService = gcpFinOpsReportService;
         this.sonarQubeService = sonarQubeService;
         this.userRepository = userRepository;
         this.jobExecutionHistoryRepository = jobExecutionHistoryRepository;
@@ -366,6 +370,19 @@ public class DashboardDataService {
                     }
                 }
 
+                // ⭐ NEW: Cache FinOps data for GCP projects
+                if ("GCP".equalsIgnoreCase(account.getProvider())) {
+                    try {
+                        GcpFinOpsReportDto gcpFinopsData = gcpFinOpsReportService.generateFinOpsReport(accountId)
+                                .join();
+                        String gcpFinopsKey = "gcp-finops-" + accountId;
+                        saveGcpFinOpsSnapshot(gcpFinopsKey, gcpFinopsData);
+                        logger.info("✓ GCP FinOps cached for {} (GCP)", accountId);
+                    } catch (Exception e) {
+                        logger.error("Failed to cache GCP FinOps for {}: {}", accountId, e.getMessage());
+                    }
+                }
+
             } catch (Exception e) {
                 logger.warn("Failed to pre-cache data for account {}: {}", account.getId(), e.getMessage());
             }
@@ -428,6 +445,32 @@ public class DashboardDataService {
                 return objectMapper.readValue(cached.get().getJsonData(), FinOpsReportDto.class);
             } catch (JsonProcessingException e) {
                 logger.error("Failed to deserialize FinOps snapshot {}", key, e);
+            }
+        }
+        return null;
+    }
+
+    // ⭐ NEW: GCP FinOps Snapshot Methods
+    public void saveGcpFinOpsSnapshot(String key, GcpFinOpsReportDto data) {
+        try {
+            CachedData cachedData = cachedDataRepository.findById(key).orElse(new CachedData());
+            cachedData.setCacheKey(key);
+            cachedData.setJsonData(objectMapper.writeValueAsString(data));
+            cachedData.setLastUpdated(LocalDateTime.now());
+            cachedDataRepository.save(cachedData);
+            logger.info("Saved GCP FinOps snapshot: {}", key);
+        } catch (JsonProcessingException e) {
+            logger.error("Failed to serialize GCP FinOps snapshot {}", key, e);
+        }
+    }
+
+    public GcpFinOpsReportDto getGcpFinOpsSnapshot(String key) {
+        Optional<CachedData> cached = cachedDataRepository.findById(key);
+        if (cached.isPresent()) {
+            try {
+                return objectMapper.readValue(cached.get().getJsonData(), GcpFinOpsReportDto.class);
+            } catch (JsonProcessingException e) {
+                logger.error("Failed to deserialize GCP FinOps snapshot {}", key, e);
             }
         }
         return null;
