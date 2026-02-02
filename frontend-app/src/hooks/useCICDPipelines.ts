@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   GitHubRun,
+  GitHubRepository,
   JenkinsJob,
   RunHistory,
   PipelineStage,
@@ -82,7 +83,7 @@ export const useCICDPipelines = (): UseCICDPipelinesReturn => {
       const response = await apiClient.get('/api/cicd/github/runs');
 
       // Accept both arrays (including empty arrays) as valid responses
-      const data = Array.isArray(response.data) ? response.data : [];
+      const data = Array.isArray(response) ? response : [];
       setGithubRuns(data);
       console.log(`✅ Loaded ${data.length} GitHub runs`);
     } catch (err: any) {
@@ -103,7 +104,7 @@ export const useCICDPipelines = (): UseCICDPipelinesReturn => {
       const response = await apiClient.get('/api/cicd/jenkins/jobs');
 
       // Accept both arrays (including empty arrays) as valid responses
-      const data = Array.isArray(response.data) ? response.data : [];
+      const data = Array.isArray(response) ? response : [];
       setJenkinsJobs(data);
       console.log(`✅ Loaded ${data.length} Jenkins jobs`);
     } catch (err: any) {
@@ -142,7 +143,7 @@ export const useCICDPipelines = (): UseCICDPipelinesReturn => {
           `/api/cicd/github/runs/${owner}/${repo}/${workflowId}?count=15`
         );
 
-        const data = Array.isArray(response.data) ? response.data : [];
+        const data = Array.isArray(response) ? response : [];
         setWorkflowHistory(data);
         console.log(`✅ Loaded ${data.length} workflow runs`);
 
@@ -156,7 +157,7 @@ export const useCICDPipelines = (): UseCICDPipelinesReturn => {
         console.log(`🔧 Fetching Jenkins build history for ${item.name}`);
         const response = await apiClient.get(`/api/cicd/jenkins/jobs/${item.name}/builds`);
 
-        const data = Array.isArray(response.data) ? response.data : [];
+        const data = Array.isArray(response) ? response : [];
         if (data.length > 0) {
           setWorkflowHistory(data);
           console.log(`✅ Loaded ${data.length} Jenkins builds`);
@@ -197,7 +198,7 @@ export const useCICDPipelines = (): UseCICDPipelinesReturn => {
     setPipelineStages([]);
 
     // Determine run number
-    const runNumber = 'run_number' in run ? run.run_number : 'number' in run ? run.number : 'id' in run ? run.id : '';
+    const runNumber = 'run_number' in run ? run.run_number : ('number' in run ? (run as any).number : ('id' in run ? (run as any).id : ''));
     setSelectedRunNumber(String(runNumber));
 
     // Determine run URL
@@ -207,7 +208,8 @@ export const useCICDPipelines = (): UseCICDPipelinesReturn => {
     try {
       // Check if it's a GitHub run
       if (selectedWorkflow && 'repository' in selectedWorkflow && selectedWorkflow.repository) {
-        const [owner, repo] = selectedWorkflow.repository.full_name.split('/');
+        const repository = selectedWorkflow.repository as GitHubRepository;
+        const [owner, repo] = repository.full_name.split('/');
         const runId = 'id' in run ? run.id : '';
 
         console.log(`🔧 Fetching GitHub run stages for ${owner}/${repo}/${runId}`);
@@ -215,7 +217,7 @@ export const useCICDPipelines = (): UseCICDPipelinesReturn => {
           `/api/cicd/github/runs/${owner}/${repo}/${runId}/stages`
         );
 
-        const data = Array.isArray(response.data) ? response.data : [];
+        const data = Array.isArray(response) ? response : [];
         setPipelineStages(data);
         console.log(`✅ Loaded ${data.length} stages`);
       }
@@ -228,7 +230,7 @@ export const useCICDPipelines = (): UseCICDPipelinesReturn => {
           `/api/cicd/jenkins/jobs/${jobName}/${runNumber}/stages`
         );
 
-        const data = Array.isArray(response.data) ? response.data : [];
+        const data = Array.isArray(response) ? response : [];
         setPipelineStages(data);
         console.log(`✅ Loaded ${data.length} stages`);
       }

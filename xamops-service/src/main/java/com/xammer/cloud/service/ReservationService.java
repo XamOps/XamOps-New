@@ -548,7 +548,8 @@ public class ReservationService {
         // Use mock data if enabled
         if (useMockData) {
             logger.info("[MOCK] Using mock data for getReservationModificationRecommendations");
-            return CompletableFuture.completedFuture(costMockService.getMockReservationModificationRecommendations(account));
+            return CompletableFuture
+                    .completedFuture(costMockService.getMockReservationModificationRecommendations(account));
         }
 
         String cacheKey = "reservationModificationRecs-" + account.getAwsAccountId();
@@ -597,9 +598,9 @@ public class ReservationService {
         if (useMockData) {
             logger.info("[MOCK] Using mock data for applyReservationModification");
             return costMockService.getMockApplyReservationModification(
-                request.getReservationId(),
-                request.getTargetInstanceType(),
-                request.getInstanceCount());
+                    request.getReservationId(),
+                    request.getTargetInstanceType(),
+                    request.getInstanceCount());
         }
 
         CloudAccount account = getAccount(accountId);

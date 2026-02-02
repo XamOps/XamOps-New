@@ -1,0 +1,484 @@
+/**
+ * GCP Waste Management Page Styles
+ * Modern, professional design with GCP-inspired color palette
+ * Themed with red/orange for waste identification
+ */
+
+/* ============================================
+   CSS Variables
+   ============================================ */
+.gcp-waste-page {
+  --gcp-blue: #4285F4;
+  --gcp-green: #34A853;
+  --gcp-yellow: #FBBC05;
+  --gcp-red: #EA4335;
+  --gcp-orange: #FF6F00;
+  --gcp-gray: #5F6368;
+  --primary-gradient: linear-gradient(135deg, #4285F4 0%, #34A853 100%);
+  --error-gradient: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  --waste-gradient: linear-gradient(135deg, #EA4335 0%, #FF6F00 100%);
+  --glass-bg: rgba(255, 255, 255, 0.95);
+  --glass-border: rgba(229, 231, 235, 0.8);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.12);
+}
+
+/* ============================================
+   Page Layout
+   ============================================ */
+.gcp-waste-page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+}
+
+.gcp-waste-content {
+  flex: 1;
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+/* ============================================
+   Header Styles
+   ============================================ */
+.gcp-waste-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 2rem;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--glass-border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  box-shadow: var(--shadow-sm);
+}
+
+.gcp-waste-header-left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.gcp-waste-header-icon {
+  width: 3rem;
+  height: 3rem;
+  background: var(--waste-gradient);
+  border-radius: 0.875rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(234, 67, 53, 0.3);
+}
+
+.gcp-waste-header-icon i {
+  color: white;
+  font-size: 1.25rem;
+}
+
+.gcp-waste-header-text h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #1f2937;
+  margin: 0;
+}
+
+.gcp-waste-header-text p {
+  font-size: 0.875rem;
+  color: #6b7280;
+  margin: 0;
+}
+
+.gcp-waste-scan-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  background: var(--primary-gradient);
+  color: white;
+  border: none;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 12px rgba(66, 133, 244, 0.3);
+}
+
+.gcp-waste-scan-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 16px rgba(66, 133, 244, 0.4);
+}
+
+.gcp-waste-scan-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.gcp-waste-scan-btn i {
+  font-size: 0.875rem;
+}
+
+/* ============================================
+   KPI Cards
+   ============================================ */
+.gcp-waste-kpi-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1.5rem;
+}
+
+.gcp-waste-kpi-card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--glass-border);
+  border-radius: 1rem;
+  padding: 1.5rem;
+  box-shadow: var(--shadow-md);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.gcp-waste-kpi-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--primary-gradient);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.gcp-waste-kpi-card:hover {
+  transform: translateY(-4px) scale(1.02);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+.gcp-waste-kpi-card:hover::before {
+  opacity: 1;
+}
+
+.gcp-waste-kpi-card h3 {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #6b7280;
+  margin: 0 0 0.75rem 0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.gcp-waste-kpi-value {
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: #dc2626;
+  margin: 0.5rem 0;
+  line-height: 1;
+}
+
+.gcp-waste-kpi-label {
+  font-size: 0.75rem;
+  color: #9ca3af;
+  margin: 0;
+}
+
+.gcp-waste-chart-container {
+  height: 12rem;
+  position: relative;
+}
+
+/* ============================================
+   Resource Groups
+   ============================================ */
+.gcp-waste-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.gcp-waste-service-group {
+  background: var(--glass-bg);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--glass-border);
+  border-radius: 1rem;
+  overflow: hidden;
+  box-shadow: var(--shadow-md);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: fadeIn 0.5s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.gcp-waste-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.5rem;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.gcp-waste-group-header:hover {
+  background: rgba(66, 133, 244, 0.03);
+}
+
+.gcp-waste-group-header-left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex: 1;
+}
+
+.gcp-waste-chevron {
+  color: #9ca3af;
+  font-size: 0.875rem;
+  transition: transform 0.3s ease;
+}
+
+.gcp-waste-chevron-open {
+  transform: rotate(90deg);
+}
+
+.gcp-waste-group-icon {
+  width: 3rem;
+  height: 3rem;
+  background: rgba(66, 133, 244, 0.1);
+  border-radius: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gcp-waste-group-icon i {
+  color: var(--gcp-blue);
+  font-size: 1.5rem;
+}
+
+.gcp-waste-group-header h3 {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #1f2937;
+  margin: 0;
+}
+
+.gcp-waste-group-badge {
+  background: rgba(66, 133, 244, 0.1);
+  color: var(--gcp-blue);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+}
+
+.gcp-waste-group-savings {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #dc2626;
+}
+
+/* ============================================
+   Resource Rows
+   ============================================ */
+.gcp-waste-group-resources {
+  background: rgba(249, 250, 251, 0.5);
+  border-top: 1px solid rgba(229, 231, 235, 0.5);
+}
+
+.gcp-waste-resource-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr auto;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.5rem 1rem 4rem;
+  border-top: 1px solid rgba(229, 231, 235, 0.5);
+  transition: background 0.2s ease;
+}
+
+.gcp-waste-resource-row:first-child {
+  border-top: none;
+}
+
+.gcp-waste-resource-row:hover {
+  background: linear-gradient(90deg, rgba(66, 133, 244, 0.03) 0%, rgba(52, 168, 83, 0.08) 100%);
+}
+
+.gcp-waste-resource-name {
+  font-weight: 600;
+  color: #1f2937;
+  font-size: 0.875rem;
+}
+
+.gcp-waste-resource-location {
+  color: #6b7280;
+  font-size: 0.875rem;
+}
+
+.gcp-waste-resource-savings {
+  font-weight: 600;
+  color: #059669;
+  font-size: 0.875rem;
+}
+
+.gcp-waste-delete-btn {
+  padding: 0.5rem 0.75rem;
+  background: #dc2626;
+  color: white;
+  border: none;
+  border-radius: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.gcp-waste-delete-btn:hover {
+  background: #b91c1c;
+  transform: scale(1.05);
+}
+
+/* ============================================
+   Empty States
+   ============================================ */
+.gcp-waste-no-account,
+.gcp-waste-no-waste {
+  text-align: center;
+  padding: 5rem 2rem;
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 1rem;
+  border: 2px dashed #e5e7eb;
+}
+
+.gcp-waste-no-account-icon,
+.gcp-waste-no-waste-icon {
+  width: 6rem;
+  height: 6rem;
+  margin: 0 auto 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+.gcp-waste-no-account-icon {
+  background: rgba(156, 163, 175, 0.2);
+}
+
+.gcp-waste-no-account-icon i {
+  font-size: 2rem;
+  color: #9ca3af;
+}
+
+.gcp-waste-no-waste-icon {
+  background: linear-gradient(135deg, #34A853 0%, #0D652D 100%);
+  box-shadow: 0 10px 25px rgba(52, 168, 83, 0.3);
+}
+
+.gcp-waste-no-waste-icon i {
+  font-size: 2rem;
+  color: white;
+}
+
+.gcp-waste-no-account h4,
+.gcp-waste-no-waste h3 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #1f2937;
+  margin: 0 0 0.5rem 0;
+}
+
+.gcp-waste-no-account p,
+.gcp-waste-no-waste p {
+  font-size: 1rem;
+  color: #6b7280;
+  margin: 0;
+}
+
+/* ============================================
+   Loading States
+   ============================================ */
+.gcp-waste-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.gcp-waste-loading-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.gcp-waste-skeleton {
+  background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 0.5rem;
+}
+
+.gcp-waste-skeleton-card {
+  height: 8rem;
+  border-radius: 1rem;
+}
+
+.gcp-waste-skeleton-group {
+  height: 5rem;
+  border-radius: 1rem;
+}
+
+.gcp-waste-skeleton-text {
+  height: 3rem;
+  width: 8rem;
+  border-radius: 0.5rem;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* ============================================
+   Responsive Design
+   ============================================ */
+@media (max-width: 768px) {
+  .gcp-waste-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+
+  .gcp-waste-kpi-cards {
+    grid-template-columns: 1fr;
+  }
+
+  .gcp-waste-resource-row {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+    padding: 1rem;
+  }
+
+  .gcp-waste-resource-actions {
+    justify-self: start;
+  }
+}
