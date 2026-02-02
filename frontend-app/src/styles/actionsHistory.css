@@ -1,0 +1,276 @@
+/**
+ * Actions History Styles
+ *
+ * Professional and smooth styling for the AutoSpotting Actions History page
+ */
+
+.actions-history-container {
+  animation: fadeIn 0.5s ease-in;
+}
+
+/* Fade-in animation */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Filter section enhancements */
+.actions-history-container .bg-white {
+  transition: all 0.3s ease;
+}
+
+.actions-history-container .bg-white:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+/* Button hover effects */
+.actions-history-container button {
+  transition: all 0.2s ease;
+}
+
+.actions-history-container button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.actions-history-container button:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+/* Summary cards animation */
+.actions-history-container .grid > div {
+  animation: slideUp 0.5s ease-out;
+  animation-fill-mode: both;
+}
+
+.actions-history-container .grid > div:nth-child(1) {
+  animation-delay: 0.1s;
+}
+
+.actions-history-container .grid > div:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.actions-history-container .grid > div:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+.actions-history-container .grid > div:nth-child(4) {
+  animation-delay: 0.4s;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Table enhancements */
+.actions-history-container table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.actions-history-container table thead th {
+  position: sticky;
+  top: 0;
+  background-color: #f9fafb;
+  z-index: 10;
+  backdrop-filter: blur(10px);
+}
+
+.actions-history-container table tbody tr {
+  transition: background-color 0.15s ease;
+}
+
+.actions-history-container table tbody tr:hover {
+  background-color: #f9fafb;
+  transform: scale(1.001);
+}
+
+/* Badge animations */
+.actions-history-container .inline-flex {
+  transition: all 0.2s ease;
+}
+
+.actions-history-container .inline-flex:hover {
+  transform: scale(1.05);
+}
+
+/* Skeleton loader improvements */
+.actions-history-container .animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* Icon animations */
+.actions-history-container .fa-spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Smooth scrolling for table */
+.actions-history-container .overflow-x-auto {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e0 #f7fafc;
+}
+
+.actions-history-container .overflow-x-auto::-webkit-scrollbar {
+  height: 8px;
+}
+
+.actions-history-container .overflow-x-auto::-webkit-scrollbar-track {
+  background: #f7fafc;
+  border-radius: 4px;
+}
+
+.actions-history-container .overflow-x-auto::-webkit-scrollbar-thumb {
+  background: #cbd5e0;
+  border-radius: 4px;
+}
+
+.actions-history-container .overflow-x-auto::-webkit-scrollbar-thumb:hover {
+  background: #a0aec0;
+}
+
+/* Input focus effects */
+.actions-history-container input:focus,
+.actions-history-container select:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1);
+}
+
+/* Card hover effects */
+.actions-history-container .rounded-lg {
+  transition: all 0.3s ease;
+}
+
+.actions-history-container .shadow-sm:hover {
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+}
+
+/* Error state styling */
+.actions-history-container .bg-red-50 {
+  animation: shake 0.5s ease-in-out;
+}
+
+@keyframes shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  10%,
+  30%,
+  50%,
+  70%,
+  90% {
+    transform: translateX(-5px);
+  }
+  20%,
+  40%,
+  60%,
+  80% {
+    transform: translateX(5px);
+  }
+}
+
+/* Empty state enhancements */
+.actions-history-container .text-center .fa-inbox {
+  animation: float 3s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+/* Responsive improvements */
+@media (max-width: 768px) {
+  .actions-history-container .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .actions-history-container .overflow-x-auto {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .actions-history-container table {
+    font-size: 0.875rem;
+  }
+}
+
+/* Accessibility improvements */
+.actions-history-container button:focus,
+.actions-history-container input:focus,
+.actions-history-container select:focus {
+  outline: 2px solid #4299e1;
+  outline-offset: 2px;
+}
+
+/* Dark mode support (optional) */
+@media (prefers-color-scheme: dark) {
+  .actions-history-container .bg-white {
+    background-color: #1a202c;
+    color: #e2e8f0;
+  }
+
+  .actions-history-container .text-gray-900 {
+    color: #e2e8f0;
+  }
+
+  .actions-history-container .text-gray-600 {
+    color: #a0aec0;
+  }
+
+  .actions-history-container .border-gray-200 {
+    border-color: #2d3748;
+  }
+}
+
+/* Print styles */
+@media print {
+  .actions-history-container button {
+    display: none;
+  }
+
+  .actions-history-container .shadow-sm {
+    box-shadow: none;
+  }
+
+  .actions-history-container table {
+    page-break-inside: avoid;
+  }
+}

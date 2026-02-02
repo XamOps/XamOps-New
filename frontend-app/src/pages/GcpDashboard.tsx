@@ -1,5 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-// Sidebar is now handled by global AuthenticatedLayout
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   GcpDashboardData,
   GcpResourceType,
@@ -11,9 +10,17 @@ import {
   formatCompactNumber,
 } from '../api/gcpDashboardApi';
 import { useTopbar } from '../contexts/TopbarContext';
-import '../styles/gcpDashboard.css';
+import '../styles/gcpDashboard.css'; // Keeping for some specific styles if needed, but mostly relying on Tailwind now
 
-// Highcharts loaded from CDN
+// Import new components
+import GcpDashboardHeader from '../components/GcpDashboard/GcpDashboardHeader';
+import GcpKPISection from '../components/GcpDashboard/GcpKPISection';
+import GcpMapSection from '../components/GcpDashboard/GcpMapSection';
+import GcpInventorySection from '../components/GcpDashboard/GcpInventorySection';
+import GcpCostSection from '../components/GcpDashboard/GcpCostSection';
+import GcpOptimizationSection from '../components/GcpDashboard/GcpOptimizationSection';
+
+// Highcharts loaded from CDN (still needed for map if GcpMapSection uses window.Highcharts)
 declare global {
   interface Window {
     Highcharts: any;
@@ -56,24 +63,17 @@ const GcpDashboard: React.FC = () => {
 
   // Load selected accounts from session storage
   useEffect(() => {
-    console.log('🔷 GCP Dashboard: Loading account IDs from sessionStorage');
     const storedAccountIds = sessionStorage.getItem('selectedAccountIds');
     const storedMultiAccountMode = sessionStorage.getItem('multiAccountMode');
-
-    console.log('🔷 GCP Dashboard: storedAccountIds:', storedAccountIds);
-    console.log('🔷 GCP Dashboard: storedMultiAccountMode:', storedMultiAccountMode);
 
     if (storedAccountIds) {
       try {
         const accountIds = JSON.parse(storedAccountIds);
-        console.log('🔷 GCP Dashboard: Parsed account IDs:', accountIds);
         setSelectedAccountIds(accountIds);
         setMultiAccountMode(storedMultiAccountMode === 'true' && accountIds.length > 1);
       } catch (err) {
         console.error('❌ GCP Dashboard: Failed to parse selected account IDs:', err);
       }
-    } else {
-      console.log('⚠️ GCP Dashboard: No account IDs in sessionStorage');
     }
   }, []);
 
@@ -83,7 +83,7 @@ const GcpDashboard: React.FC = () => {
 
     // Helper to transform single account data from backend DTO to frontend interface
     const transformSingle = (raw: any): GcpDashboardData => {
-      // If already in correct frontend format, return as is
+      // If already in correct frontend format, return as is (simple check)
       if (raw.kpi && raw.optimization && raw.billingSummary) return raw;
 
       return {
@@ -210,73 +210,52 @@ const GcpDashboard: React.FC = () => {
   }, [dashboardData]);
 
   // Get resource list
-  const resources = useMemo(() => {
+  const resources: GcpResourceType[] = useMemo(() => {
     if (!dashboardData || 'accounts' in dashboardData) return [];
 
     const singleData = dashboardData as GcpDashboardData;
     return mapInventoryToResources(singleData.resourceInventory);
   }, [dashboardData]);
 
-  // Empty state
+  // Handle empty state
   if (selectedAccountIds.length === 0) {
     return (
-      <div className="gcp-dashboard-content">
-        <div className="gcp-empty-state">
-          <div className="gcp-empty-state-icon">
-            <svg width="120" height="120" viewBox="0 0 120 120" fill="none">
-              <path
-                d="M60 10L90 30V70L60 90L30 70V30L60 10Z"
-                stroke="#4285F4"
-                strokeWidth="3"
-                fill="none"
-              />
-              <circle cx="60" cy="60" r="15" fill="#4285F4" opacity="0.2" />
-            </svg>
+      <div className="flex-1 p-6 flex items-center justify-center min-h-[calc(100vh-80px)]">
+        <div className="text-center p-8 glass-card max-w-lg w-full">
+          <div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-6">
+            <img src="/icons/gcp-icon.png" alt="GCP" className="w-10 h-10 object-contain" />
           </div>
-          <h2>No GCP Account Selected</h2>
-          <p>Please select a GCP project from the sidebar to view your dashboard.</p>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">No GCP Project Selected</h2>
+          <p className="text-gray-500 mb-8">Please select a GCP project from the account selector to view your dashboard.</p>
         </div>
       </div>
     );
   }
 
-  // Loading state
-  if (loading.global && !dashboardData) {
-    return (
-      <div className="gcp-dashboard-content">
-        <div className="gcp-loading-skeleton">
-          <div className="gcp-skeleton-header"></div>
-          <div className="gcp-skeleton-kpi-grid">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="gcp-skeleton-kpi-card"></div>
-            ))}
-          </div>
-          <div className="gcp-skeleton-chart"></div>
-          <div className="gcp-skeleton-grid"></div>
-        </div>
-      </div>
-    );
-  }
-
-  // Error state
+  // Handle Error State
   if (error && !dashboardData) {
     return (
-      <div className="gcp-dashboard-content">
-        <div className="gcp-error-state">
-          <div className="gcp-error-icon">⚠️</div>
-          <h2>Failed to Load Dashboard</h2>
-          <p>{error.message}</p>
-          <button onClick={refresh} className="gcp-retry-button">
-            Retry
+      <div className="flex-1 p-6 flex items-center justify-center min-h-[calc(100vh-80px)]">
+        <div className="text-center p-8 glass-card max-w-lg w-full border-red-100">
+          <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6">
+            <svg className="w-10 h-10 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">Connection Error</h2>
+          <p className="text-red-500 mb-6">{error.message}</p>
+          <button
+            onClick={refresh}
+            className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors shadow-lg shadow-red-500/30"
+          >
+            Try Again
           </button>
         </div>
       </div>
     );
   }
 
-  if (!dashboardData) return null;
-
-  const singleData = 'accounts' in dashboardData ? null : (dashboardData as GcpDashboardData);
+  const singleData = dashboardData ? ('accounts' in dashboardData ? null : (dashboardData as GcpDashboardData)) : null;
 
   // Register Topbar actions
   useEffect(() => {
@@ -313,53 +292,60 @@ const GcpDashboard: React.FC = () => {
   }, [setActions, clearActions, singleData, multiAccountMode, lastUpdated, refresh, loading.global]);
 
   return (
-    <div className="gcp-dashboard-content">
+    <main className="flex-1 p-6 bg-transparent space-y-6">
       {/* Notification Toast */}
       {notification && (
-        <div className={`notification-toast notification-${notification.type} slide-up`}>
-          <div className="notification-content">
-            <div className={`notification-dot dot-${notification.type}`}></div>
+        <div className={`fixed top-4 right-4 z-50 transform transition-all duration-300 ${notification ? 'translate-y-0 opacity-100' : '-translate-y-4 opacity-0'}`}>
+          <div className={`flex items-center p-4 rounded-lg shadow-lg border ${notification.type === 'info' ? 'bg-blue-50 border-blue-100 text-blue-800' :
+            notification.type === 'success' ? 'bg-green-50 border-green-100 text-green-800' :
+              notification.type === 'warning' ? 'bg-yellow-50 border-yellow-100 text-yellow-800' :
+                'bg-red-50 border-red-100 text-red-800'
+            }`}>
             {notification.message}
+            <button onClick={() => setNotification(null)} className="ml-4 hover:opacity-75 font-bold">&times;</button>
           </div>
-          <button className="notification-close" onClick={() => setNotification(null)}>&times;</button>
         </div>
       )}
 
       {/* Notification Toast */}
-
-      {/* Beta Notice */}
-      <div className="gcp-beta-notice">
-        <span className="gcp-beta-badge">BETA</span>
-        <span className="gcp-beta-text">
-          GCP Features Partially Available - Some features like Calculator, CloudSitter,
-          GKE and Rightsizing Recommendations are under development.
-        </span>
-      </div>
+      {/* Header */}
+      <GcpDashboardHeader
+        accountName={singleData?.accountName || 'Multi-Account Dashboard'}
+        projectId={singleData?.projectId || ''}
+        lastUpdated={lastUpdated}
+        onRefresh={refresh}
+        isRefreshing={loading.global}
+        multiAccountMode={multiAccountMode}
+      />
 
       {/* KPI Section */}
       {widgetVisibility.kpi && dashboardData && (
-        <KPISection
-          kpi={
+        <GcpKPISection
+          kpiData={
             'accounts' in dashboardData
               ? (dashboardData as any).kpi
               : (dashboardData as GcpDashboardData).kpi
           }
-          loading={loading.kpi}
+          costHistory={singleData ? {
+            costs: singleData.costHistory?.monthlyCosts?.map((c: any) => c.cost) || [],
+            labels: singleData.costHistory?.monthlyCosts?.map((c: any) => c.date) || []
+          } : undefined}
+          isLoading={loading.kpi}
         />
       )}
 
       {/* Main Grid: Map & Inventory (3:2) */}
-      <div className="gcp-dashboard-main-grid">
-        {widgetVisibility.map && singleData && (
-          <MapSection
-            regionStatus={singleData.regionStatus || []}
-            loading={loading.map}
+      <div className="grid gap-6 lg:grid-cols-5 fade-in">
+        {widgetVisibility.map && (
+          <GcpMapSection
+            regionStatus={singleData?.regionStatus || []}
+            isLoading={loading.map}
             onRegionClick={(name) => showNotification(`Dashboard filtered by: ${name}`, 'info')}
           />
         )}
 
-        {widgetVisibility.inventory && resources.length > 0 && (
-          <InventorySection
+        {widgetVisibility.inventory && (
+          <GcpInventorySection
             resources={resources}
             totalResources={totalResources}
             loading={loading.inventory}
@@ -368,36 +354,22 @@ const GcpDashboard: React.FC = () => {
         )}
       </div>
 
-      {/* Cost & Billing Grid (2:1) */}
-      <div className="gcp-cost-billing-grid">
-        {widgetVisibility.cost && singleData && singleData.costHistory && (
-          <div className="glass-card gcp-cost-chart-container fade-in">
-            <h3 className="gcp-section-title">
-              <i className="fas fa-chart-bar text-primary"></i>
-              Cost History (Last 6 Months)
-            </h3>
-            <div id="costHistoryChart" style={{ height: '320px' }}>
-              <CostHistoryChart costHistory={singleData.costHistory} />
-            </div>
-          </div>
-        )}
-
-        {widgetVisibility.billing && singleData && singleData.billingSummary && (
-          <div className="glass-card gcp-billing-summary-container fade-in">
-            <h3 className="gcp-section-title">
-              <i className="fas fa-receipt text-primary"></i>
-              Billing Summary
-            </h3>
-            <BillingSummaryTable summary={singleData.billingSummary} />
-          </div>
+      {/* Cost & Billing Grid */}
+      <div className="grid gap-6 lg:grid-cols-3 fade-in">
+        {(widgetVisibility.cost || widgetVisibility.billing) && singleData && (
+          <GcpCostSection
+            costHistory={singleData.costHistory}
+            billingSummary={singleData.billingSummary}
+            isLoading={loading.cost}
+          />
         )}
       </div>
 
       {/* Optimization Section */}
       {widgetVisibility.optimization && singleData && singleData.optimization && (
-        <OptimizationSection
+        <GcpOptimizationSection
           optimization={singleData.optimization}
-          loading={loading.optimization}
+          isLoading={loading.optimization}
         />
       )}
 
@@ -419,363 +391,7 @@ const GcpDashboard: React.FC = () => {
           </div>
         </div>
       )}
-    </div>
-  );
-};
-
-// KPI Section Component
-const KPISection: React.FC<{
-  kpi: any;
-  loading: boolean;
-}> = ({ kpi, loading }) => {
-  const mtd = kpi?.mtdSpend || 0;
-  const lastMonth = kpi?.lastMonthSpend || 0;
-  const forecasted = kpi?.forecastedSpend || 0;
-
-  // Calculate dynamic trends
-  const mtdTrend = lastMonth > 0 ? ((mtd - lastMonth) / lastMonth) * 100 : 0;
-  const forecastTrend = mtd > 0 ? ((forecasted - mtd) / mtd) * 100 : 0;
-
-  const kpiCards = [
-    {
-      title: 'MTD Spend',
-      value: mtd,
-      trend: mtdTrend,
-      color: '#4285F4', // Blue base
-    },
-    {
-      title: 'Forecasted',
-      value: forecasted,
-      trend: forecastTrend,
-      color: '#34A853', // Green base
-    },
-    {
-      title: 'Last Month',
-      value: lastMonth,
-      trend: 0,
-      color: '#FBBC04', // Yellow base
-    },
-    {
-      title: 'Potential Savings',
-      value: kpi?.potentialSavings || 0,
-      trend: -5.4,
-      color: '#EA4335', // Red base
-    },
-  ];
-
-  return (
-    <div className="gcp-kpi-grid">
-      {kpiCards.map((card, index) => (
-        <div
-          key={index}
-          className={`glass-card gcp-kpi-card fade-in`}
-          style={{ borderTopColor: card.color, animationDelay: `${index * 0.1}s` }}
-        >
-          <div className="gcp-kpi-header">
-            <span className="gcp-kpi-title">{card.title}</span>
-          </div>
-          <div className="gcp-kpi-value">
-            {loading ? <div className="gcp-skeleton h-10 w-3/4 rounded"></div> : formatCurrency(card.value)}
-          </div>
-          {!loading && card.trend !== 0 && (
-            <div className={`gcp-kpi-trend ${card.trend > 0 ? 'gcp-trend-up' : 'gcp-trend-down'}`}>
-              <i className={`fas fa-caret-${card.trend > 0 ? 'up' : 'down'}`}></i>
-              {Math.abs(card.trend).toFixed(1)}% vs last period
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-};
-
-// Map Section Component
-const MapSection: React.FC<{
-  regionStatus: any[];
-  loading: boolean;
-  onRegionClick: (name: string) => void;
-}> = ({ regionStatus, loading, onRegionClick }) => {
-  const chartRef = useRef<HTMLDivElement>(null);
-  const [worldMap, setWorldMap] = useState<any>(null);
-
-  useEffect(() => {
-    // Load world map data once
-    if (worldMap) return;
-
-    fetch('https://code.highcharts.com/mapdata/custom/world.topo.json')
-      .then(response => response.json())
-      .then(data => setWorldMap(data))
-      .catch(err => console.error('Failed to load world map:', err));
-  }, [worldMap]);
-
-  useEffect(() => {
-    if (!chartRef.current || loading || !window.Highcharts || regionStatus.length === 0 || !worldMap) return;
-
-    const statusColors: any = {
-      'active': '#3b82f6',
-      'issues': '#ef4444',
-      'sustainable': '#22c55e',
-      'inactive': '#6b7280'
-    };
-
-    const mapData = (regionStatus || []).map((region) => ({
-      name: region.region,
-      lat: region.latitude,
-      lon: region.longitude,
-      z: 10,
-      status: region.status,
-      color: statusColors[region.status?.toLowerCase()] || '#4285F4'
-    }));
-
-    window.Highcharts.mapChart(chartRef.current, {
-      chart: { backgroundColor: 'transparent', height: 420 },
-      title: { text: null },
-      mapNavigation: { enabled: true, buttonOptions: { verticalAlign: 'bottom' } },
-      plotOptions: {
-        series: {
-          point: {
-            events: {
-              click: function (this: any) {
-                onRegionClick(this.name);
-              }
-            }
-          }
-        }
-      },
-      series: [
-        {
-          name: 'World Map',
-          mapData: worldMap,
-          borderColor: 'rgba(0, 0, 0, 0.05)',
-          nullColor: 'rgba(0, 0, 0, 0.05)',
-          showInLegend: false
-        },
-        {
-          type: 'mapbubble',
-          name: 'Regions',
-          data: mapData,
-          minSize: 8,
-          maxSize: '10%',
-          color: '#4285F4',
-          tooltip: { pointFormat: '<b>{point.name}</b> ({point.status})' }
-        }
-      ],
-      credits: { enabled: false }
-    });
-  }, [regionStatus, loading, onRegionClick, worldMap]);
-
-  return (
-    <div className="glass-card gcp-map-section fade-in">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="gcp-section-title mb-0">
-          <i className="fas fa-globe-americas text-primary"></i>
-          Active Regions
-        </h3>
-        <div className="gcp-map-legend">
-          <div className="gcp-legend-item">
-            <div className="gcp-legend-dot active"></div>
-            <span>Active</span>
-          </div>
-          <div className="gcp-legend-item">
-            <div className="gcp-legend-dot sustainable"></div>
-            <span>Sustainable</span>
-          </div>
-          <div className="gcp-legend-item">
-            <div className="gcp-legend-dot issues"></div>
-            <span>Issues</span>
-          </div>
-        </div>
-      </div>
-      {loading ? (
-        <div className="gcp-skeleton gcp-map-container"></div>
-      ) : (
-        <div ref={chartRef} className="gcp-map-container"></div>
-      )}
-    </div>
-  );
-};
-
-// Inventory Section Component
-const InventorySection: React.FC<{
-  resources: GcpResourceType[];
-  totalResources: number;
-  loading: boolean;
-  accountIds: string[];
-}> = ({ resources, totalResources, loading, accountIds }) => {
-  return (
-    <div className="glass-card gcp-inventory-section fade-in">
-      <div className="gcp-section-header">
-        <h3 className="gcp-section-title">
-          <i className="fas fa-server text-primary"></i>
-          Resource Inventory
-        </h3>
-        {!loading && <span className="gcp-resource-count">{totalResources} total</span>}
-      </div>
-      <div className="gcp-inventory-list">
-        {loading ? (
-          [1, 2, 3, 4, 5].map(i => (
-            <div key={i} className="gcp-skeleton h-16 rounded-xl mb-3"></div>
-          ))
-        ) : (
-          resources.map((resource, index) => (
-            <a
-              key={index}
-              href={`/gcp_cloudlist.html?service=${encodeURIComponent(resource.type)}&accountIds=${accountIds.join(',')}`}
-              className="gcp-resource-card hover:bg-white/10 transition-colors"
-              style={{ textDecoration: 'none' }}
-            >
-              <div className="gcp-resource-icon">
-                <img src={`/icons/gcp/${resource.icon}`} alt="" />
-              </div>
-              <div className="flex-1">
-                <p className="gcp-resource-name">{resource.name}</p>
-                <p className="gcp-resource-type">{resource.type}</p>
-              </div>
-              <div className="gcp-resource-count">{formatCompactNumber(resource.count)}</div>
-            </a>
-          ))
-        )}
-      </div>
-    </div>
-  );
-};
-
-// Cost Chart Sub-component
-const CostHistoryChart: React.FC<{ costHistory: any }> = ({ costHistory }) => {
-  const chartRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!chartRef.current || !window.Highcharts || !costHistory) return;
-
-    const monthlyCosts = costHistory.monthlyCosts || [];
-    const categories = monthlyCosts.map((item: any) =>
-      new Date(item.date).toLocaleDateString('en-US', { month: 'short' })
-    );
-
-    const data = monthlyCosts.map((item: any) => ({
-      y: item.cost,
-      color: item.isAnomaly ? '#EA4335' : '#4285F4',
-      isAnomaly: item.isAnomaly
-    }));
-
-    window.Highcharts.chart(chartRef.current, {
-      chart: { type: 'column', backgroundColor: 'transparent', height: 320 },
-      title: { text: null },
-      xAxis: { categories },
-      yAxis: { title: { text: null }, labels: { format: '${value}' } },
-      series: [{
-        name: 'Cost',
-        data: data,
-        borderRadius: 6,
-        borderWidth: 0,
-      }],
-      credits: { enabled: false },
-      tooltip: {
-        shared: true,
-        formatter: function (this: any) {
-          const point = this.points[0].point;
-          let tip = `<b>${this.x}</b><br/>Cost: $${point.y.toLocaleString()}`;
-          if (point.isAnomaly) {
-            tip += '<br/><span style="color:#EA4335;font-weight:bold">⚠️ Anomaly detected!</span>';
-          }
-          return tip;
-        }
-      }
-    });
-  }, [costHistory]);
-
-  return <div ref={chartRef}></div>;
-};
-
-// Billing Table Sub-component
-const BillingSummaryTable: React.FC<{ summary: any }> = ({ summary }) => {
-  const topServices = summary.topServices || [];
-  return (
-    <div className="gcp-table-container">
-      <table className="gcp-table">
-        <thead>
-          <tr>
-            <th>Service</th>
-            <th className="text-right">Cost</th>
-          </tr>
-        </thead>
-        <tbody>
-          {topServices.slice(0, 5).map((service: any, i: number) => (
-            <tr key={i}>
-              <td>{service.serviceName}</td>
-              <td className="text-right font-bold">{formatCurrency(service.cost)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-};
-
-// Optimization Section Component
-const OptimizationSection: React.FC<{
-  optimization: any;
-  loading: boolean;
-}> = ({ optimization, loading }) => {
-  const allRecommendations = [
-    ...(optimization?.gceRecommendations || []),
-    ...(optimization?.cloudSqlRecommendations || []),
-    ...(optimization?.gkeRecommendations || []),
-  ];
-
-  return (
-    <div className="glass-card gcp-optimization-section fade-in">
-      <h3 className="gcp-section-title">
-        <i className="fas fa-lightbulb text-warning"></i>
-        Optimization Hub
-      </h3>
-
-      <div className="gcp-optimization-summary-grid">
-        <div className="glass-card gcp-opt-summary-card savings">
-          <p className="text-sm font-semibold text-success uppercase tracking-wider">Potential Savings</p>
-          <p className="text-3xl font-black text-success mt-2">
-            {loading ? '...' : formatCurrency(optimization?.summary?.totalPotentialSavings || 0)}
-          </p>
-          <p className="text-xs text-success/70 mt-1">per month</p>
-        </div>
-        <div className="glass-card gcp-opt-summary-card alerts">
-          <p className="text-sm font-semibold text-error uppercase tracking-wider">Recommendations</p>
-          <p className="text-3xl font-black text-error mt-2">
-            {loading ? '...' : optimization?.summary?.totalRecommendations || 0}
-          </p>
-          <p className="text-xs text-error/70 mt-1">active items</p>
-        </div>
-      </div>
-
-      <div className="gcp-table-container">
-        <table className="gcp-table">
-          <thead>
-            <tr>
-              <th>Resource</th>
-              <th>Type</th>
-              <th>Recommendation</th>
-              <th className="text-right">Savings</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              [1, 2, 3].map(i => (
-                <tr key={i}><td colSpan={4} className="gcp-skeleton h-12 rounded mt-2"></td></tr>
-              ))
-            ) : (
-              allRecommendations.slice(0, 5).map((rec: any, i: number) => (
-                <tr key={i}>
-                  <td className="font-medium">{rec.resourceName}</td>
-                  <td><span className="gcp-beta-badge">{rec.resourceType}</span></td>
-                  <td>{rec.reason}</td>
-                  <td className="text-right text-success font-bold">{formatCurrency(rec.potentialSavings)}</td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
+    </main>
   );
 };
 

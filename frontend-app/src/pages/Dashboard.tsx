@@ -143,15 +143,15 @@ export const Dashboard: React.FC = () => {
 
     // Map base paths to provider-specific paths
     const providerPaths: Record<string, Record<string, string>> = {
-      '/cloudmap.html': {
-        AWS: '/cloudmap.html',
-        GCP: '/gcp_cloudmap.html',
-        Azure: '/azure_cloudmap.html',
+      '/cloudmap': {
+        AWS: '/cloudmap',
+        GCP: '/cloudmap',
+        Azure: '/cloudmap',
       },
-      '/calculator.html': {
-        AWS: '/calculator.html',
-        GCP: '/gcp_calculator.html',
-        Azure: '/azure_calculator.html',
+      '/calculator': {
+        AWS: '/calculator',
+        GCP: '/calculator',
+        Azure: '/calculator',
       },
     };
 
