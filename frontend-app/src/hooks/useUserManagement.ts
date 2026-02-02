@@ -215,8 +215,7 @@ export const useUserManagement = () => {
    */
   const countNoMfa = useMemo(() => {
     if (provider !== 'AWS') return 0;
-    // MFA logic would be implemented here if available in backend
-    return 0;
+    return users.filter(u => !u.mfaEnabled).length;
   }, [provider, users]);
 
   /**

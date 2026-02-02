@@ -16,10 +16,13 @@
  * - POST /api/xamops/metrics/insights/bulk-archive
  */
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
+import { useTopbar } from '../contexts/TopbarContext';
 import { usePerformanceData } from '../hooks/usePerformanceData';
-import type { SeverityFilter, ActiveTab, PerformanceInsight } from '../types/performance';
+import type { SeverityFilter } from '../types/performance';
+import Skeleton from '../components/Shared/Skeleton';
+import clsx from 'clsx';
 import '../styles/performance.css';
 
 const PerformancePage: React.FC = () => {
@@ -46,6 +49,34 @@ const PerformancePage: React.FC = () => {
     toggleAllInsights,
     bulkArchive,
   } = usePerformanceData({ selectedAccountId });
+
+  // Topbar Integration
+  const { setActions, clearActions } = useTopbar();
+
+  useEffect(() => {
+    setActions(
+      <div className="flex items-center gap-3">
+        <button
+          onClick={exportData}
+          disabled={isExporting}
+          className="flex items-center gap-2 px-4 py-2 bg-white text-emerald-600 text-xs font-bold rounded-xl border border-emerald-100 shadow-sm hover:shadow-md transition-all disabled:opacity-50"
+        >
+          <i className={clsx('fas', isExporting ? 'fa-spinner fa-spin' : 'fa-file-excel')}></i>
+          <span>{isExporting ? 'Exporting...' : 'Export CSV'}</span>
+        </button>
+
+        <button
+          onClick={refresh}
+          disabled={isRefreshing}
+          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50 active:scale-95"
+        >
+          <i className={clsx('fas fa-sync-alt', isRefreshing && 'animate-spin')}></i>
+          <span>{isRefreshing ? 'Scanning...' : 'Refresh Insights'}</span>
+        </button>
+      </div>
+    );
+    return () => clearActions();
+  }, [setActions, clearActions, isRefreshing, isExporting, exportData, refresh]);
 
   const severityFilters: { value: SeverityFilter; label: string }[] = [
     { value: 'ALL', label: 'All Insights' },
@@ -83,38 +114,7 @@ const PerformancePage: React.FC = () => {
         </div>
       </div>
 
-      {/* Header */}
-      <header className="performance-header">
-        <div className="performance-header-content">
-          <div className="performance-header-title">
-            <div className="performance-header-icon">
-              <i className="fas fa-chart-line" />
-            </div>
-            <div>
-              <h1>Performance Insights</h1>
-              <p>AWS performance recommendations and optimization insights</p>
-            </div>
-          </div>
-          <div className="performance-header-actions">
-            <button
-              onClick={exportData}
-              disabled={isExporting}
-              className="performance-btn performance-btn-success"
-            >
-              <i className={`fas ${isExporting ? 'fa-spinner fa-spin' : 'fa-file-excel'}`} />
-              <span>{isExporting ? 'Exporting...' : 'Export Report'}</span>
-            </button>
-            <button
-              onClick={refresh}
-              disabled={isRefreshing}
-              className="performance-btn performance-btn-primary"
-            >
-              <i className={`fas fa-sync-alt ${isRefreshing ? 'fa-spin' : ''}`} />
-              <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
-            </button>
-          </div>
-        </div>
-      </header>
+      {/* Header Removed - Integrated into Topbar */}
 
       <div className="performance-content">
         {/* No Account State */}
@@ -185,11 +185,11 @@ const PerformancePage: React.FC = () => {
                 {[1, 2, 3, 4].map((i) => (
                   <div key={i} className="performance-metric-card">
                     <div className="performance-metric-content">
-                      <div className="flex-1">
-                        <div className="performance-skeleton h-4 w-20 mb-2" />
-                        <div className="performance-skeleton h-8 w-16" />
+                      <div className="flex-1 space-y-2">
+                        <Skeleton variant="text" height={16} width={80} />
+                        <Skeleton variant="text" height={32} width={64} />
                       </div>
-                      <div className="performance-skeleton w-12 h-12 rounded-xl" />
+                      <Skeleton variant="rounded" height={48} width={48} className="rounded-xl" />
                     </div>
                   </div>
                 ))}
@@ -257,15 +257,15 @@ const PerformancePage: React.FC = () => {
 
                   {/* Loading State */}
                   {isLoading && (
-                    <div className="performance-skeleton-list">
+                    <div className="performance-skeleton-list space-y-4">
                       {[1, 2, 3, 4, 5].map((i) => (
-                        <div key={i} className="performance-skeleton-row">
-                          <div className="performance-skeleton w-6 h-6 rounded" />
+                        <div key={i} className="performance-skeleton-row flex items-center gap-4 p-4 border-b border-gray-100">
+                          <Skeleton variant="rounded" width={24} height={24} />
                           <div className="flex-1 space-y-2">
-                            <div className="performance-skeleton h-4 w-3/4" />
-                            <div className="performance-skeleton h-3 w-1/2" />
+                            <Skeleton variant="text" height={16} width="75%" />
+                            <Skeleton variant="text" height={12} width="50%" />
                           </div>
-                          <div className="performance-skeleton h-6 w-16 rounded-full" />
+                          <Skeleton variant="rounded" height={24} width={64} className="rounded-full" />
                         </div>
                       ))}
                     </div>

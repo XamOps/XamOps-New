@@ -12,10 +12,12 @@
  * - GET /api/xamops/gcp/cloudguard/alerts?accountId={projectId}&forceRefresh={bool}
  */
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
+import { useTopbar } from '../contexts/TopbarContext';
 import { useGcpAlertsData } from '../hooks/useGcpAlertsData';
 import type { GcpAlert } from '../types/gcpAlerts';
+import clsx from 'clsx';
 
 const GcpAlertsPage: React.FC = () => {
     const { selectedAccountIds } = useAccounts();
@@ -41,34 +43,33 @@ const GcpAlertsPage: React.FC = () => {
         getGcpActionText,
     } = useGcpAlertsData({ selectedAccountId });
 
+    // Topbar Integration
+    const { setActions, clearActions } = useTopbar();
+
+    useEffect(() => {
+        setActions(
+            <div className="flex items-center gap-3">
+                <div className="flex items-center space-x-2 mr-2">
+                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                    <span className="text-xs font-medium text-gray-500">Active monitoring</span>
+                </div>
+
+                <button
+                    onClick={() => loadAlerts(true)}
+                    disabled={isRefreshing}
+                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50 active:scale-95"
+                >
+                    <i className={clsx('fas fa-sync-alt', isRefreshing && 'animate-spin')}></i>
+                    <span>{isRefreshing ? 'Scanning...' : 'Refresh Alerts'}</span>
+                </button>
+            </div>
+        );
+        return () => clearActions();
+    }, [setActions, clearActions, isRefreshing, loadAlerts]);
+
     return (
         <div className="flex flex-col h-screen overflow-hidden bg-gray-50">
-            {/* Header */}
-            <header className="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-10">
-                <div className="flex items-center space-x-4">
-                    <div className="w-12 h-12 bg-gradient-to-br from-orange-500 to-red-600 rounded-xl flex items-center justify-center">
-                        <i className="fab fa-google text-white text-xl"></i>
-                    </div>
-                    <div>
-                        <h1 className="text-2xl font-bold text-gray-800">GCP Alerts</h1>
-                        <p className="text-sm text-gray-600">Monitor critical GCP alerts that require attention</p>
-                    </div>
-                </div>
-                <div className="flex items-center space-x-4">
-                    <div className="flex items-center space-x-2">
-                        <div className="w-2 h-2 bg-orange-500 rounded-full pulse-dot"></div>
-                        <span className="text-sm text-gray-600">Active monitoring</span>
-                    </div>
-                    <button
-                        onClick={() => loadAlerts(true)}
-                        className="btn-primary flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md"
-                        disabled={isRefreshing}
-                    >
-                        <i className={`fas fa-sync-alt ${isRefreshing ? 'fa-spin' : ''}`}></i>
-                        <span>{isRefreshing ? 'Scanning...' : 'Refresh Alerts'}</span>
-                    </button>
-                </div>
-            </header>
+            {/* Header Removed - Integrated into Topbar */}
 
             {/* Main Content */}
             <div className="flex-1 p-8 space-y-8 overflow-y-auto">

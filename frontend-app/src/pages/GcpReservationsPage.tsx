@@ -15,18 +15,20 @@
  * - Responsive design
  */
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useGcpReservationsData } from '../hooks/useGcpReservationsData';
+import { useTopbar } from '../contexts/TopbarContext';
+import clsx from 'clsx';
 
 // Component imports
-import GcpReservationsHeader from '../components/GcpReservations/GcpReservationsHeader';
 import ActiveCudsSection from '../components/GcpReservations/ActiveCudsSection';
 import CudRecommendationsSection from '../components/GcpReservations/CudRecommendationsSection';
 
 export const GcpReservationsPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
   const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
+  const { setActions, clearActions } = useTopbar();
 
   // Get GCP reservations data
   const {
@@ -40,12 +42,26 @@ export const GcpReservationsPage: React.FC = () => {
     selectedAccountId,
   });
 
+  // Topbar Integration
+  useEffect(() => {
+    setActions(
+      <div className="flex items-center gap-3">
+        <button
+          onClick={refreshAll}
+          disabled={isRefreshing}
+          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50 active:scale-95"
+        >
+          <i className={clsx('fas fa-sync-alt', isRefreshing && 'animate-spin')}></i>
+          <span>{isRefreshing ? 'Refreshing...' : 'Refresh Data'}</span>
+        </button>
+      </div>
+    );
+    return () => clearActions();
+  }, [setActions, clearActions, isRefreshing, refreshAll]);
+
   return (
     <div className="gcp-reservations-page">
-      <GcpReservationsHeader
-        isRefreshing={isRefreshing}
-        onRefresh={refreshAll}
-      />
+      {/* Header Removed - Integrated into Topbar */}
 
       <div className="gcp-reservations-content">
         <ActiveCudsSection

@@ -6,6 +6,7 @@
 
 import React from 'react';
 import type { EC2Resource } from '../../types/cloudsitter';
+import Skeleton from '../Shared/Skeleton';
 
 interface CloudSitterDashboardProps {
   accountId: string | null;
@@ -88,9 +89,16 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
 
       {/* Loading State */}
       {isLoading && (
-        <div className="flex flex-col items-center justify-center py-20 bg-white rounded-xl border border-gray-200 shadow-sm">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mb-4"></div>
-          <p className="text-gray-500">Loading resources from AWS...</p>
+        <div className="space-y-4">
+          {[1, 2, 3, 4, 5].map(i => (
+            <div key={i} className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm flex items-center gap-4">
+              <div className="flex-1">
+                <Skeleton variant="text" width="30%" height={24} className="mb-2" />
+                <Skeleton variant="text" width="50%" height={16} />
+              </div>
+              <Skeleton variant="text" width={100} height={32} className="rounded-md" />
+            </div>
+          ))}
         </div>
       )}
 
@@ -162,9 +170,8 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
                   <td className="p-4">
                     <div className="flex items-center gap-2">
                       <div
-                        className={`w-2.5 h-2.5 rounded-full ${
-                          resource.state === 'running' ? 'bg-green-500' : 'bg-gray-400'
-                        }`}
+                        className={`w-2.5 h-2.5 rounded-full ${resource.state === 'running' ? 'bg-green-500' : 'bg-gray-400'
+                          }`}
                       ></div>
                       <span className="text-gray-700 font-medium capitalize">{resource.state}</span>
                     </div>
