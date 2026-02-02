@@ -78,6 +78,7 @@ import GcpBillingPage from './pages/GcpBillingPage';
 import CalculatorPage from './pages/CalculatorPage';
 import GcpCloudListPage from './pages/GcpCloudListPage';
 import CloudMapPage from './pages/CloudMapPage';
+import GcpCloudMapPage from './pages/GcpCloudMapPage';
 
 
 // Import styles
@@ -90,6 +91,7 @@ import './styles/rightsizing.css';
 import './styles/reservation.css';
 import './styles/cloudsitter.css';
 import './styles/spotautomation.css';
+import './styles/actionsHistory.css';
 import './styles/grafana.css';
 import './styles/cloudk8s.css';
 import './styles/eks-details.css';
@@ -140,6 +142,7 @@ import './styles/gcpBilling.css';
 import './styles/calculator.css';
 import './styles/gcpCloudList.css';
 import './styles/cloudmap.css';
+import './styles/gcpCloudmap.css';
 
 // Helper function to check authentication
 // Note: Since cookies might be HttpOnly, we check by making an API call
@@ -575,6 +578,18 @@ const AppContent: React.FC = () => {
           <ProtectedRoute>
             <AuthenticatedLayout>
               <CloudMapPage />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* GCP CloudMap Route (converted from gcp_cloudmap.html) */}
+      <Route
+        path="/gcp-cloudmap"
+        element={
+          <ProtectedRoute>
+            <AuthenticatedLayout>
+              <GcpCloudMapPage />
             </AuthenticatedLayout>
           </ProtectedRoute>
         }

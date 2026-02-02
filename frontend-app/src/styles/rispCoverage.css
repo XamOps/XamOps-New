@@ -1,0 +1,126 @@
+/**
+ * RI/SP Coverage Component Styles
+ * Converted from: risp-coverage.html
+ */
+
+.risp-coverage-container {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Smooth transitions for cards */
+.risp-coverage-container .bg-white {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Table hover effects */
+.risp-coverage-container tbody tr {
+  transition: background-color 0.2s ease;
+}
+
+/* Loading spinner enhancement */
+.risp-coverage-container .fa-spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Progress bar animation */
+.risp-coverage-container .h-1\.5 {
+  transition: width 0.5s ease-out;
+}
+
+/* Icon animations */
+.risp-coverage-container .fa-sync-alt {
+  transition: transform 0.3s ease;
+}
+
+.risp-coverage-container button:not(:disabled):hover .fa-sync-alt {
+  transform: rotate(180deg);
+}
+
+/* KPI card enhancements */
+.risp-coverage-container .text-3xl {
+  transition: color 0.3s ease;
+}
+
+/* Empty state styling */
+.risp-coverage-container .fa-inbox {
+  opacity: 0.3;
+  transition: opacity 0.3s ease;
+}
+
+.risp-coverage-container tr:hover .fa-inbox {
+  opacity: 0.5;
+}
+
+/* Gradient text effects */
+.risp-coverage-container .bg-gradient-to-r {
+  background-size: 200% 100%;
+  animation: gradientShift 3s ease infinite;
+}
+
+@keyframes gradientShift {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .risp-coverage-container .grid {
+    gap: 1rem;
+  }
+
+  .risp-coverage-container .text-3xl {
+    font-size: 2rem;
+  }
+
+  .risp-coverage-container .p-8 {
+    padding: 1.5rem;
+  }
+}
+
+/* Table responsiveness */
+@media (max-width: 640px) {
+  .risp-coverage-container table {
+    font-size: 0.875rem;
+  }
+
+  .risp-coverage-container th,
+  .risp-coverage-container td {
+    padding: 0.5rem;
+  }
+}
+
+/* Print styles */
+@media print {
+  .risp-coverage-container button {
+    display: none;
+  }
+
+  .risp-coverage-container .shadow-xl,
+  .risp-coverage-container .shadow-lg {
+    box-shadow: none !important;
+  }
+}
