@@ -27,8 +27,8 @@ public class GcpSecurityService {
     private static final String CONTAINER_SCANNING_CACHE_PREFIX = "gcp:container-scanning:";
 
     private static final Map<String, List<GcpIamPolicyDriftDto.DriftDetail>> BASELINE_IAM = Map.of(
-            "roles/owner", List.of(new GcpIamPolicyDriftDto.DriftDetail("user:admin@example.com", "roles/owner", "BASELINE"))
-    );
+            "roles/owner",
+            List.of(new GcpIamPolicyDriftDto.DriftDetail("user:admin@example.com", "roles/owner", "BASELINE")));
 
     public GcpSecurityService(GcpClientProvider gcpClientProvider, RedisCacheService redisCacheService) {
         this.gcpClientProvider = gcpClientProvider;
@@ -42,26 +42,31 @@ public class GcpSecurityService {
         String cacheKey = IAM_POLICY_DRIFT_CACHE_PREFIX + gcpProjectId;
 
         return CompletableFuture.supplyAsync(() -> {
-            // Try to get from cache
-            Optional<List<GcpIamPolicyDriftDto>> cached = redisCacheService.get(
-                    cacheKey,
-                    new TypeReference<List<GcpIamPolicyDriftDto>>() {}
-            );
+            try {
+                // Try to get from cache
+                Optional<List<GcpIamPolicyDriftDto>> cached = redisCacheService.get(
+                        cacheKey,
+                        new TypeReference<List<GcpIamPolicyDriftDto>>() {
+                        });
 
-            if (cached.isPresent()) {
-                log.info("✅ Returning cached IAM policy drift for project {}", gcpProjectId);
-                return cached.get();
+                if (cached.isPresent()) {
+                    log.info("✅ Returning cached IAM policy drift for project {}", gcpProjectId);
+                    return cached.get();
+                }
+
+                log.info("🔍 Cache miss - fetching fresh IAM policy drift for project {}", gcpProjectId);
+
+                // Fetch fresh data (placeholder implementation)
+                List<GcpIamPolicyDriftDto> result = new ArrayList<>();
+
+                // Cache the result
+                redisCacheService.put(cacheKey, result, 10);
+
+                return result;
+            } catch (Throwable t) {
+                log.error("Failed to get IAM drift for project {}: {}", gcpProjectId, t.getMessage(), t);
+                return Collections.emptyList();
             }
-
-            log.info("🔍 Cache miss - fetching fresh IAM policy drift for project {}", gcpProjectId);
-
-            // Fetch fresh data (placeholder implementation)
-            List<GcpIamPolicyDriftDto> result = new ArrayList<>();
-
-            // Cache the result
-            redisCacheService.put(cacheKey, result, 10);
-
-            return result;
         });
     }
 
@@ -72,26 +77,32 @@ public class GcpSecurityService {
         String cacheKey = CONTAINER_SCANNING_CACHE_PREFIX + gcpProjectId;
 
         return CompletableFuture.supplyAsync(() -> {
-            // Try to get from cache
-            Optional<List<GcpContainerVulnerabilityDto>> cached = redisCacheService.get(
-                    cacheKey,
-                    new TypeReference<List<GcpContainerVulnerabilityDto>>() {}
-            );
+            try {
+                // Try to get from cache
+                Optional<List<GcpContainerVulnerabilityDto>> cached = redisCacheService.get(
+                        cacheKey,
+                        new TypeReference<List<GcpContainerVulnerabilityDto>>() {
+                        });
 
-            if (cached.isPresent()) {
-                log.info("✅ Returning cached container scanning results for project {}", gcpProjectId);
-                return cached.get();
+                if (cached.isPresent()) {
+                    log.info("✅ Returning cached container scanning results for project {}", gcpProjectId);
+                    return cached.get();
+                }
+
+                log.info("🔍 Cache miss - fetching fresh container scanning results for project {}", gcpProjectId);
+
+                // Fetch fresh data (placeholder implementation)
+                List<GcpContainerVulnerabilityDto> result = new ArrayList<>();
+
+                // Cache the result
+                redisCacheService.put(cacheKey, result, 10);
+
+                return result;
+            } catch (Throwable t) {
+                log.error("Failed to get container scanning results for project {}: {}", gcpProjectId, t.getMessage(),
+                        t);
+                return Collections.emptyList();
             }
-
-            log.info("🔍 Cache miss - fetching fresh container scanning results for project {}", gcpProjectId);
-
-            // Fetch fresh data (placeholder implementation)
-            List<GcpContainerVulnerabilityDto> result = new ArrayList<>();
-
-            // Cache the result
-            redisCacheService.put(cacheKey, result, 10);
-
-            return result;
         });
     }
 
@@ -103,56 +114,62 @@ public class GcpSecurityService {
         String cacheKey = SECURITY_FINDINGS_CACHE_PREFIX + gcpProjectId;
 
         return CompletableFuture.supplyAsync(() -> {
-            // Try to get from Redis cache using TypeReference for List
-            Optional<List<GcpSecurityFinding>> cached = redisCacheService.get(
-                    cacheKey,
-                    new TypeReference<List<GcpSecurityFinding>>() {}
-            );
+            try {
+                // Try to get from Redis cache using TypeReference for List
+                Optional<List<GcpSecurityFinding>> cached = redisCacheService.get(
+                        cacheKey,
+                        new TypeReference<List<GcpSecurityFinding>>() {
+                        });
 
-            if (cached.isPresent()) {
-                log.info("✅ Returning cached security findings for project {} ({} findings)",
-                        gcpProjectId, cached.get().size());
-                return cached.get();
-            }
-
-            // Cache miss - fetch fresh data
-            log.info("🔍 Cache miss - fetching fresh security findings for project {}", gcpProjectId);
-
-            Optional<SecurityCenterClient> clientOpt = gcpClientProvider.getSecurityCenterV2Client(gcpProjectId);
-            if (clientOpt.isEmpty()) {
-                log.warn("Security Command Center V2 client not available for project {}. Returning empty list.", gcpProjectId);
-                return Collections.emptyList();
-            }
-
-            List<GcpSecurityFinding> findings = new ArrayList<>();
-            try (SecurityCenterClient client = clientOpt.get()) {
-                String parent = String.format("projects/%s/sources/-", gcpProjectId);
-                log.info("Fetching security findings for project {} from parent {} using V2 API",
-                        gcpProjectId, parent);
-
-                ListFindingsRequest request = ListFindingsRequest.newBuilder()
-                        .setParent(parent)
-                        .setFilter("state=\"ACTIVE\"")
-                        .build();
-
-                for (com.google.cloud.securitycenter.v2.ListFindingsResponse.ListFindingsResult result :
-                        client.listFindings(request).iterateAll()) {
-                    findings.add(mapToDto(result.getFinding()));
+                if (cached.isPresent()) {
+                    log.info("✅ Returning cached security findings for project {} ({} findings)",
+                            gcpProjectId, cached.get().size());
+                    return cached.get();
                 }
 
-                log.info("Successfully fetched {} active security findings for project {}.",
-                        findings.size(), gcpProjectId);
+                // Cache miss - fetch fresh data
+                log.info("🔍 Cache miss - fetching fresh security findings for project {}", gcpProjectId);
 
-                // Cache the successful result in Redis
-                redisCacheService.put(cacheKey, findings, 10);
-                log.info("💾 Cached {} security findings for project {}", findings.size(), gcpProjectId);
+                Optional<SecurityCenterClient> clientOpt = gcpClientProvider.getSecurityCenterV2Client(gcpProjectId);
+                if (clientOpt.isEmpty()) {
+                    log.warn("Security Command Center V2 client not available for project {}. Returning empty list.",
+                            gcpProjectId);
+                    return Collections.emptyList();
+                }
 
-            } catch (Exception e) {
-                log.error("Failed to get security findings for project {}: {}",
-                        gcpProjectId, e.getMessage(), e);
+                List<GcpSecurityFinding> findings = new ArrayList<>();
+                try (SecurityCenterClient client = clientOpt.get()) {
+                    String parent = String.format("projects/%s/sources/-", gcpProjectId);
+                    log.info("Fetching security findings for project {} from parent {} using V2 API",
+                            gcpProjectId, parent);
+
+                    ListFindingsRequest request = ListFindingsRequest.newBuilder()
+                            .setParent(parent)
+                            .setFilter("state=\"ACTIVE\"")
+                            .build();
+
+                    for (com.google.cloud.securitycenter.v2.ListFindingsResponse.ListFindingsResult result : client
+                            .listFindings(request).iterateAll()) {
+                        findings.add(mapToDto(result.getFinding()));
+                    }
+
+                    log.info("Successfully fetched {} active security findings for project {}.",
+                            findings.size(), gcpProjectId);
+
+                    // Cache the successful result in Redis
+                    redisCacheService.put(cacheKey, findings, 10);
+                    log.info("💾 Cached {} security findings for project {}", findings.size(), gcpProjectId);
+
+                } catch (Exception e) {
+                    log.error("Failed to get security findings for project {}: {}",
+                            gcpProjectId, e.getMessage(), e);
+                }
+
+                return findings;
+            } catch (Throwable t) {
+                log.error("CRITICAL ERROR: Failed to fetch security findings for project {}", gcpProjectId, t);
+                return Collections.emptyList();
             }
-
-            return findings;
         });
     }
 
@@ -188,8 +205,7 @@ public class GcpSecurityService {
                 finding.getCategory(),
                 finding.getDescription(),
                 finding.getSeverity().toString(),
-                finding.getResourceName()
-        );
+                finding.getResourceName());
     }
 
     /**
