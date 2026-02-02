@@ -36,19 +36,30 @@
 }
 
 /* Metric Card Animation */
-.metric-card {
+.gcp-metric-card {
   position: relative;
   overflow: hidden;
   animation: fadeIn 0.5s ease-out forwards;
   opacity: 0;
 }
 
-.metric-card:nth-child(1) { animation-delay: 0.1s; }
-.metric-card:nth-child(2) { animation-delay: 0.2s; }
-.metric-card:nth-child(3) { animation-delay: 0.3s; }
-.metric-card:nth-child(4) { animation-delay: 0.4s; }
+.gcp-metric-card:nth-child(1) {
+  animation-delay: 0.1s;
+}
 
-.metric-card::before {
+.gcp-metric-card:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.gcp-metric-card:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+.gcp-metric-card:nth-child(4) {
+  animation-delay: 0.4s;
+}
+
+.gcp-metric-card::before {
   content: '';
   position: absolute;
   top: 0;
@@ -61,8 +72,15 @@
 }
 
 @keyframes gradient {
-  0%, 100% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
+
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+
+  50% {
+    background-position: 100% 50%;
+  }
 }
 
 @keyframes fadeIn {
@@ -70,6 +88,7 @@
     opacity: 0;
     transform: translateY(20px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -164,6 +183,7 @@
     transform: translateY(-20px);
     opacity: 0;
   }
+
   to {
     transform: translateY(0);
     opacity: 1;
@@ -179,8 +199,13 @@
 }
 
 @keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
+  0% {
+    background-position: -200% 0;
+  }
+
+  100% {
+    background-position: 200% 0;
+  }
 }
 
 /* Toast Notification */
