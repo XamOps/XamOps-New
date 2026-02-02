@@ -312,7 +312,7 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
     switch (provider) {
       case 'GCP': return '/icons/gcp-icon.png';
       case 'Azure': return '/icons/azure-icon.png';
-      default: return '/icons/aws-icon.png';
+      default: return '/icons/default-icon.png';
     }
   }, []);
 
