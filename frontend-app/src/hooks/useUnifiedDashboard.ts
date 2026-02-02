@@ -82,7 +82,11 @@ export const useUnifiedDashboard = () => {
   // Fetch summary data
   const fetchSummary = useCallback(async (force: boolean = false) => {
     setError((prev) => ({ ...prev, summary: null }));
-    setIsLoading((prev) => ({ ...prev, summary: true }));
+
+    // Only show loading if forcing refresh or if we haven't loaded initially (though strict mode might mask this, defaults handle it)
+    if (force) {
+      setIsLoading((prev) => ({ ...prev, summary: true }));
+    }
 
     try {
       const url = '/api/xamops/dashboard/unified/summary' + (force ? '?forceRefresh=true' : '');
@@ -108,7 +112,10 @@ export const useUnifiedDashboard = () => {
 
   // Fetch provider data
   const fetchProvider = useCallback(async (provider: 'aws' | 'gcp' | 'azure', force: boolean = false) => {
-    setIsLoading((prev) => ({ ...prev, [provider]: true }));
+    // Only set loading if forced or if we don't have data yet
+    if (force || (provider === 'aws' && !awsData) || (provider === 'gcp' && !gcpData) || (provider === 'azure' && !azureData)) {
+      setIsLoading((prev) => ({ ...prev, [provider]: true }));
+    }
     setError((prev) => ({ ...prev, [provider]: null }));
 
     try {
@@ -141,7 +148,7 @@ export const useUnifiedDashboard = () => {
     } finally {
       setIsLoading((prev) => ({ ...prev, [provider]: false }));
     }
-  }, []);
+  }, [awsData, gcpData, azureData]);
 
   // Fetch health data
   const fetchHealth = useCallback(async () => {

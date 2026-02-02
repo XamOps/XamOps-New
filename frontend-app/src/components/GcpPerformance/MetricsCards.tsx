@@ -66,7 +66,7 @@ const MetricsCards: React.FC<MetricsCardsProps> = ({ summary, loading }) => {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
       {metrics.map((metric, index) => (
-        <div key={index} className="glass-card metric-card rounded-2xl p-6">
+        <div key={index} className="glass-card gcp-metric-card rounded-2xl p-6">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-gray-600 text-sm font-medium">{metric.title}</h3>

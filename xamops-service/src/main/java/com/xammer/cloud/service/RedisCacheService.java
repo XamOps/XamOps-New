@@ -33,8 +33,8 @@ public class RedisCacheService {
                 logger.info("--- LOADING FROM REDIS CACHE: {} ---", key);
                 return Optional.of(objectMapper.readValue(jsonData, clazz));
             }
-        } catch (IOException e) {
-            logger.error("Error deserializing cached data for key {}: {}", key, e.getMessage());
+        } catch (Exception e) {
+            logger.warn("Error retrieving/deserializing cached data for key {}: {}", key, e.getMessage());
         }
         return Optional.empty();
     }
@@ -46,8 +46,8 @@ public class RedisCacheService {
                 logger.info("--- LOADING FROM REDIS CACHE (TypeReference): {} ---", key);
                 return Optional.of(objectMapper.readValue(jsonData, typeReference));
             }
-        } catch (IOException e) {
-            logger.error("Error deserializing cached data for key {}: {}", key, e.getMessage());
+        } catch (Exception e) {
+            logger.warn("Error retrieving/deserializing cached data for key {}: {}", key, e.getMessage());
         }
         return Optional.empty();
     }
@@ -59,8 +59,8 @@ public class RedisCacheService {
             // ✅ FIX: Added timeout arguments so cache actually expires
             redisTemplate.opsForValue().set(key, jsonData, minutes, TimeUnit.MINUTES);
             logger.info("--- SAVED TO REDIS CACHE: {} (TTL: {} mins) ---", key, minutes);
-        } catch (JsonProcessingException e) {
-            logger.error("Error serializing data for caching for key {}: {}", key, e.getMessage());
+        } catch (Exception e) {
+            logger.warn("Error serializing/saving data for caching for key {}: {}", key, e.getMessage());
         }
     }
 
@@ -73,7 +73,7 @@ public class RedisCacheService {
         }
     }
 
-// --- ✅ ADD THESE NEW METHODS AT THE BOTTOM ---
+    // --- ✅ ADD THESE NEW METHODS AT THE BOTTOM ---
 
     public void saveOtp(String username, String otp) {
         // Stores OTP for exactly 5 minutes (300 seconds)
@@ -86,10 +86,10 @@ public class RedisCacheService {
         Object otp = redisTemplate.opsForValue().get(key);
         return otp != null ? otp.toString() : null;
     }
-    
+
     public void deleteOtp(String username) {
         String key = "OTP:" + username;
         redisTemplate.delete(key);
     }
-    
+
 }
