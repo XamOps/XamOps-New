@@ -43,6 +43,8 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.DoubleAdder;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
@@ -589,26 +591,33 @@ public class DashboardDataService {
             if (projects.isEmpty())
                 return new DashboardData.CodeQualitySummary("N/A", 0, 0, 0, 0.0, 0);
 
-            int bugs = 0, vulns = 0, smells = 0;
-            double totalCoverage = 0.0;
-            int projectsWithCoverage = 0;
+            LongAdder bugs = new LongAdder();
+            LongAdder vulns = new LongAdder();
+            LongAdder smells = new LongAdder();
+            DoubleAdder totalCoverage = new DoubleAdder();
+            LongAdder projectsWithCoverage = new LongAdder();
 
-            for (SonarQubeProject p : projects) {
+            // Parallelize network-bound SonarQube metric fetching to reduce dashboard latency
+            projects.parallelStream().forEach(p -> {
                 SonarQubeMetricsDto m = sonarQubeService.getProjectMetrics(p);
                 if (m != null) {
-                    bugs += m.getBugs();
-                    vulns += m.getVulnerabilities();
-                    smells += m.getCodeSmells();
+                    bugs.add(m.getBugs());
+                    vulns.add(m.getVulnerabilities());
+                    smells.add(m.getCodeSmells());
                     if (m.getCoverage() > 0) {
-                        totalCoverage += m.getCoverage();
-                        projectsWithCoverage++;
+                        totalCoverage.add(m.getCoverage());
+                        projectsWithCoverage.increment();
                     }
                 }
-            }
-            double avgCoverage = projectsWithCoverage > 0 ? totalCoverage / projectsWithCoverage : 0.0;
-            String rating = (vulns > 0 || bugs > 10) ? "C" : (smells > 50 ? "B" : "A");
+            });
 
-            return new DashboardData.CodeQualitySummary(rating, bugs, vulns, smells, avgCoverage, projects.size());
+            int totalBugs = bugs.intValue();
+            int totalVulns = vulns.intValue();
+            int totalSmells = smells.intValue();
+            double avgCoverage = projectsWithCoverage.longValue() > 0 ? totalCoverage.doubleValue() / projectsWithCoverage.longValue() : 0.0;
+            String rating = (totalVulns > 0 || totalBugs > 10) ? "C" : (totalSmells > 50 ? "B" : "A");
+
+            return new DashboardData.CodeQualitySummary(rating, totalBugs, totalVulns, totalSmells, avgCoverage, projects.size());
         } catch (Exception e) {
             logger.error("Error fetching SonarQube metrics", e);
             return new DashboardData.CodeQualitySummary("Error", 0, 0, 0, 0, 0);
