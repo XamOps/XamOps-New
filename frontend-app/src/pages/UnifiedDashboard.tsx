@@ -324,7 +324,7 @@ export const UnifiedDashboard: React.FC = () => {
                     <p>It looks like you don't have any cloud accounts connected yet. The dashboard will remain empty until you add one.</p>
                     <p className="mt-2">
                       <a href="/account-manager.html" className="font-bold underline hover:text-blue-900">
-                        Go to Account Manager &rarr;
+                        Go to Account Management &rarr;
                       </a>
                     </p>
                   </div>

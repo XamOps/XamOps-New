@@ -53,16 +53,16 @@ public class CustomAuthenticationSuccessHandler extends SimpleUrlAuthenticationS
         // 1. Determine Redirect URL based on Roles and Accounts
         if (roles.contains("ROLE_BILLOPS_ADMIN")) {
             // BillOps Admin users go to admin dashboard
-            targetUrl = frontendUrl + "/billops/dashboard_admin.html";
+            targetUrl = frontendUrl + "/billops-admin-dashboard";
         } else if (roles.contains("ROLE_BILLOPS")) {
             // BillOps regular users go to user dashboard
-            targetUrl = frontendUrl + "/billops/dashboard_user.html";
+            targetUrl = frontendUrl + "/billops-dashboard";
         } else if (roles.contains("ROLE_XAMOPS")) {
             // XamOps users go to unified dashboard
-            targetUrl = frontendUrl + "/unified-dashboard.html";
+            targetUrl = frontendUrl + "/unified-dashboard";
         } else if (accounts.isEmpty()) {
             // Users with no accounts go to account manager
-            targetUrl = frontendUrl + "/account-manager.html";
+            targetUrl = frontendUrl + "/account-manager";
         } else {
             // Default fallback for other users with accounts
             targetUrl = frontendUrl + "/unified-dashboard.html";
