@@ -92,7 +92,10 @@ export const useGcpPerformanceData = ({
 
       // Fetch from API
       try {
-        setLoading(true);
+        // Only show loading if forcing refresh or if we don't have data
+        if (forceRefresh || insights.length === 0) {
+          setLoading(true);
+        }
         setError(null);
 
         const data = await apiClient.get<PerformanceInsight[]>(
@@ -107,7 +110,10 @@ export const useGcpPerformanceData = ({
       } catch (err) {
         console.error('Failed to load GCP performance insights:', err);
         setError(err instanceof Error ? err : new Error('Failed to load insights'));
-        setInsights([]);
+        // Keep previous insights on error to prevent UI from emptying
+        if (insights.length === 0) {
+          setInsights([]);
+        }
       } finally {
         setLoading(false);
       }
@@ -148,13 +154,7 @@ export const useGcpPerformanceData = ({
         sessionStorage.setItem(cacheKey, JSON.stringify(data));
       } catch (err) {
         console.error('Failed to load GCP performance summary:', err);
-        setSummary({
-          performanceScore: 0,
-          totalInsights: 0,
-          critical: 0,
-          warning: 0,
-          weakWarning: 0,
-        });
+        // Don't reset summary on error to prevent UI flashing
       }
     },
     [accountId]
