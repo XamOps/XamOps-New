@@ -49,7 +49,8 @@ const CostSection: React.FC<CostSectionProps> = ({ costHistory, billingSummary, 
       return;
     }
 
-    if (!window.Chart) {
+    const globalAny = globalThis as any;
+    if (!globalAny.Chart) {
       console.warn('⚠️ Chart.js not loaded');
       return;
     }
@@ -73,7 +74,7 @@ const CostSection: React.FC<CostSectionProps> = ({ costHistory, billingSummary, 
     ) || [];
 
     // Create chart (matches original dashboard.html exactly)
-    const chart = new window.Chart(ctx, {
+    const chart = new globalAny.Chart(ctx, {
       type: 'bar',
       data: {
         labels: costHistory.labels || [],
@@ -179,16 +180,26 @@ const CostSection: React.FC<CostSectionProps> = ({ costHistory, billingSummary, 
   return (
     <>
       {/* Cost History Chart */}
-      <div className="lg:col-span-2 chart-container p-6 rounded-xl relative">
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg font-bold text-gray-800 flex items-center">
-            <i className="fas fa-arrows-alt widget-handle mr-3 text-gray-400"></i>
-            <i className="fas fa-chart-bar mr-2 text-green-500"></i>
-            Cost History (Last 6 Months)
-          </h3>
-          <div className="flex items-center space-x-2 text-sm text-gray-500">
-            <i className="fas fa-exclamation-triangle text-orange-500"></i>
-            <span>Anomaly detection</span>
+      <div className="lg:col-span-2 glass-card p-6 rounded-2xl border border-gray-200 shadow-xl shadow-emerald-500/5 relative overflow-hidden h-full">
+        <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center border border-emerald-100 shadow-sm">
+              <svg className="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-xl font-black text-gray-900 tracking-tight uppercase px-1">Cost History</h3>
+              <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest flex items-center gap-1.5 px-1 mt-0.5">
+                <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse"></span>
+                6-Month Trend
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 bg-white/50 backdrop-blur-sm px-4 py-2 rounded-full border border-gray-100 shadow-sm">
+            <svg className="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>&nbsp;<span className="text-[10px] uppercase font-black tracking-widest text-gray-500">Anomaly Check Active</span>
           </div>
         </div>
 
@@ -200,20 +211,28 @@ const CostSection: React.FC<CostSectionProps> = ({ costHistory, billingSummary, 
         )}
 
         {/* Chart Canvas */}
-        <div className="h-80 p-4 bg-gray-50 rounded-lg">
+        <div className="h-80 p-6 bg-gray-50/50 backdrop-blur-sm rounded-2xl border border-gray-100 shadow-inner">
           <canvas ref={chartCanvasRef}></canvas>
         </div>
       </div>
 
       {/* Billing Summary - matches original dashboard.html table format */}
-      <div className="chart-container p-6 rounded-xl relative">
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg font-bold text-gray-800 flex items-center">
-            <i className="fas fa-arrows-alt widget-handle mr-3 text-gray-400"></i>
-            <i className="fas fa-receipt mr-2 text-blue-500"></i>
-            Billing Summary
-          </h3>
-          <div className="text-sm text-gray-500">MTD</div>
+      <div className="glass-card p-6 rounded-2xl border border-gray-200 shadow-xl shadow-blue-500/5 relative overflow-hidden h-full">
+        <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center border border-blue-100 shadow-sm">
+              <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-xl font-black text-gray-900 tracking-tight uppercase px-1">Billing Summary</h3>
+              <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest flex items-center gap-1.5 px-1 mt-0.5">
+                <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse"></span>
+                Month-to-Date
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* Billing Loading Skeleton */}
@@ -239,7 +258,7 @@ const CostSection: React.FC<CostSectionProps> = ({ costHistory, billingSummary, 
               <tbody>
                 {sortedSummary.length > 0 ? (
                   sortedSummary.map((item, index) => (
-                    <tr key={index} className="border-b hover:bg-gray-50 transition-colors">
+                    <tr key={item.serviceName} className="border-b border-gray-50 hover:bg-gray-50/80 transition-all group">
                       <th className="px-4 py-4 font-semibold text-gray-800 text-left">
                         <div className="flex items-center space-x-2">
                           <div
@@ -259,7 +278,9 @@ const CostSection: React.FC<CostSectionProps> = ({ costHistory, billingSummary, 
                 ) : (
                   <tr>
                     <td colSpan={2} className="px-4 py-8 text-center text-gray-500">
-                      <i className="fas fa-receipt text-2xl mb-2"></i>
+                      <svg className="w-10 h-10 text-gray-300 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
                       <p>No billing data available</p>
                     </td>
                   </tr>

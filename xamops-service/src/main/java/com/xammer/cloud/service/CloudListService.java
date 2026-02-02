@@ -152,11 +152,25 @@ public class CloudListService {
     }
 
     CloudAccount getAccount(String accountId) {
-        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
-        if (accounts.isEmpty()) {
-            throw new RuntimeException("Account not found in database: " + accountId);
+        if (accountId == null || accountId.isEmpty()) {
+            throw new IllegalArgumentException("Account ID cannot be null or empty.");
         }
-        return accounts.get(0);
+
+        // Handle multi-account strings just in case
+        String idToUse = accountId.contains(",") ? accountId.split(",")[0] : accountId;
+
+        // Match the pattern used by DashboardDataService - check provider-specific ID
+        return cloudAccountRepository.findByProviderAccountId(idToUse)
+                .orElseGet(() -> {
+                    // Fallback to older lookup if needed
+                    List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountIdOrGcpProjectId(idToUse,
+                            idToUse);
+                    if (accounts.isEmpty()) {
+                        logger.error("Account not found in database for accountId: {}", idToUse);
+                        throw new RuntimeException("Account not found in database: " + idToUse);
+                    }
+                    return accounts.get(0);
+                });
     }
 
     private void loadRegionCoordinates() {
@@ -230,62 +244,74 @@ public class CloudListService {
         logger.info("Fetching paginated services for account: {}, page: {}, servicesPerPage: {}",
                 accountId, page, servicesPerPage);
 
-        // First get all grouped services (this will use cache if available)
-        return getAllResourcesGrouped(accountId, forceRefresh).thenApply(allServiceGroups -> {
+        try {
+            // First get all grouped services (this will use cache if available)
+            return getAllResourcesGrouped(accountId, forceRefresh).thenApply(allServiceGroups -> {
 
-            // Sort services alphabetically by service type
-            List<DashboardData.ServiceGroupDto> sortedServices = allServiceGroups.stream()
-                    .sorted(Comparator.comparing(DashboardData.ServiceGroupDto::getServiceType))
-                    .collect(Collectors.toList());
+                // Sort services alphabetically by service type
+                List<DashboardData.ServiceGroupDto> sortedServices = allServiceGroups.stream()
+                        .sorted(Comparator.comparing(DashboardData.ServiceGroupDto::getServiceType))
+                        .collect(Collectors.toList());
 
-            int totalServices = sortedServices.size();
-            int totalPages = (int) Math.ceil((double) totalServices / servicesPerPage);
+                int totalServices = sortedServices.size();
+                int totalPages = (int) Math.ceil((double) totalServices / servicesPerPage);
 
-            // Validate page number
-            int pageNumber = page;
-            if (pageNumber < 0) {
-                pageNumber = 0;
-            }
-            if (pageNumber >= totalPages && totalPages > 0) {
-                pageNumber = totalPages - 1;
-            }
+                // Validate page number
+                int pageNumber = page;
+                if (pageNumber < 0) {
+                    pageNumber = 0;
+                }
+                if (pageNumber >= totalPages && totalPages > 0) {
+                    pageNumber = totalPages - 1;
+                }
 
-            // Calculate pagination bounds
-            int startIndex = pageNumber * servicesPerPage;
-            int endIndex = Math.min(startIndex + servicesPerPage, totalServices);
+                // Calculate pagination bounds
+                int startIndex = pageNumber * servicesPerPage;
+                int endIndex = Math.min(startIndex + servicesPerPage, totalServices);
 
-            // Get the services for this page
-            List<DashboardData.ServiceGroupDto> pageServices;
-            if (startIndex >= totalServices) {
-                pageServices = Collections.emptyList();
-            } else {
-                pageServices = sortedServices.subList(startIndex, endIndex);
-            }
+                // Get the services for this page
+                List<DashboardData.ServiceGroupDto> pageServices;
+                if (startIndex >= totalServices) {
+                    pageServices = Collections.emptyList();
+                } else {
+                    pageServices = sortedServices.subList(startIndex, endIndex);
+                }
 
-            // Convert DashboardData.ServiceGroupDto to
-            // ServicePaginatedResponse.ServiceGroupDto
-            List<ServicePaginatedResponse.ServiceGroupDto> responseServices = pageServices.stream()
-                    .map(sg -> new ServicePaginatedResponse.ServiceGroupDto(
-                            sg.getServiceType(),
-                            sg.getResources()))
-                    .collect(Collectors.toList());
+                // Convert DashboardData.ServiceGroupDto to
+                // ServicePaginatedResponse.ServiceGroupDto
+                List<ServicePaginatedResponse.ServiceGroupDto> responseServices = pageServices.stream()
+                        .map(sg -> new ServicePaginatedResponse.ServiceGroupDto(
+                                sg.getServiceType(),
+                                sg.getResources()))
+                        .collect(Collectors.toList());
 
-            // Build response
-            ServicePaginatedResponse response = new ServicePaginatedResponse(
-                    responseServices,
-                    pageNumber,
-                    totalServices,
-                    totalPages,
-                    servicesPerPage,
-                    pageNumber < totalPages - 1, // hasNext
-                    pageNumber > 0 // hasPrevious
-            );
+                // Build response
+                ServicePaginatedResponse response = new ServicePaginatedResponse(
+                        responseServices,
+                        pageNumber,
+                        totalServices,
+                        totalPages,
+                        servicesPerPage,
+                        pageNumber < totalPages - 1, // hasNext
+                        pageNumber > 0 // hasPrevious
+                );
 
-            logger.info("Returning page {} of {} (services {}-{} of {})",
-                    pageNumber, totalPages, startIndex + 1, endIndex, totalServices);
+                logger.info("Returning page {} of {} (services {}-{} of {})",
+                        pageNumber, totalPages, startIndex + 1, endIndex, totalServices);
 
-            return response;
-        });
+                return response;
+            }).exceptionally(ex -> {
+                logger.error("Error processing paginated services for account {}: {}", accountId, ex.getMessage(), ex);
+                // Return empty response on error instead of crashing
+                return new ServicePaginatedResponse(
+                        Collections.emptyList(), 0, 0, 0, servicesPerPage, false, false);
+            });
+        } catch (Exception e) {
+            logger.error("Error in getAllServicesGroupedPaginated for account {}: {}", accountId, e.getMessage(), e);
+            CompletableFuture<ServicePaginatedResponse> failedFuture = new CompletableFuture<>();
+            failedFuture.completeExceptionally(e);
+            return failedFuture;
+        }
     }
 
     /**
@@ -316,29 +342,38 @@ public class CloudListService {
     @Async("awsTaskExecutor")
     public CompletableFuture<List<DashboardData.ServiceGroupDto>> getAllResourcesGrouped(String accountId,
             boolean forceRefresh) {
-        String cacheKey = "groupedCloudlistResources-" + accountId;
-        if (!forceRefresh) {
-            Optional<List<DashboardData.ServiceGroupDto>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {
-            });
-            if (cachedData.isPresent()) {
-                return CompletableFuture.completedFuture(cachedData.get());
+        try {
+            String cacheKey = "groupedCloudlistResources-" + accountId;
+            if (!forceRefresh) {
+                Optional<List<DashboardData.ServiceGroupDto>> cachedData = redisCache.get(cacheKey,
+                        new TypeReference<>() {
+                        });
+                if (cachedData.isPresent()) {
+                    logger.debug("Returning cached grouped resources for account {}", accountId);
+                    return CompletableFuture.completedFuture(cachedData.get());
+                }
             }
-        }
 
-        CloudAccount account = getAccount(accountId);
-        return getAllResources(account, forceRefresh).thenApply(flatList -> {
-            List<DashboardData.ServiceGroupDto> groupedList = flatList.stream()
-                    .filter(r -> r.getType() != null)
-                    .collect(Collectors.groupingBy(ResourceDto::getType))
-                    .entrySet().stream()
-                    .map(e -> new DashboardData.ServiceGroupDto(e.getKey(), e.getValue()))
-                    .sorted(Comparator.comparing(DashboardData.ServiceGroupDto::getServiceType))
-                    .collect(Collectors.toList());
-            logger.debug("Grouped Cloudlist resources into {} service groups for account {}", groupedList.size(),
-                    accountId);
-            redisCache.put(cacheKey, groupedList, 10);
-            return groupedList;
-        });
+            CloudAccount account = getAccount(accountId);
+            return getAllResources(account, forceRefresh).thenApply(flatList -> {
+                List<DashboardData.ServiceGroupDto> groupedList = flatList.stream()
+                        .filter(r -> r.getType() != null)
+                        .collect(Collectors.groupingBy(ResourceDto::getType))
+                        .entrySet().stream()
+                        .map(e -> new DashboardData.ServiceGroupDto(e.getKey(), e.getValue()))
+                        .sorted(Comparator.comparing(DashboardData.ServiceGroupDto::getServiceType))
+                        .collect(Collectors.toList());
+                logger.debug("Grouped Cloudlist resources into {} service groups for account {}", groupedList.size(),
+                        accountId);
+                redisCache.put(cacheKey, groupedList, 10);
+                return groupedList;
+            });
+        } catch (Exception e) {
+            logger.error("Error in getAllResourcesGrouped for account {}: {}", accountId, e.getMessage(), e);
+            CompletableFuture<List<DashboardData.ServiceGroupDto>> failedFuture = new CompletableFuture<>();
+            failedFuture.completeExceptionally(e);
+            return failedFuture;
+        }
     }
 
     @Async("awsTaskExecutor")
@@ -461,16 +496,19 @@ public class CloudListService {
 
         if (!forceRefresh) {
             // 1. Check database cache first (persistent, survives restarts)
-            // NOTE: Using separate REGION_STATUS:: key, NOT CLOUD_LIST:: (which stores resources, not regions)
+            // NOTE: Using separate REGION_STATUS:: key, NOT CLOUD_LIST:: (which stores
+            // resources, not regions)
             try {
                 Optional<CachedData> dbCache = cachedDataRepository.findById(dbCacheKey);
-                if (dbCache.isPresent() && dbCache.get().getJsonData() != null && dbCache.get().getJsonData().length() > 10) {
+                if (dbCache.isPresent() && dbCache.get().getJsonData() != null
+                        && dbCache.get().getJsonData().length() > 10) {
                     List<DashboardData.RegionStatus> data = objectMapper.readValue(
-                        dbCache.get().getJsonData(),
-                        new TypeReference<List<DashboardData.RegionStatus>>() {});
+                            dbCache.get().getJsonData(),
+                            new TypeReference<List<DashboardData.RegionStatus>>() {
+                            });
                     if (data != null && !data.isEmpty()) {
                         logger.info("✅ Serving region status data from database cache for account {} ({} regions)",
-                            account.getAwsAccountId(), data.size());
+                                account.getAwsAccountId(), data.size());
                         return CompletableFuture.completedFuture(data);
                     }
                 }
@@ -482,7 +520,8 @@ public class CloudListService {
             Optional<List<DashboardData.RegionStatus>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {
             });
             if (cachedData.isPresent()) {
-                logger.info("Serving cloud list region data from Redis cache for account {}", account.getAwsAccountId());
+                logger.info("Serving cloud list region data from Redis cache for account {}",
+                        account.getAwsAccountId());
                 return CompletableFuture.completedFuture(cachedData.get());
             }
         }
@@ -542,7 +581,8 @@ public class CloudListService {
                     account.getAwsAccountId());
             redisCache.put(cacheKey, regionStatuses, 10);
 
-            // ✅ Save region status to database for persistence (used by EKS cluster discovery)
+            // ✅ Save region status to database for persistence (used by EKS cluster
+            // discovery)
             if (!regionStatuses.isEmpty()) {
                 try {
                     CachedData regionCache = cachedDataRepository.findById(dbCacheKey).orElse(new CachedData());
@@ -970,15 +1010,16 @@ public class CloudListService {
 
     private CompletableFuture<List<ResourceDto>> fetchAmplifyAppsForCloudlist(CloudAccount account,
             List<DashboardData.RegionStatus> activeRegions) {
-        // AWS Amplify is not available in all regions - filter to supported regions only
+        // AWS Amplify is not available in all regions - filter to supported regions
+        // only
         Set<String> amplifyUnsupportedRegions = Set.of(
-            "ap-south-2",    // Hyderabad
-            "ap-southeast-3", // Jakarta
-            "ap-southeast-4", // Melbourne
-            "eu-south-2",    // Spain
-            "eu-central-2",  // Zurich
-            "me-central-1",  // UAE
-            "il-central-1"   // Israel
+                "ap-south-2", // Hyderabad
+                "ap-southeast-3", // Jakarta
+                "ap-southeast-4", // Melbourne
+                "eu-south-2", // Spain
+                "eu-central-2", // Zurich
+                "me-central-1", // UAE
+                "il-central-1" // Israel
         );
 
         List<DashboardData.RegionStatus> supportedRegions = activeRegions.stream()

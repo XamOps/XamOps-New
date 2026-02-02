@@ -782,16 +782,26 @@ public class DashboardDataService {
             throw new IllegalArgumentException("Account ID cannot be null or empty.");
         }
 
-        Optional<CloudAccount> azureAccount = cloudAccountRepository.findByAzureSubscriptionId(accountId);
-        if (azureAccount.isPresent()) {
-            return azureAccount.get();
-        }
+        // Handle multi-account strings just in case
+        String idToUse = accountId.contains(",") ? accountId.split(",")[0] : accountId;
 
-        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountIdOrGcpProjectId(accountId, accountId);
-        if (accounts.isEmpty()) {
-            throw new RuntimeException("Account not found in database: " + accountId);
-        }
-        return accounts.get(0);
+        // Match the pattern used by CloudListService - check provider-specific ID first
+        return cloudAccountRepository.findByProviderAccountId(idToUse)
+                .orElseGet(() -> {
+                    // Fallback to older lookup if needed
+                    List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountIdOrGcpProjectId(idToUse,
+                            idToUse);
+                    if (accounts.isEmpty()) {
+                        // One last attempt: Azure
+                        Optional<CloudAccount> azureAccount = cloudAccountRepository.findByAzureSubscriptionId(idToUse);
+                        if (azureAccount.isPresent()) {
+                            return azureAccount.get();
+                        }
+                        logger.error("Account not found in database for accountId: {}", idToUse);
+                        throw new RuntimeException("Account not found in database: " + idToUse);
+                    }
+                    return accounts.get(0);
+                });
     }
 
     public DashboardData getMultiAccountDashboardData(List<String> accountIds, boolean forceRefresh,
@@ -1848,8 +1858,10 @@ public class DashboardDataService {
             Map<String, Integer> counts = groupedResources.stream()
                     .collect(Collectors.toMap(
                             DashboardData.ServiceGroupDto::getServiceType,
-                            group -> group.getResources().size()));
+                            group -> group.getResources().size(),
+                            (existing, replacement) -> existing)); // Handle duplicates if any
 
+            // Original fields
             inventory.setVpc(counts.getOrDefault("VPC", 0));
             inventory.setEcs(counts.getOrDefault("ECS Cluster", 0));
             inventory.setEc2(counts.getOrDefault("EC2 Instance", 0));
@@ -1864,6 +1876,21 @@ public class DashboardDataService {
             inventory.setLoadBalancers(counts.getOrDefault("Load Balancer", 0));
             inventory.setLightsail(counts.getOrDefault("Lightsail Instance", 0));
             inventory.setAmplify(counts.getOrDefault("Amplify App", 0));
+
+            // Frontend compatibility fields
+            inventory.setEc2Count(inventory.getEc2());
+            inventory.setS3Count(inventory.getS3Buckets());
+            inventory.setRdsCount(inventory.getRdsInstances());
+            inventory.setVpcCount(inventory.getVpc());
+            inventory.setLambdaCount(inventory.getLambdas());
+            inventory.setEbsCount(inventory.getEbsVolumes());
+            inventory.setRoute53Count(inventory.getRoute53Zones());
+            inventory.setLoadBalancerCount(inventory.getLoadBalancers());
+            inventory.setEcsCount(inventory.getEcs());
+            inventory.setEksCount(inventory.getKubernetes());
+            inventory.setLightsailCount(inventory.getLightsail());
+            inventory.setAmplifyCount(inventory.getAmplify());
+
             return inventory;
         });
     }
@@ -2194,24 +2221,25 @@ public class DashboardDataService {
     // ============================================================================================
 
     public DashboardData getGranularKpi(String accountId, boolean forceRefresh, ClientUserDetails userDetails) {
+        String idToUse = accountId.contains(",") ? accountId.split(",")[0] : accountId;
         try {
-            String cacheKey = "DASHBOARD_KPI::" + accountId;
+            String cacheKey = "DASHBOARD_KPI::" + idToUse;
 
             // 1. Try Cache (Redis + DB)
             if (!forceRefresh) {
                 DashboardData cached = getSnapshot(cacheKey);
                 if (cached != null) {
-                    logger.info("✅ [KPI] Returned from DB Snapshot | Account: {}", accountId);
+                    logger.info("✅ [KPI] Returned from DB Snapshot | Account: {}", idToUse);
                     return cached;
                 }
             }
 
-            CloudAccount account = getAccount(accountId);
+            CloudAccount account = getAccount(idToUse);
             DashboardData data = new DashboardData();
             data.setSelectedProvider(account.getProvider());
 
             DashboardData.Account mainAccount = new DashboardData.Account();
-            mainAccount.setId(accountId);
+            mainAccount.setId(idToUse);
             mainAccount.setName(account.getAccountName());
             data.setSelectedAccount(mainAccount);
 
@@ -2219,8 +2247,11 @@ public class DashboardDataService {
                 // Fetch KPI data including cost history for sparklines and optimization summary
                 CompletableFuture<DashboardData.CostHistory> costHistoryFuture = finOpsService.getCostHistory(account,
                         forceRefresh, null, null);
-
-                // Fetch optimization data for potential savings KPI
+                // This line was added based on the provided code edit snippet.
+                // If FinOpsReportDto is not used elsewhere in this method, it might be dead
+                // code.
+                CompletableFuture<FinOpsReportDto> finOpsFuture = finOpsService.getFinOpsReport(idToUse, forceRefresh,
+                        null, null);
                 List<DashboardData.RegionStatus> activeRegions = cloudListService
                         .getRegionStatusForAccount(account, forceRefresh).join();
 
@@ -2237,7 +2268,8 @@ public class DashboardDataService {
 
                 // Wait for all to complete
                 CompletableFuture
-                        .allOf(costHistoryFuture, wasteFuture, ec2Future, ebsFuture, lambdaFuture, anomaliesFuture)
+                        .allOf(costHistoryFuture, wasteFuture, ec2Future, ebsFuture, lambdaFuture, anomaliesFuture,
+                                finOpsFuture)
                         .join();
 
                 DashboardData.CostHistory costHistory = costHistoryFuture.join();
@@ -2270,7 +2302,7 @@ public class DashboardDataService {
 
             } else {
                 // Fallback for other providers: Fetch full data and extract
-                return getDashboardData(accountId, forceRefresh, userDetails);
+                return getDashboardData(idToUse, forceRefresh, userDetails);
             }
 
             // Save Snapshot
@@ -2279,38 +2311,53 @@ public class DashboardDataService {
             saveSnapshot(cacheKey, data);
             return data;
         } catch (Exception e) {
-            logger.error("Error fetching granular KPI for {}", accountId, e);
+            logger.error("Error fetching granular KPI for {}", idToUse, e);
             return createErrorResponse("Failed to fetch KPI data");
         }
     }
 
     public DashboardData getGranularInventory(String accountId, boolean forceRefresh, ClientUserDetails userDetails) {
+        String idToUse = accountId.contains(",") ? accountId.split(",")[0] : accountId;
         try {
-            String cacheKey = "DASHBOARD_INVENTORY::" + accountId;
+            String cacheKey = "DASHBOARD_INVENTORY::" + idToUse;
 
             // 1. Try Cache (Redis + DB)
             if (!forceRefresh) {
                 DashboardData cached = getSnapshot(cacheKey);
                 if (cached != null) {
-                    logger.info("✅ [Inventory] Returned from DB Snapshot | Account: {}", accountId);
+                    logger.info("✅ [Inventory] Returned from DB Snapshot | Account: {}", idToUse);
                     return cached;
                 }
             }
 
-            CloudAccount account = getAccount(accountId);
+            CloudAccount account = getAccount(idToUse);
             DashboardData data = new DashboardData();
             data.setSelectedProvider(account.getProvider());
 
             if ("AWS".equalsIgnoreCase(account.getProvider())) {
                 DashboardData.Account mainAccount = new DashboardData.Account();
-                mainAccount.setId(accountId);
+                mainAccount.setId(idToUse);
                 mainAccount.setName(account.getAccountName());
 
                 CompletableFuture<List<DashboardData.ServiceGroupDto>> groupedResourcesFuture = cloudListService
-                        .getAllResourcesGrouped(accountId, forceRefresh);
+                        .getAllResourcesGrouped(idToUse, forceRefresh);
 
                 DashboardData.ResourceInventory inventory = getResourceInventory(groupedResourcesFuture).join();
                 mainAccount.setResourceInventory(inventory);
+
+                // Flattened fields for compatibility
+                mainAccount.setEc2Count(inventory.getEc2Count());
+                mainAccount.setS3Count(inventory.getS3Count());
+                mainAccount.setRdsCount(inventory.getRdsCount());
+                mainAccount.setVpcCount(inventory.getVpcCount());
+                mainAccount.setLambdaCount(inventory.getLambdaCount());
+                mainAccount.setEbsCount(inventory.getEbsCount());
+                mainAccount.setRoute53Count(inventory.getRoute53Count());
+                mainAccount.setLoadBalancerCount(inventory.getLoadBalancerCount());
+                mainAccount.setEcsCount(inventory.getEcsCount());
+                mainAccount.setEksCount(inventory.getEksCount());
+                mainAccount.setLightsailCount(inventory.getLightsailCount());
+                mainAccount.setAmplifyCount(inventory.getAmplifyCount());
 
                 // Also fetch cloudwatch status as it's often small and near inventory
                 List<DashboardData.RegionStatus> activeRegions = cloudListService
@@ -2321,7 +2368,7 @@ public class DashboardDataService {
 
                 data.setSelectedAccount(mainAccount);
             } else {
-                return getDashboardData(accountId, forceRefresh, userDetails);
+                return getDashboardData(idToUse, forceRefresh, userDetails);
             }
 
             data.setLastUpdated(java.time.LocalDateTime.now()
@@ -2329,31 +2376,32 @@ public class DashboardDataService {
             saveSnapshot(cacheKey, data);
             return data;
         } catch (Exception e) {
-            logger.error("Error fetching granular Inventory for {}", accountId, e);
+            logger.error("Error fetching granular Inventory for {}", idToUse, e);
             return createErrorResponse("Failed to fetch Inventory data");
         }
     }
 
     public DashboardData getGranularCost(String accountId, boolean forceRefresh, ClientUserDetails userDetails) {
+        String idToUse = accountId.contains(",") ? accountId.split(",")[0] : accountId;
         try {
-            String cacheKey = "DASHBOARD_COST::" + accountId;
+            String cacheKey = "DASHBOARD_COST::" + idToUse;
 
             // 1. Try Cache (Redis + DB)
             if (!forceRefresh) {
                 DashboardData cached = getSnapshot(cacheKey);
                 if (cached != null) {
-                    logger.info("✅ [Cost] Returned from DB Snapshot | Account: {}", accountId);
+                    logger.info("✅ [Cost] Returned from DB Snapshot | Account: {}", idToUse);
                     return cached;
                 }
             }
 
-            CloudAccount account = getAccount(accountId);
+            CloudAccount account = getAccount(idToUse);
             DashboardData data = new DashboardData();
             data.setSelectedProvider(account.getProvider());
 
             if ("AWS".equalsIgnoreCase(account.getProvider())) {
                 DashboardData.Account mainAccount = new DashboardData.Account();
-                mainAccount.setId(accountId);
+                mainAccount.setId(idToUse);
                 mainAccount.setName(account.getAccountName());
 
                 CompletableFuture<DashboardData.CostHistory> costHistoryFuture = finOpsService.getCostHistory(account,
@@ -2367,7 +2415,7 @@ public class DashboardDataService {
                 mainAccount.setBillingSummary(billingFuture.join());
                 data.setSelectedAccount(mainAccount);
             } else {
-                return getDashboardData(accountId, forceRefresh, userDetails);
+                return getDashboardData(idToUse, forceRefresh, userDetails);
             }
 
             data.setLastUpdated(java.time.LocalDateTime.now()
@@ -2375,32 +2423,33 @@ public class DashboardDataService {
             saveSnapshot(cacheKey, data);
             return data;
         } catch (Exception e) {
-            logger.error("Error fetching granular Cost for {}", accountId, e);
+            logger.error("Error fetching granular Cost for {}", idToUse, e);
             return createErrorResponse("Failed to fetch Cost data");
         }
     }
 
     public DashboardData getGranularOptimization(String accountId, boolean forceRefresh,
             ClientUserDetails userDetails) {
+        String idToUse = accountId.contains(",") ? accountId.split(",")[0] : accountId;
         try {
-            String cacheKey = "DASHBOARD_OPT::" + accountId;
+            String cacheKey = "DASHBOARD_OPT::" + idToUse;
 
             // 1. Try Cache (Redis + DB)
             if (!forceRefresh) {
                 DashboardData cached = getSnapshot(cacheKey);
                 if (cached != null) {
-                    logger.info("✅ [Optimization] Returned from DB Snapshot | Account: {}", accountId);
+                    logger.info("✅ [Optimization] Returned from DB Snapshot | Account: {}", idToUse);
                     return cached;
                 }
             }
 
-            CloudAccount account = getAccount(accountId);
+            CloudAccount account = getAccount(idToUse);
             DashboardData data = new DashboardData();
             data.setSelectedProvider(account.getProvider());
 
             if ("AWS".equalsIgnoreCase(account.getProvider())) {
                 DashboardData.Account mainAccount = new DashboardData.Account();
-                mainAccount.setId(accountId);
+                mainAccount.setId(idToUse);
                 mainAccount.setName(account.getAccountName());
 
                 List<DashboardData.RegionStatus> activeRegions = cloudListService
@@ -2436,7 +2485,7 @@ public class DashboardDataService {
 
                 data.setSelectedAccount(mainAccount);
             } else {
-                return getDashboardData(accountId, forceRefresh, userDetails);
+                return getDashboardData(idToUse, forceRefresh, userDetails);
             }
 
             data.setLastUpdated(java.time.LocalDateTime.now()
@@ -2444,31 +2493,32 @@ public class DashboardDataService {
             saveSnapshot(cacheKey, data);
             return data;
         } catch (Exception e) {
-            logger.error("Error fetching granular Optimization for {}", accountId, e);
+            logger.error("Error fetching granular Optimization for {}", idToUse, e);
             return createErrorResponse("Failed to fetch Optimization data");
         }
     }
 
     public DashboardData getGranularMap(String accountId, boolean forceRefresh, ClientUserDetails userDetails) {
+        String idToUse = accountId.contains(",") ? accountId.split(",")[0] : accountId;
         try {
-            String cacheKey = "DASHBOARD_MAP::" + accountId;
+            String cacheKey = "DASHBOARD_MAP::" + idToUse;
 
             // 1. Try Cache (Redis + DB)
             if (!forceRefresh) {
                 DashboardData cached = getSnapshot(cacheKey);
                 if (cached != null) {
-                    logger.info("✅ [Map] Returned from DB Snapshot | Account: {}", accountId);
+                    logger.info("✅ [Map] Returned from DB Snapshot | Account: {}", idToUse);
                     return cached;
                 }
             }
 
-            CloudAccount account = getAccount(accountId);
+            CloudAccount account = getAccount(idToUse);
             DashboardData data = new DashboardData();
             data.setSelectedProvider(account.getProvider());
 
             if ("AWS".equalsIgnoreCase(account.getProvider())) {
                 DashboardData.Account mainAccount = new DashboardData.Account();
-                mainAccount.setId(accountId);
+                mainAccount.setId(idToUse);
                 mainAccount.setName(account.getAccountName());
 
                 List<DashboardData.RegionStatus> activeRegions = cloudListService
@@ -2477,7 +2527,7 @@ public class DashboardDataService {
 
                 data.setSelectedAccount(mainAccount);
             } else {
-                return getDashboardData(accountId, forceRefresh, userDetails);
+                return getDashboardData(idToUse, forceRefresh, userDetails);
             }
 
             data.setLastUpdated(java.time.LocalDateTime.now()
@@ -2485,7 +2535,7 @@ public class DashboardDataService {
             saveSnapshot(cacheKey, data);
             return data;
         } catch (Exception e) {
-            logger.error("Error fetching granular Map for {}", accountId, e);
+            logger.error("Error fetching granular Map for {}", idToUse, e);
             return createErrorResponse("Failed to fetch Map data");
         }
     }

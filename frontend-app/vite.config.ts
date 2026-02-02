@@ -40,6 +40,10 @@ export default defineConfig({
     htmlInclude(),
   ],
 
+  css: {
+    devSourcemap: false,
+  },
+
   // Define global for browser compatibility (fixes sockjs-client)
   define: {
     global: 'globalThis',
@@ -57,6 +61,20 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
+      // --- 0. WEBSOCKET PROXY (Must be first) ---
+      '/xamops-ws': {
+        target: 'http://localhost:8080', // Support SockJS (http + ws upgrade)
+        ws: true,
+        changeOrigin: true,
+        secure: false,
+      },
+      // Terminal WebSocket
+      '/terminal': {
+        target: 'http://localhost:8080',
+        ws: true,
+        changeOrigin: true,
+        secure: false,
+      },
       // --- 1. CORE AUTHENTICATION ---
       '/login': {
         target: authTarget,
@@ -151,31 +169,7 @@ export default defineConfig({
       '/api/ai': { target: authTarget, changeOrigin: true, secure: false }, // ✅ Added missing proxy rule
 
 
-      // --- 6. WEBSOCKETS ---
-      // Explicit proxy for the renamed /terminal endpoint
-      '/terminal': {
-        target: authTarget,
-        ws: true,
-        changeOrigin: true,
-        secure: false,
-        configure: (proxy: any) => {
-          proxy.on('error', (err: any) => {
-            console.error('❌ Terminal Proxy Error:', err);
-          });
-        }
-      },
-      // General WebSocket proxy
-      '/xamops-ws': {
-        target: authTarget,
-        ws: true,
-        changeOrigin: true,
-        secure: false,
-        configure: (proxy: any) => {
-          proxy.on('error', (err: any) => {
-            console.error('❌ WS Proxy Error:', err);
-          });
-        }
-      },
+
     }
   },
 

@@ -99,8 +99,12 @@ export const apiFetch = async (url: string | URL, options: FetchOptions = {}): P
   const isInternal = urlStr.startsWith('/') || urlStr.includes(window.location.origin);
 
   if (isInternal) {
-    // Only add Content-Type if not already set and body is not FormData
-    if (!hasHeader(headers, 'Content-Type') && !(options.body instanceof FormData)) {
+    // Only add Content-Type if there's a body and it's not FormData
+    const methodsWithBody = ['POST', 'PUT', 'PATCH'];
+    const hasBody = options.body !== undefined && options.body !== null;
+    const isFormData = options.body instanceof FormData;
+
+    if (methodsWithBody.includes(options.method || 'GET') && hasBody && !isFormData && !hasHeader(headers, 'Content-Type')) {
       headers = addHeader(headers, 'Content-Type', 'application/json');
     }
 
@@ -177,24 +181,34 @@ export const apiFetchJson = async <T = any>(url: string | URL, options: FetchOpt
     throw new Error(`HTTP ${response.status}: ${errorText}`);
   }
 
-  // Check if response is actually JSON before parsing
-  const contentType = response.headers.get('content-type');
-  if (!contentType || !contentType.includes('application/json')) {
-    const text = await response.text();
+  // Success response handling
+  const text = await response.text();
 
-    // If it's HTML, the endpoint likely doesn't exist
-    if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
-      throw new Error(`API endpoint returned HTML instead of JSON. The backend endpoint may not be implemented yet.`);
-    }
-
-    console.error('❌ [apiClient] Non-JSON response:', text);
-    throw new Error(`Expected JSON but received ${contentType}`);
+  // Handle empty bodies (common for 201, 202, 204 or just successful actions)
+  if (!text || text.trim() === '') {
+    return {} as T;
   }
 
-  const jsonData = await response.json();
-  console.log('✅ [apiClient] JSON data parsed:', jsonData);
+  const contentType = response.headers.get('content-type');
+  const isJson = contentType && contentType.includes('application/json');
 
-  return jsonData;
+  if (isJson) {
+    try {
+      return JSON.parse(text) as T;
+    } catch (e) {
+      console.warn('⚠️ [apiClient] Failed to parse JSON, returning raw text:', e);
+      return text as unknown as T;
+    }
+  }
+
+  // If not JSON, check if it's an HTML error page (common for misconfigured proxies or missing endpoints)
+  if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
+    throw new Error(`API endpoint returned HTML instead of JSON. Status: ${response.status}`);
+  }
+
+  // Fallback for plain text success messages
+  console.log('📡 [apiClient] Returning raw text response');
+  return text as unknown as T;
 };
 
 /**
