@@ -74,6 +74,10 @@ import GcpCloudK8sPage from './pages/GcpCloudK8sPage';
 import GcpSecurityPage from './pages/GcpSecurityPage';
 import GcpPerformancePage from './pages/GcpPerformancePage';
 import GcpAlertsPage from './pages/GcpAlertsPage';
+import GcpBillingPage from './pages/GcpBillingPage';
+import CalculatorPage from './pages/CalculatorPage';
+import GcpCloudListPage from './pages/GcpCloudListPage';
+import CloudMapPage from './pages/CloudMapPage';
 
 
 // Import styles
@@ -132,6 +136,10 @@ import './styles/gcpCloudK8s.css';
 import './styles/gcpSecurity.css';
 import './styles/gcpPerformance.css';
 import './styles/gcpAlerts.css';
+import './styles/gcpBilling.css';
+import './styles/calculator.css';
+import './styles/gcpCloudList.css';
+import './styles/cloudmap.css';
 
 // Helper function to check authentication
 // Note: Since cookies might be HttpOnly, we check by making an API call
@@ -560,6 +568,18 @@ const AppContent: React.FC = () => {
         }
       />
 
+      {/* CloudMap Route (converted from cloudmap.html) */}
+      <Route
+        path="/cloudmap"
+        element={
+          <ProtectedRoute>
+            <AuthenticatedLayout>
+              <CloudMapPage />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
+
       {/* Account Manager Route (converted from account-manager.html) */}
       <Route
         path="/account-manager"
@@ -687,6 +707,42 @@ const AppContent: React.FC = () => {
           <ProtectedRoute>
             <AuthenticatedLayout>
               <BillingPage />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* BillOps GCP Billing Route (converted from billops/gcp-billing.html) */}
+      <Route
+        path="/billops-gcp-billing"
+        element={
+          <ProtectedRoute>
+            <AuthenticatedLayout>
+              <GcpBillingPage />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Calculator Route (converted from calculator.html) */}
+      <Route
+        path="/calculator"
+        element={
+          <ProtectedRoute>
+            <AuthenticatedLayout>
+              <CalculatorPage />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* GCP CloudList Route (converted from gcp_cloudlist.html) */}
+      <Route
+        path="/gcp-cloudlist"
+        element={
+          <ProtectedRoute>
+            <AuthenticatedLayout>
+              <GcpCloudListPage />
             </AuthenticatedLayout>
           </ProtectedRoute>
         }
