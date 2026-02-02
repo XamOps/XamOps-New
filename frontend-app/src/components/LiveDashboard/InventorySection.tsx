@@ -45,16 +45,16 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ name, count, icon, service,
           <img src={icon} alt={name} className="w-7 h-7 object-contain drop-shadow-sm" />
         </div>
         <div>
-          <p className="text-xs font-black text-gray-400 uppercase tracking-widest">{name}</p>
-          <div className="flex items-center mt-0.5">
-            <span className="text-[10px] text-purple-600 font-bold uppercase tracking-tight">Active Nodes</span>
+          <p className="text-xs font-black text-gray-400 uppercase tracking-widest leading-tight">{name}</p>
+          <div className="flex items-center mt-1">
+            <span className="text-[10px] text-purple-600 font-bold uppercase tracking-tight">Active Count</span>
             <svg className="w-2.5 h-2.5 ml-1 text-purple-400 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M13 7l5 5m0 0l-5 5m5-5H6" />
             </svg>
           </div>
         </div>
       </div>
-      <div className="text-right">
+      <div className="text-right ml-4">
         <p className="text-3xl font-black text-gray-900 tracking-tight">{count}</p>
       </div>
     </button>
@@ -104,9 +104,9 @@ const InventorySection: React.FC<InventorySectionProps> = ({ inventory, isLoadin
 
       {/* Inventory Skeleton */}
       {isLoading && (
-        <div className="absolute inset-x-0 bottom-0 top-16 z-10 p-6 space-y-4 bg-white/80 backdrop-blur-sm rounded-b-xl">
+        <div className="space-y-4 py-2 px-1">
           {[1, 2, 3, 4, 5].map((i) => (
-            <div key={i} className="h-12 w-full skeleton rounded-lg"></div>
+            <div key={i} className="h-16 w-full skeleton rounded-xl"></div>
           ))}
         </div>
       )}
@@ -114,8 +114,8 @@ const InventorySection: React.FC<InventorySectionProps> = ({ inventory, isLoadin
       {/* Inventory Grid */}
       {!isLoading && (
         <div
-          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-4 custom-scrollbar fade-in px-1 py-1"
-          style={{ maxHeight: '500px', overflowY: 'auto' }}
+          className="flex flex-col gap-4 overflow-y-auto pb-2 custom-scrollbar fade-in px-1"
+          style={{ maxHeight: '420px' }}
         >
           {resourceItems.length > 0 ? (
             resourceItems.map(resource => (
