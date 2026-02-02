@@ -29,7 +29,7 @@ import AccountSelector from './AccountSelector';
 import NavItem from './NavItem';
 import NavSection from './NavSection';
 import SuperAdminPanel from './SuperAdminPanel';
-import apiClient from '../../utils/apiClient';
+import UserLogoutCard from './UserLogoutCard';
 import clsx from 'clsx';
 
 const Sidebar: React.FC = () => {
@@ -73,7 +73,7 @@ const Sidebar: React.FC = () => {
    * Check if current path matches the nav item
    */
   const isActive = useCallback((path: string): boolean => {
-    const currentPath = window.location.pathname;
+    const currentPath = globalThis.location.pathname;
 
     // Special case: Root path matches both / and /index.html
     if (path === '/') {
@@ -377,19 +377,6 @@ const Sidebar: React.FC = () => {
     return false;
   }, []);
 
-  /**
-   * Handle logout
-   */
-  const handleLogout = async () => {
-    try {
-      await apiClient.post('/logout', {});
-      window.location.href = '/';
-    } catch (err) {
-      console.error('Logout failed:', err);
-      // Still redirect on error
-      window.location.href = '/';
-    }
-  };
 
   return (
     <>
@@ -680,13 +667,7 @@ const Sidebar: React.FC = () => {
             <NavItem href="/my-profile" icon="fas fa-user" label="My Profile" isActive={isActive('/my-profile')} />
           </NavSection>
 
-          <button
-            onClick={handleLogout}
-            className="w-full flex items-center px-4 py-3 rounded-lg text-gray-700 hover:bg-red-50 hover:text-red-600 transition-colors"
-          >
-            <i className="fas fa-sign-out-alt w-5 text-center mr-3" />
-            <span className="font-medium">Logout</span>
-          </button>
+          <UserLogoutCard />
         </div>
       </div>
     </>
