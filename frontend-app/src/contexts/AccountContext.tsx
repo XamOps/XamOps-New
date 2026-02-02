@@ -278,7 +278,11 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
         '/ticket-detail',
         '/account-manager',
         '/billops-dashboard',
-        '/billops-billing'
+        '/billops-billing',
+        '/gcp-dashboard',
+        '/gcp-finops',
+        '/gcp-cost',
+        '/gcp-waste'
       ];
 
       const currentPath = window.location.pathname;

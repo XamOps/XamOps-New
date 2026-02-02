@@ -68,6 +68,4 @@ export type PipelineStage = GitHubStage | JenkinsStage;
 // Component state types
 export type TabType = 'github' | 'jenkins';
 
-export interface SelectedWorkflow extends CICDRun {
-  // Can be either GitHubRun or JenkinsJob
-}
+export type SelectedWorkflow = CICDRun;
