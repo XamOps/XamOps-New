@@ -120,17 +120,45 @@ const KPICard: React.FC<KPICardProps> = ({
       <div className="main-content">
         <div className="flex justify-between items-start h-full">
           <div className="flex-1">
-            <h3 className="text-gray-600 text-sm font-medium mb-1">{title}</h3>
-            <p className="text-2xl font-bold text-gray-900 mb-2">{value}</p>
-            <div className="flex items-center text-sm">
-              <span className={`font-medium ${change >= 0 ? 'text-red-600' : 'text-green-600'}`}>
-                {change >= 0 ? '+' : ''}{change.toFixed(1)}%
+            <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">{title}</h3>
+            <p className="text-3xl font-black text-gray-900 tracking-tight mb-2 metric-value">{value}</p>
+            <div className="flex items-center text-[11px] font-bold">
+              <span className={`flex items-center gap-1 ${change >= 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+                {change >= 0 ? (
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                  </svg>
+                ) : (
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
+                  </svg>
+                )}
+                {Math.abs(change).toFixed(1)}%
               </span>
-              <span className="text-gray-500 ml-1">vs last period</span>
+              <span className="text-gray-400 ml-1.5 uppercase font-black">vs last period</span>
             </div>
           </div>
-          <div className={`bg-gradient-to-br ${gradientClass} p-3 rounded-xl shadow-lg`}>
-            <i className={`fas ${icon} text-white text-lg`}></i>
+          <div className={`w-12 h-12 bg-gradient-to-br ${gradientClass} rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-500/20 transform group-hover:scale-110 transition-transform duration-300`}>
+            {icon === 'fa-dollar-sign' && (
+              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            )}
+            {icon === 'fa-chart-line' && (
+              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+              </svg>
+            )}
+            {icon === 'fa-calendar-alt' && (
+              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+            )}
+            {icon === 'fa-piggy-bank' && (
+              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            )}
           </div>
         </div>
       </div>
@@ -211,15 +239,27 @@ const KPISection: React.FC<KPISectionProps> = ({ kpiData, costHistory, isLoading
 
   return (
     <>
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center text-gray-600">
-          <i className="fas fa-arrows-alt widget-handle mr-3 text-lg"></i>
-          <h2 className="text-lg font-bold">Key Performance Indicators</h2>
+      <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center group">
+          <div className="w-8 h-8 bg-indigo-50 items-center justify-center rounded-lg mr-3 group-hover:bg-indigo-100 transition-colors hidden md:flex">
+            <svg className="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-black text-gray-900 tracking-tight uppercase">Key Performance Indicators</h2>
         </div>
-        <div className="flex items-center space-x-2 text-sm text-gray-500">
-          {isLoading && <div className="loading-spinner w-4 h-4 border-2"></div>}
-          {!isLoading && <i className="fas fa-chart-line"></i>}
-          <span>Live metrics</span>
+        <div className="flex items-center space-x-3 text-[11px] font-black uppercase tracking-widest text-gray-400 bg-white/50 backdrop-blur-sm px-4 py-2 rounded-full border border-gray-100 shadow-sm">
+          {isLoading ? (
+            <div className="flex items-center gap-2">
+              <div className="loading-spinner w-3 h-3 border-2 border-indigo-500/20 border-t-indigo-500"></div>
+              <span>Updating...</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 bg-green-500 rounded-full shadow-[0_0_8px_rgba(34,197,94,0.4)] animate-pulse"></div>
+              <span>Live metrics</span>
+            </div>
+          )}
         </div>
       </div>
 

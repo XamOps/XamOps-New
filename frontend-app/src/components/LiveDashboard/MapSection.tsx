@@ -49,8 +49,9 @@ const MapSection: React.FC<MapSectionProps> = ({ regionStatus, isLoading }) => {
       return;
     }
 
-    if (!window.Highcharts) {
-      console.error('[Map Debug] CRITICAL: Highcharts object NOT found on window.');
+    const globalAny = globalThis as any;
+    if (!globalAny.Highcharts) {
+      console.error('[Map Debug] CRITICAL: Highcharts object NOT found on globalThis.');
       return;
     }
 
@@ -87,7 +88,7 @@ const MapSection: React.FC<MapSectionProps> = ({ regionStatus, isLoading }) => {
         }
 
         // Create Highcharts map (matches original dashboard.html exactly)
-        const chart = window.Highcharts.mapChart(mapContainerRef.current, {
+        const chart = globalAny.Highcharts.mapChart(mapContainerRef.current, {
           chart: {
             map: worldMap,
             backgroundColor: 'transparent',
@@ -128,7 +129,7 @@ const MapSection: React.FC<MapSectionProps> = ({ regionStatus, isLoading }) => {
             mappoint: {
               point: {
                 events: {
-                  click: function(this: any) {
+                  click: function (this: any) {
                     console.log('Region clicked:', this.id);
                     filterByRegion(this.id);
                   }
@@ -200,7 +201,9 @@ const MapSection: React.FC<MapSectionProps> = ({ regionStatus, isLoading }) => {
           mapContainerRef.current.innerHTML =
             '<div class="flex items-center justify-center h-full">' +
             '<div class="text-center p-8">' +
-            '<i class="fas fa-exclamation-triangle text-red-500 text-4xl mb-4"></i>' +
+            '<svg class="w-12 h-12 text-red-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">' +
+            '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />' +
+            '</svg>' +
             '<p class="text-red-600 font-semibold">Failed to load world map</p>' +
             '<p class="text-sm text-gray-500 mt-2">' + error.message + '</p>' +
             '</div></div>';
@@ -224,7 +227,9 @@ const MapSection: React.FC<MapSectionProps> = ({ regionStatus, isLoading }) => {
     notification.className = 'fixed top-4 right-4 bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded-lg shadow-lg z-50 max-w-sm';
     notification.innerHTML = `
       <div class="flex items-center space-x-2">
-        <i class="fas fa-filter text-blue-600"></i>
+        <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+        </svg>
         <div>
           <p class="font-semibold">Region Filter Applied</p>
           <p class="text-sm">Dashboard filtered by: ${regionId}</p>
@@ -239,26 +244,34 @@ const MapSection: React.FC<MapSectionProps> = ({ regionStatus, isLoading }) => {
   };
 
   return (
-    <div className="lg:col-span-3 chart-container p-6 rounded-xl relative">
-      <div className="flex items-center justify-between mb-6">
-        <h3 className="text-lg font-bold text-gray-800 flex items-center">
-          <i className="fas fa-arrows-alt widget-handle mr-3 text-gray-400"></i>
-          <i className="fas fa-globe-americas mr-2 text-blue-500"></i>
-          Active Regions
-        </h3>
+    <div className="lg:col-span-3 glass-card p-6 rounded-2xl border border-gray-200 shadow-xl shadow-blue-500/5 relative overflow-hidden h-full">
+      <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center border border-blue-100 shadow-sm">
+            <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 002 2 2 2 0 012 2v.651M20 9v1a2 2 0 002 2 2 2 0 012 2v.651M20 9a2 2 0 00-2-2 2 2 0 01-2-2V3.935M16 2a11 11 0 1010 0v.5" />
+            </svg>
+          </div>
+          <div>
+            <h3 className="text-xl font-black text-gray-900 tracking-tight uppercase px-1">Active Regions</h3>
+            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest flex items-center gap-1.5 px-1 mt-0.5">
+              <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse"></span>&nbsp;Global Footprint
+            </p>
+          </div>
+        </div>
         {!isLoading && (
-          <div className="flex items-center space-x-4 text-sm">
-            <div className="flex items-center space-x-1">
-              <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
-              <span className="text-gray-600">Active</span>
+          <div className="flex items-center gap-4 bg-white/50 backdrop-blur-sm px-4 py-2 rounded-full border border-gray-100 shadow-sm">
+            <div className="flex items-center gap-1.5">
+              <div className="w-2 h-2 bg-blue-500 rounded-full shadow-lg shadow-blue-500/30"></div>
+              <span className="text-[10px] uppercase font-black tracking-widest text-gray-500">Active</span>
             </div>
-            <div className="flex items-center space-x-1">
-              <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-              <span className="text-gray-600">Sustainable</span>
+            <div className="flex items-center gap-1.5">
+              <div className="w-2 h-2 bg-emerald-500 rounded-full shadow-lg shadow-emerald-500/30"></div>
+              <span className="text-[10px] uppercase font-black tracking-widest text-gray-500">Fixed</span>
             </div>
-            <div className="flex items-center space-x-1">
-              <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-              <span className="text-gray-600">Issues</span>
+            <div className="flex items-center gap-1.5">
+              <div className="w-2 h-2 bg-rose-500 rounded-full shadow-lg shadow-rose-500/30"></div>
+              <span className="text-[10px] uppercase font-black tracking-widest text-gray-500">Alerts</span>
             </div>
           </div>
         )}

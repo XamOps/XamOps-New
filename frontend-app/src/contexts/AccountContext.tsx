@@ -378,7 +378,7 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
         return '/icons/azure-icon.png';
       case 'AWS':
       default:
-        return '/icons/aws-icon.png';
+        return '/icons/default-icon.png';
     }
   }, []);
 

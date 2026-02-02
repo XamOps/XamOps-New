@@ -7,7 +7,6 @@
 
 import React from 'react';
 import { useAccounts } from '../../contexts/AccountContext';
-import { useAuth } from '../../contexts/AuthContext';
 import { Account } from '../../types/account';
 import clsx from 'clsx';
 
@@ -232,7 +231,10 @@ const AccountSelector: React.FC<AccountSelectorProps> = ({ isOpen, onToggle, onC
                 </button>
               )}
               <button
-                onClick={applySelection}
+                onClick={() => {
+                  applySelection();
+                  onClose();
+                }}
                 className="flex-1 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
               >
                 Apply

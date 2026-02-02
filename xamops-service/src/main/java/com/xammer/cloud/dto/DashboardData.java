@@ -81,6 +81,20 @@ public class DashboardData {
     private int lightsail;
     private int amplify;
 
+    // Frontend compatibility fields
+    private int ec2Count;
+    private int s3Count;
+    private int rdsCount;
+    private int vpcCount;
+    private int lambdaCount;
+    private int ebsCount;
+    private int route53Count;
+    private int loadBalancerCount;
+    private int ecsCount;
+    private int eksCount;
+    private int lightsailCount;
+    private int amplifyCount;
+
     public long getTotalCount() {
       return (long) vpc + ecs + ec2 + kubernetes + lambdas + ebsVolumes + images + snapshots + s3Buckets
           + rdsInstances
@@ -171,6 +185,20 @@ public class DashboardData {
     private double lastMonthSpend;
     private CodeQualitySummary codeQuality;
     private SystemHealthSummary systemHealth;
+
+    // Resource Inventory counts (flattened for legacy compatibility)
+    private int ec2Count;
+    private int s3Count;
+    private int rdsCount;
+    private int vpcCount;
+    private int lambdaCount;
+    private int ebsCount;
+    private int route53Count;
+    private int loadBalancerCount;
+    private int ecsCount;
+    private int eksCount;
+    private int lightsailCount;
+    private int amplifyCount;
 
     // Unified Dashboard Fields
     private int totalAccounts; // <--- ADDED THIS FIELD TO FIX THE ERROR
