@@ -16,11 +16,12 @@
  * - GET /api/xamops/cloudguard/grafana-alerts
  */
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
+import { useTopbar } from '../contexts/TopbarContext';
 import { useAlertsData } from '../hooks/useAlertsData';
+import clsx from 'clsx';
 import {
-  AlertsHeader,
   AlertsKPICards,
   AlertsFilter,
   AlertsCloudGuardTable,
@@ -57,14 +58,27 @@ const AlertsPage: React.FC = () => {
     getAwsConsoleLink,
   } = useAlertsData({ selectedAccountId });
 
+  // Topbar Integration
+  const { setActions, clearActions } = useTopbar();
+
+  useEffect(() => {
+    setActions(
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => loadAlerts(true)}
+          disabled={isRefreshing}
+          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50 active:scale-95"
+        >
+          <i className={clsx('fas fa-sync-alt', isRefreshing && 'animate-spin')}></i>
+          <span>{isRefreshing ? 'Scanning...' : 'Refresh Alerts'}</span>
+        </button>
+      </div>
+    );
+    return () => clearActions();
+  }, [setActions, clearActions, isRefreshing, loadAlerts]);
+
   return (
     <main className="alerts-page">
-      {/* Header */}
-      <AlertsHeader
-        isRefreshing={isRefreshing}
-        onRefresh={() => loadAlerts(true)}
-      />
-
       {/* Tabs */}
       <AlertsTabs activeTab={activeTab} onTabChange={setActiveTab} />
 

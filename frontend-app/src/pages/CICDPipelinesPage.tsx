@@ -15,8 +15,10 @@
 
 import React, { useCallback } from 'react';
 import { useCICDPipelines } from '../hooks/useCICDPipelines';
-import { GitHubRun, JenkinsJob, RunHistory, PipelineStage } from '../types/cicdPipelines';
+import { RunHistory } from '../types/cicdPipelines';
 import clsx from 'clsx';
+import { useTopbar } from '../contexts/TopbarContext';
+import Skeleton from '../components/Shared/Skeleton';
 
 const CICDPipelinesPage: React.FC = () => {
   const {
@@ -113,19 +115,14 @@ const CICDPipelinesPage: React.FC = () => {
    */
   const getRunId = useCallback((run: RunHistory): string | number => {
     if ('id' in run) return run.id;
-    if ('number' in run) return run.number;
-    if ('run_number' in run) return run.run_number;
-    return '';
+    return (run as any).number;
   }, []);
 
   /**
    * Get run number for display
    */
   const getRunNumber = useCallback((run: RunHistory): string | number => {
-    if ('run_number' in run) return run.run_number;
-    if ('number' in run) return run.number;
-    if ('id' in run) return run.id;
-    return '';
+    return run.run_number ?? (run as any).number;
   }, []);
 
   /**
@@ -166,34 +163,33 @@ const CICDPipelinesPage: React.FC = () => {
     return () => window.removeEventListener('keydown', handleEscape);
   }, [selectedWorkflow, closeWorkflow]);
 
+  // Topbar Integration
+  const { setActions, clearActions } = useTopbar();
+  React.useEffect(() => {
+    setActions(
+      <div className="flex items-center gap-3">
+        <button
+          onClick={refreshData}
+          disabled={isLoadingGithub || isLoadingJenkins}
+          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50 active:scale-95"
+        >
+          <i
+            className={clsx(
+              'fas fa-sync-alt',
+              (isLoadingGithub || isLoadingJenkins) && 'animate-spin'
+            )}
+          ></i>
+          <span>Refresh All</span>
+        </button>
+      </div>
+    );
+    return () => clearActions();
+  }, [setActions, clearActions, isLoadingGithub, isLoadingJenkins, refreshData]);
+
   return (
     <div className="cicd-pipelines-container min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="mb-8 p-8 bg-white border-b border-gray-100">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-sky-600 rounded-xl flex items-center justify-center shadow-md">
-              <i className="fas fa-cogs text-white text-2xl"></i>
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-800">CICD Pipelines</h1>
-              <p className="text-sm text-gray-600">Status of GitHub Actions and Jenkins</p>
-            </div>
-          </div>
-          <button
-            onClick={refreshData}
-            className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-md"
-          >
-            <i
-              className={clsx(
-                'fas fa-sync-alt',
-                (isLoadingGithub || isLoadingJenkins) && 'fa-spin'
-              )}
-            ></i>
-            <span>Refresh All</span>
-          </button>
-        </div>
-      </header>
+      {/* Main Content */}
 
       {/* Main Content */}
       <div className="px-8 pb-8">
@@ -220,9 +216,19 @@ const CICDPipelinesPage: React.FC = () => {
           <div>
             {/* Loading State */}
             {isLoadingGithub && (
-              <div className="text-center py-10">
-                <i className="fas fa-spinner fa-spin text-3xl text-indigo-600"></i>
-                <p className="mt-2 text-gray-500">Loading GitHub Actions data...</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {[1, 2, 3, 4, 5, 6].map(i => (
+                  <div key={i} className="bg-white p-4 rounded-lg shadow border-l-4 border-gray-100 h-32 flex flex-col justify-between">
+                    <div className="flex justify-between">
+                      <Skeleton variant="rounded" width={100} height={20} />
+                      <Skeleton variant="text" width={60} height={16} />
+                    </div>
+                    <div>
+                      <Skeleton variant="text" width="70%" height={24} className="mb-2" />
+                      <Skeleton variant="text" width="40%" height={16} />
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
 
@@ -285,9 +291,19 @@ const CICDPipelinesPage: React.FC = () => {
           <div>
             {/* Loading State */}
             {isLoadingJenkins && (
-              <div className="text-center py-10">
-                <i className="fas fa-spinner fa-spin text-3xl text-indigo-600"></i>
-                <p className="mt-2 text-gray-500">Loading Jenkins data...</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {[1, 2, 3, 4, 5, 6].map(i => (
+                  <div key={i} className="bg-white p-4 rounded-lg shadow border-l-4 border-gray-100 h-32 flex flex-col justify-between">
+                    <div className="flex justify-between">
+                      <Skeleton variant="rounded" width={80} height={20} />
+                      <Skeleton variant="text" width={60} height={16} />
+                    </div>
+                    <div>
+                      <Skeleton variant="text" width="70%" height={24} className="mb-2" />
+                      <Skeleton variant="text" width="40%" height={16} />
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
 
@@ -410,9 +426,7 @@ const CICDPipelinesPage: React.FC = () => {
                           <i
                             className={clsx(
                               'fas fa-circle text-xs',
-                              getRunStatusIconColor(
-                                'displayStatus' in run ? run.displayStatus : 'result' in run ? run.result : ''
-                              )
+                              getRunStatusIconColor(run.displayStatus)
                             )}
                           ></i>
                         </div>
@@ -421,7 +435,7 @@ const CICDPipelinesPage: React.FC = () => {
                             Run #{getRunNumber(run)}
                           </p>
                           <p className="text-xs text-gray-500 truncate">
-                            {formatTime('updated_at' in run ? run.updated_at : 'timestamp' in run ? run.timestamp : undefined)}
+                            {formatTime('updated_at' in run ? run.updated_at : (run as any).timestamp)}
                           </p>
                         </div>
                         <div className="ml-2">

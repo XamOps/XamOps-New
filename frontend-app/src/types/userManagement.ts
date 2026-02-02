@@ -16,6 +16,7 @@ export interface IamUser {
   passwordLastUsed: string | null;
   groups: string[];
   attachedPolicies: Policy[];
+  mfaEnabled: boolean;
 }
 
 export interface IamRole {

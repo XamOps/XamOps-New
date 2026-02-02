@@ -15,14 +15,15 @@
  * - GET /api/xamops/security/prowler/status?accountId={accountId}
  */
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
+import { useTopbar } from '../contexts/TopbarContext';
 import { useSecurityData } from '../hooks/useSecurityData';
 import type { SeverityLevel } from '../types/security';
+import clsx from 'clsx';
 
 // Component imports
 import {
-  SecurityHeader,
   SecurityKPICards,
   SecurityComplianceFilter,
   SecurityFindingsSection,
@@ -56,16 +57,43 @@ const SecurityPage: React.FC = () => {
     getFindingsBySeverity,
   } = useSecurityData({ selectedAccountId });
 
+  // Topbar Integration
+  const { setActions, clearActions } = useTopbar();
+
+  useEffect(() => {
+    setActions(
+      <div className="flex items-center gap-3">
+        {prowlerStatus.status === 'RUNNING' && (
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-xs font-medium border border-blue-100 animate-pulse">
+            <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+            <span>Deep Scan Running...</span>
+          </div>
+        )}
+
+        <button
+          onClick={exportData}
+          disabled={isExporting}
+          className="flex items-center gap-2 px-4 py-2 bg-white text-emerald-600 text-xs font-bold rounded-xl border border-emerald-100 shadow-sm hover:shadow-md transition-all disabled:opacity-50"
+        >
+          <i className={clsx('fas', isExporting ? 'fa-spinner fa-spin' : 'fa-file-excel')}></i>
+          <span>{isExporting ? 'Exporting...' : 'Export Report'}</span>
+        </button>
+
+        <button
+          onClick={() => loadFindings(true)}
+          disabled={isRefreshing}
+          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50 active:scale-95"
+        >
+          <i className={clsx('fas fa-sync-alt', isRefreshing && 'animate-spin')}></i>
+          <span>{isRefreshing ? 'Scanning...' : 'Refresh Scan'}</span>
+        </button>
+      </div>
+    );
+    return () => clearActions();
+  }, [setActions, clearActions, isRefreshing, isExporting, prowlerStatus.status, exportData, loadFindings]);
+
   return (
     <main className="security-page">
-      <SecurityHeader
-        prowlerStatus={prowlerStatus}
-        isRefreshing={isRefreshing}
-        isExporting={isExporting}
-        onExport={exportData}
-        onRefresh={() => loadFindings(true)}
-      />
-
       <SecurityProwlerBanner prowlerStatus={prowlerStatus} />
 
       <div className="security-content">

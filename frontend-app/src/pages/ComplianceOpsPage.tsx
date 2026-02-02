@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import { useTopbar } from '../contexts/TopbarContext';
 
 /**
  * ComplianceOps Page
@@ -9,24 +10,17 @@ import React from 'react';
  * It features a premium UI with gradients, animations, and detailed feature cards.
  */
 const ComplianceOpsPage: React.FC = () => {
+    // Topbar Integration
+    const { setActions, clearActions } = useTopbar();
+
+    useEffect(() => {
+        // No specific actions for this landing page, but we ensure clearActions is called
+        clearActions();
+        return () => clearActions();
+    }, [clearActions]);
+
     return (
         <main id="main-content" className="flex-1 flex flex-col min-h-screen">
-            {/* Header Bar */}
-            <header className="bg-white border-b border-gray-100 sticky top-0 z-20 px-8 py-5 flex items-center justify-between shadow-sm backdrop-blur-sm bg-white/95">
-                <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl flex items-center justify-center shadow-md">
-                        <i className="fas fa-file-contract text-white text-xl"></i>
-                    </div>
-                    <div>
-                        <h1 className="text-2xl font-black text-gray-900 tracking-tight">ComplianceOps</h1>
-                        <p className="text-xs text-gray-500 font-semibold mt-1 flex items-center gap-2">
-                            <i className="fas fa-shield-alt text-amber-500 text-[10px]"></i>
-                            End-to-end compliance operating system with AI agents
-                        </p>
-                    </div>
-                </div>
-            </header>
-
             {/* Main Content Area */}
             <div className="flex-1 flex items-center justify-center p-8 bg-gray-50">
                 <div className="max-w-6xl mx-auto w-full">

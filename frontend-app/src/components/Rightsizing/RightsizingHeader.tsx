@@ -1,10 +1,5 @@
-/**
- * Rightsizing Header Component
- *
- * Displays the page header with title, icon, and refresh button
- */
-
-import React from 'react';
+import React, { useEffect } from 'react';
+import { useTopbar } from '../../contexts/TopbarContext';
 
 interface RightsizingHeaderProps {
   isRefreshing: boolean;
@@ -12,29 +7,25 @@ interface RightsizingHeaderProps {
 }
 
 const RightsizingHeader: React.FC<RightsizingHeaderProps> = ({ isRefreshing, onRefresh }) => {
-  return (
-    <header className="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-20">
-      <div className="flex items-center space-x-4">
-        <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg">
-          <i className="fas fa-compress-arrows-alt text-white text-xl"></i>
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">Rightsizing</h1>
-          <p className="text-sm text-gray-600">Optimize your cloud resource sizing</p>
-        </div>
-      </div>
-      <div className="flex items-center space-x-4">
+  const { setActions, clearActions } = useTopbar();
+
+  useEffect(() => {
+    setActions(
+      <div className="flex items-center gap-4">
         <button
           onClick={onRefresh}
           disabled={isRefreshing}
-          className="btn-primary flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md disabled:opacity-60 disabled:cursor-not-allowed"
+          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50 active:scale-95"
         >
-          <i className={`fas fa-sync-alt ${isRefreshing ? 'fa-spin' : ''}`}></i>
+          <i className={`fas fa-sync-alt ${isRefreshing ? 'animate-spin' : ''}`}></i>
           <span>{isRefreshing ? 'Analyzing...' : 'Refresh Analysis'}</span>
         </button>
       </div>
-    </header>
-  );
+    );
+    return () => clearActions();
+  }, [setActions, clearActions, isRefreshing, onRefresh]);
+
+  return null;
 };
 
 export default RightsizingHeader;

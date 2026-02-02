@@ -19,6 +19,8 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSonarQube } from '../hooks/useSonarQube';
 import { QualityGateStatus, Rating, NewSonarQubeProject } from '../types/sonarqube';
+import { useTopbar } from '../contexts/TopbarContext';
+import Skeleton from '../components/Shared/Skeleton';
 import clsx from 'clsx';
 
 const SonarQubePage: React.FC = () => {
@@ -183,47 +185,35 @@ const SonarQubePage: React.FC = () => {
     return () => window.removeEventListener('keydown', handleEscape);
   }, [isManageModalOpen]);
 
+  // Topbar Integration
+  const { setActions, clearActions } = useTopbar();
+  useEffect(() => {
+    setActions(
+      <div className="flex items-center gap-3">
+        <button
+          onClick={refreshMetrics}
+          disabled={isRefreshing || !selectedProjectId}
+          className="flex items-center gap-2 px-4 py-2 bg-white text-indigo-600 text-xs font-bold rounded-xl border border-indigo-100 shadow-sm hover:shadow-md transition-all disabled:opacity-50"
+        >
+          <i className={clsx('fas fa-sync-alt', isRefreshing && 'animate-spin')}></i>
+          <span>Refresh</span>
+        </button>
+        <button
+          onClick={() => setIsManageModalOpen(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-95"
+        >
+          <i className="fas fa-cog"></i>
+          <span>Manage Projects</span>
+        </button>
+      </div>
+    );
+    return () => clearActions();
+  }, [setActions, clearActions, isRefreshing, selectedProjectId, refreshMetrics]);
+
   return (
     <div className="sonarqube-container min-h-screen bg-gray-50">
       {/* Header Bar */}
-      <header className="bg-white border-b border-gray-100 sticky top-0 z-20 px-8 py-5 flex items-center justify-between shadow-sm backdrop-blur-sm bg-white/95">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => navigate(-1)}
-            className="flex items-center justify-center w-10 h-10 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 hover:text-gray-900 transition-all"
-            aria-label="Go back"
-          >
-            <i className="fas fa-arrow-left"></i>
-          </button>
-          <div className="w-12 h-12 bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 rounded-xl flex items-center justify-center shadow-md icon-pulse-container">
-            <i className="fas fa-chart-line text-white text-xl icon-pulse"></i>
-          </div>
-          <div>
-            <h1 className="text-2xl font-black text-gray-900 tracking-tight">Code Quality</h1>
-            <p className="text-xs text-gray-500 font-semibold mt-1 flex items-center gap-2 uppercase tracking-wider">
-              SonarQube Analytics
-            </p>
-          </div>
-        </div>
-
-        <div className="flex gap-3 flex-wrap">
-          <button
-            onClick={refreshMetrics}
-            disabled={isRefreshing || !selectedProjectId}
-            className="flex items-center gap-2 px-5 py-3 btn-secondary rounded-lg disabled:opacity-50 transition-all"
-          >
-            <i className={clsx('fas fa-sync-alt', isRefreshing && 'animate-spin')}></i>
-            <span className="font-semibold text-gray-700">Refresh</span>
-          </button>
-          <button
-            onClick={() => setIsManageModalOpen(true)}
-            className="flex items-center gap-2 px-6 py-3 btn-primary rounded-lg hover-lift transition-all"
-          >
-            <i className="fas fa-cog"></i>
-            <span className="font-semibold">Manage Projects</span>
-          </button>
-        </div>
-      </header>
+      {/* Main Content */}
 
       {/* Main Content */}
       <main className="p-8 space-y-8">
@@ -249,11 +239,30 @@ const SonarQubePage: React.FC = () => {
 
         {/* Loading State */}
         {isLoading && (
-          <div className="flex flex-col justify-center items-center h-64 gap-6 glass-card p-8 stagger-enter">
-            <div className="spinner"></div>
-            <p className="text-lg font-medium text-gray-800 tracking-wide">Loading metrics...</p>
-            <div className="w-48 progress-bar">
-              <div className="progress-fill" style={{ width: '65%' }}></div>
+          <div className="space-y-8 stagger-enter">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="glass-card p-6 h-48 flex flex-col justify-center items-center">
+                <Skeleton variant="circular" width={64} height={64} className="mb-4" />
+                <Skeleton variant="text" width={120} height={24} />
+              </div>
+              <div className="lg:col-span-2 glass-card p-6 h-48 flex flex-col justify-center items-center">
+                <Skeleton variant="text" width={160} height={60} className="mb-2" />
+                <Skeleton variant="text" width={100} height={20} />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {[1, 2, 3, 4, 5, 6].map(i => (
+                <div key={i} className="glass-card p-6 h-64 flex flex-col justify-between">
+                  <div className="flex justify-between">
+                    <Skeleton variant="rounded" width={48} height={48} />
+                    <Skeleton variant="rounded" width={32} height={32} />
+                  </div>
+                  <div className="space-y-4">
+                    <Skeleton variant="text" width="60%" height={24} />
+                    <Skeleton variant="rounded" width="100%" height={8} />
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}

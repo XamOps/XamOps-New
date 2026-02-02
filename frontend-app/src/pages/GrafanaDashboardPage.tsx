@@ -15,10 +15,11 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
-import GrafanaHeader from '../components/Grafana/GrafanaHeader';
 import GrafanaHelpModal from '../components/Grafana/GrafanaHelpModal';
 import apiClient from '../utils/apiClient';
 import { Account } from '../types/account';
+import { useTopbar } from '../contexts/TopbarContext';
+import Skeleton from '../components/Shared/Skeleton';
 
 interface GrafanaConfig {
   iframeSrc: string;
@@ -144,25 +145,51 @@ const GrafanaDashboardPage: React.FC = () => {
     return () => window.removeEventListener('account-changed', handleAccountChanged);
   }, [accounts, selectedAccountIds, loadDashboardConfig]);
 
+  // Topbar Integration
+  const { setActions, clearActions } = useTopbar();
+  useEffect(() => {
+    if (grafanaConfig?.externalUrl) {
+      setActions(
+        <a
+          href={grafanaConfig.externalUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-2 px-4 py-2 bg-white text-gray-700 text-xs font-bold rounded-xl border border-gray-200 hover:bg-gray-50 hover:border-gray-300 hover:shadow-md transition-all active:scale-95"
+        >
+          <span>View in Grafana</span>
+          <i className="fas fa-external-link-alt text-xs text-orange-500"></i>
+        </a>
+      );
+    } else {
+      clearActions(); // Clear if no URL (e.g. error or loading)
+    }
+    return () => clearActions();
+  }, [setActions, clearActions, grafanaConfig?.externalUrl]);
+
   return (
     <main className="flex-1 flex flex-col min-h-screen bg-gray-50">
       {/* Header */}
-      <GrafanaHeader
-        accountName={grafanaConfig?.accountName}
-        externalUrl={grafanaConfig?.externalUrl}
-        error={error}
-      />
+      {/* Main Content */}
 
       {/* Main Content */}
       <div className="flex-1 p-3 bg-gray-200">
         {isLoading ? (
-          <div className="w-full h-[calc(100vh-6rem)] bg-white rounded-xl shadow-sm flex items-center justify-center">
-            <div className="flex flex-col items-center space-y-4">
-              <div className="relative">
-                <div className="w-16 h-16 border-4 border-orange-200 rounded-full animate-spin border-t-orange-500"></div>
-                <i className="fas fa-chart-line absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-orange-500 text-xl"></i>
+          <div className="w-full h-[calc(100vh-6rem)] bg-white rounded-xl shadow-sm overflow-hidden flex flex-col">
+            <div className="h-16 border-b border-gray-100 flex items-center px-6 justify-between">
+              <Skeleton variant="text" width={200} height={24} />
+              <Skeleton variant="rounded" width={100} height={36} />
+            </div>
+            <div className="flex-1 p-6 space-y-6">
+              <div className="grid grid-cols-4 gap-6">
+                <Skeleton variant="rounded" height={100} width="100%" className="col-span-1" />
+                <Skeleton variant="rounded" height={100} width="100%" className="col-span-1" />
+                <Skeleton variant="rounded" height={100} width="100%" className="col-span-1" />
+                <Skeleton variant="rounded" height={100} width="100%" className="col-span-1" />
               </div>
-              <p className="text-gray-600 font-medium">Loading Grafana Dashboard...</p>
+              <div className="grid grid-cols-2 gap-6 h-96">
+                <Skeleton variant="rounded" height="100%" width="100%" />
+                <Skeleton variant="rounded" height="100%" width="100%" />
+              </div>
             </div>
           </div>
         ) : error ? (

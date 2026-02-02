@@ -19,6 +19,7 @@
 
 import React from 'react';
 import { useAccounts } from '../contexts/AccountContext';
+import { useTopbar } from '../contexts/TopbarContext';
 
 interface FeatureCard {
   icon: string;
@@ -92,31 +93,25 @@ const AIOpsPage: React.FC = () => {
     { label: 'Custom ML Models', icon: 'fas fa-cogs' },
   ];
 
-  return (
-    <main className="aiops-page flex-1 flex flex-col min-h-screen bg-gray-50">
-      {/* Header Bar */}
-      <header className="aiops-header bg-white border-b border-gray-100 sticky top-0 z-20 px-8 py-5 flex items-center justify-between shadow-sm">
-        <div className="flex items-center gap-4">
-          <div className="aiops-icon-container w-12 h-12 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg">
-            <i className="fas fa-brain text-white text-xl"></i>
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">AIOps</h1>
-            <p className="text-xs text-gray-500 font-medium mt-0.5 flex items-center gap-2">
-              <i className="fas fa-magic text-indigo-500 text-[10px]"></i>
-              Intelligent operations powered by artificial intelligence
-            </p>
-          </div>
-        </div>
+  // Topbar Integration
+  const { setActions, clearActions } = useTopbar();
 
-        {/* Account indicator */}
+  React.useEffect(() => {
+    setActions(
+      <div className="flex items-center gap-4">
         {selectedAccountIds.length > 0 && (
-          <div className="flex items-center gap-2 text-sm text-gray-500">
-            <i className="fas fa-cloud text-indigo-500"></i>
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-lg text-xs font-medium border border-indigo-100">
+            <i className="fas fa-cloud"></i>
             <span>{selectedAccountIds.length} account{selectedAccountIds.length > 1 ? 's' : ''} selected</span>
           </div>
         )}
-      </header>
+      </div>
+    );
+    return () => clearActions();
+  }, [setActions, clearActions, selectedAccountIds]);
+
+  return (
+    <main className="aiops-page flex-1 flex flex-col min-h-screen bg-gray-50">
 
       {/* Main Content */}
       <div className="flex-1 p-8">

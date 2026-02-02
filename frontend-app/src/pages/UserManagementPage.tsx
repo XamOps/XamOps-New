@@ -17,8 +17,55 @@
 
 import React, { useState } from 'react';
 import { useUserManagement } from '../hooks/useUserManagement';
-import type { IamUser, IamRole, Policy } from '../types/userManagement';
+import type { IamUser, IamRole } from '../types/userManagement';
+import { useTopbar } from '../contexts/TopbarContext';
 import '../styles/userManagement.css';
+
+const SKELETON_ITEMS = [1, 2, 3, 4, 5];
+
+const KpiSkeleton = () => (
+  <div className="kpi-card">
+    <div className="kpi-content">
+      <div className="flex-1">
+        <div className="skeleton h-4 w-24 mb-2 rounded" />
+        <div className="skeleton h-8 w-16 rounded" />
+      </div>
+      <div className="skeleton h-12 w-12 rounded-xl" />
+    </div>
+  </div>
+);
+
+const TableRowSkeleton = () => (
+  <tr className="table-row">
+    <td>
+      <div className="user-identity">
+        <div className="skeleton h-10 w-10 rounded-xl mr-4" />
+        <div className="flex-1">
+          <div className="skeleton h-4 w-32 mb-2 rounded" />
+          <div className="skeleton h-3 w-48 rounded" />
+        </div>
+      </div>
+    </td>
+    <td>
+      <div className="flex gap-2">
+        <div className="skeleton h-6 w-16 rounded-full" />
+        <div className="skeleton h-6 w-20 rounded-full" />
+      </div>
+    </td>
+    <td>
+      <div className="flex flex-col gap-2">
+        <div className="skeleton h-6 w-40 rounded" />
+        <div className="skeleton h-6 w-32 rounded" />
+      </div>
+    </td>
+    <td>
+      <div className="flex flex-col gap-2">
+        <div className="skeleton h-3 w-24 rounded" />
+        <div className="skeleton h-3 w-24 rounded" />
+      </div>
+    </td>
+  </tr>
+);
 
 const UserManagementPage: React.FC = () => {
   const {
@@ -26,7 +73,6 @@ const UserManagementPage: React.FC = () => {
     error,
     accountName,
     accountId,
-    provider,
     users,
     roles,
     searchQuery,
@@ -42,37 +88,218 @@ const UserManagementPage: React.FC = () => {
     isAws,
   } = useUserManagement();
 
+  const { setActions, clearActions } = useTopbar();
   const [activeTab, setActiveTab] = useState<'users' | 'roles'>('users');
+
+  // Register actions in Topbar
+  React.useEffect(() => {
+    setActions(
+      <div className="flex items-center gap-4">
+        <div className="flex flex-col items-end mr-2">
+          <p className="text-sm font-bold text-slate-700 leading-none">{accountName || 'Select Account'}</p>
+          <p className="text-[10px] text-slate-400 font-mono mt-1">{accountId || '---'}</p>
+        </div>
+        <button
+          onClick={() => fetchData(true)}
+          disabled={loading || !accountId}
+          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50"
+        >
+          <i className={`fas fa-sync-alt ${loading ? 'fa-spin' : ''}`} />
+          <span>{loading ? 'Refreshing...' : 'Refresh'}</span>
+        </button>
+      </div>
+    );
+    return () => clearActions();
+  }, [accountName, accountId, loading, fetchData, setActions, clearActions]);
+
+  const renderUsersTableBody = () => {
+    if (loading && !users.length) {
+      return SKELETON_ITEMS.map((item) => <TableRowSkeleton key={`skeleton-user-${item}`} />);
+    }
+
+    if (filteredUsers.length > 0) {
+      return filteredUsers.map((user: IamUser) => (
+        <tr key={user.userId} className="table-row">
+          <td>
+            <div className="user-identity">
+              <div className="user-avatar">
+                {user.userName.substring(0, 2).toUpperCase()}
+              </div>
+              <div>
+                <div className="user-name">{user.userName}</div>
+                <div className="flex items-center gap-2">
+                  <div className="user-id" title={user.arn}>
+                    {user.userId}
+                  </div>
+                  {isAws && (
+                    <span className={`mfa-badge ${user.mfaEnabled ? 'enabled' : 'disabled'}`}>
+                      <i className={`fas ${user.mfaEnabled ? 'fa-shield-alt' : 'fa-exclamation-triangle'} mr-1`} />
+                      {user.mfaEnabled ? 'MFA' : 'No MFA'}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </td>
+          <td>
+            <div className="groups-container">
+              {user.groups && user.groups.length > 0 ? (
+                user.groups.map((group) => (
+                  <span key={`${user.userId}-${group}`} className="group-badge">
+                    <i className="fas fa-users mr-1.5 text-[10px]" />
+                    {group}
+                  </span>
+                ))
+              ) : (
+                <span className="empty-text">No Groups</span>
+              )}
+            </div>
+          </td>
+          <td>
+            <div className="policies-container">
+              {user.attachedPolicies && user.attachedPolicies.length > 0 ? (
+                user.attachedPolicies.map((policy) => (
+                  <div key={`${user.userId}-${policy.policyName}`} className="policy-item">
+                    <i className="fas fa-file-contract text-gray-400 mr-2" />
+                    <span className="policy-name">{policy.policyName}</span>
+                    {policy.type === 'Managed' && (
+                      <span className="policy-badge managed">Managed</span>
+                    )}
+                    {policy.type === 'Inline' && (
+                      <span className="policy-badge inline">Inline</span>
+                    )}
+                  </div>
+                ))
+              ) : (
+                <span className="empty-text">No direct policies</span>
+              )}
+            </div>
+          </td>
+          <td>
+            <div className="activity-info">
+              <div className="activity-row">
+                <span className="activity-label">Created:</span>
+                <span>{formatDate(user.createDate)}</span>
+              </div>
+              <div className="activity-row">
+                <span className="activity-label">Last Pwd Use:</span>
+                <span className={isOldDate(user.passwordLastUsed) ? 'text-red-500 font-semibold' : ''}>
+                  {formatDate(user.passwordLastUsed)}
+                </span>
+              </div>
+            </div>
+          </td>
+        </tr>
+      ));
+    }
+
+    if (!loading && users.length > 0) {
+      return (
+        <tr>
+          <td colSpan={4} className="empty-state">
+            <p>No users match your search.</p>
+          </td>
+        </tr>
+      );
+    }
+
+    if (!loading) {
+      return (
+        <tr>
+          <td colSpan={4} className="empty-state">
+            <i className="fas fa-ghost text-4xl text-gray-300 mb-2" />
+            <p className="font-semibold text-gray-600">No IAM Users found</p>
+          </td>
+        </tr>
+      );
+    }
+
+    return null;
+  };
+
+  const renderRolesTableBody = () => {
+    if (loading && !roles.length) {
+      return SKELETON_ITEMS.map((item) => <TableRowSkeleton key={`skeleton-role-${item}`} />);
+    }
+
+    if (filteredRoles.length > 0) {
+      return filteredRoles.map((role: IamRole) => (
+        <tr key={role.roleId} className="table-row">
+          <td>
+            <div className="role-identity">
+              <div className="role-icon">
+                <i className="fas fa-robot" />
+              </div>
+              <div>
+                <div className="role-name">{role.roleName}</div>
+                <button
+                  className="role-arn-btn"
+                  title={`Copy ARN: ${role.arn}`}
+                  onClick={() => copyToClipboard(role.arn)}
+                >
+                  <i className="far fa-copy mr-1.5" />
+                  {role.arn.split('/').pop()}
+                </button>
+              </div>
+            </div>
+          </td>
+          <td>
+            <div className="role-description">
+              {role.description || '-'}
+            </div>
+          </td>
+          <td>
+            <div className="policies-container">
+              {role.attachedPolicies && role.attachedPolicies.length > 0 ? (
+                role.attachedPolicies.map((policy) => (
+                  <div key={`${role.roleId}-${policy.policyName}`} className="policy-item">
+                    <i className="fas fa-shield-alt text-gray-400 mr-2.5 text-xs" />
+                    <span className="policy-name">{policy.policyName}</span>
+                    {policy.type === 'Managed' && (
+                      <span className="policy-badge aws">AWS</span>
+                    )}
+                  </div>
+                ))
+              ) : (
+                <span className="empty-text">No policies attached</span>
+              )}
+            </div>
+          </td>
+          <td className="text-sm text-gray-500">
+            {formatDate(role.createDate)}
+          </td>
+        </tr>
+      ));
+    }
+
+    if (!loading && roles.length > 0) {
+      return (
+        <tr>
+          <td colSpan={4} className="empty-state">
+            <p>No roles match your search.</p>
+          </td>
+        </tr>
+      );
+    }
+
+    if (!loading) {
+      return (
+        <tr>
+          <td colSpan={4} className="empty-state">
+            <i className="fas fa-ghost text-4xl text-gray-300 mb-2" />
+            <p className="font-semibold text-gray-600">No IAM Roles found</p>
+          </td>
+        </tr>
+      );
+    }
+
+    return null;
+  };
 
   return (
     <div className="user-management-page">
-      {/* Header */}
-      <header className="page-header">
-        <div>
-          <h1 className="page-title">
-            <i className="fas fa-users-cog text-purple-600 mr-2" />
-            User Management
-          </h1>
-          <p className="page-subtitle">Manage IAM Users, Roles, and Permissions</p>
-        </div>
-        <div className="header-actions">
-          <div className="account-info">
-            <p className="account-name">{accountName || 'Select an Account'}</p>
-            <p className="account-id">{accountId || '...'}</p>
-          </div>
-          <button
-            onClick={() => fetchData(true)}
-            disabled={loading || !accountId}
-            className="refresh-button"
-          >
-            <i className={`fas fa-sync-alt ${loading ? 'fa-spin' : ''}`} />
-            <span>{loading ? 'Refreshing...' : 'Refresh Data'}</span>
-          </button>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <div className="page-content">
+      {/* Page Content */}
+      <div className="page-content pt-4">
         {/* Error Alert */}
         {error && (
           <div className="error-alert">
@@ -88,17 +315,26 @@ const UserManagementPage: React.FC = () => {
           </div>
         )}
 
-        {/* Loading State */}
-        {loading && !users.length && (
-          <div className="loading-container">
-            <div className="spinner" />
-            <p className="loading-text">Fetching IAM details from {provider}...</p>
-            <p className="loading-subtext">Account ID: {accountId}</p>
-          </div>
-        )}
-
-        {/* Content */}
-        {(!loading || users.length > 0) && (
+        {/* Loading & Content */}
+        {loading && !users.length ? (
+          <>
+            <div className="kpi-grid">
+              <KpiSkeleton />
+              <KpiSkeleton />
+              <KpiSkeleton />
+            </div>
+            <div className="table-container">
+              <div className="skeleton-table-header h-16 w-full skeleton mb-1" />
+              <div className="table-wrapper">
+                <table className="data-table">
+                  <tbody>
+                    {SKELETON_ITEMS.map((item) => <TableRowSkeleton key={`main-skeleton-${item}`} />)}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        ) : (
           <>
             {/* KPI Cards */}
             <div className="kpi-grid">
@@ -120,7 +356,7 @@ const UserManagementPage: React.FC = () => {
                     <p className="kpi-label">Total IAM Roles</p>
                     <h3 className="kpi-value">{roles.length}</h3>
                   </div>
-                  <div className="kpi-icon bg-purple-100 text-purple-600">
+                  <div className="kpi-icon bg-indigo-100 text-indigo-600">
                     <i className="fas fa-user-shield" />
                   </div>
                 </div>
@@ -197,86 +433,7 @@ const UserManagementPage: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredUsers.length > 0 ? (
-                        filteredUsers.map((user: IamUser) => (
-                          <tr key={user.userId} className="table-row">
-                            <td>
-                              <div className="user-identity">
-                                <div className="user-avatar">
-                                  {user.userName.substring(0, 2).toUpperCase()}
-                                </div>
-                                <div>
-                                  <div className="user-name">{user.userName}</div>
-                                  <div className="user-id" title={user.arn}>
-                                    {user.userId}
-                                  </div>
-                                </div>
-                              </div>
-                            </td>
-                            <td>
-                              <div className="groups-container">
-                                {user.groups && user.groups.length > 0 ? (
-                                  user.groups.map((group, idx) => (
-                                    <span key={idx} className="group-badge">
-                                      <i className="fas fa-users mr-1 text-[10px]" />
-                                      {group}
-                                    </span>
-                                  ))
-                                ) : (
-                                  <span className="empty-text">No Groups</span>
-                                )}
-                              </div>
-                            </td>
-                            <td>
-                              <div className="policies-container">
-                                {user.attachedPolicies && user.attachedPolicies.length > 0 ? (
-                                  user.attachedPolicies.map((policy: Policy, idx) => (
-                                    <div key={idx} className="policy-item">
-                                      <i className="fas fa-file-contract text-gray-400 mr-1.5" />
-                                      <span className="policy-name">{policy.policyName}</span>
-                                      {policy.type === 'Managed' && (
-                                        <span className="policy-badge managed">Managed</span>
-                                      )}
-                                      {policy.type === 'Inline' && (
-                                        <span className="policy-badge inline">Inline</span>
-                                      )}
-                                    </div>
-                                  ))
-                                ) : (
-                                  <span className="empty-text">No direct policies</span>
-                                )}
-                              </div>
-                            </td>
-                            <td>
-                              <div className="activity-info">
-                                <div className="activity-row">
-                                  <span className="activity-label">Created:</span>
-                                  <span>{formatDate(user.createDate)}</span>
-                                </div>
-                                <div className="activity-row">
-                                  <span className="activity-label">Last Pwd Use:</span>
-                                  <span className={isOldDate(user.passwordLastUsed) ? 'text-red-500 font-semibold' : ''}>
-                                    {formatDate(user.passwordLastUsed)}
-                                  </span>
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
-                        ))
-                      ) : users.length > 0 ? (
-                        <tr>
-                          <td colSpan={4} className="empty-state">
-                            No users match your search.
-                          </td>
-                        </tr>
-                      ) : (
-                        <tr>
-                          <td colSpan={4} className="empty-state">
-                            <i className="fas fa-ghost text-4xl text-gray-300 mb-2" />
-                            <p className="font-semibold text-gray-600">No IAM Users found</p>
-                          </td>
-                        </tr>
-                      )}
+                      {renderUsersTableBody()}
                     </tbody>
                   </table>
                 </div>
@@ -295,68 +452,7 @@ const UserManagementPage: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredRoles.length > 0 ? (
-                        filteredRoles.map((role: IamRole) => (
-                          <tr key={role.roleId} className="table-row">
-                            <td>
-                              <div className="role-identity">
-                                <div className="role-icon">
-                                  <i className="fas fa-robot" />
-                                </div>
-                                <div>
-                                  <div className="role-name">{role.roleName}</div>
-                                  <div
-                                    className="role-arn"
-                                    title={role.arn}
-                                    onClick={() => copyToClipboard(role.arn)}
-                                  >
-                                    <i className="far fa-copy mr-1" />
-                                    {role.arn.split('/').pop()}
-                                  </div>
-                                </div>
-                              </div>
-                            </td>
-                            <td>
-                              <div className="role-description">
-                                {role.description || '-'}
-                              </div>
-                            </td>
-                            <td>
-                              <div className="policies-container">
-                                {role.attachedPolicies && role.attachedPolicies.length > 0 ? (
-                                  role.attachedPolicies.map((policy: Policy, idx) => (
-                                    <div key={idx} className="policy-item">
-                                      <i className="fas fa-shield-alt text-gray-400 mr-2 text-xs" />
-                                      <span className="policy-name">{policy.policyName}</span>
-                                      {policy.type === 'Managed' && (
-                                        <span className="policy-badge aws">AWS</span>
-                                      )}
-                                    </div>
-                                  ))
-                                ) : (
-                                  <span className="empty-text">No policies attached</span>
-                                )}
-                              </div>
-                            </td>
-                            <td className="text-sm text-gray-500">
-                              {formatDate(role.createDate)}
-                            </td>
-                          </tr>
-                        ))
-                      ) : roles.length > 0 ? (
-                        <tr>
-                          <td colSpan={4} className="empty-state">
-                            No roles match your search.
-                          </td>
-                        </tr>
-                      ) : (
-                        <tr>
-                          <td colSpan={4} className="empty-state">
-                            <i className="fas fa-ghost text-4xl text-gray-300 mb-2" />
-                            <p className="font-semibold text-gray-600">No IAM Roles found</p>
-                          </td>
-                        </tr>
-                      )}
+                      {renderRolesTableBody()}
                     </tbody>
                   </table>
                 </div>

@@ -19,6 +19,7 @@
 
 import React from 'react';
 import { useAccounts } from '../contexts/AccountContext';
+import { useTopbar } from '../contexts/TopbarContext';
 
 interface FeatureCard {
   icon: string;
@@ -101,31 +102,25 @@ const DataOpsPage: React.FC = () => {
     { name: 'Aurora', icon: 'fab fa-aws', color: 'text-purple-600' },
   ];
 
-  return (
-    <main className="dataops-page flex-1 flex flex-col min-h-screen bg-gray-50">
-      {/* Header Bar */}
-      <header className="dataops-header bg-white border-b border-gray-100 sticky top-0 z-20 px-8 py-5 flex items-center justify-between shadow-sm">
-        <div className="flex items-center gap-4">
-          <div className="dataops-icon-container w-12 h-12 bg-gradient-to-br from-sky-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg">
-            <i className="fas fa-database text-white text-xl"></i>
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">DataOps</h1>
-            <p className="text-xs text-gray-500 font-medium mt-0.5 flex items-center gap-2">
-              <i className="fas fa-server text-sky-500 text-[10px]"></i>
-              Database reliability and automation platform
-            </p>
-          </div>
-        </div>
+  // Topbar Integration
+  const { setActions, clearActions } = useTopbar();
 
-        {/* Account indicator */}
+  React.useEffect(() => {
+    setActions(
+      <div className="flex items-center gap-4">
         {selectedAccountIds.length > 0 && (
-          <div className="flex items-center gap-2 text-sm text-gray-500">
-            <i className="fas fa-cloud text-sky-500"></i>
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-sky-50 text-sky-700 rounded-lg text-xs font-medium border border-sky-100">
+            <i className="fas fa-cloud"></i>
             <span>{selectedAccountIds.length} account{selectedAccountIds.length > 1 ? 's' : ''} selected</span>
           </div>
         )}
-      </header>
+      </div>
+    );
+    return () => clearActions();
+  }, [setActions, clearActions, selectedAccountIds]);
+
+  return (
+    <main className="dataops-page flex-1 flex flex-col min-h-screen bg-gray-50">
 
       {/* Main Content */}
       <div className="flex-1 p-8">
@@ -188,9 +183,9 @@ const DataOpsPage: React.FC = () => {
               Planned Features
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {features.map((feature, index) => (
+              {features.map((feature) => (
                 <div
-                  key={index}
+                  key={feature.title}
                   className={`dataops-feature-card bg-white p-6 rounded-xl shadow-md border-l-4 ${feature.borderColor} hover:shadow-lg transition-all duration-300`}
                 >
                   <div className="flex items-start space-x-4">
@@ -216,9 +211,9 @@ const DataOpsPage: React.FC = () => {
               Supported Databases
             </h3>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-              {supportedDatabases.map((db, index) => (
+              {supportedDatabases.map((db) => (
                 <div
-                  key={index}
+                  key={db.name}
                   className="dataops-db-card flex flex-col items-center p-4 bg-gray-50 rounded-xl hover:bg-gradient-to-br hover:from-sky-50 hover:to-blue-50 transition-all duration-300 cursor-default"
                 >
                   <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-md mb-3">
@@ -239,9 +234,9 @@ const DataOpsPage: React.FC = () => {
               Upcoming Capabilities
             </h3>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-              {upcomingCapabilities.map((capability, index) => (
+              {upcomingCapabilities.map((capability) => (
                 <div
-                  key={index}
+                  key={capability.label}
                   className="dataops-capability-card flex flex-col items-center p-4 bg-gray-50 rounded-xl hover:bg-gradient-to-br hover:from-sky-50 hover:to-blue-50 transition-all duration-300 cursor-default"
                 >
                   <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-md mb-3">
