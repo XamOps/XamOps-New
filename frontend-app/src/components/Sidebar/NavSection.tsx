@@ -16,6 +16,7 @@ interface NavSectionProps {
   isOpen: boolean;
   onToggle: () => void;
   children: React.ReactNode;
+  direction?: 'up' | 'down';
 }
 
 const NavSection: React.FC<NavSectionProps> = ({
@@ -26,9 +27,17 @@ const NavSection: React.FC<NavSectionProps> = ({
   isOpen,
   onToggle,
   children,
+  direction = 'down',
 }) => {
   return (
-    <div>
+    <div className="relative">
+      {/* Dropdown Content - Above for 'up' direction (Absolute positioning to prevent shift) */}
+      {isOpen && direction === 'up' && (
+        <div className="absolute bottom-full left-0 w-full mb-2 space-y-1 bg-white border border-gray-200 rounded-xl shadow-2xl p-2 z-50">
+          {children}
+        </div>
+      )}
+
       {/* Section Header */}
       <button
         onClick={onToggle}
@@ -56,8 +65,8 @@ const NavSection: React.FC<NavSectionProps> = ({
         </svg>
       </button>
 
-      {/* Dropdown Content */}
-      {isOpen && (
+      {/* Dropdown Content - Below for 'down' direction (Standard flow) */}
+      {isOpen && direction === 'down' && (
         <div className="ml-4 mt-2 space-y-1 border-l-2 border-gray-200 pl-4">
           {children}
         </div>

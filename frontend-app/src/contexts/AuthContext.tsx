@@ -28,6 +28,7 @@ interface AuthContextValue {
   resetContext: () => void;
   fetchTenants: () => Promise<void>;
   fetchTenantUsers: (tenantId: string) => Promise<void>;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -84,7 +85,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
    * Uses same logic as original: tries primary endpoint, falls back to secondary
    */
   const fetchUserRoles = useCallback(async () => {
-    const path = window.location.pathname;
+    const path = globalThis.location.pathname;
     const isBillopsPage = path.includes('/billops/');
     const primaryEndpoint = isBillopsPage ? '/api/billops/profile' : '/api/xamops/user/profile';
     const fallbackEndpoint = isBillopsPage ? '/api/xamops/user/profile' : '/api/billops/profile';
@@ -99,7 +100,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     try {
       // Try primary endpoint
       const data = await apiClient.get<UserProfile>(primaryEndpoint);
-      console.log('✅ User Profile Data (Primary):', data);
+      console.log('✅ User Profile Data (Primary):', JSON.stringify(data, null, 2));
 
       const roles = data.roles || data.authorities || [];
       console.log('🔐 Extracted Roles:', roles);
@@ -122,7 +123,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // Try fallback endpoint
       try {
         const data = await apiClient.get<UserProfile>(fallbackEndpoint);
-        console.log('✅ User Profile Data (Fallback):', data);
+        console.log('✅ User Profile Data (Fallback):', JSON.stringify(data, null, 2));
 
         const roles = data.roles || data.authorities || [];
         console.log('🔐 Extracted Roles (Fallback):', roles);
@@ -138,8 +139,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             await fetchTenantUsers(currentTenant);
           }
         }
-      } catch (fallbackErr) {
-        console.error('❌ Could not fetch user profile from either endpoint:', fallbackErr);
+      } catch (error_) {
+        console.error('❌ Could not fetch user profile from either endpoint:', error_);
       }
     } finally {
       setIsLoading(false);
@@ -166,7 +167,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       sessionStorage.removeItem('impersonateUserId');
       setSelectedTenant(tenantId);
       setImpersonateUser('');
-      window.location.reload();
+      globalThis.location.reload();
     } else {
       resetContext();
     }
@@ -179,7 +180,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (userId) {
       sessionStorage.setItem('impersonateUserId', userId);
       setImpersonateUser(userId);
-      window.location.reload();
+      globalThis.location.reload();
     }
   }, []);
 
@@ -187,11 +188,30 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
    * Reset tenant context
    */
   const resetContext = useCallback(() => {
-    sessionStorage.removeItem('selectedTenantId');
-    sessionStorage.removeItem('impersonateUserId');
-    setSelectedTenant('');
-    setImpersonateUser('');
-    window.location.reload();
+    globalThis.location.reload();
+  }, []);
+
+  /**
+   * Centralized logout
+   */
+  const logout = useCallback(async () => {
+    try {
+      console.log('🚪 Logging out...');
+      await apiClient.post('/logout', {});
+    } catch (err) {
+      console.error('Logout API failed:', err);
+    } finally {
+      // Clear all session storage
+      console.log('🧹 Clearing session storage...');
+      sessionStorage.clear();
+
+      // Reset state
+      setUserRoles([]);
+      setUserProfile(null);
+
+      // Redirect to landing page
+      globalThis.location.href = '/';
+    }
   }, []);
 
   // Fetch user roles on mount - with guard for React Strict Mode
@@ -205,7 +225,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     fetchUserRoles();
   }, []); // Empty dependency array - only run on mount
 
-  const value: AuthContextValue = {
+  const value: AuthContextValue = React.useMemo(() => ({
     userRoles,
     userProfile,
     isLoading,
@@ -220,7 +240,24 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     resetContext,
     fetchTenants,
     fetchTenantUsers,
-  };
+    logout,
+  }), [
+    userRoles,
+    userProfile,
+    isLoading,
+    tenantList,
+    tenantUsers,
+    selectedTenant,
+    impersonateUser,
+    fetchUserRoles,
+    hasAnyRole,
+    switchTenant,
+    switchUser,
+    resetContext,
+    fetchTenants,
+    fetchTenantUsers,
+    logout,
+  ]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

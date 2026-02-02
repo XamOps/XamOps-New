@@ -19,7 +19,7 @@ const AccountManagerHeader: React.FC<AccountManagerHeaderProps> = ({ onAddAccoun
           <i className="fas fa-users-cog text-white text-xl" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Account Manager</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Account Management</h1>
           <p className="text-sm text-gray-500 mt-0.5">
             Manage your connected cloud accounts and CI/CD integrations
           </p>
