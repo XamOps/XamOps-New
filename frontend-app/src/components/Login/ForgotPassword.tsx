@@ -93,7 +93,7 @@ const ForgotPassword: React.FC<ForgotPasswordProps> = ({ onBackToLogin }) => {
       }
 
       alert('Password updated! Please login.');
-      window.location.reload();
+      globalThis.location.reload();
     } catch (err) {
       setMessage({
         text: err instanceof Error ? err.message : 'Reset failed',
@@ -105,24 +105,26 @@ const ForgotPassword: React.FC<ForgotPasswordProps> = ({ onBackToLogin }) => {
   };
 
   return (
-    <div>
-      <button type="button" onClick={onBackToLogin} className="back-btn">
+    <div className="form-stack">
+      <button type="button" onClick={onBackToLogin} className="back-trigger">
         <i className="fas fa-arrow-left"></i>
         <span>Back to login</span>
       </button>
 
-      <h2 className="fp-title">Reset Password</h2>
-      <p className="fp-subtitle">Don't worry, we'll help you recover your account.</p>
+      <h2 className="card-title">Reset Password</h2>
+      <p className="card-subtitle" style={{ marginBottom: '2rem' }}>
+        Don't worry, we'll help you recover your account.
+      </p>
 
       {/* Error/Success Message */}
       {message && (
-        <div className={message.type === 'error' ? 'error-alert' : 'success-message'}>
+        <div className={message.type === 'error' ? 'error-box' : 'success-box'}>
           {message.type === 'error' ? (
             <>
               <i className="fas fa-exclamation-triangle"></i>
               <div className="error-alert-content">
-                <h4>Error</h4>
-                <p>{message.text}</p>
+                <h4 className="error-title">Error</h4>
+                <p className="error-msg">{message.text}</p>
               </div>
             </>
           ) : (
@@ -135,14 +137,15 @@ const ForgotPassword: React.FC<ForgotPasswordProps> = ({ onBackToLogin }) => {
 
       {/* Step 1: Request OTP */}
       {step === 'request' && (
-        <form onSubmit={handleRequestOtp}>
+        <form onSubmit={handleRequestOtp} className="form-stack">
           <div className="input-group">
-            <label className="input-label">Username</label>
-            <div className="input-wrapper">
-              <i className="fas fa-user input-icon"></i>
+            <label htmlFor="username" className="label-text">Username</label>
+            <div className="input-container">
+              <i className="fas fa-user input-icon-left"></i>
               <input
                 type="text"
-                className="form-input"
+                id="username"
+                className="input-field"
                 placeholder="Enter your username"
                 required
                 value={username}
@@ -151,12 +154,13 @@ const ForgotPassword: React.FC<ForgotPasswordProps> = ({ onBackToLogin }) => {
             </div>
           </div>
           <div className="input-group">
-            <label className="input-label">Email Address</label>
-            <div className="input-wrapper">
-              <i className="fas fa-envelope input-icon"></i>
+            <label htmlFor="email" className="label-text">Email Address</label>
+            <div className="input-container">
+              <i className="fas fa-envelope input-icon-left"></i>
               <input
                 type="email"
-                className="form-input"
+                id="email"
+                className="input-field"
                 placeholder="Enter your email"
                 required
                 value={email}
@@ -164,26 +168,33 @@ const ForgotPassword: React.FC<ForgotPasswordProps> = ({ onBackToLogin }) => {
               />
             </div>
           </div>
-          <button type="submit" className="btn-primary" disabled={isLoading}>
-            {isLoading ? 'Sending...' : 'Send Verification Code'}
+          <button type="submit" className="submit-btn" disabled={isLoading}>
+            {isLoading ? (
+              <div className="loading-ring"></div>
+            ) : (
+              'Send Verification Code'
+            )}
           </button>
         </form>
       )}
 
       {/* Step 2: Verify OTP */}
       {step === 'verify' && (
-        <>
-          <div className="success-message">
-            <i className="fas fa-check-circle"></i> Code sent! Check your email.
-          </div>
-          <form onSubmit={handleVerifyOtp}>
+        <div className="form-stack">
+          {!message && (
+            <div className="success-box">
+              <i className="fas fa-check-circle"></i> Code sent! Check your email.
+            </div>
+          )}
+          <form onSubmit={handleVerifyOtp} className="form-stack">
             <div className="input-group">
-              <label className="input-label">Verification Code</label>
-              <div className="input-wrapper">
-                <i className="fas fa-key input-icon"></i>
+              <label htmlFor="otp" className="label-text">Verification Code</label>
+              <div className="input-container">
+                <i className="fas fa-key input-icon-left"></i>
                 <input
                   type="text"
-                  className="form-input otp-input"
+                  id="otp"
+                  className="input-field otp-input"
                   placeholder="Enter 6-digit code"
                   maxLength={6}
                   required
@@ -192,23 +203,24 @@ const ForgotPassword: React.FC<ForgotPasswordProps> = ({ onBackToLogin }) => {
                 />
               </div>
             </div>
-            <button type="submit" className="btn-primary" disabled={isLoading}>
-              {isLoading ? 'Verifying...' : 'Verify Code'}
+            <button type="submit" className="submit-btn" disabled={isLoading}>
+              {isLoading ? <div className="loading-ring"></div> : 'Verify Code'}
             </button>
           </form>
-        </>
+        </div>
       )}
 
       {/* Step 3: Reset Password */}
       {step === 'reset' && (
-        <form onSubmit={handleResetPassword}>
+        <form onSubmit={handleResetPassword} className="form-stack">
           <div className="input-group">
-            <label className="input-label">New Password</label>
-            <div className="input-wrapper">
-              <i className="fas fa-lock input-icon"></i>
+            <label htmlFor="newPassword" className="label-text">New Password</label>
+            <div className="input-container">
+              <i className="fas fa-lock input-icon-left"></i>
               <input
                 type="password"
-                className="form-input"
+                id="newPassword"
+                className="input-field"
                 placeholder="Enter new password"
                 required
                 value={newPassword}
@@ -217,12 +229,13 @@ const ForgotPassword: React.FC<ForgotPasswordProps> = ({ onBackToLogin }) => {
             </div>
           </div>
           <div className="input-group">
-            <label className="input-label">Confirm Password</label>
-            <div className="input-wrapper">
-              <i className="fas fa-lock input-icon"></i>
+            <label htmlFor="confirmPassword" className="label-text">Confirm Password</label>
+            <div className="input-container">
+              <i className="fas fa-lock input-icon-left"></i>
               <input
                 type="password"
-                className="form-input"
+                id="confirmPassword"
+                className="input-field"
                 placeholder="Confirm new password"
                 required
                 value={confirmPassword}
@@ -230,8 +243,8 @@ const ForgotPassword: React.FC<ForgotPasswordProps> = ({ onBackToLogin }) => {
               />
             </div>
           </div>
-          <button type="submit" className="btn-primary" disabled={isLoading}>
-            {isLoading ? 'Updating...' : 'Update Password'}
+          <button type="submit" className="submit-btn" disabled={isLoading}>
+            {isLoading ? <div className="loading-ring"></div> : 'Update Password'}
           </button>
         </form>
       )}
