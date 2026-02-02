@@ -232,7 +232,7 @@ const CICDPipelinesPage: React.FC = () => {
                 <i className="fas fa-info-circle text-2xl text-gray-400 mb-2"></i>
                 <p className="text-gray-500">No GitHub Actions runs found.</p>
                 <p className="text-sm text-gray-400 mt-2">
-                  Have you connected a repository in the Account Manager?
+                  Have you connected a repository in the Account Management?
                 </p>
               </div>
             )}
@@ -297,7 +297,7 @@ const CICDPipelinesPage: React.FC = () => {
                 <i className="fab fa-jenkins text-4xl text-gray-400 mb-2"></i>
                 <p className="text-gray-500">No Jenkins jobs found.</p>
                 <p className="text-sm text-gray-400 mt-2">
-                  Configure your Jenkins connection in Account Manager.
+                  Configure your Jenkins connection in Account Management.
                 </p>
               </div>
             )}

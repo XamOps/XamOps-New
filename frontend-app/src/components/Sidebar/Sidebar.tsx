@@ -462,16 +462,6 @@ const Sidebar: React.FC = () => {
             />
           )}
 
-          {/* Account Manager (React - Converted from account-manager.html) */}
-          {hasAnyRole('ROLE_XAMOPS') && (
-            <NavItem
-              href="/account-manager"
-              icon="fas fa-cloud"
-              label="Account Manager"
-              gradientClass="from-blue-500 to-cyan-600"
-              isActive={isActive('/account-manager')}
-            />
-          )}
 
           {/* Live Dashboard (React - Converted from dashboard.html) */}
           {/* Provider-aware routing: GCP accounts go to /gcp-dashboard, others to /dashboard */}
@@ -671,6 +661,9 @@ const Sidebar: React.FC = () => {
             isOpen={openDropdown === 'settings'}
             onToggle={() => toggleDropdown('settings')}
           >
+            {hasAnyRole('ROLE_XAMOPS') && (
+              <NavItem href="/account-manager" icon="fas fa-cloud" label="Account Management" isActive={isActive('/account-manager')} />
+            )}
             {hasAnyRole('ROLE_XAMOPS') && (
               <NavItem href="/user-management" icon="fas fa-users-cog" label="User Management" isActive={isActive('/user-management')} />
             )}
