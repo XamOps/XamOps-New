@@ -14,7 +14,6 @@
 
 import React from 'react';
 import { useAddGcpAccount } from '../hooks/useAddGcpAccount';
-import { AddAccountHeader } from '../components/AddAccount';
 
 const AddGcpAccountPage: React.FC = () => {
   const {
@@ -38,13 +37,6 @@ const AddGcpAccountPage: React.FC = () => {
 
   return (
     <div className="add-account-page fade-in">
-      {/* Glass Background Elements */}
-      <div className="glass-shape shape-1"></div>
-      <div className="glass-shape shape-2"></div>
-
-      {/* Header */}
-      <AddAccountHeader provider="gcp" headerText="Connect your Google Cloud project with full visibility" />
-
       {/* Main Content */}
       <div className="add-account-content container">
         <div className="split-layout">

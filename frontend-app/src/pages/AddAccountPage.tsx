@@ -30,7 +30,6 @@
 import React from 'react';
 import { useAddAccount } from '../hooks/useAddAccount';
 import {
-  AddAccountHeader,
   ProviderSelector,
   ConnectionSteps,
   AWSForm,
@@ -72,9 +71,6 @@ const AddAccountPage: React.FC = () => {
     addAzureAccount,
     addJenkinsAccount,
     copyToClipboard,
-
-    // Helpers
-    getHeaderText,
   } = useAddAccount();
 
   const renderProviderForm = () => {
@@ -124,13 +120,6 @@ const AddAccountPage: React.FC = () => {
 
   return (
     <main className="add-account-page fade-in">
-      {/* Glass Background Elements */}
-      <div className="glass-shape shape-1"></div>
-      <div className="glass-shape shape-2"></div>
-
-      {/* Header */}
-      <AddAccountHeader provider={provider} headerText={getHeaderText()} />
-
       {/* Content */}
       <div className="add-account-content container">
         <div className="split-layout">
