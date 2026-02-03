@@ -13,7 +13,11 @@ export interface EksDashboard {
   nodeMetrics: NodeMetrics;
   containerMetrics: ContainerMetrics;
   kubescape: KubescapeData | null;
+  trivy: TrivyData | null;
   karpenter: KarpenterData | null;
+  podResourceMetrics?: PodResourceMetrics;
+  // Caching metadata
+  lastSyncedAt?: string; // ISO timestamp from server
 }
 
 export interface ClusterOverview {
@@ -31,6 +35,8 @@ export interface CostMetrics {
   dailyCost: number;
   monthlyCost: number;
   nodeCosts: NodeCost[];
+  namespaceCosts?: NamespaceCostAllocation[];
+  workloadCosts?: WorkloadCostAllocation[];
 }
 
 export interface NodeCost {
@@ -39,6 +45,28 @@ export interface NodeCost {
   hourlyRate: number;
   dailyCost: number;
   cpuUsagePercent?: number;
+}
+
+export interface NamespaceCostAllocation {
+  namespace: string;
+  dailyCost: number;
+  monthlyCost: number;
+  cpuUsageMillicores: number;
+  memoryUsageMb: number;
+  podCount: number;
+  costPercentage?: number;
+}
+
+export interface WorkloadCostAllocation {
+  name: string;
+  namespace: string;
+  kind: string; // 'Deployment', 'DaemonSet', 'StatefulSet'
+  dailyCost: number;
+  monthlyCost: number;
+  cpuUsageMillicores: number;
+  memoryUsageMb: number;
+  podCount: number;
+  replicas?: number;
 }
 
 export interface SecurityMetrics {
@@ -81,6 +109,14 @@ export interface PodInfo {
   containerStatuses?: ContainerStatus[];
   cpuUsage?: number;
   memoryUsage?: number;
+  podIp?: string;
+  age?: string;
+  ownerKind?: string;
+  ownerName?: string;
+  cpuRequest?: number;
+  memoryRequest?: number;
+  cpuLimit?: number;
+  memoryLimit?: number;
 }
 
 export interface ContainerStatus {
@@ -112,6 +148,21 @@ export interface NodeInfo {
   instanceType: string;
   cpuCapacity: number;
   memoryCapacity: number;
+  // NEW: Enhanced fields
+  capacityType?: 'spot' | 'on-demand' | 'unknown';
+  nodeGroup?: string;
+  zone?: string;
+  internalIp?: string;
+  cpuAllocatable?: number;
+  memoryAllocatable?: number;
+  cpuUsage?: number;
+  cpuUsageMillicores?: number;
+  memoryUsage?: number;
+  podCapacity?: number;
+  podCount?: number;
+  runningPodsCount?: number;
+  systemReservedCpu?: number;
+  systemReservedMemory?: number;
 }
 
 export interface ContainerMetrics {
@@ -132,8 +183,10 @@ export interface KubescapeData {
   totalHigh: number;
   totalMedium: number;
   totalLow: number;
+  totalWorkloads?: number;
   namespaceBreakdown: Record<string, NamespaceVulnerabilities>;
   frameworks: FrameworkScore[];
+  vulnerabilities?: KubescapeVulnerableWorkload[];
 }
 
 export interface NamespaceVulnerabilities {
@@ -150,6 +203,58 @@ export interface FrameworkScore {
   failedControls: number;
 }
 
+export interface KubescapeVulnerableWorkload {
+  workloadName: string;
+  namespace: string;
+  workloadKind: string;
+  criticalCount: number;
+  highCount: number;
+  mediumCount: number;
+  lowCount: number;
+}
+
+export interface TrivyData {
+  summary: TrivySummary;
+  workloads: TrivyWorkload[];
+}
+
+export interface TrivySummary {
+  uniqueImagesScanned: number;
+  namespacesCovered: number;
+  totalCritical: number;
+  totalHigh: number;
+  totalMedium: number;
+  totalLow: number;
+  totalExposedSecrets: number;
+  lastScanTime?: string;
+}
+
+export interface TrivyWorkload {
+  name: string;
+  namespace: string;
+  image: string;
+  tag?: string;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  lastScanTime?: string;
+  vulnerabilities?: TrivyCVE[];
+}
+
+export interface TrivyCVE {
+  vulnerabilityId: string;
+  severity: string;
+  title: string;
+  packageName: string;
+  installedVersion: string;
+  fixedVersion?: string;
+  description?: string;
+  score?: number;
+  target?: string;
+  primaryLink?: string;
+}
+
 export interface KarpenterData {
   healthy: boolean;
   version: string;
@@ -157,6 +262,15 @@ export interface KarpenterData {
   ec2NodeClasses: EC2NodeClass[];
   provisionedNodes: number;
   pendingPods: number;
+  // NEW: Enhanced metrics
+  totalActiveClaims: number;
+  totalPendingClaims: number;
+  claimsPerNodePool?: Record<string, number>;
+  nodePoolClassMapping?: Record<string, string[]>;
+  spotNodesCount: number;
+  onDemandNodesCount: number;
+  dailyCostKarpenterNodes?: number;
+  nodeClaims?: NodeClaim[];
 }
 
 export interface NodePool {
@@ -211,3 +325,29 @@ export interface KarpenterStatus {
 }
 
 export type TabType = 'overview' | 'cost' | 'performance' | 'security' | 'workloads' | 'pods' | 'containers' | 'nodes' | 'karpenter';
+
+// NEW: Node Claim interface for Karpenter
+export interface NodeClaim {
+  name: string;
+  nodePoolName: string;
+  phase: string;
+  instanceType: string;
+  capacityType: string;
+  zone: string;
+  nodeName?: string;
+  createdAt?: string;
+}
+
+// NEW: Pod Resource Metrics for Pods tab charts
+export interface PodResourceMetrics {
+  totalCpuRequests: number;
+  totalCpuLimits: number;
+  totalCpuUsage: number;
+  totalCpuCapacity: number;
+  totalMemoryRequests: number;
+  totalMemoryLimits: number;
+  totalMemoryUsage: number;
+  totalMemoryCapacity: number;
+  podsWithoutRequests: number;
+  podsWithoutLimits: number;
+}

@@ -1,5 +1,6 @@
 package com.xammer.cloud.dto.k8s;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -20,6 +21,7 @@ public class TrivyDashboard {
         private int namespacesCovered;
         private int totalExposedSecrets;
         private int totalConfigAuditFailures;
+        private LocalDateTime lastScanTime;
 
         // Getters and Setters
         public int getTotalCritical() {
@@ -92,6 +94,14 @@ public class TrivyDashboard {
 
         public void setTotalConfigAuditFailures(int totalConfigAuditFailures) {
             this.totalConfigAuditFailures = totalConfigAuditFailures;
+        }
+
+        public LocalDateTime getLastScanTime() {
+            return lastScanTime;
+        }
+
+        public void setLastScanTime(LocalDateTime lastScanTime) {
+            this.lastScanTime = lastScanTime;
         }
     }
 
@@ -200,16 +210,16 @@ public class TrivyDashboard {
 
     // Detailed vulnerability information including CVE, package, etc.
     public static class VulnerabilityDetail {
-        private String vulnerabilityId;  // CVE ID (e.g., CVE-2023-12345)
-        private String severity;          // CRITICAL, HIGH, MEDIUM, LOW
-        private String packageName;       // Affected package name
-        private String installedVersion;  // Currently installed version
-        private String fixedVersion;      // Version where vulnerability is fixed
-        private String title;             // Brief title/description
-        private String description;       // Full description
-        private Double score;             // CVSS score
-        private String target;            // Target file/component
-        private String primaryLink;       // Link to CVE details
+        private String vulnerabilityId; // CVE ID (e.g., CVE-2023-12345)
+        private String severity; // CRITICAL, HIGH, MEDIUM, LOW
+        private String packageName; // Affected package name
+        private String installedVersion; // Currently installed version
+        private String fixedVersion; // Version where vulnerability is fixed
+        private String title; // Brief title/description
+        private String description; // Full description
+        private Double score; // CVSS score
+        private String target; // Target file/component
+        private String primaryLink; // Link to CVE details
 
         public String getVulnerabilityId() {
             return vulnerabilityId;
