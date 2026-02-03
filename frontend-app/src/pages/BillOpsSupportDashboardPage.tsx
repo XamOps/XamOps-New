@@ -23,6 +23,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useSupportDashboard } from '../hooks/useSupportDashboard';
+import { useTopbar } from '../contexts/TopbarContext';
 import { SupportConversation, ChatMessage, CloudProvider } from '../types/supportDashboard';
 
 const BillOpsSupportDashboardPage: React.FC = () => {
@@ -42,6 +43,8 @@ const BillOpsSupportDashboardPage: React.FC = () => {
     refreshInbox,
     refreshChat,
   } = useSupportDashboard();
+
+  const { setActions, clearActions } = useTopbar();
 
   const [replyText, setReplyText] = useState('');
   const [providerDropdownOpen, setProviderDropdownOpen] = useState(false);
@@ -126,11 +129,10 @@ const BillOpsSupportDashboardPage: React.FC = () => {
     <div
       key={conv.accountId}
       onClick={() => selectConversation(conv)}
-      className={`p-4 border-b border-gray-50 cursor-pointer transition-all hover:bg-white hover:shadow-sm group relative ${
-        activeAccount?.accountId === conv.accountId
+      className={`p-4 border-b border-gray-50 cursor-pointer transition-all hover:bg-white hover:shadow-sm group relative ${activeAccount?.accountId === conv.accountId
           ? 'bg-indigo-50/80 border-l-4 border-l-indigo-600'
           : 'border-l-4 border-l-transparent'
-      }`}
+        }`}
     >
       <div className="flex justify-between items-start mb-1">
         <h3 className="font-bold text-gray-800 text-sm truncate pr-2 group-hover:text-indigo-700 transition-colors">
@@ -164,17 +166,15 @@ const BillOpsSupportDashboardPage: React.FC = () => {
       className={`flex flex-col ${msg.userMessage ? 'items-start' : 'items-end'}`}
     >
       <div
-        className={`max-w-[75%] rounded-2xl px-5 py-3 shadow-sm text-sm relative group transition-transform ${
-          msg.userMessage
+        className={`max-w-[75%] rounded-2xl px-5 py-3 shadow-sm text-sm relative group transition-transform ${msg.userMessage
             ? 'bg-white text-gray-800 rounded-tl-none border border-gray-200'
             : 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-tr-none shadow-indigo-200'
-        }`}
+          }`}
       >
         <p className="leading-relaxed whitespace-pre-wrap">{msg.content}</p>
         <span
-          className={`text-[10px] mt-1 block opacity-70 font-medium ${
-            msg.userMessage ? 'text-gray-400' : 'text-indigo-100 text-right'
-          }`}
+          className={`text-[10px] mt-1 block opacity-70 font-medium ${msg.userMessage ? 'text-gray-400' : 'text-indigo-100 text-right'
+            }`}
         >
           {formatTime(msg.timestamp)}
         </span>
@@ -233,33 +233,31 @@ const BillOpsSupportDashboardPage: React.FC = () => {
     </div>
   );
 
+  /**
+   * Set Topbar Actions
+   */
+  useEffect(() => {
+    setActions(
+      <div className="flex items-center gap-4">
+        <button
+          onClick={() => refreshInbox()}
+          className={`flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all ${loading ? 'opacity-50' : ''}`}
+          title="Refresh Inbox"
+        >
+          <i className={`fas fa-sync-alt ${loading ? 'animate-spin' : ''}`}></i>
+          <span>Refresh</span>
+        </button>
+        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest bg-slate-100/50 px-3 py-1.5 rounded-full border border-slate-200/50 flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.4)]"></span>
+          Live System
+        </span>
+      </div>
+    );
+    return () => clearActions();
+  }, [setActions, clearActions, loading, refreshInbox]);
+
   return (
-    <div className="support-dashboard-page flex flex-col h-full">
-      {/* Header */}
-      <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 shadow-sm z-10 flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-xl flex items-center justify-center shadow-lg">
-            <i className="fas fa-headset text-lg"></i>
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-gray-800">Support Inbox</h1>
-            <p className="text-xs text-gray-500">BillOps Admin Console</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => refreshInbox()}
-            className="text-gray-400 hover:text-indigo-600 transition p-2 rounded-full hover:bg-gray-100"
-            title="Refresh Inbox"
-          >
-            <i className={`fas fa-sync-alt ${loading ? 'animate-spin' : ''}`}></i>
-          </button>
-          <span className="text-xs font-medium text-gray-500 bg-gray-100 px-3 py-1.5 rounded-full border border-gray-200 flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-            Live System
-          </span>
-        </div>
-      </header>
+    <div className="support-dashboard-page flex flex-col h-full bg-transparent">
 
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden p-6 gap-6">
