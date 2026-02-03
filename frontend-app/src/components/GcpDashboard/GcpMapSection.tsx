@@ -1,4 +1,11 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useState, memo } from 'react';
+import {
+    ComposableMap,
+    Geographies,
+    Geography,
+    Marker,
+    ZoomableGroup,
+} from 'react-simple-maps';
 
 interface GcpMapSectionProps {
     regionStatus: any[];
@@ -6,161 +13,35 @@ interface GcpMapSectionProps {
     onRegionClick: (name: string) => void;
 }
 
-declare global {
-    interface Window {
-        Highcharts: any;
-    }
-}
+// World map TopoJSON URL
+const geoUrl = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json';
+
+// Status colors matching Google brand
+const statusColors: Record<string, string> = {
+    'active': '#4285F4',     // Google Blue
+    'issues': '#EA4335',     // Google Red
+    'sustainable': '#34A853', // Google Green
+    'inactive': '#9AA0A6'    // Google Gray
+};
 
 const GcpMapSection: React.FC<GcpMapSectionProps> = ({ regionStatus, isLoading, onRegionClick }) => {
-    const mapContainerRef = useRef<HTMLDivElement>(null);
-    const chartRef = useRef<any>(null);
+    const [tooltipContent, setTooltipContent] = useState<string | null>(null);
+    const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
+    const [zoom, setZoom] = useState(1);
+    const [center, setCenter] = useState<[number, number]>([0, 20]);
 
-    const statusColors: Record<string, string> = {
-        'active': '#4285F4',     // Google Blue
-        'issues': '#EA4335',     // Google Red
-        'sustainable': '#34A853', // Google Green
-        'inactive': '#9AA0A6'    // Google Gray
+    const handleZoomIn = () => {
+        if (zoom < 4) setZoom(zoom * 1.5);
     };
 
-    useEffect(() => {
-        if (!mapContainerRef.current || isLoading) {
-            return;
-        }
+    const handleZoomOut = () => {
+        if (zoom > 1) setZoom(zoom / 1.5);
+    };
 
-        if (!regionStatus || regionStatus.length === 0) {
-            return;
-        }
-
-        if (!window.Highcharts) {
-            console.error('Highcharts not found');
-            return;
-        }
-
-        // Prepare region points
-        const regionPoints = regionStatus.map(r => ({
-            name: r.region, // GcpDashboard passes 'region' not 'regionId'
-            fullName: `${r.region} (${r.status})`,
-            lat: r.latitude,
-            lon: r.longitude,
-            color: statusColors[r.status] || '#9AA0A6',
-            id: r.region,
-            status: r.status
-        }));
-
-        // Fetch world map topology
-        fetch('https://code.highcharts.com/mapdata/custom/world.topo.json')
-            .then(response => response.json())
-            .then(worldMap => {
-                if (chartRef.current) {
-                    chartRef.current.destroy();
-                    chartRef.current = null;
-                }
-
-                const chart = window.Highcharts.mapChart(mapContainerRef.current, {
-                    chart: {
-                        map: worldMap,
-                        backgroundColor: 'transparent',
-                        style: {
-                            fontFamily: 'Inter, sans-serif'
-                        }
-                    },
-                    title: { text: null },
-                    credits: { enabled: false },
-                    mapNavigation: {
-                        enabled: true,
-                        enableMouseWheelZoom: true,
-                        buttonOptions: {
-                            verticalAlign: 'bottom',
-                            theme: {
-                                'stroke-width': 1,
-                                stroke: '#4285F4',
-                                r: 4,
-                                fill: 'white'
-                            }
-                        }
-                    },
-                    tooltip: {
-                        useHTML: true,
-                        backgroundColor: 'rgba(0, 0, 0, 0.85)',
-                        borderColor: '#4285F4',
-                        borderRadius: 8,
-                        style: {
-                            color: 'white',
-                            fontSize: '12px'
-                        },
-                        pointFormat: '<div style="padding: 4px;">' +
-                            '<b>{point.fullName}</b><br/>' +
-                            '<span style="font-size: 10px;">Click to filter dashboard</span>' +
-                            '</div>'
-                    },
-                    plotOptions: {
-                        mappoint: {
-                            point: {
-                                events: {
-                                    click: function (this: any) {
-                                        onRegionClick(this.id);
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    series: [
-                        {
-                            type: 'map',
-                            name: 'World',
-                            mapData: worldMap,
-                            color: '#f8f9fa',
-                            nullColor: '#e9ecef',
-                            enableMouseTracking: false,
-                            borderColor: '#dee2e6',
-                            borderWidth: 0.5,
-                            dataLabels: { enabled: false }
-                        },
-                        {
-                            type: 'mappoint',
-                            name: 'GCP Regions',
-                            data: regionPoints,
-                            marker: {
-                                lineWidth: 2,
-                                lineColor: '#ffffff',
-                                radius: 8,
-                                symbol: 'circle',
-                                states: {
-                                    hover: {
-                                        lineWidth: 3,
-                                        radius: 12,
-                                        animation: { duration: 200 }
-                                    }
-                                }
-                            },
-                            cursor: 'pointer',
-                            dataLabels: {
-                                enabled: true,
-                                format: '{point.name}',
-                                style: {
-                                    color: '#202124',
-                                    fontSize: '10px',
-                                    fontWeight: 'bold',
-                                    textOutline: '2px white'
-                                },
-                                y: -15
-                            }
-                        }
-                    ]
-                });
-
-                chartRef.current = chart;
-            })
-            .catch(err => console.error('Failed to load world map:', err));
-
-        return () => {
-            if (chartRef.current) {
-                chartRef.current.destroy();
-                chartRef.current = null;
-            }
-        };
-    }, [regionStatus, isLoading, onRegionClick]);
+    const handleMoveEnd = (position: { coordinates: [number, number]; zoom: number }) => {
+        setCenter(position.coordinates);
+        setZoom(position.zoom);
+    };
 
     return (
         <div className="lg:col-span-3 glass-card p-6 rounded-2xl border border-gray-200 shadow-xl shadow-blue-500/5 relative overflow-hidden h-full">
@@ -179,7 +60,7 @@ const GcpMapSection: React.FC<GcpMapSectionProps> = ({ regionStatus, isLoading, 
                     </div>
                 </div>
                 {!isLoading && (
-                    <div className="flex items-center gap-4 bg-white/50 backdrop-blur-sm px-4 py-2 rounded-full border border-gray-100 shadow-sm">
+                    <div className="hidden sm:flex items-center gap-4 bg-white/50 backdrop-blur-sm px-4 py-2 rounded-full border border-gray-100 shadow-sm">
                         <div className="flex items-center gap-1.5">
                             <div className="w-2 h-2 bg-blue-500 rounded-full shadow-lg shadow-blue-500/30"></div>
                             <span className="text-[10px] uppercase font-black tracking-widest text-gray-500">Active</span>
@@ -196,15 +77,140 @@ const GcpMapSection: React.FC<GcpMapSectionProps> = ({ regionStatus, isLoading, 
                 )}
             </div>
 
+            {/* Map Loading Skeleton */}
             {isLoading && (
                 <div className="absolute inset-x-0 bottom-0 top-16 bg-white/50 backdrop-blur-sm z-10 flex items-center justify-center rounded-b-xl">
                     <div className="loading-spinner w-12 h-12"></div>
                 </div>
             )}
 
-            <div ref={mapContainerRef} style={{ height: '400px' }} className="rounded-lg overflow-hidden"></div>
+            {/* Map Container */}
+            <div className="relative rounded-lg overflow-hidden bg-slate-50" style={{ height: '400px' }}>
+                {/* Zoom Controls */}
+                <div className="absolute bottom-4 left-4 z-50 flex flex-col gap-1">
+                    <button
+                        onClick={handleZoomIn}
+                        className="w-8 h-8 bg-white border border-slate-200 rounded-lg flex items-center justify-center hover:bg-slate-50 transition-colors shadow-sm"
+                        title="Zoom In"
+                    >
+                        <i className="fas fa-plus text-slate-600 text-[10px]"></i>
+                    </button>
+                    <button
+                        onClick={handleZoomOut}
+                        className="w-8 h-8 bg-white border border-slate-200 rounded-lg flex items-center justify-center hover:bg-slate-50 transition-colors shadow-sm"
+                        title="Zoom Out"
+                    >
+                        <i className="fas fa-minus text-slate-600 text-[10px]"></i>
+                    </button>
+                </div>
+
+                {/* Tooltip */}
+                {tooltipContent && (
+                    <div
+                        className="absolute z-30 pointer-events-none px-3 py-2 rounded-lg text-white text-[11px] font-bold shadow-xl"
+                        style={{
+                            left: tooltipPosition.x,
+                            top: tooltipPosition.y,
+                            backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                            border: '1px solid rgba(66, 133, 244, 0.5)',
+                            transform: 'translate(-50%, -100%)',
+                            marginTop: '-10px',
+                        }}
+                    >
+                        <div dangerouslySetInnerHTML={{ __html: tooltipContent }} />
+                    </div>
+                )}
+
+                <ComposableMap
+                    projection="geoMercator"
+                    projectionConfig={{
+                        scale: 120,
+                    }}
+                    style={{ width: '100%', height: '100%', position: 'relative', zIndex: 1 }}
+                >
+                    <ZoomableGroup
+                        zoom={zoom}
+                        center={center}
+                        onMoveEnd={handleMoveEnd}
+                        minZoom={1}
+                        maxZoom={4}
+                    >
+                        <Geographies geography={geoUrl}>
+                            {({ geographies }: { geographies: Array<{ rsmKey: string }> }) =>
+                                geographies.map((geo: { rsmKey: string }) => (
+                                    <Geography
+                                        key={geo.rsmKey}
+                                        geography={geo}
+                                        fill="#f1f5f9"
+                                        stroke="#cbd5e1"
+                                        strokeWidth={0.5}
+                                        style={{
+                                            default: { outline: 'none' },
+                                            hover: { fill: '#e2e8f0', outline: 'none' },
+                                            pressed: { outline: 'none' },
+                                        }}
+                                    />
+                                ))
+                            }
+                        </Geographies>
+
+                        {/* Region Markers */}
+                        {regionStatus.map((region) => (
+                            <Marker
+                                key={region.region}
+                                coordinates={[region.longitude, region.latitude]}
+                                onMouseEnter={(e: React.MouseEvent<SVGElement>) => {
+                                    const rect = (e.target as SVGElement).getBoundingClientRect();
+                                    const container = (e.target as SVGElement).closest('.relative')?.getBoundingClientRect();
+                                    if (container) {
+                                        setTooltipPosition({
+                                            x: rect.left - container.left + rect.width / 2,
+                                            y: rect.top - container.top,
+                                        });
+                                    }
+                                    setTooltipContent(`
+                                        <div style="padding: 2px;">
+                                            <p style="color: #94a3b8; font-size: 9px; margin-bottom: 2px; text-transform: uppercase;">GCP Region</p>
+                                            <p>${region.region} (${region.status})</p>
+                                        </div>
+                                    `);
+                                }}
+                                onMouseLeave={() => setTooltipContent(null)}
+                                onClick={() => onRegionClick(region.region)}
+                            >
+                                <circle
+                                    r={6 / zoom}
+                                    fill={statusColors[region.status] || '#9AA0A6'}
+                                    stroke="#ffffff"
+                                    strokeWidth={2 / zoom}
+                                    style={{
+                                        cursor: 'pointer',
+                                        transition: 'all 0.2s',
+                                    }}
+                                />
+                                <text
+                                    textAnchor="middle"
+                                    y={-12 / zoom}
+                                    style={{
+                                        fontFamily: 'Inter, sans-serif',
+                                        fill: '#475569',
+                                        fontSize: `${9 / zoom}px`,
+                                        fontWeight: '800',
+                                        paintOrder: 'stroke',
+                                        stroke: '#ffffff',
+                                        strokeWidth: 2 / zoom,
+                                        textTransform: 'uppercase'
+                                    }}
+                                >
+                                    {region.region}
+                                </text>
+                            </Marker>
+                        ))}
+                    </ZoomableGroup>
+                </ComposableMap>
+            </div>
         </div>
     );
 };
 
-export default GcpMapSection;
+export default memo(GcpMapSection);

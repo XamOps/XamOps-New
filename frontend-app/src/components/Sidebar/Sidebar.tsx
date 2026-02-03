@@ -695,7 +695,6 @@ const Sidebar: React.FC = () => {
             {hasAnyRole('ROLE_BILLOPS_ADMIN') && (
               <NavItem href="/billops-admin-user-manager" icon="fas fa-user-cog" label="User Manager" isActive={isActive('/billops-admin-user-manager')} />
             )}
-            <NavItem href="/my-profile" icon="fas fa-user" label="My Profile" isActive={isActive('/my-profile')} />
           </NavSection>
 
           <UserLogoutCard />
