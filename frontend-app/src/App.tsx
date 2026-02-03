@@ -82,6 +82,9 @@ import CalculatorPage from './pages/CalculatorPage';
 import GcpCloudListPage from './pages/GcpCloudListPage';
 import CloudMapPage from './pages/CloudMapPage';
 import GcpCloudMapPage from './pages/GcpCloudMapPage';
+import AzureDashboard from './pages/AzureDashboard';
+import AzureCloudList from './pages/AzureCloudList';
+import AzureFinOpsPage from './pages/AzureFinOpsPage';
 import { SupportChatWidget } from './components/SupportChat';
 
 
@@ -147,6 +150,9 @@ import './styles/calculator.css';
 import './styles/gcpCloudList.css';
 import './styles/cloudmap.css';
 import './styles/gcpCloudmap.css';
+import './styles/azureDashboard.css';
+import './styles/azureCloudList.css';
+import './styles/azureFinops.css';
 
 // Helper function to check authentication
 // Note: Since cookies might be HttpOnly, we check by making an API call
@@ -264,6 +270,30 @@ const AppContent: React.FC = () => {
             <ProtectedRoute>
               <AuthenticatedLayout>
                 <GcpDashboard />
+              </AuthenticatedLayout>
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Azure Dashboard Route (converted from azure_dashboard.html) */}
+        <Route
+          path="/azure-dashboard"
+          element={
+            <ProtectedRoute>
+              <AuthenticatedLayout>
+                <AzureDashboard />
+              </AuthenticatedLayout>
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Azure FinOps Report Route (converted from azure-finops-report.html) */}
+        <Route
+          path="/azure-finops"
+          element={
+            <ProtectedRoute>
+              <AuthenticatedLayout>
+                <AzureFinOpsPage />
               </AuthenticatedLayout>
             </ProtectedRoute>
           }
@@ -790,6 +820,18 @@ const AppContent: React.FC = () => {
             <ProtectedRoute>
               <AuthenticatedLayout>
                 <GcpCloudListPage />
+              </AuthenticatedLayout>
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Azure CloudList Route (converted from azure_cloudlist.html) */}
+        <Route
+          path="/azure-cloudlist"
+          element={
+            <ProtectedRoute>
+              <AuthenticatedLayout>
+                <AzureCloudList />
               </AuthenticatedLayout>
             </ProtectedRoute>
           }

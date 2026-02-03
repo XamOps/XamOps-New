@@ -100,7 +100,8 @@ public class ProactiveCacheRefreshService {
             String activeProfile = envConfig.getActiveProfile();
             logger.info("🔒 Environment: {}", activeProfile);
 
-            // In local/UAT, there's no tenant_config table - just return the configured tenant
+            // In local/UAT, there's no tenant_config table - just return the configured
+            // tenant
             if ("local".equals(activeProfile) || "uat".equals(activeProfile)) {
                 String currentTenant = envConfig.getCurrentTenantId();
                 logger.info("✅ Using configured tenant '{}' for {} environment (no tenant_config query)",

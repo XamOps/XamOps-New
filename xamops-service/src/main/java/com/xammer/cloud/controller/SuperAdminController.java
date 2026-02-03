@@ -1,12 +1,13 @@
 package com.xammer.cloud.controller;
 
 import com.xammer.cloud.config.multitenancy.TenantContext;
+import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.User;
-import com.xammer.cloud.dto.CreateTenantRequest;
-import com.xammer.cloud.dto.CreateUserRequest;
-import com.xammer.cloud.dto.TenantDto;
+import com.xammer.cloud.dto.*;
+import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.service.EmailService;
+import com.xammer.cloud.service.EnvironmentService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.sql.DataSource;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/xamops/superadmin")
@@ -34,21 +36,30 @@ public class SuperAdminController {
     private UserRepository userRepository; // Uses TenantRoutingDataSource
 
     @Autowired
+    private CloudAccountRepository cloudAccountRepository;
+
+    @Autowired
+    private com.xammer.cloud.repository.UserCloudAccountAccessRepository userCloudAccountAccessRepository;
+
+    @Autowired
     private PasswordEncoder passwordEncoder;
 
     @Autowired
     private EmailService emailService;
 
-    // --- TENANT MANAGEMENT (Technical) ---
+    @Autowired
+    private EnvironmentService environmentService;
+
+    // --- ENVIRONMENT & TENANT MANAGEMENT ---
+
+    @GetMapping("/environment")
+    public String getEnvironment() {
+        return "{\"environment\": \"" + environmentService.getCurrentEnvironment() + "\"}";
+    }
 
     @GetMapping("/tenants")
     public List<TenantDto> getAllTenants() {
-        JdbcTemplate jdbcTemplate = new JdbcTemplate(masterDataSource);
-        return jdbcTemplate.query(
-                "SELECT tenant_id, company_name FROM tenant_config WHERE active = true",
-                (rs, rowNum) -> new TenantDto(
-                        rs.getString("tenant_id"),
-                        rs.getString("company_name")));
+        return environmentService.getTenantsForEnvironment();
     }
 
     @PostMapping("/tenants")
@@ -75,18 +86,106 @@ public class SuperAdminController {
 
     @GetMapping("/users")
     public List<User> getTenantUsers(@RequestParam(required = false) String tenantId) {
-        // If tenantId is provided, switch context to fetch users from that tenant
-        if (tenantId != null && !tenantId.isBlank()) {
-            TenantContext.setCurrentTenant(tenantId);
+        String env = environmentService.getCurrentEnvironment();
+
+        // If local/UAT, tenantId selection doesn't change the DB context (it's single
+        // DB)
+        // but it might be used for filtering in the future if needed.
+        if ("prod".equals(env)) {
+            if (tenantId != null && !tenantId.isBlank()) {
+                TenantContext.setCurrentTenant(tenantId);
+            }
         }
 
         try {
             return userRepository.findAll();
         } finally {
-            if (tenantId != null && !tenantId.isBlank()) {
+            if ("prod".equals(env) && tenantId != null && !tenantId.isBlank()) {
                 TenantContext.clear();
             }
         }
+    }
+
+    @GetMapping("/accounts-by-user/{userId}")
+    public List<AccountDto> getAccountsByUserId(@PathVariable Long userId,
+            @RequestParam(required = false) String tenantId) {
+        String env = environmentService.getCurrentEnvironment();
+
+        if ("prod".equals(env) && tenantId != null && !tenantId.isBlank()) {
+            TenantContext.setCurrentTenant(tenantId);
+        }
+
+        try {
+            User user = userRepository.findById(userId)
+                    .orElseThrow(() -> new RuntimeException("User not found with ID: " + userId));
+
+            if (user.getClient() == null) {
+                return java.util.Collections.emptyList();
+            }
+
+            List<CloudAccount> accounts;
+            List<Long> accessibleAccountIds = userCloudAccountAccessRepository.findCloudAccountIdsByUserId(userId);
+
+            if (!accessibleAccountIds.isEmpty()) {
+                log.info("Mapped accounts found for user {} - restricting view to {} accounts", userId,
+                        accessibleAccountIds.size());
+                accounts = cloudAccountRepository.findAllById(accessibleAccountIds);
+            } else if (user.getCreatedBy() == null) {
+                // Primary user with no specific mappings: return all client accounts
+                log.info("Primary user detected with no specific mappings - showing all client accounts");
+                accounts = cloudAccountRepository.findByClientId(user.getClient().getId());
+            } else {
+                // Sub-user with no mapped accounts: return empty
+                log.info("Sub-user detected with no mapped accounts - returning empty list");
+                accounts = new java.util.ArrayList<>();
+            }
+
+            return accounts.stream()
+                    .map(this::mapToAccountDto)
+                    .collect(Collectors.toList());
+        } finally {
+            if ("prod".equals(env) && tenantId != null && !tenantId.isBlank()) {
+                TenantContext.clear();
+            }
+        }
+    }
+
+    private AccountDto mapToAccountDto(CloudAccount account) {
+        String connectionType;
+        String accountIdentifier;
+
+        switch (account.getProvider()) {
+            case "AWS":
+                connectionType = "Cross-account role";
+                accountIdentifier = account.getAwsAccountId();
+                break;
+            case "GCP":
+                connectionType = "Workload Identity Federation";
+                accountIdentifier = account.getGcpProjectId();
+                break;
+            case "Azure":
+                connectionType = "Service Principal";
+                accountIdentifier = account.getAzureSubscriptionId();
+                break;
+            default:
+                connectionType = "Unknown";
+                accountIdentifier = "N/A";
+                break;
+        }
+        AccountDto dto = new AccountDto(
+                account.getId(),
+                account.getAccountName(),
+                accountIdentifier,
+                account.getAccessType(),
+                connectionType,
+                account.getStatus(),
+                account.getRoleArn(),
+                account.getExternalId(),
+                account.getProvider());
+        dto.setGrafanaIp(account.getGrafanaIp());
+        dto.setGrafanaDashboardUid(account.getGrafanaDashboardUid());
+        dto.setGrafanaDashboardSlug(account.getGrafanaDashboardSlug());
+        return dto;
     }
 
     @PostMapping("/users")
@@ -130,15 +229,20 @@ public class SuperAdminController {
                 "<style>" +
                 "body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }" +
                 ".container { max-width: 600px; margin: 0 auto; padding: 20px; }" +
-                ".header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }" +
+                ".header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }"
+                +
                 ".content { background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px; }" +
-                ".credentials-box { background: white; border-left: 4px solid #667eea; padding: 20px; margin: 20px 0; border-radius: 5px; }" +
+                ".credentials-box { background: white; border-left: 4px solid #667eea; padding: 20px; margin: 20px 0; border-radius: 5px; }"
+                +
                 ".credential-item { margin: 15px 0; }" +
                 ".label { font-weight: bold; color: #667eea; display: inline-block; width: 120px; }" +
-                ".value { background: #f3f4f6; padding: 8px 12px; border-radius: 4px; font-family: monospace; display: inline-block; }" +
-                ".button { display: inline-block; background: #667eea; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; }" +
+                ".value { background: #f3f4f6; padding: 8px 12px; border-radius: 4px; font-family: monospace; display: inline-block; }"
+                +
+                ".button { display: inline-block; background: #667eea; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; }"
+                +
                 ".footer { text-align: center; padding: 20px; color: #6b7280; font-size: 12px; }" +
-                ".warning { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin: 20px 0; border-radius: 5px; }" +
+                ".warning { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin: 20px 0; border-radius: 5px; }"
+                +
                 "</style>" +
                 "</head>" +
                 "<body>" +
@@ -167,7 +271,8 @@ public class SuperAdminController {
                 "</div>" +
                 "</div>" +
                 "<div class='warning'>" +
-                "<strong>⚠️ Security Reminder:</strong> Please change your password after your first login for security purposes." +
+                "<strong>⚠️ Security Reminder:</strong> Please change your password after your first login for security purposes."
+                +
                 "</div>" +
                 "<div style='text-align: center;'>" +
                 "<a href='https://live.xamops.com/' class='button'>Login to XamOps</a>" +
