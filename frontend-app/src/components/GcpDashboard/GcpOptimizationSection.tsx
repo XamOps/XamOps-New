@@ -32,7 +32,7 @@ interface GcpOptimizationSectionProps {
 
 const GcpOptimizationSection: React.FC<GcpOptimizationSectionProps> = ({ optimization, isLoading }) => {
     const formatCurrency = (num: number): string => {
-        return '$' + (num == null ? '0.00' : num.toLocaleString('en-US', {
+        return '₹' + (num == null ? '0.00' : num.toLocaleString('en-IN', {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2
         }));

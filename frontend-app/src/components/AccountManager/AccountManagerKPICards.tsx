@@ -5,6 +5,7 @@
  */
 
 import React from 'react';
+import { Link } from 'react-router-dom';
 import type { CloudAccount, GitHubConfig } from '../../types/accountManager';
 
 interface AccountManagerKPICardsProps {
@@ -15,81 +16,86 @@ interface AccountManagerKPICardsProps {
 }
 
 const AccountManagerKPICards: React.FC<AccountManagerKPICardsProps> = ({
-  accounts,
-  githubConfigs,
+  accounts = [],
+  githubConfigs = [],
   isLoading,
   isGithubLoading,
 }) => {
-  const totalAccounts = accounts.length;
-  const activeConnections = accounts.filter(a => a.status === 'CONNECTED').length;
-  const totalRepos = githubConfigs.length;
+  console.log('🏗️ AccountManagerKPICards render:', {
+    accounts: accounts?.length || 0,
+    github: githubConfigs?.length || 0,
+    isLoading,
+    isGithubLoading
+  });
+
+  const totalAccounts = accounts?.length || 0;
+  const activeConnections = (accounts || []).filter(a => a.status === 'CONNECTED').length;
+  const totalRepos = githubConfigs?.length || 0;
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
       {/* Total Cloud Accounts */}
-      <div className="kpi-card fade-in">
-        <div className="flex justify-between items-start">
+      <div className="kpi-card group">
+        <div className="flex justify-between items-start mb-3">
           <div className="flex-1">
-            <p className="kpi-label">Total Cloud Accounts</p>
+            <p className="kpi-label uppercase tracking-widest text-[10px] font-bold text-slate-400 mb-0.5">Total Cloud Accounts</p>
             {isLoading ? (
               <div className="skeleton h-10 w-16 mt-2" />
             ) : (
-              <p className="kpi-value gradient-text">{totalAccounts}</p>
+              <p className="text-4xl font-extrabold tracking-tight text-slate-900 leading-none">
+                {totalAccounts}
+              </p>
             )}
-            <p className="kpi-sublabel">connected accounts</p>
+            <p className="text-[11px] text-slate-500 mt-1 font-medium italic">multi-cloud connections</p>
           </div>
-          <div className="kpi-icon bg-gradient-to-br from-blue-500 to-indigo-600">
-            <i className="fas fa-cloud text-white text-xl" />
+          <div className="w-12 h-12 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-600 transition-transform group-hover:scale-110 duration-300 shadow-sm border border-indigo-100/50">
+            <i className="fas fa-cloud text-xl" />
           </div>
         </div>
-        <div className="kpi-trend">
-          <div className="flex items-center gap-1.5">
-            <i className="fas fa-server text-xs" />
-            <span>
-              {isLoading ? '...' : `${accounts.filter(a => a.provider === 'AWS').length} AWS`}
-            </span>
+        <div className="flex items-center gap-4 pt-3 border-t border-slate-100">
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-orange-50 text-orange-600 text-[10px] font-bold">
+            <i className="fab fa-aws" />
+            <span>{isLoading ? '..' : (accounts || []).filter(a => a.provider === 'AWS').length}</span>
           </div>
-          <div className="flex items-center gap-1.5">
-            <i className="fab fa-google text-xs" />
-            <span>
-              {isLoading ? '...' : `${accounts.filter(a => a.provider === 'GCP').length} GCP`}
-            </span>
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-blue-50 text-blue-600 text-[10px] font-bold">
+            <i className="fab fa-google" />
+            <span>{isLoading ? '..' : (accounts || []).filter(a => a.provider === 'GCP').length}</span>
           </div>
-          <div className="flex items-center gap-1.5">
-            <i className="fab fa-microsoft text-xs" />
-            <span>
-              {isLoading ? '...' : `${accounts.filter(a => a.provider === 'Azure').length} Azure`}
-            </span>
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-cyan-50 text-cyan-600 text-[10px] font-bold">
+            <i className="fab fa-microsoft" />
+            <span>{isLoading ? '..' : (accounts || []).filter(a => a.provider === 'Azure').length}</span>
           </div>
         </div>
       </div>
 
       {/* Active Connections */}
-      <div className="kpi-card fade-in" style={{ animationDelay: '0.1s' }}>
-        <div className="flex justify-between items-start">
+      <div className="kpi-card group">
+        <div className="flex justify-between items-start mb-3">
           <div className="flex-1">
-            <p className="kpi-label">Active Connections</p>
+            <p className="kpi-label uppercase tracking-widest text-[10px] font-bold text-slate-400 mb-0.5">Active Connections</p>
             {isLoading ? (
               <div className="skeleton h-10 w-16 mt-2" />
             ) : (
-              <p className="kpi-value text-emerald-600">{activeConnections}</p>
+              <p className="text-4xl font-extrabold tracking-tight text-emerald-600 leading-none">
+                {activeConnections}
+              </p>
             )}
-            <p className="kpi-sublabel">verified & ready</p>
+            <p className="text-[11px] text-slate-500 mt-1 font-medium italic">verified & live</p>
           </div>
-          <div className="kpi-icon bg-gradient-to-br from-emerald-500 to-teal-600">
-            <i className="fas fa-check-circle text-white text-xl" />
+          <div className="w-12 h-12 rounded-2xl bg-emerald-50 flex items-center justify-center text-emerald-600 transition-transform group-hover:scale-110 duration-300 shadow-sm border border-emerald-100/50">
+            <i className="fas fa-signal text-xl" />
           </div>
         </div>
-        <div className="kpi-progress-container">
-          <div className="flex justify-between text-xs mb-1.5">
-            <span className="text-gray-500">Connection Rate</span>
-            <span className="font-semibold text-emerald-600">
-              {isLoading ? '...' : `${totalAccounts > 0 ? Math.round((activeConnections / totalAccounts) * 100) : 0}%`}
+        <div className="space-y-2 pt-3 border-t border-slate-100">
+          <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider mb-1">
+            <span className="text-slate-400 text-[9px]">Health Rate</span>
+            <span className="text-emerald-600">
+              {isLoading ? '..' : `${totalAccounts > 0 ? Math.round((activeConnections / totalAccounts) * 100) : 0}%`}
             </span>
           </div>
-          <div className="kpi-progress-bar">
+          <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
             <div
-              className="kpi-progress-fill bg-gradient-to-r from-emerald-500 to-teal-500"
+              className="h-full bg-gradient-to-r from-emerald-400 to-teal-500 rounded-full transition-all duration-1000"
               style={{
                 width: isLoading ? '0%' : `${totalAccounts > 0 ? (activeConnections / totalAccounts) * 100 : 0}%`
               }}
@@ -99,33 +105,35 @@ const AccountManagerKPICards: React.FC<AccountManagerKPICardsProps> = ({
       </div>
 
       {/* GitHub Repositories */}
-      <div className="kpi-card fade-in" style={{ animationDelay: '0.2s' }}>
-        <div className="flex justify-between items-start">
+      <div className="kpi-card group">
+        <div className="flex justify-between items-start mb-3">
           <div className="flex-1">
-            <p className="kpi-label">GitHub Repositories</p>
+            <p className="kpi-label uppercase tracking-widest text-[10px] font-bold text-slate-400 mb-0.5">GitHub Repositories</p>
             {isGithubLoading ? (
               <div className="skeleton h-10 w-16 mt-2" />
             ) : (
-              <p className="kpi-value gradient-text">{totalRepos}</p>
+              <p className="text-4xl font-extrabold tracking-tight text-slate-900 leading-none">
+                {totalRepos}
+              </p>
             )}
-            <p className="kpi-sublabel">connected for CI/CD</p>
+            <p className="text-[11px] text-slate-500 mt-1 font-medium italic">connected repos</p>
           </div>
-          <div className="kpi-icon bg-gradient-to-br from-gray-700 to-gray-900">
-            <i className="fab fa-github text-white text-xl" />
+          <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-800 transition-transform group-hover:scale-110 duration-300 shadow-sm border border-slate-200/50">
+            <i className="fab fa-github text-xl" />
           </div>
         </div>
-        <div className="flex items-center justify-between mt-4">
-          <div className="flex items-center gap-2 text-sm text-gray-500">
-            <i className="fas fa-code-branch" />
-            <span>Pipeline tracking enabled</span>
+        <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+          <div className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-[10px] uppercase tracking-wide">Webhooks Active</span>
           </div>
-          <a
-            href="/add-github-config.html"
-            className="text-sm font-medium text-indigo-600 hover:text-indigo-700 transition-colors"
+          <Link
+            to="/add-github-config"
+            className="flex items-center gap-1 text-[10px] font-bold text-indigo-600 hover:text-indigo-700 transition-colors uppercase tracking-widest"
           >
             Add Repo
-            <i className="fas fa-arrow-right ml-1 text-xs" />
-          </a>
+            <i className="fas fa-plus text-[9px]" />
+          </Link>
         </div>
       </div>
     </div>

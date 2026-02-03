@@ -12,6 +12,9 @@ public class KubescapeDashboard {
     private Integer totalMedium;
     private Integer totalLow;
     private String lastScanTime;
+    private Integer totalWorkloads;
+    private Map<String, NamespaceVulnerabilities> namespaceBreakdown;
+    private List<FrameworkScore> frameworks;
 
     // Constructors
     public KubescapeDashboard() {
@@ -82,7 +85,128 @@ public class KubescapeDashboard {
         this.lastScanTime = lastScanTime;
     }
 
+    public Integer getTotalWorkloads() {
+        return totalWorkloads;
+    }
+
+    public void setTotalWorkloads(Integer totalWorkloads) {
+        this.totalWorkloads = totalWorkloads;
+    }
+
+    public Map<String, NamespaceVulnerabilities> getNamespaceBreakdown() {
+        return namespaceBreakdown;
+    }
+
+    public void setNamespaceBreakdown(Map<String, NamespaceVulnerabilities> namespaceBreakdown) {
+        this.namespaceBreakdown = namespaceBreakdown;
+    }
+
+    public List<FrameworkScore> getFrameworks() {
+        return frameworks;
+    }
+
+    public void setFrameworks(List<FrameworkScore> frameworks) {
+        this.frameworks = frameworks;
+    }
+
     // Inner classes
+    public static class NamespaceVulnerabilities {
+        private int critical;
+        private int high;
+        private int medium;
+        private int low;
+
+        public NamespaceVulnerabilities() {
+        }
+
+        public NamespaceVulnerabilities(int critical, int high, int medium, int low) {
+            this.critical = critical;
+            this.high = high;
+            this.medium = medium;
+            this.low = low;
+        }
+
+        public int getCritical() {
+            return critical;
+        }
+
+        public void setCritical(int critical) {
+            this.critical = critical;
+        }
+
+        public int getHigh() {
+            return high;
+        }
+
+        public void setHigh(int high) {
+            this.high = high;
+        }
+
+        public int getMedium() {
+            return medium;
+        }
+
+        public void setMedium(int medium) {
+            this.medium = medium;
+        }
+
+        public int getLow() {
+            return low;
+        }
+
+        public void setLow(int low) {
+            this.low = low;
+        }
+    }
+
+    public static class FrameworkScore {
+        private String name;
+        private double score;
+        private int passedControls;
+        private int failedControls;
+
+        public FrameworkScore() {
+        }
+
+        public FrameworkScore(String name, double score, int passedControls, int failedControls) {
+            this.name = name;
+            this.score = score;
+            this.passedControls = passedControls;
+            this.failedControls = failedControls;
+        }
+
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+
+        public double getScore() {
+            return score;
+        }
+
+        public void setScore(double score) {
+            this.score = score;
+        }
+
+        public int getPassedControls() {
+            return passedControls;
+        }
+
+        public void setPassedControls(int passedControls) {
+            this.passedControls = passedControls;
+        }
+
+        public int getFailedControls() {
+            return failedControls;
+        }
+
+        public void setFailedControls(int failedControls) {
+            this.failedControls = failedControls;
+        }
+    }
     public static class ConfigScanSummary {
         private String namespace;
         private Double complianceScore;

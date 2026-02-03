@@ -5,6 +5,7 @@
  */
 
 import React from 'react';
+import { Link } from 'react-router-dom';
 import type { JenkinsConfig } from '../../types/accountManager';
 
 interface JenkinsServersTableProps {
@@ -19,24 +20,26 @@ const JenkinsServersTable: React.FC<JenkinsServersTableProps> = ({
   onRemove,
 }) => {
   return (
-    <div className="data-card fade-in">
-      <div className="card-header">
-        <div className="flex items-center gap-3">
-          <div className="card-header-icon bg-gray-700">
+    <div className="data-card overflow-hidden">
+      <div className="card-header border-b border-slate-100 bg-slate-50/30 px-6 py-5">
+        <div className="flex items-center gap-4">
+          <div className="card-header-icon bg-gradient-to-br from-indigo-500 to-indigo-700 shadow-indigo-200 shadow-lg">
             <i className="fab fa-jenkins text-white" />
           </div>
           <div>
-            <h2 className="card-title">Connected Jenkins Servers</h2>
-            <p className="card-subtitle">Manage Jenkins instances for pipeline tracking</p>
+            <h2 className="text-lg font-bold text-slate-900 leading-tight">Connected Jenkins Servers</h2>
+            <p className="text-xs font-medium text-slate-400 mt-0.5 uppercase tracking-wider">Pipeline Automation Center</p>
           </div>
         </div>
-        <a
-          href="/add-account.html"
-          className="btn-secondary btn-dark"
-        >
-          <i className="fas fa-plus mr-2" />
-          Add Server
-        </a>
+        <div className="flex items-center gap-3">
+          <Link
+            to="/add-account"
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-bold uppercase tracking-wider hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-500/20"
+          >
+            <i className="fas fa-plus" />
+            <span>Add Server</span>
+          </Link>
+        </div>
       </div>
 
       {/* Loading State */}
@@ -66,44 +69,46 @@ const JenkinsServersTable: React.FC<JenkinsServersTableProps> = ({
           <table className="data-table">
             <thead>
               <tr>
-                <th>Server URL</th>
-                <th>Username</th>
-                <th className="text-center">Actions</th>
+                <th className="nowrap">Server URL</th>
+                <th className="nowrap">Username</th>
+                <th className="text-right nowrap">Actions</th>
               </tr>
             </thead>
             <tbody>
               {jenkinsConfigs.map((config) => (
-                <tr key={config.id} className="table-row-hover">
-                  <td>
-                    <div className="flex items-center gap-3">
-                      <div className="provider-icon bg-gray-200">
-                        <i className="fab fa-jenkins text-gray-700 text-sm" />
+                <tr key={config.id} className="group border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
+                  <td className="py-4 nowrap">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600 shadow-sm group-hover:scale-110 transition-transform duration-300">
+                        <i className="fab fa-jenkins text-lg" />
                       </div>
-                      <div>
-                        <span className="font-semibold text-gray-900">{config.jenkinsUrl}</span>
+                      <div className="flex flex-col">
+                        <span className="font-bold text-slate-900 leading-tight nowrap">{config.jenkinsUrl}</span>
                         <a
                           href={config.jenkinsUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="block text-xs text-indigo-600 hover:text-indigo-700"
+                          className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-600 hover:text-indigo-700 mt-1 uppercase tracking-wider nowrap"
                         >
                           Open Dashboard
-                          <i className="fas fa-external-link-alt ml-1 text-[10px]" />
+                          <i className="fas fa-external-link-alt text-[9px]" />
                         </a>
                       </div>
                     </div>
                   </td>
-                  <td>
-                    <code className="code-inline">{config.username}</code>
+                  <td className="nowrap">
+                    <code className="text-[11px] font-mono font-bold px-2 py-1 bg-slate-100 text-slate-600 rounded-lg border border-slate-200">
+                      {config.username}
+                    </code>
                   </td>
-                  <td>
-                    <div className="flex justify-center">
+                  <td className="text-right nowrap">
+                    <div className="flex justify-end">
                       <button
                         onClick={() => onRemove(config)}
-                        className="btn-action btn-danger"
+                        className="h-8 w-8 rounded-lg bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white transition-all flex items-center justify-center shadow-sm"
+                        title="Remove Server"
                       >
-                        <i className="fas fa-trash mr-1" />
-                        Remove
+                        <i className="fas fa-trash text-xs" />
                       </button>
                     </div>
                   </td>

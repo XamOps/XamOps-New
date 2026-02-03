@@ -3,12 +3,14 @@ import { useLocation, Link } from 'react-router-dom';
 import { useTopbar } from '../../contexts/TopbarContext';
 import { useAuth } from '../../contexts/AuthContext';
 import SuperAdminTopBar from './SuperAdminTopBar';
+import LogoutModal from './LogoutModal';
 
 const Topbar: React.FC = () => {
     const location = useLocation();
     const { actions } = useTopbar();
     const { userProfile, logout, hasAnyRole } = useAuth();
     const [isProfileOpen, setIsProfileOpen] = useState(false);
+    const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
 
     // Close dropdown when clicking outside
@@ -23,6 +25,16 @@ const Topbar: React.FC = () => {
     }, []);
 
     const toggleProfile = () => setIsProfileOpen(!isProfileOpen);
+
+    const handleLogoutClick = () => {
+        setIsProfileOpen(false);
+        setIsLogoutModalOpen(true);
+    };
+
+    const confirmLogout = async () => {
+        await logout();
+        setIsLogoutModalOpen(false);
+    };
 
     // Simple breadcrumb logic based on the path
     const getPageTitle = (path: string) => {
@@ -123,10 +135,7 @@ const Topbar: React.FC = () => {
                                 <div className="mx-2 my-1 border-t border-slate-50"></div>
 
                                 <button
-                                    onClick={() => {
-                                        setIsProfileOpen(false);
-                                        logout();
-                                    }}
+                                    onClick={handleLogoutClick}
                                     className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-rose-600 hover:bg-rose-50 transition-colors"
                                 >
                                     <div className="w-7 h-7 rounded-lg bg-rose-100/50 flex items-center justify-center transition-colors">
@@ -139,6 +148,13 @@ const Topbar: React.FC = () => {
                     </div>
                 </div>
             </div>
+
+            <LogoutModal
+                isOpen={isLogoutModalOpen}
+                onClose={() => setIsLogoutModalOpen(false)}
+                onConfirm={confirmLogout}
+                displayName={displayName}
+            />
         </header>
     );
 };

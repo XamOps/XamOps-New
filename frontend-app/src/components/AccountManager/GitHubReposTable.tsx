@@ -5,6 +5,7 @@
  */
 
 import React from 'react';
+import { Link } from 'react-router-dom';
 import type { GitHubConfig } from '../../types/accountManager';
 
 interface GitHubReposTableProps {
@@ -19,24 +20,26 @@ const GitHubReposTable: React.FC<GitHubReposTableProps> = ({
   onRemove,
 }) => {
   return (
-    <div className="data-card fade-in">
-      <div className="card-header">
-        <div className="flex items-center gap-3">
-          <div className="card-header-icon bg-gray-800">
+    <div className="data-card overflow-hidden">
+      <div className="card-header border-b border-slate-100 bg-slate-50/30 px-6 py-5">
+        <div className="flex items-center gap-4">
+          <div className="card-header-icon bg-gradient-to-br from-slate-700 to-slate-900 shadow-slate-200 shadow-lg">
             <i className="fab fa-github text-white" />
           </div>
           <div>
-            <h2 className="card-title">Connected GitHub Repositories</h2>
-            <p className="card-subtitle">Manage repositories for CI/CD pipeline tracking</p>
+            <h2 className="text-lg font-bold text-slate-900 leading-tight">Connected GitHub Repositories</h2>
+            <p className="text-xs font-medium text-slate-400 mt-0.5 uppercase tracking-wider">CI/CD Pipeline Tracking</p>
           </div>
         </div>
-        <a
-          href="/add-github-config.html"
-          className="btn-secondary btn-dark"
-        >
-          <i className="fas fa-plus mr-2" />
-          Add Repository
-        </a>
+        <div className="flex items-center gap-3">
+          <Link
+            to="/add-github-config"
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-bold uppercase tracking-wider hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-500/20"
+          >
+            <i className="fas fa-plus" />
+            <span>Add Repository</span>
+          </Link>
+        </div>
       </div>
 
       {/* Loading State */}
@@ -58,10 +61,10 @@ const GitHubReposTable: React.FC<GitHubReposTableProps> = ({
           <p className="empty-state-text">
             Connect a repository to start monitoring its GitHub Actions.
           </p>
-          <a href="/add-github-config.html" className="btn-secondary btn-dark mt-4">
+          <Link to="/add-github-config" className="btn-secondary btn-dark mt-4">
             <i className="fas fa-plus mr-2" />
             Connect Repository
-          </a>
+          </Link>
         </div>
       )}
 
@@ -71,44 +74,46 @@ const GitHubReposTable: React.FC<GitHubReposTableProps> = ({
           <table className="data-table">
             <thead>
               <tr>
-                <th>Repository</th>
-                <th>Owner</th>
-                <th className="text-center">Actions</th>
+                <th className="nowrap">Repository</th>
+                <th className="nowrap">Owner</th>
+                <th className="text-right nowrap">Actions</th>
               </tr>
             </thead>
             <tbody>
               {githubConfigs.map((config) => (
-                <tr key={config.id} className="table-row-hover">
-                  <td>
-                    <div className="flex items-center gap-3">
-                      <div className="provider-icon bg-gray-800">
-                        <i className="fab fa-github text-white text-sm" />
+                <tr key={config.id} className="group border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
+                  <td className="py-4 nowrap">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center text-white shadow-sm group-hover:scale-110 transition-transform duration-300">
+                        <i className="fab fa-github text-lg" />
                       </div>
-                      <div>
-                        <span className="font-semibold text-gray-900">{config.repo}</span>
+                      <div className="flex flex-col">
+                        <span className="font-bold text-slate-900 leading-tight nowrap">{config.repo}</span>
                         <a
                           href={`https://github.com/${config.owner}/${config.repo}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="block text-xs text-indigo-600 hover:text-indigo-700"
+                          className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-600 hover:text-indigo-700 mt-1 uppercase tracking-wider nowrap"
                         >
-                          View on GitHub
-                          <i className="fas fa-external-link-alt ml-1 text-[10px]" />
+                          View Source
+                          <i className="fas fa-external-link-alt text-[9px]" />
                         </a>
                       </div>
                     </div>
                   </td>
-                  <td>
-                    <code className="code-inline">{config.owner}</code>
+                  <td className="nowrap">
+                    <code className="text-[11px] font-mono font-bold px-2 py-1 bg-slate-100 text-slate-600 rounded-lg border border-slate-200">
+                      {config.owner}
+                    </code>
                   </td>
-                  <td>
-                    <div className="flex justify-center">
+                  <td className="text-right nowrap">
+                    <div className="flex justify-end">
                       <button
                         onClick={() => onRemove(config)}
-                        className="btn-action btn-danger"
+                        className="h-8 w-8 rounded-lg bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white transition-all flex items-center justify-center shadow-sm"
+                        title="Remove Repository"
                       >
-                        <i className="fas fa-trash mr-1" />
-                        Remove
+                        <i className="fas fa-trash text-xs" />
                       </button>
                     </div>
                   </td>

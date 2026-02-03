@@ -5,22 +5,25 @@
  * Converted and enhanced from: add-account.html
  */
 
-/* ============================================
-   CSS Variables
-   ============================================ */
+@import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;500;600;700&family=Poppins:wght@400;500;600;700&display=swap');
+
 :root {
-  --aa-primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  /* Inherit consistent variables from Account Manager theme */
+  --aa-primary-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+  --aa-success-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
   --aa-gcp-gradient: linear-gradient(135deg, #4285F4 0%, #34A853 100%);
   --aa-aws-orange: #ff9900;
   --aa-azure-blue: #0078D4;
   --aa-jenkins-red: #D33833;
   --aa-github-dark: #1F2937;
-  --aa-glass-bg: rgba(255, 255, 255, 0.98);
-  --aa-glass-border: rgba(255, 255, 255, 0.2);
+
+  /* Glassmorphism System */
+  --aa-glass-bg: rgba(255, 255, 255, 0.7);
+  --aa-glass-border: rgba(255, 255, 255, 0.5);
   --aa-shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  --aa-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-  --aa-shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
-  --aa-shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  --aa-shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.08), 0 2px 6px -1px rgb(0 0 0 / 0.04);
+  --aa-shadow-lg: 0 12px 24px -4px rgb(0 0 0 / 0.12), 0 8px 16px -4px rgb(0 0 0 / 0.08);
+  --aa-shadow-xl: 0 20px 32px -8px rgb(0 0 0 / 0.15), 0 12px 20px -8px rgb(0 0 0 / 0.1);
 }
 
 /* ============================================
@@ -31,12 +34,23 @@
   display: flex;
   flex-direction: column;
   min-height: 100%;
-  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  background: radial-gradient(circle at 0% 0%, #f1f5f9 0%, #e2e8f0 100%);
+  font-family: 'Open Sans', sans-serif;
+}
+
+h1,
+h2,
+h3,
+h4,
+.header-title,
+.form-card-title,
+.provider-option h3 {
+  font-family: 'Poppins', sans-serif;
 }
 
 .add-account-content {
   flex: 1;
-  padding: 2rem;
+  padding: 1rem 2rem 2rem 2rem;
   max-width: 1400px;
   margin: 0 auto;
   width: 100%;
@@ -55,90 +69,127 @@
 }
 
 /* ============================================
-   Header
+   Pro Header (New)
    ============================================ */
-.add-account-header {
+.pro-header-container {
+  padding: 1.5rem 2rem 0.5rem 2rem;
+  background: transparent;
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.pro-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.pro-breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.breadcrumb-link {
+  color: #64748b;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  transition: color 0.2s ease;
+}
+
+.breadcrumb-link:hover {
+  color: #6366f1;
+}
+
+.breadcrumb-separator {
+  color: #cbd5e1;
+}
+
+.breadcrumb-current {
+  color: #0f172a;
+  font-weight: 600;
+  padding: 0.125rem 0.5rem;
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: 0.375rem;
+  border: 1px solid rgba(226, 232, 240, 0.6);
+}
+
+.pro-title-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 1.25rem 2rem;
-  background: var(--aa-glass-bg);
-  border-bottom: 1px solid #e5e7eb;
-  backdrop-filter: blur(12px);
-  position: sticky;
-  top: 0;
-  z-index: 10;
 }
 
-.header-left {
+.pro-page-title {
+  font-size: 1.875rem;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.025em;
+  margin: 0;
+  line-height: 1.2;
+}
+
+.pro-page-subtitle {
+  font-size: 0.95rem;
+  color: #64748b;
+  margin-top: 0.25rem;
+}
+
+/* Provider Badge */
+.provider-badge {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem 0.5rem 0.5rem;
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  border-radius: 9999px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
 }
 
-.header-icon {
-  width: 3rem;
-  height: 3rem;
-  border-radius: 0.75rem;
+.badge-icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: var(--aa-shadow-md);
-  transition: all 0.3s ease;
+  color: white;
+  font-size: 1.1rem;
+  background: #3b82f6;
+  /* Fallback */
+  box-shadow: inset 0 2px 4px rgba(255, 255, 255, 0.3);
 }
 
-.header-icon.aws {
-  background: linear-gradient(135deg, #ff9900 0%, #ff6600 100%);
+.badge-text {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #334155;
+  padding-right: 0.25rem;
 }
 
-.header-icon.gcp {
+/* Provider Specific Badge Styles */
+.provider-badge.aws .badge-icon {
+  background: linear-gradient(135deg, #FF9900 0%, #FF6600 100%);
+}
+
+.provider-badge.gcp .badge-icon {
   background: linear-gradient(135deg, #4285F4 0%, #34A853 100%);
 }
 
-.header-icon.azure {
+.provider-badge.azure .badge-icon {
   background: linear-gradient(135deg, #0089D6 0%, #0072C6 100%);
 }
 
-.header-icon.jenkins {
-  background: linear-gradient(135deg, #374151 0%, #1f2937 100%);
-}
-
-.header-icon i {
-  color: white;
-  font-size: 1.25rem;
-}
-
-.header-title {
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: #111827;
-}
-
-.header-subtitle {
-  font-size: 0.875rem;
-  color: #6b7280;
-}
-
-.back-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.625rem 1.25rem;
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(8px);
-  color: #374151;
-  font-size: 0.875rem;
-  font-weight: 500;
-  border-radius: 0.75rem;
-  border: 1px solid rgba(229, 231, 235, 0.5);
-  cursor: pointer;
-  transition: all 0.2s ease;
-  text-decoration: none;
-}
-
-.back-button:hover {
-  background: white;
-  border-color: #e5e7eb;
+.provider-badge.jenkins .badge-icon {
+  background: linear-gradient(135deg, #374151 0%, #000000 100%);
 }
 
 /* ============================================
@@ -146,7 +197,7 @@
    ============================================ */
 .glass-card {
   background: var(--aa-glass-bg);
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(16px);
   border: 1px solid var(--aa-glass-border);
   border-radius: 1rem;
   box-shadow: var(--aa-shadow-lg);
@@ -159,8 +210,8 @@
   position: relative;
   overflow: hidden;
   background: var(--aa-glass-bg);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(229, 231, 235, 0.8);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--aa-glass-border);
   border-radius: 1rem;
   box-shadow: var(--aa-shadow-md);
   padding: 2rem;
@@ -259,8 +310,8 @@
   align-items: center;
   justify-content: center;
   padding: 1.5rem;
-  background: var(--aa-glass-bg);
-  border: 2px solid rgba(229, 231, 235, 0.8);
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid var(--aa-glass-border);
   border-radius: 1rem;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -275,9 +326,9 @@
 }
 
 .provider-option.selected {
-  border-color: #667eea;
-  background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  border-color: #6366f1;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(168, 85, 247, 0.1) 100%);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
 }
 
 .provider-option i {
@@ -292,11 +343,25 @@
   text-align: center;
 }
 
-.provider-icon-aws { color: var(--aa-aws-orange); }
-.provider-icon-gcp { color: #4285F4; }
-.provider-icon-azure { color: var(--aa-azure-blue); }
-.provider-icon-github { color: var(--aa-github-dark); }
-.provider-icon-jenkins { color: var(--aa-jenkins-red); }
+.provider-icon-aws {
+  color: var(--aa-aws-orange);
+}
+
+.provider-icon-gcp {
+  color: #4285F4;
+}
+
+.provider-icon-azure {
+  color: var(--aa-azure-blue);
+}
+
+.provider-icon-github {
+  color: var(--aa-github-dark);
+}
+
+.provider-icon-jenkins {
+  color: var(--aa-jenkins-red);
+}
 
 /* ============================================
    Radio Option (Access Level)
@@ -306,9 +371,9 @@
   align-items: flex-start;
   gap: 0.75rem;
   padding: 1rem;
-  background: var(--aa-glass-bg);
-  border: 2px solid rgba(229, 231, 235, 0.8);
-  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid var(--aa-glass-border);
+  border-radius: 1rem;
   cursor: pointer;
   transition: all 0.2s ease;
 }
@@ -318,8 +383,9 @@
 }
 
 .radio-option.selected {
-  border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  border-color: #6366f1;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, rgba(168, 85, 247, 0.05) 100%);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
 }
 
 .radio-option input[type="radio"] {
@@ -368,17 +434,18 @@
   width: 100%;
   padding: 0.875rem 1rem;
   font-size: 0.875rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid #cbd5e1;
   border-radius: 0.75rem;
-  background: white;
+  background: rgba(255, 255, 255, 0.8);
   transition: all 0.2s ease;
 }
 
 .form-input:focus {
   outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
 }
+
 
 .form-input::placeholder {
   color: #9ca3af;
@@ -540,7 +607,9 @@ textarea.form-input {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ============================================
@@ -614,6 +683,7 @@ textarea.form-input {
     opacity: 0;
     transform: scale(0.95) translateY(10px);
   }
+
   to {
     opacity: 1;
     transform: scale(1) translateY(0);
@@ -728,6 +798,7 @@ textarea.form-input {
     opacity: 0;
     transform: translateY(20px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);

@@ -16,35 +16,52 @@ interface AddAccountHeaderProps {
 const AddAccountHeader: React.FC<AddAccountHeaderProps> = ({ provider, headerText }) => {
   const getProviderIcon = () => {
     switch (provider) {
-      case 'aws':
-        return 'fab fa-aws';
-      case 'gcp':
-        return 'fab fa-google';
-      case 'azure':
-        return 'fab fa-microsoft';
-      case 'jenkins':
-        return 'fab fa-jenkins';
-      default:
-        return 'fas fa-cloud';
+      case 'aws': return 'fab fa-aws';
+      case 'gcp': return 'fab fa-google';
+      case 'azure': return 'fab fa-microsoft';
+      case 'jenkins': return 'fab fa-jenkins';
+      default: return 'fas fa-cloud';
     }
   };
 
+  const getProviderName = () => {
+    switch (provider) {
+      case 'aws': return 'AWS';
+      case 'gcp': return 'GCP';
+      case 'azure': return 'Azure';
+      case 'jenkins': return 'Jenkins';
+      default: return 'Cloud';
+    }
+  };
+
+  const getProviderClass = () => provider || 'default';
+
   return (
-    <header className="add-account-header">
-      <div className="header-left">
-        <div className={`header-icon ${provider}`}>
-          <i className={getProviderIcon()} />
+    <div className="pro-header-container">
+      <div className="pro-header fade-in">
+        <div className="pro-breadcrumbs">
+          <Link to="/account-manager" className="breadcrumb-link">
+            <i className="fas fa-layer-group"></i> Accounts
+          </Link>
+          <span className="breadcrumb-separator">/</span>
+          <span className="breadcrumb-current">Add New</span>
         </div>
-        <div>
-          <h1 className="header-title">Add New Account</h1>
-          <p className="header-subtitle">{headerText}</p>
+
+        <div className="pro-title-row">
+          <div className="title-group">
+            <h1 className="pro-page-title">Add Account</h1>
+            <p className="pro-page-subtitle">{headerText}</p>
+          </div>
+
+          <div className={`provider-badge glass ${getProviderClass()}`}>
+            <div className="badge-icon">
+              <i className={getProviderIcon()}></i>
+            </div>
+            <span className="badge-text">{getProviderName()}</span>
+          </div>
         </div>
       </div>
-      <Link to="/account-manager" className="back-button">
-        <i className="fas fa-arrow-left" />
-        Back to Accounts
-      </Link>
-    </header>
+    </div>
   );
 };
 
