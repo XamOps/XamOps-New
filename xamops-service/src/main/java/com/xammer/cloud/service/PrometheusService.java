@@ -106,27 +106,30 @@ public class PrometheusService {
     public Map<String, Map<String, Double>> getNodeCapacity(String prometheusUrl, String clusterName) {
         logger.info("🔍 Fetching node capacity for cluster: {}", clusterName);
 
-        // Filter by job="kube-state-metrics" to avoid duplicates from opencost
+        // Filter by job="opencost" as confirmed by user working queries
         String cpuQuery = String.format(
-                "max by (node) (xamops_eks_kube_node_status_capacity{cluster_name=\"%s\", resource=\"cpu\", job=\"kube-state-metrics\"})",
+                "xamops_eks_kube_node_status_capacity_cpu_cores{cluster_name=\"%s\", job=\"opencost\"}",
                 clusterName);
         Map<String, Double> cpuCapacity = fetchMetricMap(prometheusUrl, cpuQuery, "node");
-        // Fallback without job filter
+
+        // Fallback: try standard kube-state-metrics if opencost not available
         if (cpuCapacity.isEmpty()) {
             cpuQuery = String.format(
-                    "max by (node) (xamops_eks_kube_node_status_capacity{cluster_name=\"%s\", resource=\"cpu\"})",
+                    "max by (node) (xamops_eks_kube_node_status_capacity{cluster_name=\"%s\", resource=\"cpu\", job=\"kube-state-metrics\"})",
                     clusterName);
             cpuCapacity = fetchMetricMap(prometheusUrl, cpuQuery, "node");
         }
         logger.info("🔍 CPU capacity returned {} nodes", cpuCapacity.size());
 
         String memQuery = String.format(
-                "max by (node) (xamops_eks_kube_node_status_capacity{cluster_name=\"%s\", resource=\"memory\", job=\"kube-state-metrics\"}) / 1024 / 1024 / 1024",
+                "xamops_eks_kube_node_status_capacity_memory_bytes{cluster_name=\"%s\", job=\"opencost\"} / 1024 / 1024 / 1024",
                 clusterName);
         Map<String, Double> memCapacity = fetchMetricMap(prometheusUrl, memQuery, "node");
+
+        // Fallback: try standard kube-state-metrics
         if (memCapacity.isEmpty()) {
             memQuery = String.format(
-                    "max by (node) (xamops_eks_kube_node_status_capacity{cluster_name=\"%s\", resource=\"memory\"}) / 1024 / 1024 / 1024",
+                    "max by (node) (xamops_eks_kube_node_status_capacity{cluster_name=\"%s\", resource=\"memory\", job=\"kube-state-metrics\"}) / 1024 / 1024 / 1024",
                     clusterName);
             memCapacity = fetchMetricMap(prometheusUrl, memQuery, "node");
         }
@@ -251,59 +254,229 @@ public class PrometheusService {
         return nodeConditions;
     }
 
+    /**
+     * Get node groups from EKS labels
+     */
+    public Map<String, String> getNodeGroups(String prometheusUrl, String clusterName) {
+        Map<String, String> nodeGroups = new HashMap<>();
+
+        // Query eks.amazonaws.com/nodegroup label
+        String query = String.format(
+                "xamops_eks_kube_node_labels{cluster_name=\"%s\", label_eks_amazonaws_com_nodegroup!=\"\"}",
+                clusterName);
+        List<Map<String, String>> results = fetchMetricLabels(
+                prometheusUrl, query, Arrays.asList("node", "label_eks_amazonaws_com_nodegroup"));
+
+        for (Map<String, String> result : results) {
+            String node = result.get("node");
+            String nodeGroup = result.get("label_eks_amazonaws_com_nodegroup");
+            if (node != null && nodeGroup != null) {
+                nodeGroups.put(node, nodeGroup);
+            }
+        }
+
+        logger.info("✅ Node groups: {} nodes found", nodeGroups.size());
+        return nodeGroups;
+    }
+
+    /**
+     * Get PID pressure status per node
+     */
+    public Map<String, Boolean> getNodePIDPressure(String prometheusUrl, String clusterName) {
+        Map<String, Boolean> pidPressure = new HashMap<>();
+
+        String query = String.format(
+                "xamops_eks_kube_node_status_condition{cluster_name=\"%s\", condition=\"PIDPressure\", status=\"true\"}",
+                clusterName);
+        List<Map<String, String>> results = fetchMetricLabels(
+                prometheusUrl, query, Arrays.asList("node"));
+
+        for (Map<String, String> result : results) {
+            String node = result.get("node");
+            if (node != null) {
+                pidPressure.put(node, true);
+            }
+        }
+
+        logger.info("✅ PID pressure: {} nodes with pressure", pidPressure.size());
+        return pidPressure;
+    }
+
+    /**
+     * Get aggregated pod resource metrics for requests, limits, and usage
+     */
+    public Map<String, Double> getPodResourceAggregates(String prometheusUrl, String clusterName) {
+        Map<String, Double> aggregates = new HashMap<>();
+
+        // Total CPU Requests
+        String cpuRequestsQuery = String.format(
+                "sum(xamops_eks_kube_pod_container_resource_requests{cluster_name=\"%s\", resource=\"cpu\", unit=\"core\"})",
+                clusterName);
+        Double cpuRequests = fetchScalarValue(prometheusUrl, cpuRequestsQuery);
+        aggregates.put("totalCpuRequests", cpuRequests != null ? cpuRequests * 1000 : 0.0); // Convert to millicores
+
+        // Total CPU Limits
+        String cpuLimitsQuery = String.format(
+                "sum(xamops_eks_kube_pod_container_resource_limits{cluster_name=\"%s\", resource=\"cpu\", unit=\"core\"})",
+                clusterName);
+        Double cpuLimits = fetchScalarValue(prometheusUrl, cpuLimitsQuery);
+        aggregates.put("totalCpuLimits", cpuLimits != null ? cpuLimits * 1000 : 0.0); // Convert to millicores
+
+        // Total Memory Requests (bytes to MB)
+        String memRequestsQuery = String.format(
+                "sum(xamops_eks_kube_pod_container_resource_requests{cluster_name=\"%s\", resource=\"memory\", unit=\"byte\"}) / 1024 / 1024",
+                clusterName);
+        Double memRequests = fetchScalarValue(prometheusUrl, memRequestsQuery);
+        aggregates.put("totalMemoryRequests", memRequests != null ? memRequests : 0.0);
+
+        // Total Memory Limits (bytes to MB)
+        String memLimitsQuery = String.format(
+                "sum(xamops_eks_kube_pod_container_resource_limits{cluster_name=\"%s\", resource=\"memory\", unit=\"byte\"}) / 1024 / 1024",
+                clusterName);
+        Double memLimits = fetchScalarValue(prometheusUrl, memLimitsQuery);
+        aggregates.put("totalMemoryLimits", memLimits != null ? memLimits : 0.0);
+
+        // Total CPU Usage (current)
+        String cpuUsageQuery = String.format(
+                "sum(rate(xamops_eks_container_cpu_usage_seconds_total{cluster_name=\"%s\"}[5m])) * 1000",
+                clusterName);
+        Double cpuUsage = fetchScalarValue(prometheusUrl, cpuUsageQuery);
+        aggregates.put("totalCpuUsage", cpuUsage != null ? cpuUsage : 0.0);
+
+        // Total Memory Usage (current, bytes to MB)
+        String memUsageQuery = String.format(
+                "sum(xamops_eks_container_memory_usage_bytes{cluster_name=\"%s\"}) / 1024 / 1024",
+                clusterName);
+        Double memUsage = fetchScalarValue(prometheusUrl, memUsageQuery);
+        aggregates.put("totalMemoryUsage", memUsage != null ? memUsage : 0.0);
+
+        // Count pods without requests
+        String noRequestsQuery = String.format(
+                "count(count by (pod, namespace) (xamops_eks_kube_pod_container_resource_requests{cluster_name=\"%s\"} == 0))",
+                clusterName);
+        Double noRequests = fetchScalarValue(prometheusUrl, noRequestsQuery);
+        aggregates.put("podsWithoutRequests", noRequests != null ? noRequests : 0.0);
+
+        // Count pods without limits
+        String noLimitsQuery = String.format(
+                "count(count by (pod, namespace) (xamops_eks_kube_pod_container_resource_limits{cluster_name=\"%s\"} == 0))",
+                clusterName);
+        Double noLimits = fetchScalarValue(prometheusUrl, noLimitsQuery);
+        aggregates.put("podsWithoutLimits", noLimits != null ? noLimits : 0.0);
+
+        logger.info("✅ Pod resource aggregates computed");
+        return aggregates;
+    }
+
     // ============================================================================================
     // CONTAINER METRICS (3 queries)
     // ============================================================================================
 
     public Map<String, Double> getContainerCpuUsage(String prometheusUrl, String clusterName) {
-        // Container metrics use 'instance' label with format: namespace.pod.container
+        // Use cAdvisor container_cpu_usage_seconds_total metric with pod and container
+        // labels
         String query = String.format(
-                "sum by (instance, job) (rate(xamops_eks_container_cpu_usage{cluster_name=\"%s\"}[5m])) * 1000",
+                "rate(xamops_eks_container_cpu_usage_seconds_total{cluster_name=\"%s\", container!=\"\", container!=\"POD\"}[5m]) * 1000",
                 clusterName);
 
-        Map<String, Double> rawResult = fetchMetricMapMultiLabel(prometheusUrl, query, "instance", "job");
+        // First try with pod and container labels (standard cAdvisor)
+        List<Map<String, String>> results = fetchMetricLabels(prometheusUrl, query,
+                Arrays.asList("pod", "container", "value"));
 
-        // Transform instance format from "namespace.pod.container" to "pod/container"
         Map<String, Double> result = new HashMap<>();
-        for (Map.Entry<String, Double> entry : rawResult.entrySet()) {
-            String instanceJob = entry.getKey(); // Format: "namespace.pod.container/namespace/workload"
-            String instance = instanceJob.split("/")[0]; // Get "namespace.pod.container"
+        for (Map<String, String> entry : results) {
+            String pod = entry.get("pod");
+            String container = entry.get("container");
+            String valueStr = entry.get("value");
 
-            String[] parts = instance.split("\\.");
-            if (parts.length >= 3) {
-                // parts[0] = namespace, parts[1] = pod, parts[2+] = container
-                String pod = parts[1];
-                String container = String.join(".", Arrays.copyOfRange(parts, 2, parts.length));
-                String key = pod + "/" + container;
-                result.put(key, entry.getValue());
+            if (pod != null && container != null && valueStr != null) {
+                try {
+                    double cpuValue = Double.parseDouble(valueStr);
+                    String key = pod + "/" + container;
+                    result.put(key, cpuValue);
+                } catch (NumberFormatException e) {
+                    logger.warn("Failed to parse container CPU value: {}", valueStr);
+                }
             }
         }
 
+        // Fallback: Try with instance/job format if pod/container labels not available
+        if (result.isEmpty()) {
+            query = String.format(
+                    "sum by (instance, job) (rate(xamops_eks_container_cpu_usage{cluster_name=\"%s\"}[5m])) * 1000",
+                    clusterName);
+
+            Map<String, Double> rawResult = fetchMetricMapMultiLabel(prometheusUrl, query, "instance", "job");
+
+            // Transform instance format from "namespace.pod.container" to "pod/container"
+            for (Map.Entry<String, Double> entry : rawResult.entrySet()) {
+                String instanceJob = entry.getKey();
+                String instance = instanceJob.split("/")[0];
+
+                String[] parts = instance.split("\\.");
+                if (parts.length >= 3) {
+                    String pod = parts[1];
+                    String container = String.join(".", Arrays.copyOfRange(parts, 2, parts.length));
+                    String key = pod + "/" + container;
+                    result.put(key, entry.getValue());
+                }
+            }
+        }
+
+        logger.info("🔍 Container CPU usage: {} containers found", result.size());
         return result;
     }
 
     public Map<String, Double> getContainerMemoryUsage(String prometheusUrl, String clusterName) {
+        // Use cAdvisor container_memory_working_set_bytes metric
         String query = String.format(
-                "sum by (instance, job) (xamops_eks_container_memory_usage_bytes{cluster_name=\"%s\"}) / 1024 / 1024",
+                "xamops_eks_container_memory_working_set_bytes{cluster_name=\"%s\", container!=\"\", container!=\"POD\"} / 1024 / 1024",
                 clusterName);
 
-        Map<String, Double> rawResult = fetchMetricMapMultiLabel(prometheusUrl, query, "instance", "job");
+        List<Map<String, String>> results = fetchMetricLabels(prometheusUrl, query,
+                Arrays.asList("pod", "container", "value"));
 
-        // Transform instance format
         Map<String, Double> result = new HashMap<>();
-        for (Map.Entry<String, Double> entry : rawResult.entrySet()) {
-            String instanceJob = entry.getKey();
-            String instance = instanceJob.split("/")[0];
+        for (Map<String, String> entry : results) {
+            String pod = entry.get("pod");
+            String container = entry.get("container");
+            String valueStr = entry.get("value");
 
-            String[] parts = instance.split("\\.");
-            if (parts.length >= 3) {
-                String pod = parts[1];
-                String container = String.join(".", Arrays.copyOfRange(parts, 2, parts.length));
-                String key = pod + "/" + container;
-                result.put(key, entry.getValue());
+            if (pod != null && container != null && valueStr != null) {
+                try {
+                    double memValue = Double.parseDouble(valueStr);
+                    String key = pod + "/" + container;
+                    result.put(key, memValue);
+                } catch (NumberFormatException e) {
+                    logger.warn("Failed to parse container memory value: {}", valueStr);
+                }
             }
         }
 
+        // Fallback: Try with instance/job format
+        if (result.isEmpty()) {
+            query = String.format(
+                    "sum by (instance, job) (xamops_eks_container_memory_usage_bytes{cluster_name=\"%s\"}) / 1024 / 1024",
+                    clusterName);
+
+            Map<String, Double> rawResult = fetchMetricMapMultiLabel(prometheusUrl, query, "instance", "job");
+
+            // Transform instance format
+            for (Map.Entry<String, Double> entry : rawResult.entrySet()) {
+                String instanceJob = entry.getKey();
+                String instance = instanceJob.split("/")[0];
+
+                String[] parts = instance.split("\\.");
+                if (parts.length >= 3) {
+                    String pod = parts[1];
+                    String container = String.join(".", Arrays.copyOfRange(parts, 2, parts.length));
+                    String key = pod + "/" + container;
+                    result.put(key, entry.getValue());
+                }
+            }
+        }
+
+        logger.info("🔍 Container memory usage: {} containers found", result.size());
         return result;
     }
 
@@ -402,17 +575,47 @@ public class PrometheusService {
     }
 
     public Map<String, Double> getPodCpuUsage(String prometheusUrl, String clusterName) {
+        // Use container CPU aggregated by pod for accuracy
         String query = String.format(
-                "sum by (pod) (rate(xamops_eks_k8s_pod_cpu_usage{cluster_name=\"%s\"}[5m])) * 1000",
+                "sum by (pod) (rate(xamops_eks_container_cpu_usage_seconds_total{cluster_name=\"%s\", container!=\"\", container!=\"POD\"}[5m])) * 1000",
                 clusterName);
-        return fetchMetricMap(prometheusUrl, query, "pod");
+        Map<String, Double> result = fetchMetricMap(prometheusUrl, query, "pod");
+
+        // Fallback 1: Try with k8s_pod_cpu_usage metric
+        if (result.isEmpty()) {
+            query = String.format(
+                    "sum by (pod) (rate(xamops_eks_k8s_pod_cpu_usage{cluster_name=\"%s\"}[5m])) * 1000",
+                    clusterName);
+            result = fetchMetricMap(prometheusUrl, query, "pod");
+        }
+
+        // Fallback 2: Try with plain container_cpu_usage
+        if (result.isEmpty()) {
+            query = String.format(
+                    "sum by (pod) (rate(xamops_eks_container_cpu_usage{cluster_name=\"%s\", container!=\"\", container!=\"POD\"}[5m])) * 1000",
+                    clusterName);
+            result = fetchMetricMap(prometheusUrl, query, "pod");
+        }
+
+        return result;
     }
 
     public Map<String, Double> getPodMemoryUsage(String prometheusUrl, String clusterName) {
+        // Use container memory usage aggregated by pod, filter out POD container
         String query = String.format(
-                "sum by (pod) (last_over_time(xamops_eks_k8s_pod_memory_usage_bytes{cluster_name=\"%s\"}[5m])) / 1024 / 1024",
+                "sum by (pod) (xamops_eks_container_memory_working_set_bytes{cluster_name=\"%s\", container!=\"\", container!=\"POD\"}) / 1024 / 1024",
                 clusterName);
-        return fetchMetricMap(prometheusUrl, query, "pod");
+        Map<String, Double> result = fetchMetricMap(prometheusUrl, query, "pod");
+
+        // Fallback: Try with plain memory_usage_bytes
+        if (result.isEmpty()) {
+            query = String.format(
+                    "sum by (pod) (xamops_eks_container_memory_usage_bytes{cluster_name=\"%s\", container!=\"\", container!=\"POD\"}) / 1024 / 1024",
+                    clusterName);
+            result = fetchMetricMap(prometheusUrl, query, "pod");
+        }
+
+        return result;
     }
 
     // ============================================================================================
@@ -456,6 +659,31 @@ public class PrometheusService {
                 "last_over_time(xamops_eks_kube_daemonset_status_desired_number_scheduled{cluster_name=\"%s\"}[24h])",
                 clusterName);
         return fetchMetricLabels(prometheusUrl, query, Arrays.asList("daemonset", "namespace"));
+    }
+
+    // ============================================================================================
+    // STATEFULSET METRICS (3 queries)
+    // ============================================================================================
+
+    public Map<String, Double> getStatefulsetReplicasDesired(String prometheusUrl, String clusterName) {
+        String query = String.format(
+                "max by (statefulset) (last_over_time(xamops_eks_kube_statefulset_replicas{cluster_name=\"%s\"}[24h]))",
+                clusterName);
+        return fetchMetricMap(prometheusUrl, query, "statefulset");
+    }
+
+    public Map<String, Double> getStatefulsetReplicasReady(String prometheusUrl, String clusterName) {
+        String query = String.format(
+                "max by (statefulset) (last_over_time(xamops_eks_kube_statefulset_status_replicas_ready{cluster_name=\"%s\"}[24h]))",
+                clusterName);
+        return fetchMetricMap(prometheusUrl, query, "statefulset");
+    }
+
+    public List<Map<String, String>> getClusterStatefulsets(String prometheusUrl, String clusterName) {
+        String query = String.format(
+                "last_over_time(xamops_eks_kube_statefulset_labels{cluster_name=\"%s\"}[24h])",
+                clusterName);
+        return fetchMetricLabels(prometheusUrl, query, Arrays.asList("statefulset", "namespace"));
     }
 
     // ============================================================================================
@@ -557,7 +785,8 @@ public class PrometheusService {
 
     /**
      * Get CPU usage by deployment (aggregated from pods)
-     * Note: created_by_name often contains ReplicaSet name (e.g., metrics-server-5b774b674d)
+     * Note: created_by_name often contains ReplicaSet name (e.g.,
+     * metrics-server-5b774b674d)
      * We store both the full name and stripped name for flexible matching
      */
     public Map<String, Map<String, Double>> getDeploymentCpuUsage(String prometheusUrl, String clusterName) {
@@ -587,7 +816,8 @@ public class PrometheusService {
                 metrics.put("cpu", cpuValue);
                 deploymentCpu.put(fullKey, metrics);
 
-                // Also store with stripped deployment name (remove ReplicaSet suffix like -5b774b674d)
+                // Also store with stripped deployment name (remove ReplicaSet suffix like
+                // -5b774b674d)
                 String deploymentName = stripReplicaSetSuffix(createdByName);
                 if (!deploymentName.equals(createdByName)) {
                     String strippedKey = namespace + "/" + deploymentName;
@@ -603,10 +833,12 @@ public class PrometheusService {
     }
 
     /**
-     * Strip ReplicaSet suffix from pod owner name (e.g., "metrics-server-5b774b674d" -> "metrics-server")
+     * Strip ReplicaSet suffix from pod owner name (e.g.,
+     * "metrics-server-5b774b674d" -> "metrics-server")
      */
     private String stripReplicaSetSuffix(String name) {
-        if (name == null) return name;
+        if (name == null)
+            return name;
         // ReplicaSet suffix pattern: -[a-z0-9]{8,10} at the end
         // e.g., metrics-server-5b774b674d -> metrics-server
         return name.replaceAll("-[a-z0-9]{8,10}$", "");
@@ -614,7 +846,8 @@ public class PrometheusService {
 
     /**
      * Get memory usage by deployment (aggregated from pods)
-     * Note: created_by_name often contains ReplicaSet name (e.g., metrics-server-5b774b674d)
+     * Note: created_by_name often contains ReplicaSet name (e.g.,
+     * metrics-server-5b774b674d)
      * We store both the full name and stripped name for flexible matching
      */
     public Map<String, Map<String, Double>> getDeploymentMemoryUsage(String prometheusUrl, String clusterName) {
@@ -643,7 +876,8 @@ public class PrometheusService {
                 metrics.put("memory", memValue);
                 deploymentMem.put(fullKey, metrics);
 
-                // Also store with stripped deployment name (remove ReplicaSet suffix like -5b774b674d)
+                // Also store with stripped deployment name (remove ReplicaSet suffix like
+                // -5b774b674d)
                 String deploymentName = stripReplicaSetSuffix(createdByName);
                 if (!deploymentName.equals(createdByName)) {
                     String strippedKey = namespace + "/" + deploymentName;
@@ -672,17 +906,20 @@ public class PrometheusService {
      * Get node CPU usage per node (percentage)
      */
     public Map<String, Double> getNodeCpuUsage(String prometheusUrl, String clusterName) {
+        // Pattern 1: Confirmed working query with exported_instance label
         String query = String.format(
-                "100 - (avg by (node) (rate(xamops_eks_node_cpu_seconds_total{cluster_name=\"%s\", mode=\"idle\"}[5m])) * 100)",
-                clusterName);
-        Map<String, Double> result = fetchMetricMap(prometheusUrl, query, "node");
+                "(sum(rate(container_cpu_usage_seconds_total{cluster_name=\"%s\", container!=\"\"}[5m])) by (exported_instance) / "
+                        +
+                        "on(exported_instance) group_left() xamops_eks_kube_node_status_capacity_cpu_cores{cluster_name=\"%s\", job=\"opencost\"}) * 100",
+                clusterName, clusterName);
+        Map<String, Double> result = fetchMetricMap(prometheusUrl, query, "exported_instance");
 
-        // If no results, try alternative metric
-        // Note: Filter by job="kube-state-metrics" to avoid duplicate series from opencost
+        // Pattern 2: fallback with node label if exported_instance fails
         if (result.isEmpty()) {
             query = String.format(
-                    "(sum by (node) (rate(xamops_eks_container_cpu_usage{cluster_name=\"%s\"}[5m])) / " +
-                            "on(node) group_left() xamops_eks_kube_node_status_capacity{cluster_name=\"%s\", resource=\"cpu\", job=\"kube-state-metrics\"}) * 100",
+                    "(sum by (node) (rate(xamops_eks_container_cpu_usage_seconds_total{cluster_name=\"%s\", container!=\"\", container!=\"POD\"}[5m])) / "
+                            +
+                            "on(node) group_left() max by (node) (xamops_eks_kube_node_status_capacity{cluster_name=\"%s\", resource=\"cpu\"})) * 100",
                     clusterName, clusterName);
             result = fetchMetricMap(prometheusUrl, query, "node");
         }
@@ -690,28 +927,73 @@ public class PrometheusService {
         return result;
     }
 
-    // ============================================================================================
-    // EXISTING METHODS (Enhanced)
-    // ============================================================================================
-
-    public Double getClusterCpuUsage(String prometheusUrl, String clusterName) {
-        // kubeletstats metric tracks cumulative CPU time across all modes
-        // The rate gives CPU-seconds per second, but includes all modes (user, system,
-        // idle, etc.)
-        // Multiplying by 100 converts fraction to percentage
-        // Note: Filter by job="kube-state-metrics" to avoid duplicate series from opencost
+    public Map<String, Double> getNodeCpuRequests(String prometheusUrl, String clusterName) {
+        // Sum CPU requests (in cores) for all pods on each node, convert to millicores
         String query = String.format(
-                "(sum(rate(xamops_eks_container_cpu_usage{cluster_name=\"%s\"}[5m])) / " +
-                        "sum(xamops_eks_kube_node_status_capacity{cluster_name=\"%s\", resource=\"cpu\", job=\"kube-state-metrics\"})) * 100",
+                "sum by (node) (xamops_eks_kube_pod_container_resource_requests{cluster_name=\"%s\", resource=\"cpu\", unit=\"core\"}) * 1000",
+                clusterName);
+        Map<String, Double> result = fetchMetricMap(prometheusUrl, query, "node");
+
+        // Fallback: standard kube-state-metrics
+        if (result.isEmpty()) {
+            query = "sum by (node) (kube_pod_container_resource_requests{resource=\"cpu\"}) * 1000";
+            result = fetchMetricMap(prometheusUrl, query, "node");
+        }
+
+        return result;
+    }
+
+    public Map<String, Double> getNodeMemoryRequests(String prometheusUrl, String clusterName) {
+        // Sum memory requests (in bytes) for all pods on each node
+        String query = String.format(
+                "sum by (node) (xamops_eks_kube_pod_container_resource_requests{cluster_name=\"%s\", resource=\"memory\", unit=\"byte\"})",
+                clusterName);
+        Map<String, Double> result = fetchMetricMap(prometheusUrl, query, "node");
+
+        // Fallback without unit filter
+        if (result.isEmpty()) {
+            query = String.format(
+                    "sum by (node) (xamops_eks_kube_pod_container_resource_requests{cluster_name=\"%s\", resource=\"memory\"})",
+                    clusterName);
+            result = fetchMetricMap(prometheusUrl, query, "node");
+        }
+
+        return result;
+    }
+
+    // kubeletstats metric tracks cumulative CPU time across all modes
+    // The rate gives CPU-seconds per second, but includes all modes (user, system,
+    // idle, etc.)
+    // Multiplying by 100 converts fraction to percentage
+    // Note: Filter by job="kube-state-metrics" to avoid duplicate series from
+    // opencost
+    public Double getClusterCpuUsage(String prometheusUrl, String clusterName) {
+        String query = String.format(
+                "(sum(rate(container_cpu_usage_seconds_total{cluster_name=\"%s\", container!=\"\"}[5m])) / " +
+                        "sum(xamops_eks_kube_node_status_capacity_cpu_cores{cluster_name=\"%s\", job=\"opencost\"})) * 100",
                 clusterName, clusterName);
-        return fetchScalarValue(prometheusUrl, query);
+        Double val = fetchScalarValue(prometheusUrl, query);
+
+        if (val == null || val == 0.0) {
+            query = String.format(
+                    "(sum(rate(xamops_eks_container_cpu_usage{cluster_name=\"%s\"}[5m])) / " +
+                            "sum(xamops_eks_kube_node_status_capacity{cluster_name=\"%s\", resource=\"cpu\", job=\"kube-state-metrics\"})) * 100",
+                    clusterName, clusterName);
+            val = fetchScalarValue(prometheusUrl, query);
+        }
+        return val;
     }
 
     public Double getClusterCpuUsageMillicores(String prometheusUrl, String clusterName) {
         String query = String.format(
                 "sum(rate(xamops_eks_container_cpu_usage{cluster_name=\"%s\"}[5m])) * 1000",
                 clusterName);
-        return fetchScalarValue(prometheusUrl, query);
+        Double val = fetchScalarValue(prometheusUrl, query);
+        if (val == null || val == 0.0) {
+            query = "sum(rate(container_cpu_usage_seconds_total{container!=\"\", container!=\"POD\"}[5m])) * 1000";
+            val = fetchScalarValue(prometheusUrl, query);
+        }
+        return val;
     }
 
     public Double getClusterCpuCapacityMillicores(String prometheusUrl, String clusterName) {
@@ -731,12 +1013,47 @@ public class PrometheusService {
     }
 
     public Double getClusterMemoryUsage(String prometheusUrl, String clusterName) {
-        // Fix: working_set is the ACTUAL usage, not the denominator
-        // Note: Filter by job="kube-state-metrics" to avoid duplicate series from opencost
         String query = String.format(
-                "sum(xamops_eks_k8s_node_memory_working_set_bytes{cluster_name=\"%s\"}) / sum(xamops_eks_kube_node_status_capacity{cluster_name=\"%s\", resource=\"memory\", job=\"kube-state-metrics\"}) * 100",
+                "(sum(container_memory_working_set_bytes{cluster_name=\"%s\", container!=\"\"}) / " +
+                        "sum(xamops_eks_kube_node_status_capacity_memory_bytes{cluster_name=\"%s\", job=\"opencost\"})) * 100",
                 clusterName, clusterName);
-        return fetchScalarValue(prometheusUrl, query);
+        Double val = fetchScalarValue(prometheusUrl, query);
+
+        if (val == null || val == 0.0) {
+            query = String.format(
+                    "sum(xamops_eks_k8s_node_memory_working_set_bytes{cluster_name=\"%s\"}) / sum(xamops_eks_kube_node_status_capacity{cluster_name=\"%s\", resource=\"memory\", job=\"kube-state-metrics\"}) * 100",
+                    clusterName, clusterName);
+            val = fetchScalarValue(prometheusUrl, query);
+        }
+        return val;
+    }
+
+    public Double getClusterMemoryUsageBytes(String prometheusUrl, String clusterName) {
+        String query = String.format(
+                "sum(xamops_eks_k8s_node_memory_working_set_bytes{cluster_name=\"%s\"})",
+                clusterName);
+        Double val = fetchScalarValue(prometheusUrl, query);
+        if (val == null || val == 0.0) {
+            query = "sum(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes)";
+            val = fetchScalarValue(prometheusUrl, query);
+        }
+        return val;
+    }
+
+    public Double getClusterMemoryCapacityBytes(String prometheusUrl, String clusterName) {
+        // Filter by job="kube-state-metrics" to avoid duplicate series from opencost
+        String query = String.format(
+                "sum(xamops_eks_kube_node_status_capacity{cluster_name=\"%s\", resource=\"memory\", job=\"kube-state-metrics\"})",
+                clusterName);
+        Double val = fetchScalarValue(prometheusUrl, query);
+        // Fallback without job filter
+        if (val == null || val == 0.0) {
+            query = String.format(
+                    "sum(xamops_eks_kube_node_status_capacity{cluster_name=\"%s\", resource=\"memory\"})",
+                    clusterName);
+            val = fetchScalarValue(prometheusUrl, query);
+        }
+        return val;
     }
 
     public Integer getClusterNodeCount(String prometheusUrl, String clusterName) {
@@ -757,14 +1074,16 @@ public class PrometheusService {
     }
 
     public Integer getClusterPodCount(String prometheusUrl, String clusterName) {
-        // Use max by (pod, namespace) to deduplicate pods from multiple scrapers (kube-state-metrics + opencost)
+        // Use max by (pod, namespace) to deduplicate pods from multiple scrapers
+        // (kube-state-metrics + opencost)
         // Filter by job="kube-state-metrics" to avoid counting duplicates
         String query = String.format(
                 "count(max by (pod, namespace) (xamops_eks_kube_pod_status_phase{cluster_name=\"%s\", job=\"kube-state-metrics\", phase=\"Running\"} == 1))",
                 clusterName);
         Double val = fetchScalarValue(prometheusUrl, query);
 
-        // Fallback: if no results with job filter, try without (for backward compatibility)
+        // Fallback: if no results with job filter, try without (for backward
+        // compatibility)
         if (val == null || val.intValue() == 0) {
             query = String.format(
                     "count(max by (pod, namespace) (xamops_eks_kube_pod_status_phase{cluster_name=\"%s\", phase=\"Running\"} == 1))",
@@ -988,18 +1307,85 @@ public class PrometheusService {
     }
 
     public Map<String, Double> getNodeCpuUsageMillicores(String prometheusUrl, String clusterName) {
+        // Pattern 1: Confirmed working query with exported_instance label
         String query = String.format(
-                "sum by (instance) (rate(xamops_eks_node_cpu_seconds_total{cluster_name=\"%s\", mode!=\"idle\"}[5m])) * 1000",
+                "sum(rate(container_cpu_usage_seconds_total{cluster_name=\"%s\", container!=\"\"}[5m])) by (exported_instance) * 1000",
                 clusterName);
-        return fetchMetricMap(prometheusUrl, query, "instance");
+        Map<String, Double> result = fetchMetricMap(prometheusUrl, query, "exported_instance");
+
+        // Pattern 2: try with xamops_eks_ prefix if needed
+        if (result.isEmpty()) {
+            query = String.format(
+                    "sum(rate(xamops_eks_container_cpu_usage_seconds_total{cluster_name=\"%s\", container!=\"\"}[5m])) by (exported_instance) * 1000",
+                    clusterName);
+            result = fetchMetricMap(prometheusUrl, query, "exported_instance");
+        }
+
+        // Pattern 3 fallback: Aggregate container CPU usage by node label
+        if (result.isEmpty()) {
+            query = String.format(
+                    "sum by (node) (rate(xamops_eks_container_cpu_usage_seconds_total{cluster_name=\"%s\", container!=\"\", container!=\"POD\"}[5m])) * 1000",
+                    clusterName);
+            result = fetchMetricMap(prometheusUrl, query, "node");
+        }
+
+        // Pattern 4 fallback: Use node_exporter metrics
+        if (result.isEmpty()) {
+            query = String.format(
+                    "sum by (instance) (rate(xamops_eks_node_cpu_seconds_total{cluster_name=\"%s\", mode!=\"idle\"}[5m])) * 1000",
+                    clusterName);
+            result = fetchMetricMap(prometheusUrl, query, "instance");
+        }
+
+        return result;
+    }
+
+    public Map<String, Double> getNodeMemoryUsageBytes(String prometheusUrl, String clusterName) {
+        // Working query with exported_instance label
+        String query = String.format(
+                "sum(container_memory_working_set_bytes{cluster_name=\"%s\", container!=\"\"}) by (exported_instance)",
+                clusterName);
+        Map<String, Double> result = fetchMetricMap(prometheusUrl, query, "exported_instance");
+
+        // Fallback with prefix
+        if (result.isEmpty()) {
+            query = String.format(
+                    "sum(xamops_eks_container_memory_working_set_bytes{cluster_name=\"%s\", container!=\"\"}) by (exported_instance)",
+                    clusterName);
+            result = fetchMetricMap(prometheusUrl, query, "exported_instance");
+        }
+
+        // Final fallback using node label
+        if (result.isEmpty()) {
+            query = String.format(
+                    "sum by (node) (xamops_eks_container_memory_working_set_bytes{cluster_name=\"%s\", container!=\"\", container!=\"POD\"})",
+                    clusterName);
+            result = fetchMetricMap(prometheusUrl, query, "node");
+        }
+
+        return result;
     }
 
     public Map<String, Double> getNodeMemoryUsage(String prometheusUrl, String clusterName) {
+        // Pattern 1: Working set bytes divided by capacity bytes
         String query = String.format(
-                "100 * (1 - (sum by (hostname) (xamops_eks_node_memory_MemAvailable_bytes{cluster_name=\"%s\"}) / " +
-                        "sum by (hostname) (xamops_eks_node_memory_MemTotal_bytes{cluster_name=\"%s\"})))",
+                "(sum(container_memory_working_set_bytes{cluster_name=\"%s\", container!=\"\"}) by (exported_instance) / "
+                        +
+                        "on(exported_instance) group_left() xamops_eks_kube_node_status_capacity_memory_bytes{cluster_name=\"%s\", job=\"opencost\"}) * 100",
                 clusterName, clusterName);
-        return fetchMetricMap(prometheusUrl, query, "hostname");
+        Map<String, Double> result = fetchMetricMap(prometheusUrl, query, "exported_instance");
+
+        // Pattern 2 fallback: Try with node label
+        if (result.isEmpty()) {
+            query = String.format(
+                    "(sum by (node) (xamops_eks_container_memory_working_set_bytes{cluster_name=\"%s\", container!=\"\", container!=\"POD\"}) / "
+                            +
+                            "on(node) group_left() xamops_eks_kube_node_status_capacity{cluster_name=\"%s\", resource=\"memory\"}) * 100",
+                    clusterName, clusterName);
+            result = fetchMetricMap(prometheusUrl, query, "node");
+        }
+
+        return result;
     }
 
     public Map<String, Double> getNodeCreationTime(String prometheusUrl, String clusterName) {
@@ -1007,6 +1393,31 @@ public class PrometheusService {
                 "max by (node) (last_over_time(xamops_eks_kube_node_created{cluster_name=\"%s\"}[24h]))",
                 clusterName);
         return fetchMetricMap(prometheusUrl, query, "node");
+    }
+
+    public Map<String, String> getNodeCapacityTypes(String prometheusUrl, String clusterName) {
+        String query = String.format(
+                "xamops_eks_kube_node_labels{cluster_name=\"%s\"}",
+                clusterName);
+        List<Map<String, String>> labels = fetchMetricLabels(prometheusUrl, query,
+                Arrays.asList("node", "label_eks_amazonaws_com_capacityType", "label_karpenter_sh_capacity_type",
+                        "label_karpenter_sh_nodepool"));
+
+        Map<String, String> capacityTypes = new HashMap<>();
+        for (Map<String, String> labelMap : labels) {
+            String node = labelMap.get("node");
+            if (node == null)
+                continue;
+
+            String type = labelMap.get("label_eks_amazonaws_com_capacityType");
+            if (type == null)
+                type = labelMap.get("label_karpenter_sh_capacity_type");
+
+            if (type != null) {
+                capacityTypes.put(node, type);
+            }
+        }
+        return capacityTypes;
     }
 
     public List<Map<String, String>> getClusterDeployments(String prometheusUrl, String clusterName) {
@@ -1089,6 +1500,41 @@ public class PrometheusService {
         }
         logger.debug("Found {} pod owners for cluster {}", podOwners.size(), clusterName);
         return podOwners;
+    }
+
+    /**
+     * Get CPU usage grouped by owner (Deployment, DaemonSet, etc.)
+     * Uses kube_pod_owner join for accurate mapping
+     */
+    public List<Map<String, String>> getWorkloadCpuUsage(String prometheusUrl, String clusterName) {
+        String query = String.format(
+                "sum by (owner_name, owner_kind, namespace) (" +
+                        "  rate(xamops_eks_container_cpu_usage_seconds_total{cluster_name=\"%s\", container!=\"\", container!=\"POD\"}[5m]) * 1000 "
+                        +
+                        "  * on(pod, namespace) group_left(owner_name, owner_kind) " +
+                        "  xamops_eks_kube_pod_owner{cluster_name=\"%s\"}" +
+                        ")",
+                clusterName, clusterName);
+
+        return fetchMetricLabels(prometheusUrl, query,
+                Arrays.asList("owner_name", "owner_kind", "namespace", "value"));
+    }
+
+    /**
+     * Get Memory usage grouped by owner (Deployment, DaemonSet, etc.)
+     */
+    public List<Map<String, String>> getWorkloadMemoryUsage(String prometheusUrl, String clusterName) {
+        String query = String.format(
+                "sum by (owner_name, owner_kind, namespace) (" +
+                        "  xamops_eks_container_memory_working_set_bytes{cluster_name=\"%s\", container!=\"\", container!=\"POD\"} / 1024 / 1024 "
+                        +
+                        "  * on(pod, namespace) group_left(owner_name, owner_kind) " +
+                        "  xamops_eks_kube_pod_owner{cluster_name=\"%s\"}" +
+                        ")",
+                clusterName, clusterName);
+
+        return fetchMetricLabels(prometheusUrl, query,
+                Arrays.asList("owner_name", "owner_kind", "namespace", "value"));
     }
 
     /**
@@ -1262,10 +1708,22 @@ public class PrometheusService {
      * More accurate than k8s_pod_cpu_usage for multi-container pods
      */
     public Map<String, Double> getPodCpuUsageFromContainers(String prometheusUrl, String clusterName) {
+        // Use cAdvisor metrics, filter out POD container and empty containers
         String query = String.format(
-                "sum by (pod) (rate(xamops_eks_container_cpu_usage{cluster_name=\"%s\"}[5m])) * 1000",
+                "sum by (pod) (rate(xamops_eks_container_cpu_usage_seconds_total{cluster_name=\"%s\", container!=\"\", container!=\"POD\"}[5m])) * 1000",
                 clusterName);
-        return fetchMetricMap(prometheusUrl, query, "pod");
+        Map<String, Double> result = fetchMetricMap(prometheusUrl, query, "pod");
+
+        // Fallback 1
+        if (result.isEmpty()) {
+            query = String.format(
+                    "sum by (pod) (rate(xamops_eks_container_cpu_usage{cluster_name=\"%s\", container!=\"\", container!=\"POD\"}[5m])) * 1000",
+                    clusterName);
+            result = fetchMetricMap(prometheusUrl, query, "pod");
+        }
+
+        logger.info("🔍 Pod CPU usage from containers: {} pods found", result.size());
+        return result;
     }
 
     // ============================================================================================

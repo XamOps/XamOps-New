@@ -1,9 +1,13 @@
 package com.xammer.cloud.dto.k8s;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
 public class EksCompleteDashboardDto {
+
+    // Last synced timestamp for caching
+    private LocalDateTime lastSyncedAt;
 
     // Cluster Overview
     private ClusterOverview clusterOverview;
@@ -46,6 +50,9 @@ public class EksCompleteDashboardDto {
 
     // ✅ NEW: OpenCost Dashboard Data
     private OpenCostDashboard openCost;
+
+    // ✅ NEW: Pod Resource Metrics for Pods tab charts
+    private PodResourceMetrics podResourceMetrics;
 
     public KubescapeDashboard getKubescape() {
         return kubescape;
@@ -103,6 +110,22 @@ public class EksCompleteDashboardDto {
         this.openCost = openCost;
     }
 
+    public PodResourceMetrics getPodResourceMetrics() {
+        return podResourceMetrics;
+    }
+
+    public void setPodResourceMetrics(PodResourceMetrics podResourceMetrics) {
+        this.podResourceMetrics = podResourceMetrics;
+    }
+
+    public LocalDateTime getLastSyncedAt() {
+        return lastSyncedAt;
+    }
+
+    public void setLastSyncedAt(LocalDateTime lastSyncedAt) {
+        this.lastSyncedAt = lastSyncedAt;
+    }
+
     // Nested Classes
 
     public static class ClusterOverview {
@@ -117,6 +140,8 @@ public class EksCompleteDashboardDto {
         private Double cpuUsageMillicores;
         private Double cpuCapacityMillicores;
         private Double memoryUsagePercent;
+        private Double memoryUsageBytes;
+        private Double memoryCapacityBytes;
 
         // Getters and Setters
         public String getClusterName() {
@@ -206,6 +231,22 @@ public class EksCompleteDashboardDto {
         public void setMemoryUsagePercent(Double memoryUsagePercent) {
             this.memoryUsagePercent = memoryUsagePercent;
         }
+
+        public Double getMemoryUsageBytes() {
+            return memoryUsageBytes;
+        }
+
+        public void setMemoryUsageBytes(Double memoryUsageBytes) {
+            this.memoryUsageBytes = memoryUsageBytes;
+        }
+
+        public Double getMemoryCapacityBytes() {
+            return memoryCapacityBytes;
+        }
+
+        public void setMemoryCapacityBytes(Double memoryCapacityBytes) {
+            this.memoryCapacityBytes = memoryCapacityBytes;
+        }
     }
 
     public static class CostMetrics {
@@ -222,11 +263,12 @@ public class EksCompleteDashboardDto {
             private Double dailyCost;
             private String instanceType;
             // P2: Capacity type (on-demand, spot) and node group
-            private String capacityType;  // "on-demand", "spot", "fargate"
+            private String capacityType; // "on-demand", "spot", "fargate"
             private String nodeGroupName;
             private Double cpuUsagePercent;
 
-            public NodeCost() {}
+            public NodeCost() {
+            }
 
             public NodeCost(String nodeName, Double hourlyRate, Double dailyCost, String instanceType) {
                 this.nodeName = nodeName;
@@ -236,7 +278,7 @@ public class EksCompleteDashboardDto {
             }
 
             public NodeCost(String nodeName, Double hourlyRate, Double dailyCost, String instanceType,
-                           String capacityType, String nodeGroupName) {
+                    String capacityType, String nodeGroupName) {
                 this.nodeName = nodeName;
                 this.hourlyRate = hourlyRate;
                 this.dailyCost = dailyCost;
@@ -311,7 +353,7 @@ public class EksCompleteDashboardDto {
             private Double cpuUsageMillicores;
             private Double memoryUsageMb;
             private Integer podCount;
-            private Double costPercentage;  // % of total cluster cost
+            private Double costPercentage; // % of total cluster cost
 
             public String getNamespace() {
                 return namespace;
@@ -374,7 +416,7 @@ public class EksCompleteDashboardDto {
         public static class WorkloadCostAllocation {
             private String name;
             private String namespace;
-            private String kind;  // Deployment, DaemonSet, StatefulSet, etc.
+            private String kind; // Deployment, DaemonSet, StatefulSet, etc.
             private Double dailyCost;
             private Double monthlyCost;
             private Double cpuUsageMillicores;
@@ -623,6 +665,12 @@ public class EksCompleteDashboardDto {
             private Double podsAllocatable;
             private Integer runningPods;
             private Double hourlyCost;
+            private Double cpuRequests;
+            private Double memoryRequests;
+            private Double cpuRequestsPercent;
+            private Double memoryRequestsPercent;
+            private String capacityType; // NEW: "spot" or "on-demand"
+            private Double memoryUsageMB; // NEW: Memory usage in MB
 
             // Getters and Setters
             public String getNodeName() {
@@ -744,6 +792,54 @@ public class EksCompleteDashboardDto {
             public void setHourlyCost(Double hourlyCost) {
                 this.hourlyCost = hourlyCost;
             }
+
+            public Double getCpuRequests() {
+                return cpuRequests;
+            }
+
+            public void setCpuRequests(Double cpuRequests) {
+                this.cpuRequests = cpuRequests;
+            }
+
+            public Double getMemoryRequests() {
+                return memoryRequests;
+            }
+
+            public void setMemoryRequests(Double memoryRequests) {
+                this.memoryRequests = memoryRequests;
+            }
+
+            public Double getCpuRequestsPercent() {
+                return cpuRequestsPercent;
+            }
+
+            public void setCpuRequestsPercent(Double cpuRequestsPercent) {
+                this.cpuRequestsPercent = cpuRequestsPercent;
+            }
+
+            public Double getMemoryRequestsPercent() {
+                return memoryRequestsPercent;
+            }
+
+            public void setMemoryRequestsPercent(Double memoryRequestsPercent) {
+                this.memoryRequestsPercent = memoryRequestsPercent;
+            }
+
+            public String getCapacityType() {
+                return capacityType;
+            }
+
+            public void setCapacityType(String capacityType) {
+                this.capacityType = capacityType;
+            }
+
+            public Double getMemoryUsageMB() {
+                return memoryUsageMB;
+            }
+
+            public void setMemoryUsageMB(Double memoryUsageMB) {
+                this.memoryUsageMB = memoryUsageMB;
+            }
         }
 
         public static class NamespaceResource {
@@ -832,9 +928,19 @@ public class EksCompleteDashboardDto {
     }
 
     public static class WorkloadHealth {
+        private Double clusterHealthScore;
         private List<PodHealth> pods;
         private List<DeploymentHealth> deployments;
         private List<DaemonsetHealth> daemonsets;
+        private List<StatefulSetHealth> statefulsets;
+
+        public Double getClusterHealthScore() {
+            return clusterHealthScore;
+        }
+
+        public void setClusterHealthScore(Double clusterHealthScore) {
+            this.clusterHealthScore = clusterHealthScore;
+        }
 
         public static class PodHealth {
             private String name;
@@ -845,6 +951,14 @@ public class EksCompleteDashboardDto {
             private Integer restarts;
             private Double cpuUsage;
             private Double memoryUsage;
+            private String podIp;
+            private String age;
+            private String ownerKind;
+            private String ownerName;
+            private Double cpuRequest;
+            private Double memoryRequest;
+            private Double cpuLimit;
+            private Double memoryLimit;
             private List<ContainerMetrics> containers;
             private List<ContainerStatus> containerStatuses; // NEW: Container lifecycle states from K8s API
 
@@ -1016,6 +1130,70 @@ public class EksCompleteDashboardDto {
 
             public void setContainerStatuses(List<ContainerStatus> containerStatuses) {
                 this.containerStatuses = containerStatuses;
+            }
+
+            public String getPodIp() {
+                return podIp;
+            }
+
+            public void setPodIp(String podIp) {
+                this.podIp = podIp;
+            }
+
+            public String getAge() {
+                return age;
+            }
+
+            public void setAge(String age) {
+                this.age = age;
+            }
+
+            public String getOwnerKind() {
+                return ownerKind;
+            }
+
+            public void setOwnerKind(String ownerKind) {
+                this.ownerKind = ownerKind;
+            }
+
+            public String getOwnerName() {
+                return ownerName;
+            }
+
+            public void setOwnerName(String ownerName) {
+                this.ownerName = ownerName;
+            }
+
+            public Double getCpuRequest() {
+                return cpuRequest;
+            }
+
+            public void setCpuRequest(Double cpuRequest) {
+                this.cpuRequest = cpuRequest;
+            }
+
+            public Double getMemoryRequest() {
+                return memoryRequest;
+            }
+
+            public void setMemoryRequest(Double memoryRequest) {
+                this.memoryRequest = memoryRequest;
+            }
+
+            public Double getCpuLimit() {
+                return cpuLimit;
+            }
+
+            public void setCpuLimit(Double cpuLimit) {
+                this.cpuLimit = cpuLimit;
+            }
+
+            public Double getMemoryLimit() {
+                return memoryLimit;
+            }
+
+            public void setMemoryLimit(Double memoryLimit) {
+                this.memoryLimit = memoryLimit;
             }
         }
 
@@ -1236,6 +1414,110 @@ public class EksCompleteDashboardDto {
             }
         }
 
+        public static class StatefulSetHealth {
+            private String name;
+            private String namespace;
+            private Integer desired;
+            private Integer ready;
+            private Integer current;
+            private Integer updated;
+            private Double healthScore;
+            // P1: Resource usage summary for workloads
+            private Double cpuUsageMillicores;
+            private Double memoryUsageMb;
+            private Integer replicas;
+            private Integer readyReplicas;
+
+            // Getters and Setters
+            public String getName() {
+                return name;
+            }
+
+            public void setName(String name) {
+                this.name = name;
+            }
+
+            public String getNamespace() {
+                return namespace;
+            }
+
+            public void setNamespace(String namespace) {
+                this.namespace = namespace;
+            }
+
+            public Integer getDesired() {
+                return desired;
+            }
+
+            public void setDesired(Integer desired) {
+                this.desired = desired;
+            }
+
+            public Integer getReady() {
+                return ready;
+            }
+
+            public void setReady(Integer ready) {
+                this.ready = ready;
+            }
+
+            public Integer getCurrent() {
+                return current;
+            }
+
+            public void setCurrent(Integer current) {
+                this.current = current;
+            }
+
+            public Integer getUpdated() {
+                return updated;
+            }
+
+            public void setUpdated(Integer updated) {
+                this.updated = updated;
+            }
+
+            public Double getHealthScore() {
+                return healthScore;
+            }
+
+            public void setHealthScore(Double healthScore) {
+                this.healthScore = healthScore;
+            }
+
+            public Double getCpuUsageMillicores() {
+                return cpuUsageMillicores;
+            }
+
+            public void setCpuUsageMillicores(Double cpuUsageMillicores) {
+                this.cpuUsageMillicores = cpuUsageMillicores;
+            }
+
+            public Double getMemoryUsageMb() {
+                return memoryUsageMb;
+            }
+
+            public void setMemoryUsageMb(Double memoryUsageMb) {
+                this.memoryUsageMb = memoryUsageMb;
+            }
+
+            public Integer getReplicas() {
+                return replicas;
+            }
+
+            public void setReplicas(Integer replicas) {
+                this.replicas = replicas;
+            }
+
+            public Integer getReadyReplicas() {
+                return readyReplicas;
+            }
+
+            public void setReadyReplicas(Integer readyReplicas) {
+                this.readyReplicas = readyReplicas;
+            }
+        }
+
         // Getters and Setters
         public List<PodHealth> getPods() {
             return pods;
@@ -1259,6 +1541,14 @@ public class EksCompleteDashboardDto {
 
         public void setDaemonsets(List<DaemonsetHealth> daemonsets) {
             this.daemonsets = daemonsets;
+        }
+
+        public List<StatefulSetHealth> getStatefulsets() {
+            return statefulsets;
+        }
+
+        public void setStatefulsets(List<StatefulSetHealth> statefulsets) {
+            this.statefulsets = statefulsets;
         }
     }
 
@@ -1594,6 +1884,27 @@ public class EksCompleteDashboardDto {
         private List<String> pods;
         private Integer podCount;
 
+        // ✅ NEW: Enhanced fields for detailed node view
+        private String capacityType; // "spot", "on-demand", "unknown"
+        private String nodeGroup; // managed node group name or "karpenter"
+        private Boolean pidPressure; // PID pressure status
+        private Boolean diskPressure; // Disk pressure status
+        private Boolean memoryPressure; // Memory pressure status
+        private Integer runningPodsCount; // count of running pods
+        private String instanceType; // EC2 instance type
+        private Double systemReservedCpu; // CPU reserved for system/kubelet (millicores)
+        private Double systemReservedMemory; // Memory reserved for system/kubelet (MB)
+        private Double cpuRequests; // NEW: CPU requests in millicores
+        private Double memoryRequests; // NEW: Memory requests in MB
+        private Double cpuRequestsPercent; // NEW: CPU requests as percentage
+        private Double memoryRequestsPercent; // NEW: Memory requests as percentage
+
+        // ✅ NEW: AWS Specific Metadata
+        private String iamRole;
+        private String instanceProfile;
+        private List<String> subnetIds;
+        private List<String> securityGroupIds;
+
         // Getters and Setters
         public String getName() {
             return name;
@@ -1769,6 +2080,142 @@ public class EksCompleteDashboardDto {
 
         public void setPodCount(Integer podCount) {
             this.podCount = podCount;
+        }
+
+        public String getCapacityType() {
+            return capacityType;
+        }
+
+        public void setCapacityType(String capacityType) {
+            this.capacityType = capacityType;
+        }
+
+        public String getNodeGroup() {
+            return nodeGroup;
+        }
+
+        public void setNodeGroup(String nodeGroup) {
+            this.nodeGroup = nodeGroup;
+        }
+
+        public Boolean getPidPressure() {
+            return pidPressure;
+        }
+
+        public void setPidPressure(Boolean pidPressure) {
+            this.pidPressure = pidPressure;
+        }
+
+        public Boolean getDiskPressure() {
+            return diskPressure;
+        }
+
+        public void setDiskPressure(Boolean diskPressure) {
+            this.diskPressure = diskPressure;
+        }
+
+        public Boolean getMemoryPressure() {
+            return memoryPressure;
+        }
+
+        public void setMemoryPressure(Boolean memoryPressure) {
+            this.memoryPressure = memoryPressure;
+        }
+
+        public Integer getRunningPodsCount() {
+            return runningPodsCount;
+        }
+
+        public void setRunningPodsCount(Integer runningPodsCount) {
+            this.runningPodsCount = runningPodsCount;
+        }
+
+        public String getInstanceType() {
+            return instanceType;
+        }
+
+        public void setInstanceType(String instanceType) {
+            this.instanceType = instanceType;
+        }
+
+        public Double getSystemReservedCpu() {
+            return systemReservedCpu;
+        }
+
+        public void setSystemReservedCpu(Double systemReservedCpu) {
+            this.systemReservedCpu = systemReservedCpu;
+        }
+
+        public Double getSystemReservedMemory() {
+            return systemReservedMemory;
+        }
+
+        public void setSystemReservedMemory(Double systemReservedMemory) {
+            this.systemReservedMemory = systemReservedMemory;
+        }
+
+        public Double getCpuRequests() {
+            return cpuRequests;
+        }
+
+        public void setCpuRequests(Double cpuRequests) {
+            this.cpuRequests = cpuRequests;
+        }
+
+        public Double getMemoryRequests() {
+            return memoryRequests;
+        }
+
+        public void setMemoryRequests(Double memoryRequests) {
+            this.memoryRequests = memoryRequests;
+        }
+
+        public Double getCpuRequestsPercent() {
+            return cpuRequestsPercent;
+        }
+
+        public void setCpuRequestsPercent(Double cpuRequestsPercent) {
+            this.cpuRequestsPercent = cpuRequestsPercent;
+        }
+
+        public Double getMemoryRequestsPercent() {
+            return memoryRequestsPercent;
+        }
+
+        public void setMemoryRequestsPercent(Double memoryRequestsPercent) {
+            this.memoryRequestsPercent = memoryRequestsPercent;
+        }
+
+        public String getIamRole() {
+            return iamRole;
+        }
+
+        public void setIamRole(String iamRole) {
+            this.iamRole = iamRole;
+        }
+
+        public String getInstanceProfile() {
+            return instanceProfile;
+        }
+
+        public void setInstanceProfile(String instanceProfile) {
+            this.instanceProfile = instanceProfile;
+        }
+
+        public List<String> getSubnetIds() {
+            return subnetIds;
+        }
+
+        public void setSubnetIds(List<String> subnetIds) {
+            this.subnetIds = subnetIds;
+        }
+
+        public List<String> getSecurityGroupIds() {
+            return securityGroupIds;
+        }
+
+        public void setSecurityGroupIds(List<String> securityGroupIds) {
+            this.securityGroupIds = securityGroupIds;
         }
     }
 
@@ -2154,6 +2601,27 @@ public class EksCompleteDashboardDto {
             private String zone;
             private String instanceId;
 
+            // ✅ NEW: Enhanced fields for detailed node view
+            private String instanceType; // EC2 instance type
+            private String capacityType; // "spot", "on-demand", "unknown"
+            private Boolean pidPressure; // PID pressure status
+            private Boolean diskPressure; // Disk pressure status
+            private Boolean memoryPressure; // Memory pressure status
+            private Integer runningPodsCount; // count of running pods
+            private String nodeGroup; // managed node group name or "karpenter"
+            private Double systemReservedCpu; // CPU reserved for system/kubelet (millicores)
+            private Double systemReservedMemory; // Memory reserved for system/kubelet (MB)
+            private Double cpuRequests; // NEW: CPU requests in millicores
+            private Double memoryRequests; // NEW: Memory requests in MB
+            private Double cpuRequestsPercent; // NEW: CPU requests as percentage
+            private Double memoryRequestsPercent; // NEW: Memory requests as percentage
+
+            // ✅ NEW: AWS Specific Metadata
+            private String iamRole;
+            private String instanceProfile;
+            private List<String> subnetIds;
+            private List<String> securityGroupIds;
+
             // Getters and Setters
             public String getName() {
                 return name;
@@ -2273,6 +2741,142 @@ public class EksCompleteDashboardDto {
 
             public void setInstanceId(String instanceId) {
                 this.instanceId = instanceId;
+            }
+
+            public String getInstanceType() {
+                return instanceType;
+            }
+
+            public void setInstanceType(String instanceType) {
+                this.instanceType = instanceType;
+            }
+
+            public String getCapacityType() {
+                return capacityType;
+            }
+
+            public void setCapacityType(String capacityType) {
+                this.capacityType = capacityType;
+            }
+
+            public Boolean getPidPressure() {
+                return pidPressure;
+            }
+
+            public void setPidPressure(Boolean pidPressure) {
+                this.pidPressure = pidPressure;
+            }
+
+            public Boolean getDiskPressure() {
+                return diskPressure;
+            }
+
+            public void setDiskPressure(Boolean diskPressure) {
+                this.diskPressure = diskPressure;
+            }
+
+            public Boolean getMemoryPressure() {
+                return memoryPressure;
+            }
+
+            public void setMemoryPressure(Boolean memoryPressure) {
+                this.memoryPressure = memoryPressure;
+            }
+
+            public Integer getRunningPodsCount() {
+                return runningPodsCount;
+            }
+
+            public void setRunningPodsCount(Integer runningPodsCount) {
+                this.runningPodsCount = runningPodsCount;
+            }
+
+            public String getNodeGroup() {
+                return nodeGroup;
+            }
+
+            public void setNodeGroup(String nodeGroup) {
+                this.nodeGroup = nodeGroup;
+            }
+
+            public Double getSystemReservedCpu() {
+                return systemReservedCpu;
+            }
+
+            public void setSystemReservedCpu(Double systemReservedCpu) {
+                this.systemReservedCpu = systemReservedCpu;
+            }
+
+            public Double getSystemReservedMemory() {
+                return systemReservedMemory;
+            }
+
+            public void setSystemReservedMemory(Double systemReservedMemory) {
+                this.systemReservedMemory = systemReservedMemory;
+            }
+
+            public Double getCpuRequests() {
+                return cpuRequests;
+            }
+
+            public void setCpuRequests(Double cpuRequests) {
+                this.cpuRequests = cpuRequests;
+            }
+
+            public Double getMemoryRequests() {
+                return memoryRequests;
+            }
+
+            public void setMemoryRequests(Double memoryRequests) {
+                this.memoryRequests = memoryRequests;
+            }
+
+            public Double getCpuRequestsPercent() {
+                return cpuRequestsPercent;
+            }
+
+            public void setCpuRequestsPercent(Double cpuRequestsPercent) {
+                this.cpuRequestsPercent = cpuRequestsPercent;
+            }
+
+            public Double getMemoryRequestsPercent() {
+                return memoryRequestsPercent;
+            }
+
+            public void setMemoryRequestsPercent(Double memoryRequestsPercent) {
+                this.memoryRequestsPercent = memoryRequestsPercent;
+            }
+
+            public String getIamRole() {
+                return iamRole;
+            }
+
+            public void setIamRole(String iamRole) {
+                this.iamRole = iamRole;
+            }
+
+            public String getInstanceProfile() {
+                return instanceProfile;
+            }
+
+            public void setInstanceProfile(String instanceProfile) {
+                this.instanceProfile = instanceProfile;
+            }
+
+            public List<String> getSubnetIds() {
+                return subnetIds;
+            }
+
+            public void setSubnetIds(List<String> subnetIds) {
+                this.subnetIds = subnetIds;
+            }
+
+            public List<String> getSecurityGroupIds() {
+                return securityGroupIds;
+            }
+
+            public void setSecurityGroupIds(List<String> securityGroupIds) {
+                this.securityGroupIds = securityGroupIds;
             }
         }
 
