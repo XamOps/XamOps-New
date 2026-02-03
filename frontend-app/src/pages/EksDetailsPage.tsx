@@ -198,16 +198,6 @@ const EksDetailsPage: React.FC = () => {
             {/* Tabs */}
             <EksTabs activeTab={activeTab} onTabChange={setActiveTab} />
 
-            {/* Development Alert */}
-            <div className="bg-amber-50 border-l-4 border-amber-400 p-4 mb-8 rounded shadow-sm">
-              <div className="flex">
-                <i className="fas fa-exclamation-triangle text-amber-500 mr-3"></i>
-                <p className="text-sm text-amber-700">
-                  <span className="font-bold">Under Development:</span> This feature is currently being developed. Data may be inaccurate or incomplete.
-                </p>
-              </div>
-            </div>
-
             {/* Tab Content */}
             <div className="tab-content">
               {activeTab === 'overview' && <EksOverviewTab eksData={eksData} />}

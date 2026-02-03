@@ -68,6 +68,9 @@ public class KarpenterService {
             int karpenterNodes = countKarpenterNodes(client);
             dashboard.setNodesProvisionedByKarpenter(karpenterNodes);
 
+            // 7. Populate enhanced metrics
+            populateEnhancedMetrics(dashboard, client);
+
             logger.info("✅ Karpenter data fetch complete");
 
         } catch (Exception e) {
@@ -431,6 +434,152 @@ public class KarpenterService {
         } catch (Exception e) {
             logger.debug("Error counting Karpenter nodes: {}", e.getMessage());
             return 0;
+        }
+    }
+
+    /**
+     * Count active and pending node claims
+     */
+    private Map<String, Integer> countNodeClaimsByPhase(List<NodeClaimInfo> nodeClaims) {
+        Map<String, Integer> counts = new HashMap<>();
+        int active = 0;
+        int pending = 0;
+
+        for (NodeClaimInfo claim : nodeClaims) {
+            if ("Ready".equals(claim.getPhase()) || claim.getNodeName() != null) {
+                active++;
+            } else {
+                pending++;
+            }
+        }
+
+        counts.put("active", active);
+        counts.put("pending", pending);
+        return counts;
+    }
+
+    /**
+     * Count active claims per NodePool
+     */
+    private Map<String, Integer> countClaimsPerNodePool(List<NodeClaimInfo> nodeClaims) {
+        Map<String, Integer> claimsPerPool = new HashMap<>();
+
+        for (NodeClaimInfo claim : nodeClaims) {
+            String nodePoolName = claim.getNodePoolName();
+            if (nodePoolName != null && !nodePoolName.isEmpty()) {
+                claimsPerPool.put(nodePoolName, claimsPerPool.getOrDefault(nodePoolName, 0) + 1);
+            }
+        }
+
+        return claimsPerPool;
+    }
+
+    /**
+     * Build mapping of NodePool to EC2NodeClass
+     */
+    private Map<String, List<String>> buildNodePoolClassMapping(
+            List<NodePoolInfo> nodePools,
+            List<EC2NodeClassInfo> ec2NodeClasses) {
+        Map<String, List<String>> mapping = new HashMap<>();
+
+        for (NodePoolInfo nodePool : nodePools) {
+            String nodeClassRef = nodePool.getNodeClassRef();
+            if (nodeClassRef != null && !nodeClassRef.isEmpty()) {
+                // Check if this EC2NodeClass exists
+                boolean classExists = ec2NodeClasses.stream()
+                        .anyMatch(nc -> nc.getName().equals(nodeClassRef));
+                if (classExists) {
+                    mapping.put(nodePool.getName(), Arrays.asList(nodeClassRef));
+                }
+            }
+        }
+
+        return mapping;
+    }
+
+    /**
+     * Count spot vs on-demand nodes provisioned by Karpenter
+     */
+    private Map<String, Integer> countNodesByCapacityType(KubernetesClient client) {
+        Map<String, Integer> counts = new HashMap<>();
+        int spotCount = 0;
+        int onDemandCount = 0;
+
+        try {
+            var karpenterNodes = client.nodes()
+                    .withLabel("karpenter.sh/nodepool")
+                    .list()
+                    .getItems();
+
+            for (var node : karpenterNodes) {
+                Map<String, String> labels = node.getMetadata().getLabels();
+                if (labels != null) {
+                    String capacityType = labels.getOrDefault("karpenter.sh/capacity-type",
+                            labels.getOrDefault("eks.amazonaws.com/capacityType", "unknown"));
+
+                    if ("spot".equalsIgnoreCase(capacityType)) {
+                        spotCount++;
+                    } else if ("on-demand".equalsIgnoreCase(capacityType)) {
+                        onDemandCount++;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.debug("Error counting nodes by capacity type: {}", e.getMessage());
+        }
+
+        counts.put("spot", spotCount);
+        counts.put("onDemand", onDemandCount);
+        return counts;
+    }
+
+    /**
+     * Calculate approximate daily cost for Karpenter-provisioned nodes
+     * This is a simplified calculation - actual costs should come from cloud billing
+     */
+    private double calculateKarpenterNodesCost(KubernetesClient client) {
+        // For now, return 0.0 - this should be integrated with actual cost data
+        // from AWS Cost Explorer or similar service
+        // The calculation would need instance type pricing data
+        return 0.0;
+    }
+
+    /**
+     * Populate enhanced Karpenter metrics
+     */
+    public void populateEnhancedMetrics(KarpenterDashboard dashboard, KubernetesClient client) {
+        try {
+            // Count node claims by phase
+            Map<String, Integer> claimCounts = countNodeClaimsByPhase(dashboard.getNodeClaims());
+            dashboard.setTotalActiveClaims(claimCounts.getOrDefault("active", 0));
+            dashboard.setTotalPendingClaims(claimCounts.getOrDefault("pending", 0));
+
+            // Count claims per node pool
+            Map<String, Integer> claimsPerPool = countClaimsPerNodePool(dashboard.getNodeClaims());
+            dashboard.setClaimsPerNodePool(claimsPerPool);
+
+            // Build NodePool to EC2NodeClass mapping
+            Map<String, List<String>> poolClassMapping = buildNodePoolClassMapping(
+                    dashboard.getNodePools(),
+                    dashboard.getEc2NodeClasses());
+            dashboard.setNodePoolClassMapping(poolClassMapping);
+
+            // Count spot vs on-demand nodes
+            Map<String, Integer> capacityCounts = countNodesByCapacityType(client);
+            dashboard.setSpotNodesCount(capacityCounts.getOrDefault("spot", 0));
+            dashboard.setOnDemandNodesCount(capacityCounts.getOrDefault("onDemand", 0));
+
+            // Calculate daily cost (placeholder for now)
+            double dailyCost = calculateKarpenterNodesCost(client);
+            dashboard.setDailyCostKarpenterNodes(dailyCost);
+
+            logger.info("✅ Enhanced Karpenter metrics populated: active={}, pending={}, spot={}, onDemand={}",
+                    dashboard.getTotalActiveClaims(),
+                    dashboard.getTotalPendingClaims(),
+                    dashboard.getSpotNodesCount(),
+                    dashboard.getOnDemandNodesCount());
+        } catch (Exception e) {
+            logger.error("❌ Error populating enhanced Karpenter metrics", e);
         }
     }
 }
