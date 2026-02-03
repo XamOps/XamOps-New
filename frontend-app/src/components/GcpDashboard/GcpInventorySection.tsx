@@ -49,7 +49,7 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ name, count, icon, type, ac
         >
             <div className="flex items-center space-x-3">
                 <div className={`w-12 h-12 ${styleClass.split(' ')[0]} rounded-xl flex items-center justify-center shadow-inner group-hover:scale-110 transition-transform duration-300`}>
-                    <img src={`/icons/gcp/${icon}`} alt={name} className="w-7 h-7 object-contain drop-shadow-sm" onError={(e) => (e.currentTarget.style.display = 'none')} />
+                    <img src={icon} alt={name} className="w-7 h-7 object-contain drop-shadow-sm" onError={(e) => (e.currentTarget.style.display = 'none')} />
                 </div>
                 <div>
                     <p className="text-xs font-black text-gray-400 uppercase tracking-widest leading-tight">{name}</p>
@@ -107,8 +107,8 @@ const GcpInventorySection: React.FC<GcpInventorySectionProps> = ({ resources, to
                     style={{ maxHeight: '420px' }}
                 >
                     {resources.length > 0 ? (
-                        resources.map((resource, index) => (
-                            <ResourceCard key={index} {...resource} accountIds={accountIds} />
+                        resources.map((resource) => (
+                            <ResourceCard key={resource.type} {...resource} accountIds={accountIds} />
                         ))
                     ) : (
                         <div className="col-span-full py-12 text-center">
