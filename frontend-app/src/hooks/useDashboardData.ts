@@ -16,6 +16,7 @@ import type {
   DashboardAccount,
   LoadingState,
   DashboardError,
+  ResourceInventory,
 } from '../types/liveDashboard';
 
 interface UseDashboardDataOptions {
@@ -31,6 +32,7 @@ interface UseDashboardDataReturn {
   isRefreshing: boolean;
   loadDashboardData: (forceRefresh?: boolean) => Promise<void>;
   refreshDashboard: () => void;
+  updateResourceInventory: (inventory: ResourceInventory) => void;
 }
 
 export const useDashboardData = ({
@@ -201,6 +203,20 @@ export const useDashboardData = ({
     };
   }, []);
 
+  /**
+   * Update resource inventory from WebSocket
+   */
+  const updateResourceInventory = useCallback((inventory: ResourceInventory) => {
+    setDashboardData(prev => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        resourceInventory: inventory,
+        lastUpdated: new Date().toISOString()
+      };
+    });
+  }, []);
+
   return {
     dashboardData,
     loadingState,
@@ -208,5 +224,6 @@ export const useDashboardData = ({
     isRefreshing,
     loadDashboardData,
     refreshDashboard,
+    updateResourceInventory,
   };
 };

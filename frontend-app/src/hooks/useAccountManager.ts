@@ -76,6 +76,7 @@ export function useAccountManager(): UseAccountManagerReturn {
     setIsJenkinsLoading(true);
     try {
       const data = await apiClient.get<JenkinsConfig[]>('/api/cicd/config/jenkins');
+      console.log('🏗️ Jenkins Configs received:', data);
       setJenkinsConfigs(data);
     } catch (err) {
       console.error('Failed to load Jenkins configs:', err);

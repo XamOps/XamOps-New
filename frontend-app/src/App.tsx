@@ -81,6 +81,7 @@ import CalculatorPage from './pages/CalculatorPage';
 import GcpCloudListPage from './pages/GcpCloudListPage';
 import CloudMapPage from './pages/CloudMapPage';
 import GcpCloudMapPage from './pages/GcpCloudMapPage';
+import { SupportChatWidget } from './components/SupportChat';
 
 
 // Import styles
@@ -217,6 +218,8 @@ const AuthenticatedLayout: React.FC<{ children: React.ReactNode }> = ({ children
           {children}
         </div>
       </div>
+      {/* Support Chat Widget - Visible on all authenticated pages for ROLE_XAMOPS users */}
+      <SupportChatWidget />
     </div>
   );
 };
