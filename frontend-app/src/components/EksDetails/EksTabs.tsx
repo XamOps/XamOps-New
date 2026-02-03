@@ -33,21 +33,26 @@ const tabs: TabConfig[] = [
 const EksTabs: React.FC<EksTabsProps> = ({ activeTab, onTabChange }) => {
   return (
     <div className="mb-6">
-      <div className="tab-container flex flex-wrap justify-start gap-2 border-b-2 border-gray-200 pb-0">
-        {tabs.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => onTabChange(tab.id)}
-            className={`tab-button px-5 py-3 font-semibold text-sm rounded-t-lg border-b-3 transition-all ${
-              activeTab === tab.id
-                ? 'bg-gradient-to-b from-indigo-600 to-indigo-700 text-white border-indigo-800 shadow-lg'
-                : 'bg-transparent text-gray-600 border-transparent hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200'
-            }`}
-          >
-            <i className={`fas ${tab.icon} mr-2`}></i>
-            {tab.label}
-          </button>
-        ))}
+      <div className="tab-container flex flex-wrap justify-start gap-2 border-b border-gray-200 pb-0">
+        {tabs.map(tab => {
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => onTabChange(tab.id)}
+              className={`tab-button relative px-5 py-3 font-semibold text-sm transition-all duration-200 rounded-t-lg ${isActive
+                ? 'text-purple-700 bg-white border-b-2 border-purple-600 shadow-sm z-10'
+                : 'text-gray-600 bg-transparent hover:bg-gray-100 hover:text-gray-900 border-b-2 border-transparent'
+                }`}
+            >
+              <i className={`fas ${tab.icon} mr-2 ${isActive ? 'text-purple-600' : 'text-gray-400'}`}></i>
+              {tab.label}
+              {isActive && (
+                <span className="absolute bottom-[-2px] left-0 w-full h-[2px] bg-purple-600"></span>
+              )}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

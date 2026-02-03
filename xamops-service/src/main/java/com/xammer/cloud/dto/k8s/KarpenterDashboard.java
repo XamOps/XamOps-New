@@ -32,6 +32,15 @@ public class KarpenterDashboard {
     private int totalNodeClaims;
     private int nodesProvisionedByKarpenter;
 
+    // ✅ NEW: Enhanced metrics for detailed view
+    private int totalActiveClaims;
+    private int totalPendingClaims;
+    private Map<String, Integer> claimsPerNodePool;
+    private Map<String, List<String>> nodePoolClassMapping;
+    private double dailyCostKarpenterNodes;
+    private int spotNodesCount;
+    private int onDemandNodesCount;
+
     // Errors/Warnings from status conditions
     private List<StatusCondition> conditions = new ArrayList<>();
 
@@ -142,6 +151,62 @@ public class KarpenterDashboard {
 
     public void setConditions(List<StatusCondition> conditions) {
         this.conditions = conditions;
+    }
+
+    public int getTotalActiveClaims() {
+        return totalActiveClaims;
+    }
+
+    public void setTotalActiveClaims(int totalActiveClaims) {
+        this.totalActiveClaims = totalActiveClaims;
+    }
+
+    public int getTotalPendingClaims() {
+        return totalPendingClaims;
+    }
+
+    public void setTotalPendingClaims(int totalPendingClaims) {
+        this.totalPendingClaims = totalPendingClaims;
+    }
+
+    public Map<String, Integer> getClaimsPerNodePool() {
+        return claimsPerNodePool;
+    }
+
+    public void setClaimsPerNodePool(Map<String, Integer> claimsPerNodePool) {
+        this.claimsPerNodePool = claimsPerNodePool;
+    }
+
+    public Map<String, List<String>> getNodePoolClassMapping() {
+        return nodePoolClassMapping;
+    }
+
+    public void setNodePoolClassMapping(Map<String, List<String>> nodePoolClassMapping) {
+        this.nodePoolClassMapping = nodePoolClassMapping;
+    }
+
+    public double getDailyCostKarpenterNodes() {
+        return dailyCostKarpenterNodes;
+    }
+
+    public void setDailyCostKarpenterNodes(double dailyCostKarpenterNodes) {
+        this.dailyCostKarpenterNodes = dailyCostKarpenterNodes;
+    }
+
+    public int getSpotNodesCount() {
+        return spotNodesCount;
+    }
+
+    public void setSpotNodesCount(int spotNodesCount) {
+        this.spotNodesCount = spotNodesCount;
+    }
+
+    public int getOnDemandNodesCount() {
+        return onDemandNodesCount;
+    }
+
+    public void setOnDemandNodesCount(int onDemandNodesCount) {
+        this.onDemandNodesCount = onDemandNodesCount;
     }
 
     // --- Inner Classes ---

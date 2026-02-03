@@ -18,6 +18,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import software.amazon.awssdk.services.ec2.Ec2Client;
+import software.amazon.awssdk.services.ec2.model.DescribeInstancesRequest;
+import software.amazon.awssdk.services.ec2.model.DescribeInstancesResponse;
+import software.amazon.awssdk.services.ec2.model.Instance;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
@@ -38,6 +42,7 @@ public class EksDashboardService {
     private final OpenCostService openCostService;
     private final K8sClientFactory k8sClientFactory;
     private final RedisCacheService redisCacheService;
+    private final AwsClientProvider awsClientProvider;
 
     public EksDashboardService(PrometheusService prometheusService,
             KubernetesClusterRepository kubernetesClusterRepository,
@@ -47,7 +52,8 @@ public class EksDashboardService {
             KarpenterService karpenterService,
             OpenCostService openCostService,
             K8sClientFactory k8sClientFactory,
-            RedisCacheService redisCacheService) {
+            RedisCacheService redisCacheService,
+            AwsClientProvider awsClientProvider) {
         this.prometheusService = prometheusService;
         this.kubernetesClusterRepository = kubernetesClusterRepository;
         this.clusterConfigRepository = clusterConfigRepository;
@@ -57,6 +63,7 @@ public class EksDashboardService {
         this.openCostService = openCostService;
         this.k8sClientFactory = k8sClientFactory;
         this.redisCacheService = redisCacheService;
+        this.awsClientProvider = awsClientProvider;
     }
 
     private String getPrometheusUrl(CloudAccount account, String clusterName) {
@@ -130,12 +137,13 @@ public class EksDashboardService {
 
                 // ✅ NEW: Add detailed pod and enhanced node information
                 dashboard.setPodDetails(buildPodDetails(promUrl, clusterName));
-                dashboard.setNodeDetails(buildNodeDetails(promUrl, clusterName));
+                dashboard.setNodeDetails(buildNodeDetails(account, region, promUrl, clusterName));
 
                 // ✅ NEW: Add aggregated metrics for new tabs
                 dashboard.setPodMetrics(buildPodMetrics(promUrl, clusterName));
                 dashboard.setContainerMetrics(buildContainerMetrics(promUrl, clusterName));
-                dashboard.setNodeMetrics(buildNodeMetrics(promUrl, clusterName));
+                dashboard.setNodeMetrics(buildNodeMetrics(account, region, promUrl, clusterName));
+                dashboard.setPodResourceMetrics(buildPodResourceMetrics(promUrl, clusterName));
 
                 // Fetch K8s integrations (Kubescape, Trivy, Karpenter)
                 try {
@@ -209,10 +217,14 @@ public class EksDashboardService {
                                         OpenCostDashboard ocDashboard = openCostService.fetchDashboardData(client);
                                         ocDashboard.setClusterName(clusterName);
                                         dashboard.setOpenCost(ocDashboard);
-                                        logger.info("💰 OpenCost data fetched: enabled={}, namespaces={}, dailyCost=${}",
+                                        logger.info(
+                                                "💰 OpenCost data fetched: enabled={}, namespaces={}, dailyCost=${}",
                                                 ocDashboard.isEnabled(),
                                                 ocDashboard.getNamespaceAllocations().size(),
                                                 String.format("%.2f", ocDashboard.getSummary().getTotalDailyCost()));
+
+                                        // Populate namespace and workload costs from OpenCost data
+                                        populateCostAllocationsFromOpenCost(dashboard);
                                     } catch (Exception openCostEx) {
                                         logger.error("❌ Error fetching OpenCost data for cluster: {}", clusterName,
                                                 openCostEx);
@@ -305,6 +317,8 @@ public class EksDashboardService {
         overview.setCpuUsageMillicores(prometheusService.getClusterCpuUsageMillicores(promUrl, clusterName));
         overview.setCpuCapacityMillicores(prometheusService.getClusterCpuCapacityMillicores(promUrl, clusterName));
         overview.setMemoryUsagePercent(prometheusService.getClusterMemoryUsage(promUrl, clusterName));
+        overview.setMemoryUsageBytes(prometheusService.getClusterMemoryUsageBytes(promUrl, clusterName));
+        overview.setMemoryCapacityBytes(prometheusService.getClusterMemoryCapacityBytes(promUrl, clusterName));
 
         return overview;
     }
@@ -334,8 +348,9 @@ public class EksDashboardService {
             }
         }
 
-        // P2: Get node CPU usage for cost allocation weighting
-        Map<String, Double> nodeCpuUsage = prometheusService.getNodeCpuUsage(promUrl, clusterName);
+        // P2: Get node usage and capacity for cost allocation weighting
+        Map<String, Map<String, Double>> nodeCapacityMap = prometheusService.getNodeCapacity(promUrl, clusterName);
+        Map<String, Double> nodeCpuMillicoresMap = prometheusService.getNodeCpuUsageMillicores(promUrl, clusterName);
 
         List<CostMetrics.NodeCost> nodeCosts = new ArrayList<>();
 
@@ -379,7 +394,15 @@ public class EksDashboardService {
                     instanceType,
                     capacityType,
                     nodeGroupName);
-            nc.setCpuUsagePercent(nodeCpuUsage.getOrDefault(nodeName, 0.0));
+
+            // Calculate CPU Usage Percent
+            double cpuUsed = nodeCpuMillicoresMap.getOrDefault(nodeName, 0.0);
+            double cpuCap = nodeCapacityMap.getOrDefault(nodeName, new HashMap<>()).getOrDefault("cpu", 0.0);
+            if (cpuCap > 0) {
+                nc.setCpuUsagePercent((cpuUsed / (cpuCap * 1000)) * 100);
+            } else {
+                nc.setCpuUsagePercent(0.0);
+            }
             nodeCosts.add(nc);
         }
 
@@ -453,7 +476,8 @@ public class EksDashboardService {
     }
 
     /**
-     * P2: Calculate cost allocation per workload (deployment/daemonset) based on resource usage
+     * P2: Calculate cost allocation per workload (deployment/daemonset) based on
+     * resource usage
      */
     private List<CostMetrics.WorkloadCostAllocation> buildWorkloadCostAllocation(
             String promUrl, String clusterName, Double totalDailyCost) {
@@ -461,79 +485,246 @@ public class EksDashboardService {
         List<CostMetrics.WorkloadCostAllocation> allocations = new ArrayList<>();
 
         try {
-            // Get deployment replicas for workload identification
-            Map<String, Double> deploymentReplicas = prometheusService.getDeploymentReplicasDesired(promUrl, clusterName);
-            Map<String, Double> deploymentAvailable = prometheusService.getDeploymentReplicasAvailable(promUrl, clusterName);
+            // Get all workload CPU and Memory usage using robust kube_pod_owner joins
+            List<Map<String, String>> cpuResults = prometheusService.getWorkloadCpuUsage(promUrl, clusterName);
+            List<Map<String, String>> memResults = prometheusService.getWorkloadMemoryUsage(promUrl, clusterName);
 
-            // Get CPU and Memory usage aggregated by deployment
-            Map<String, Map<String, Double>> deploymentCpu = prometheusService.getDeploymentCpuUsage(promUrl, clusterName);
-            Map<String, Map<String, Double>> deploymentMem = prometheusService.getDeploymentMemoryUsage(promUrl, clusterName);
+            // Fetch replication info for pod counts and scaling status
+            Map<String, Double> deploymentReplicas = prometheusService.getDeploymentReplicasDesired(promUrl,
+                    clusterName);
+            Map<String, Double> deploymentAvailable = prometheusService.getDeploymentReplicasAvailable(promUrl,
+                    clusterName);
 
-            // Calculate total cluster resource usage
-            double totalCpu = deploymentCpu.values().stream()
-                    .mapToDouble(m -> m.getOrDefault("cpu", 0.0))
-                    .sum();
-            double totalMem = deploymentMem.values().stream()
-                    .mapToDouble(m -> m.getOrDefault("memory", 0.0))
-                    .sum();
+            // Group metrics by a composite key of namespace/kind/name
+            Map<String, CostMetrics.WorkloadCostAllocation> workloadMap = new HashMap<>();
 
-            // Process deployments
-            for (String deployment : deploymentReplicas.keySet()) {
-                CostMetrics.WorkloadCostAllocation alloc = new CostMetrics.WorkloadCostAllocation();
+            // Process CPU metrics
+            for (Map<String, String> row : cpuResults) {
+                String name = row.get("owner_name");
+                String kind = row.get("owner_kind");
+                String namespace = row.get("namespace");
+                String valStr = row.getOrDefault("value", "0");
 
-                // Parse namespace/name if combined
-                String namespace = "default";
-                String name = deployment;
-                if (deployment.contains("/")) {
-                    String[] parts = deployment.split("/");
-                    namespace = parts[0];
-                    name = parts[1];
+                if (name == null || kind == null || namespace == null)
+                    continue;
+
+                double cpu = 0;
+                try {
+                    cpu = Double.parseDouble(valStr);
+                } catch (Exception e) {
+                    logger.warn("Invalid CPU value: {}", valStr);
                 }
 
-                alloc.setName(name);
-                alloc.setNamespace(namespace);
-                alloc.setKind("Deployment");
-                alloc.setReplicas(deploymentReplicas.getOrDefault(deployment, 0.0).intValue());
-                alloc.setPodCount(deploymentAvailable.getOrDefault(deployment, 0.0).intValue());
+                String key = namespace + "/" + kind + "/" + name;
+                CostMetrics.WorkloadCostAllocation alloc = workloadMap.computeIfAbsent(key, k -> {
+                    CostMetrics.WorkloadCostAllocation a = new CostMetrics.WorkloadCostAllocation();
+                    a.setName(name);
+                    a.setKind(kind);
+                    a.setNamespace(namespace);
+                    a.setCpuUsageMillicores(0.0);
+                    a.setMemoryUsageMb(0.0);
+                    return a;
+                });
+                alloc.setCpuUsageMillicores(cpu);
+            }
 
-                // Get resource usage
-                String key = namespace + "/" + name;
-                Map<String, Double> cpuMetrics = deploymentCpu.getOrDefault(key, new HashMap<>());
-                Map<String, Double> memMetrics = deploymentMem.getOrDefault(key, new HashMap<>());
+            // Process Memory metrics
+            for (Map<String, String> row : memResults) {
+                String name = row.get("owner_name");
+                String kind = row.get("owner_kind");
+                String namespace = row.get("namespace");
+                String valStr = row.getOrDefault("value", "0");
 
-                double cpuUsage = cpuMetrics.getOrDefault("cpu", 0.0);
-                double memUsage = memMetrics.getOrDefault("memory", 0.0);
+                if (name == null || kind == null || namespace == null)
+                    continue;
 
-                alloc.setCpuUsageMillicores(cpuUsage);
-                alloc.setMemoryUsageMb(memUsage);
+                double mem = 0;
+                try {
+                    mem = Double.parseDouble(valStr);
+                } catch (Exception e) {
+                    logger.warn("Invalid Memory value: {}", valStr);
+                }
 
-                // Calculate cost (weighted average of CPU and Memory ratio)
+                String key = namespace + "/" + kind + "/" + name;
+                CostMetrics.WorkloadCostAllocation alloc = workloadMap.computeIfAbsent(key, k -> {
+                    CostMetrics.WorkloadCostAllocation a = new CostMetrics.WorkloadCostAllocation();
+                    a.setName(name);
+                    a.setKind(kind);
+                    a.setNamespace(namespace);
+                    a.setCpuUsageMillicores(0.0);
+                    a.setMemoryUsageMb(0.0);
+                    return a;
+                });
+                alloc.setMemoryUsageMb(mem);
+            }
+
+            // Calculate totals for ratio-based cost distribution - use null-safe double
+            // unboxing
+            double totalCpu = workloadMap.values().stream()
+                    .filter(a -> a.getCpuUsageMillicores() != null)
+                    .mapToDouble(CostMetrics.WorkloadCostAllocation::getCpuUsageMillicores)
+                    .sum();
+            double totalMem = workloadMap.values().stream()
+                    .filter(a -> a.getMemoryUsageMb() != null)
+                    .mapToDouble(CostMetrics.WorkloadCostAllocation::getMemoryUsageMb)
+                    .sum();
+
+            // Enrich with pod counts/replicas and calculate costs
+            for (CostMetrics.WorkloadCostAllocation alloc : workloadMap.values()) {
+                String name = alloc.getName();
+                String namespace = alloc.getNamespace();
+                String deployKey = namespace + "/" + name;
+
+                if ("Deployment".equalsIgnoreCase(alloc.getKind())) {
+                    if (deploymentReplicas != null) {
+                        alloc.setReplicas(deploymentReplicas.getOrDefault(deployKey, 0.0).intValue());
+                    }
+                    if (deploymentAvailable != null) {
+                        alloc.setPodCount(deploymentAvailable.getOrDefault(deployKey, 0.0).intValue());
+                    }
+                }
+
+                // Weighted cost allocation: 50% CPU, 50% Memory ratio
+                double cpuUsage = alloc.getCpuUsageMillicores() != null ? alloc.getCpuUsageMillicores() : 0.0;
+                double memUsage = alloc.getMemoryUsageMb() != null ? alloc.getMemoryUsageMb() : 0.0;
+
                 double cpuRatio = totalCpu > 0 ? cpuUsage / totalCpu : 0;
                 double memRatio = totalMem > 0 ? memUsage / totalMem : 0;
-                double costFraction = (cpuRatio + memRatio) / 2;
+                double costFraction = (cpuRatio + memRatio) / 2.0;
 
-                double workloadDailyCost = totalDailyCost != null ? totalDailyCost * costFraction : 0;
-                alloc.setDailyCost(Math.round(workloadDailyCost * 100.0) / 100.0);
-                alloc.setMonthlyCost(Math.round(workloadDailyCost * 30 * 100.0) / 100.0);
+                double dailyCost = totalDailyCost != null ? totalDailyCost * costFraction : 0;
+                alloc.setDailyCost(Math.round(dailyCost * 100.0) / 100.0);
+                alloc.setMonthlyCost(Math.round(dailyCost * 30 * 100.0) / 100.0);
 
-                if (alloc.getDailyCost() > 0 || alloc.getReplicas() > 0) {
+                if (alloc.getDailyCost() > 0 || cpuUsage > 0) {
                     allocations.add(alloc);
                 }
             }
 
             // Sort by daily cost descending
-            allocations.sort((a, b) -> Double.compare(b.getDailyCost(), a.getDailyCost()));
+            allocations.sort((a, b) -> Double.compare(
+                    b.getDailyCost() != null ? b.getDailyCost() : 0.0,
+                    a.getDailyCost() != null ? a.getDailyCost() : 0.0));
 
-            // Limit to top 50 workloads
-            if (allocations.size() > 50) {
-                allocations = allocations.subList(0, 50);
+            // Limit results to preserve performance
+            if (allocations.size() > 60) {
+                allocations = new ArrayList<>(allocations.subList(0, 60));
             }
 
         } catch (Exception e) {
-            logger.error("Error building workload cost allocation: {}", e.getMessage());
+            logger.error("Error building workload cost allocation with owner-joins: {}", e.getMessage(), e);
         }
 
         return allocations;
+    }
+
+    /**
+     * Populate namespace and workload cost allocations from OpenCost data
+     * This should be called AFTER OpenCost data is fetched
+     */
+    private void populateCostAllocationsFromOpenCost(EksCompleteDashboardDto dashboard) {
+        if (dashboard == null || dashboard.getCostMetrics() == null) {
+            return;
+        }
+
+        OpenCostDashboard openCost = dashboard.getOpenCost();
+        if (openCost == null || !openCost.isEnabled()) {
+            logger.debug("OpenCost data not available, keeping Prometheus-based cost allocations");
+            return;
+        }
+
+        CostMetrics costMetrics = dashboard.getCostMetrics();
+
+        try {
+            // Convert OpenCost NamespaceAllocations to CostMetrics.NamespaceCostAllocation
+            List<CostMetrics.NamespaceCostAllocation> namespaceCosts = new ArrayList<>();
+            for (OpenCostDashboard.NamespaceAllocation na : openCost.getNamespaceAllocations()) {
+                if (na.getNamespace() == null || na.getNamespace().contains("__idle__")
+                        || na.getNamespace().contains("__unallocated__")) {
+                    continue;
+                }
+
+                CostMetrics.NamespaceCostAllocation alloc = new CostMetrics.NamespaceCostAllocation();
+                alloc.setNamespace(na.getNamespace());
+
+                // Convert costs from OpenCost data window to daily cost
+                double totalCost = na.getTotalCost() != null ? na.getTotalCost() : 0.0;
+                double minutes = na.getMinutes() != null ? na.getMinutes() : 0.0;
+                double dailyCost = totalCost;
+                if (minutes > 0 && minutes < 1440) { // If less than 24h, extrapolate
+                    dailyCost = (totalCost / minutes) * 1440; // Convert to 24h
+                }
+
+                alloc.setDailyCost(Math.round(dailyCost * 100.0) / 100.0);
+                alloc.setMonthlyCost(Math.round(dailyCost * 30 * 100.0) / 100.0);
+
+                // CPU and Memory usage (convert from cores/bytes to millicores/MB)
+                double cpuCores = na.getCpuCoreUsageAverage() != null ? na.getCpuCoreUsageAverage() : 0.0;
+                double ramBytes = na.getRamByteUsageAverage() != null ? na.getRamByteUsageAverage() : 0.0;
+
+                alloc.setCpuUsageMillicores(cpuCores * 1000); // cores to millicores
+                alloc.setMemoryUsageMb(ramBytes / (1024 * 1024)); // bytes to MB
+
+                // Pod count (estimate if not available)
+                alloc.setPodCount(0); // OpenCost namespace data doesn't have pod count
+
+                // Cost percentage
+                alloc.setCostPercentage(na.getCostPercentage() != null ? na.getCostPercentage() : 0.0);
+
+                namespaceCosts.add(alloc);
+            }
+
+            // Sort by daily cost descending
+            namespaceCosts.sort((a, b) -> Double.compare(b.getDailyCost(), a.getDailyCost()));
+            costMetrics.setNamespaceCosts(namespaceCosts);
+            logger.info("✅ Populated {} namespace cost allocations from OpenCost", namespaceCosts.size());
+
+            // Convert OpenCost ControllerAllocations to CostMetrics.WorkloadCostAllocation
+            List<CostMetrics.WorkloadCostAllocation> workloadCosts = new ArrayList<>();
+            for (OpenCostDashboard.ControllerAllocation ca : openCost.getControllerAllocations()) {
+                if (ca.getController() == null || ca.getController().contains("__idle__")
+                        || ca.getController().contains("__unallocated__")) {
+                    continue;
+                }
+
+                CostMetrics.WorkloadCostAllocation alloc = new CostMetrics.WorkloadCostAllocation();
+                alloc.setName(ca.getController());
+                alloc.setNamespace(ca.getNamespace() != null ? ca.getNamespace() : "default");
+                alloc.setKind(ca.getControllerKind() != null ? ca.getControllerKind() : "Unknown");
+
+                // Convert costs from OpenCost data window to daily cost
+                double totalCost = ca.getTotalCost() != null ? ca.getTotalCost() : 0.0;
+                double minutes = ca.getMinutes() != null ? ca.getMinutes() : 0.0;
+                double dailyCost = totalCost;
+                if (minutes > 0 && minutes < 1440) { // If less than 24h, extrapolate
+                    dailyCost = (totalCost / minutes) * 1440; // Convert to 24h
+                }
+
+                alloc.setDailyCost(Math.round(dailyCost * 100.0) / 100.0);
+                alloc.setMonthlyCost(Math.round(dailyCost * 30 * 100.0) / 100.0);
+
+                // CPU and Memory usage (convert from cores/bytes to millicores/MB)
+                double cpuCores = ca.getCpuCoreUsageAverage() != null ? ca.getCpuCoreUsageAverage() : 0.0;
+                double ramBytes = ca.getRamByteUsageAverage() != null ? ca.getRamByteUsageAverage() : 0.0;
+
+                alloc.setCpuUsageMillicores(cpuCores * 1000); // cores to millicores
+                alloc.setMemoryUsageMb(ramBytes / (1024 * 1024)); // bytes to MB
+
+                // Pod count and replicas
+                alloc.setPodCount(ca.getPodCount() != null ? ca.getPodCount() : 0);
+                alloc.setReplicas(null); // Not available in OpenCost data
+
+                workloadCosts.add(alloc);
+            }
+
+            // Sort by daily cost descending
+            workloadCosts.sort((a, b) -> Double.compare(b.getDailyCost(), a.getDailyCost()));
+            costMetrics.setWorkloadCosts(workloadCosts);
+            logger.info("✅ Populated {} workload cost allocations from OpenCost", workloadCosts.size());
+
+        } catch (Exception e) {
+            logger.error("Error populating cost allocations from OpenCost: {}", e.getMessage(), e);
+        }
     }
 
     private SecurityMetrics buildSecurityMetrics(String promUrl, String clusterName) {
@@ -623,14 +814,27 @@ public class EksDashboardService {
         Map<String, Map<String, Double>> nodeAllocatable = prometheusService.getNodeAllocatable(promUrl, clusterName);
         Map<String, String> nodeConditions = prometheusService.getNodeConditions(promUrl, clusterName);
         Map<String, Double> nodeCostsByInstanceId = prometheusService.getNodeCostPerHour(promUrl, clusterName);
-        Map<String, Double> nodeCpuUsage = prometheusService.getNodeCpuUsage(promUrl, clusterName);
         Map<String, Double> nodeCpuMillicores = prometheusService.getNodeCpuUsageMillicores(promUrl, clusterName);
-        Map<String, Double> nodeMemUsage = prometheusService.getNodeMemoryUsage(promUrl, clusterName);
+        Map<String, Double> nodeMemUsageBytes = prometheusService.getNodeMemoryUsageBytes(promUrl, clusterName);
+        Map<String, Double> nodeCpuRequests = prometheusService.getNodeCpuRequests(promUrl, clusterName);
+        Map<String, Double> nodeMemRequests = prometheusService.getNodeMemoryRequests(promUrl, clusterName);
+        Map<String, String> nodeCapacityTypes = prometheusService.getNodeCapacityTypes(promUrl, clusterName);
+
+        // Get node labels to extract instance type and other metadata
+        List<Map<String, String>> nodeLabels = prometheusService.getNodeLabels(promUrl, clusterName);
+        Map<String, Map<String, String>> nodeLabelMap = new HashMap<>();
+        for (Map<String, String> label : nodeLabels) {
+            String nodeName = label.get("node");
+            if (nodeName != null) {
+                nodeLabelMap.put(nodeName, label);
+            }
+        }
 
         logger.info("🔍 Node capacity keys: {}", nodeCapacity.keySet());
         logger.info("🔍 Node allocatable keys: {}", nodeAllocatable.keySet());
         logger.info("🔍 Node conditions keys: {}", nodeConditions.keySet());
         logger.info("🔍 Node costs (by instanceId) keys: {}", nodeCostsByInstanceId.keySet());
+        logger.info("🔍 Node labels: {} nodes found", nodeLabelMap.size());
 
         List<ResourceUtilization.NodeResource> nodes = new ArrayList<>();
 
@@ -640,52 +844,92 @@ public class EksDashboardService {
 
             logger.info("🔍 Processing node: {}, providerId: {}", nodeName, providerId);
 
+            String condition = nodeConditions.getOrDefault(nodeName, "Unknown");
+            // Allow all nodes to be returned; frontend will handle filtering
+            logger.debug("Node {} has condition: {}", nodeName, condition);
+
             String instanceId = null;
             if (providerId != null && providerId.contains("/i-")) {
                 instanceId = providerId.substring(providerId.lastIndexOf("/") + 1);
                 logger.info("🔍 Extracted instanceId: {}", instanceId);
             }
 
-            ResourceUtilization.NodeResource nodeRes = new ResourceUtilization.NodeResource();
-            nodeRes.setNodeName(nodeName);
-            nodeRes.setInstanceType("t3.medium");
-            nodeRes.setZone(extractZone(providerId));
-            nodeRes.setCondition(nodeConditions.getOrDefault(nodeName, "Unknown"));
-            nodeRes.setCpuUsagePercent(nodeCpuUsage.getOrDefault(nodeName, 0.0));
-            nodeRes.setCpuUsageMillicores(nodeCpuMillicores.getOrDefault(nodeName, 0.0));
-            nodeRes.setMemoryUsagePercent(nodeMemUsage.getOrDefault(nodeName, 0.0));
-
-            // Set capacity values
-            if (nodeCapacity.containsKey(nodeName)) {
-                Map<String, Double> capacity = nodeCapacity.get(nodeName);
-                nodeRes.setCpuCapacity(capacity.getOrDefault("cpu", 0.0));
-                nodeRes.setMemoryCapacity(capacity.getOrDefault("memory", 0.0));
-                nodeRes.setPodsCapacity(capacity.getOrDefault("pods", 0.0));
-                logger.info("✅ Set capacity for node {}", nodeName);
+            // Extract instance type from node labels
+            String instanceType = "Unknown";
+            Map<String, String> labels = nodeLabelMap.get(nodeName);
+            if (labels != null && labels.containsKey("label_node_kubernetes_io_instance_type")) {
+                instanceType = labels.get("label_node_kubernetes_io_instance_type");
+                logger.info("✅ Extracted instance type for node {}: {}", nodeName, instanceType);
             } else {
-                logger.warn("⚠️ No capacity data for node: {}", nodeName);
-                nodeRes.setCpuCapacity(0.0);
-                nodeRes.setMemoryCapacity(0.0);
-                nodeRes.setPodsCapacity(0.0);
+                logger.warn("⚠️ Instance type label not found for node: {}", nodeName);
             }
 
-            // Set allocatable values
-            if (nodeAllocatable.containsKey(nodeName)) {
-                Map<String, Double> allocatable = nodeAllocatable.get(nodeName);
-                nodeRes.setCpuAllocatable(allocatable.getOrDefault("cpu", 0.0));
-                nodeRes.setMemoryAllocatable(allocatable.getOrDefault("memory", 0.0));
-                nodeRes.setPodsAllocatable(allocatable.getOrDefault("pods", 0.0));
-                logger.info("✅ Set allocatable for node {}", nodeName);
+            ResourceUtilization.NodeResource node = new ResourceUtilization.NodeResource();
+            node.setNodeName(nodeName);
+            node.setInstanceType(instanceType);
+            node.setZone(extractZone(providerId));
+            node.setCondition(condition);
+
+            // Fetch capacity
+            Map<String, Double> capacity = nodeCapacity.getOrDefault(nodeName, new HashMap<>());
+            double cpuCap = capacity.getOrDefault("cpu", 0.0); // in cores
+            double memCap = capacity.getOrDefault("memory", 0.0); // in GB
+            node.setCpuCapacity(cpuCap);
+            node.setMemoryCapacity(memCap);
+
+            // Fetch allocatable
+            Map<String, Double> allocatable = nodeAllocatable.getOrDefault(nodeName, new HashMap<>());
+            node.setCpuAllocatable(allocatable.getOrDefault("cpu", 0.0));
+            node.setMemoryAllocatable(allocatable.getOrDefault("memory", 0.0));
+            node.setPodsCapacity(capacity.getOrDefault("pods", 0.0));
+            node.setPodsAllocatable(allocatable.getOrDefault("pods", 0.0));
+            node.setHourlyCost(nodeCostsByInstanceId.getOrDefault(instanceId, 0.0));
+
+            // Set usage from millicores/bytes and calculate percentage
+            double cpuUsed = nodeCpuMillicores.getOrDefault(nodeName, 0.0); // in millicores
+            node.setCpuUsageMillicores(cpuUsed);
+            if (cpuCap > 0) {
+                node.setCpuUsagePercent((cpuUsed / (cpuCap * 1000)) * 100);
             } else {
-                logger.warn("⚠️ No allocatable data for node: {}", nodeName);
-                nodeRes.setCpuAllocatable(0.0);
-                nodeRes.setMemoryAllocatable(0.0);
-                nodeRes.setPodsAllocatable(0.0);
+                node.setCpuUsagePercent(0.0);
             }
 
-            nodeRes.setHourlyCost(instanceId != null ? nodeCostsByInstanceId.getOrDefault(instanceId, 0.0) : 0.0);
+            double memUsedBytes = nodeMemUsageBytes.getOrDefault(nodeName, 0.0); // in bytes
+            node.setMemoryUsageMB(memUsedBytes / (1024 * 1024)); // bytes to MB
+            if (memCap > 0) {
+                double memCapBytes = memCap * 1024 * 1024 * 1024; // GB to bytes
+                node.setMemoryUsagePercent((memUsedBytes / memCapBytes) * 100);
+            } else {
+                node.setMemoryUsagePercent(0.0);
+            }
 
-            nodes.add(nodeRes);
+            double cpuReq = nodeCpuRequests.getOrDefault(nodeName, 0.0);
+            node.setCpuRequests(cpuReq);
+            if (cpuCap > 0) {
+                node.setCpuRequestsPercent((cpuReq / (cpuCap * 1000)) * 100);
+            } else {
+                node.setCpuRequestsPercent(0.0);
+            }
+
+            double memReq = nodeMemRequests.getOrDefault(nodeName, 0.0);
+            node.setMemoryRequests(memReq / (1024 * 1024)); // bytes to MB
+            if (memCap > 0) {
+                double memCapBytes = memCap * 1024 * 1024 * 1024;
+                node.setMemoryRequestsPercent((memReq / memCapBytes) * 100);
+            } else {
+                node.setMemoryRequestsPercent(0.0);
+            }
+
+            // Set Capacity Type
+            String capType = nodeCapacityTypes.getOrDefault(nodeName, "on-demand");
+            if (capType == null && labels != null) {
+                capType = labels.get("label_eks_amazonaws_com_capacityType");
+                if (capType == null)
+                    capType = labels.get("label_karpenter_sh_capacity_type");
+            }
+            node.setCapacityType(capType != null ? capType : "on-demand");
+
+            nodes.add(node);
             logger.info("✅ Added node {} to resource list (total now: {})", nodeName, nodes.size());
         }
 
@@ -701,6 +945,50 @@ public class EksDashboardService {
         workload.setPods(buildPodHealth(promUrl, clusterName));
         workload.setDeployments(buildDeploymentHealth(promUrl, clusterName));
         workload.setDaemonsets(buildDaemonsetHealth(promUrl, clusterName));
+        workload.setStatefulsets(buildStatefulsetHealth(promUrl, clusterName));
+
+        // ✅ Calculate Cluster Health Score
+        // Formula: (Healthy Resources / Total Resources) * 100
+        double totalResources = 0;
+        double healthyResources = 0;
+
+        // 1. Pods
+        if (workload.getPods() != null) {
+            totalResources += workload.getPods().size();
+            healthyResources += workload.getPods().stream()
+                    .filter(p -> Boolean.TRUE.equals(p.getReady()) && !"Failed".equals(p.getPhase()))
+                    .count();
+        }
+
+        // 2. Deployments
+        if (workload.getDeployments() != null) {
+            totalResources += workload.getDeployments().size();
+            healthyResources += workload.getDeployments().stream()
+                    .filter(d -> d.getUnavailable() == null || d.getUnavailable() == 0)
+                    .count();
+        }
+
+        // 3. DaemonSets
+        if (workload.getDaemonsets() != null) {
+            totalResources += workload.getDaemonsets().size();
+            healthyResources += workload.getDaemonsets().stream()
+                    .filter(ds -> ds.getUnavailable() == null || ds.getUnavailable() == 0)
+                    .count();
+        }
+
+        // 4. StatefulSets
+        if (workload.getStatefulsets() != null) {
+            totalResources += workload.getStatefulsets().size();
+            healthyResources += workload.getStatefulsets().stream()
+                    .filter(ss -> ss.getReady() != null && ss.getDesired() != null && ss.getReady() >= ss.getDesired())
+                    .count();
+        }
+
+        if (totalResources > 0) {
+            workload.setClusterHealthScore((healthyResources / totalResources) * 100.0);
+        } else {
+            workload.setClusterHealthScore(100.0); // Default to 100 if no resources (fresh cluster)
+        }
 
         return workload;
     }
@@ -714,8 +1002,19 @@ public class EksDashboardService {
         List<Map<String, String>> podInfoList = prometheusService.getPodInfo(promUrl, clusterName);
         Map<String, String> podPhases = prometheusService.getPodStatusPhase(promUrl, clusterName);
         Map<String, Boolean> podReady = prometheusService.getPodContainerStatus(promUrl, clusterName);
-        Map<String, Double> podCpu = prometheusService.getPodCpuUsage(promUrl, clusterName);
+        Map<String, Map<String, String>> podOwners = prometheusService.getPodOwner(promUrl, clusterName);
+        Map<String, Double> podRestarts = prometheusService.getPodRestarts(promUrl, clusterName);
+        Map<String, Double> podCreationTimes = prometheusService.getPodCreationTime(promUrl, clusterName);
+
+        // Use container-based pod usage for consistency with container metrics
+        Map<String, Double> podCpu = prometheusService.getPodCpuUsageFromContainers(promUrl, clusterName);
         Map<String, Double> podMem = prometheusService.getPodMemoryUsage(promUrl, clusterName);
+
+        // Requests and Limits
+        Map<String, Double> podCpuRequests = prometheusService.getPodCpuRequests(promUrl, clusterName);
+        Map<String, Double> podMemRequests = prometheusService.getPodMemoryRequests(promUrl, clusterName);
+        Map<String, Double> podCpuLimits = prometheusService.getPodCpuLimits(promUrl, clusterName);
+        Map<String, Double> podMemLimits = prometheusService.getPodMemoryLimits(promUrl, clusterName);
 
         Map<String, Double> containerCpu = prometheusService.getContainerCpuUsage(promUrl, clusterName);
         Map<String, Double> containerMem = prometheusService.getContainerMemoryUsage(promUrl, clusterName);
@@ -752,9 +1051,33 @@ public class EksDashboardService {
             pod.setPhase(podPhases.getOrDefault(podName, "Unknown"));
             pod.setNode(podInfo.get("node"));
             pod.setReady(podReady.getOrDefault(podName, false));
-            pod.setRestarts(0);
+            pod.setRestarts(podRestarts.getOrDefault(podName, 0.0).intValue());
             pod.setCpuUsage(podCpu.getOrDefault(podName, 0.0));
             pod.setMemoryUsage(podMem.getOrDefault(podName, 0.0));
+
+            pod.setPodIp(podInfo.get("pod_ip"));
+
+            // Convert creation timestamp to age string
+            Double creationTimestamp = podCreationTimes.get(podName);
+            if (creationTimestamp != null) {
+                long ageSeconds = (long) (System.currentTimeMillis() / 1000.0 - creationTimestamp);
+                pod.setAge(formatAge(ageSeconds));
+            } else {
+                pod.setAge("N/A");
+            }
+
+            // Owner information
+            Map<String, String> owner = podOwners.get(podName);
+            if (owner != null) {
+                pod.setOwnerKind(owner.get("kind"));
+                pod.setOwnerName(owner.get("name"));
+            }
+
+            // Requests and limits
+            pod.setCpuRequest(podCpuRequests.getOrDefault(podName, 0.0));
+            pod.setMemoryRequest(podMemRequests.getOrDefault(podName, 0.0));
+            pod.setCpuLimit(podCpuLimits.getOrDefault(podName, 0.0));
+            pod.setMemoryLimit(podMemLimits.getOrDefault(podName, 0.0));
 
             List<WorkloadHealth.PodHealth.ContainerMetrics> containers = new ArrayList<>();
             int matchCount = 0;
@@ -843,7 +1166,8 @@ public class EksDashboardService {
 
         // P1: Get resource usage for deployments
         Map<String, Map<String, Double>> deploymentCpu = prometheusService.getDeploymentCpuUsage(promUrl, clusterName);
-        Map<String, Map<String, Double>> deploymentMem = prometheusService.getDeploymentMemoryUsage(promUrl, clusterName);
+        Map<String, Map<String, Double>> deploymentMem = prometheusService.getDeploymentMemoryUsage(promUrl,
+                clusterName);
 
         List<WorkloadHealth.DeploymentHealth> deployments = new ArrayList<>();
 
@@ -927,7 +1251,8 @@ public class EksDashboardService {
 
         // P1: Get resource usage for daemonsets
         Map<String, Map<String, Double>> daemonsetCpu = prometheusService.getDeploymentCpuUsage(promUrl, clusterName);
-        Map<String, Map<String, Double>> daemonsetMem = prometheusService.getDeploymentMemoryUsage(promUrl, clusterName);
+        Map<String, Map<String, Double>> daemonsetMem = prometheusService.getDeploymentMemoryUsage(promUrl,
+                clusterName);
 
         List<WorkloadHealth.DaemonsetHealth> daemonsets = new ArrayList<>();
 
@@ -990,6 +1315,90 @@ public class EksDashboardService {
         }
 
         return daemonsets;
+    }
+
+    private List<WorkloadHealth.StatefulSetHealth> buildStatefulsetHealth(String promUrl, String clusterName) {
+        Map<String, Double> desired = prometheusService.getStatefulsetReplicasDesired(promUrl, clusterName);
+        Map<String, Double> ready = prometheusService.getStatefulsetReplicasReady(promUrl, clusterName);
+
+        // Get statefulset info with namespaces for lookup
+        List<Map<String, String>> statefulsetInfo = prometheusService.getClusterStatefulsets(promUrl, clusterName);
+        Map<String, String> statefulsetNamespaces = new HashMap<>();
+        for (Map<String, String> info : statefulsetInfo) {
+            String name = info.get("statefulset");
+            String ns = info.get("namespace");
+            if (name != null && ns != null) {
+                statefulsetNamespaces.put(name, ns);
+            }
+        }
+
+        // Get resource usage for statefulsets (reuse deployment logic as it aggregates
+        // from pods by name)
+        Map<String, Map<String, Double>> statefulsetCpu = prometheusService.getDeploymentCpuUsage(promUrl, clusterName);
+        Map<String, Map<String, Double>> statefulsetMem = prometheusService.getDeploymentMemoryUsage(promUrl,
+                clusterName);
+
+        List<WorkloadHealth.StatefulSetHealth> statefulsets = new ArrayList<>();
+
+        // Iterate over desired statefulsets
+        for (String statefulsetName : desired.keySet()) {
+            String namespace = statefulsetNamespaces.getOrDefault(statefulsetName, "default");
+
+            WorkloadHealth.StatefulSetHealth statefulset = new WorkloadHealth.StatefulSetHealth();
+            statefulset.setName(statefulsetName);
+            statefulset.setNamespace(namespace);
+
+            int desiredCount = desired.getOrDefault(statefulsetName, 0.0).intValue();
+            int readyCount = ready.getOrDefault(statefulsetName, 0.0).intValue();
+
+            statefulset.setDesired(desiredCount);
+            statefulset.setReady(readyCount);
+            statefulset.setUpdated(readyCount); // Simplification, same as deployment current
+
+            // Set replica counts
+            statefulset.setReplicas(desiredCount);
+            statefulset.setReadyReplicas(readyCount);
+
+            // Set resource usage - try multiple key formats
+            String key = namespace + "/" + statefulsetName;
+            Map<String, Double> cpuMetrics = statefulsetCpu.getOrDefault(key, new HashMap<>());
+            Map<String, Double> memMetrics = statefulsetMem.getOrDefault(key, new HashMap<>());
+
+            // If not found, try with partial match (StatefulSets usually don't have RS
+            // suffix but have ordinal index)
+            if (cpuMetrics.isEmpty()) {
+                for (String k : statefulsetCpu.keySet()) {
+                    if (k.startsWith(namespace + "/") && k.contains(statefulsetName)) {
+                        cpuMetrics = statefulsetCpu.get(k);
+                        break;
+                    }
+                }
+            }
+            if (memMetrics.isEmpty()) {
+                for (String k : statefulsetMem.keySet()) {
+                    if (k.startsWith(namespace + "/") && k.contains(statefulsetName)) {
+                        memMetrics = statefulsetMem.get(k);
+                        break;
+                    }
+                }
+            }
+
+            statefulset.setCpuUsageMillicores(cpuMetrics.getOrDefault("cpu", 0.0));
+            statefulset.setMemoryUsageMb(memMetrics.getOrDefault("memory", 0.0));
+
+            // Health score calculation
+            double healthScore;
+            if (desiredCount == 0) {
+                healthScore = readyCount == 0 ? 100.0 : 0.0;
+            } else {
+                healthScore = (readyCount * 100.0 / desiredCount);
+            }
+            statefulset.setHealthScore(healthScore);
+
+            statefulsets.add(statefulset);
+        }
+
+        return statefulsets;
     }
 
     private String extractZone(String providerId) {
@@ -1116,30 +1525,53 @@ public class EksDashboardService {
      * placement
      * Shows detailed information like Cast.ai node view
      */
-    private List<EksCompleteDashboardDto.NodeDetail> buildNodeDetails(String promUrl, String clusterName) {
+    private List<EksCompleteDashboardDto.NodeDetail> buildNodeDetails(CloudAccount account, String region,
+            String promUrl, String clusterName) {
         logger.info("🔍 === BUILDING COMPREHENSIVE NODE DETAILS ===");
 
         List<Map<String, String>> nodeInfoList = prometheusService.getNodeInfo(promUrl, clusterName);
         Map<String, Map<String, Double>> nodeCapacity = prometheusService.getNodeCapacity(promUrl, clusterName);
         Map<String, Map<String, Double>> nodeAllocatable = prometheusService.getNodeAllocatable(promUrl, clusterName);
         Map<String, String> nodeConditions = prometheusService.getNodeConditions(promUrl, clusterName);
-        Map<String, Double> nodeCpuUsage = prometheusService.getNodeCpuUsage(promUrl, clusterName);
         Map<String, Double> nodeCpuMillicores = prometheusService.getNodeCpuUsageMillicores(promUrl, clusterName);
-        Map<String, Double> nodeMemUsage = prometheusService.getNodeMemoryUsage(promUrl, clusterName);
+        Map<String, Double> nodeMemUsageBytes = prometheusService.getNodeMemoryUsageBytes(promUrl, clusterName);
+        Map<String, Double> nodeCpuRequests = prometheusService.getNodeCpuRequests(promUrl, clusterName);
+        Map<String, Double> nodeMemRequests = prometheusService.getNodeMemoryRequests(promUrl, clusterName);
 
         // ✅ NEW: Get all node conditions (Ready, DiskPressure, MemoryPressure,
         // PIDPressure)
         Map<String, List<String>> allNodeConditions = prometheusService.getNodeAllConditions(promUrl, clusterName);
 
+        // ✅ NEW: Get enhanced node data
+        Map<String, String> nodeCapacityTypes = prometheusService.getNodeCapacityTypes(promUrl, clusterName);
+        Map<String, String> nodeGroups = prometheusService.getNodeGroups(promUrl, clusterName);
+        Map<String, Boolean> nodePIDPressure = prometheusService.getNodePIDPressure(promUrl, clusterName);
+
+        // Get node labels for instance type extraction
+        List<Map<String, String>> nodeLabels = prometheusService.getNodeLabels(promUrl, clusterName);
+        Map<String, Map<String, String>> nodeLabelMap = new HashMap<>();
+        for (Map<String, String> label : nodeLabels) {
+            String nodeName = label.get("node");
+            if (nodeName != null) {
+                nodeLabelMap.put(nodeName, label);
+            }
+        }
+
         // ✅ NEW: Get pods per node
         List<Map<String, String>> podInfoList = prometheusService.getPodInfo(promUrl, clusterName);
         Map<String, List<String>> podsPerNode = new HashMap<>();
+        Map<String, Integer> runningPodsPerNode = new HashMap<>();
         for (Map<String, String> podInfo : podInfoList) {
             String nodeName = podInfo.get("node");
             String podName = podInfo.get("pod");
             String namespace = podInfo.get("namespace");
+            String phase = podInfo.get("phase");
             podsPerNode.computeIfAbsent(nodeName, k -> new ArrayList<>())
                     .add(namespace + "/" + podName);
+            // Count running pods
+            if ("Running".equalsIgnoreCase(phase)) {
+                runningPodsPerNode.put(nodeName, runningPodsPerNode.getOrDefault(nodeName, 0) + 1);
+            }
         }
 
         List<EksCompleteDashboardDto.NodeDetail> nodes = new ArrayList<>();
@@ -1166,10 +1598,14 @@ public class EksDashboardService {
             node.setZone(extractZone(providerId));
 
             // ✅ Capacity
+            double cpuCap = 0.0;
+            double memCap = 0.0;
             if (nodeCapacity.containsKey(nodeName)) {
                 Map<String, Double> capacity = nodeCapacity.get(nodeName);
-                node.setCpuCapacity(capacity.getOrDefault("cpu", 0.0));
-                node.setMemoryCapacity(capacity.getOrDefault("memory", 0.0));
+                cpuCap = capacity.getOrDefault("cpu", 0.0);
+                memCap = capacity.getOrDefault("memory", 0.0);
+                node.setCpuCapacity(cpuCap);
+                node.setMemoryCapacity(memCap);
                 node.setPodsCapacity(capacity.getOrDefault("pods", 0.0).intValue());
             }
 
@@ -1181,25 +1617,148 @@ public class EksDashboardService {
                 node.setPodsAllocatable(allocatable.getOrDefault("pods", 0.0).intValue());
             }
 
-            // ✅ Current usage
-            node.setCpuUsagePercent(nodeCpuUsage.getOrDefault(nodeName, 0.0));
-            node.setCpuUsageMillicores(nodeCpuMillicores.getOrDefault(nodeName, 0.0));
-            node.setMemoryUsagePercent(nodeMemUsage.getOrDefault(nodeName, 0.0));
+            // ✅ Current usage (calculate percentage from millicores/bytes manually)
+            double cpuUsedMillicores = nodeCpuMillicores.getOrDefault(nodeName, 0.0);
+            node.setCpuUsageMillicores(cpuUsedMillicores);
+            if (cpuCap > 0) {
+                node.setCpuUsagePercent((cpuUsedMillicores / (cpuCap * 1000)) * 100);
+            } else {
+                node.setCpuUsagePercent(0.0);
+            }
+
+            double memUsedBytes = nodeMemUsageBytes.getOrDefault(nodeName, 0.0);
+            // node.setMemoryUsageBytes(memUsedBytes); // Add if field exists in DTO
+            if (memCap > 0) {
+                double memCapBytes = memCap * 1024 * 1024 * 1024;
+                node.setMemoryUsagePercent((memUsedBytes / memCapBytes) * 100);
+            } else {
+                node.setMemoryUsagePercent(0.0);
+            }
+
+            // ✅ Requests
+            double cpuReq = nodeCpuRequests.getOrDefault(nodeName, 0.0);
+            node.setCpuRequests(cpuReq);
+            if (cpuCap > 0) {
+                node.setCpuRequestsPercent((cpuReq / (cpuCap * 1000)) * 100);
+            } else {
+                node.setCpuRequestsPercent(0.0);
+            }
+
+            double memReq = nodeMemRequests.getOrDefault(nodeName, 0.0);
+            node.setMemoryRequests(memReq / (1024 * 1024)); // bytes to MB
+            if (memCap > 0) {
+                double memCapBytes = memCap * 1024 * 1024 * 1024;
+                node.setMemoryRequestsPercent((memReq / memCapBytes) * 100);
+            } else {
+                node.setMemoryRequestsPercent(0.0);
+            }
 
             // ✅ Conditions (Ready, DiskPressure, MemoryPressure, PIDPressure)
             List<String> conditions = allNodeConditions.getOrDefault(nodeName, new ArrayList<>());
             node.setConditions(conditions);
 
+            // ✅ NEW: Enhanced node fields
+            node.setCapacityType(nodeCapacityTypes.getOrDefault(nodeName, "unknown"));
+            node.setNodeGroup(nodeGroups.getOrDefault(nodeName, null));
+            node.setPidPressure(nodePIDPressure.getOrDefault(nodeName, false));
+
+            // Extract pressure conditions from allNodeConditions
+            node.setDiskPressure(conditions.contains("DiskPressure"));
+            node.setMemoryPressure(conditions.contains("MemoryPressure"));
+
+            // ✅ Instance type from node labels
+            if (nodeLabelMap.containsKey(nodeName)) {
+                Map<String, String> labels = nodeLabelMap.get(nodeName);
+                node.setInstanceType(labels.getOrDefault("label_node_kubernetes_io_instance_type", "Unknown"));
+            } else {
+                node.setInstanceType("Unknown");
+            }
+
+            // ✅ System reserved resources (calculated from capacity - allocatable)
+            if (nodeCapacity.containsKey(nodeName) && nodeAllocatable.containsKey(nodeName)) {
+                Map<String, Double> capacity = nodeCapacity.get(nodeName);
+                Map<String, Double> allocatable = nodeAllocatable.get(nodeName);
+                node.setSystemReservedCpu(capacity.getOrDefault("cpu", 0.0) - allocatable.getOrDefault("cpu", 0.0));
+                node.setSystemReservedMemory(
+                        capacity.getOrDefault("memory", 0.0) - allocatable.getOrDefault("memory", 0.0));
+            }
+
             // ✅ Pods on this node
             List<String> pods = podsPerNode.getOrDefault(nodeName, new ArrayList<>());
             node.setPods(pods);
             node.setPodCount(pods.size());
+            node.setRunningPodsCount(runningPodsPerNode.getOrDefault(nodeName, 0));
 
             nodes.add(node);
         }
 
+        // ✅ NEW: Enrich nodes with AWS Metadata (IAM Role, Subnets, Security Groups)
+        enrichNodesWithAwsMetadata(account, region, nodes);
+
         logger.info("✅ Built {} node details with conditions and pod placement", nodes.size());
         return nodes;
+    }
+
+    /**
+     * Enrich nodes with metadata from AWS EC2 API
+     */
+    private void enrichNodesWithAwsMetadata(CloudAccount account, String region,
+            List<EksCompleteDashboardDto.NodeDetail> nodes) {
+        try {
+            List<String> instanceIds = nodes.stream()
+                    .map(EksCompleteDashboardDto.NodeDetail::getInstanceId)
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .collect(Collectors.toList());
+
+            if (instanceIds.isEmpty()) {
+                logger.warn("No instance IDs found to enrich node metadata");
+                return;
+            }
+
+            logger.info("Enriching {} nodes with AWS metadata in region {}", instanceIds.size(), region);
+            Ec2Client ec2 = awsClientProvider.getEc2Client(account, region);
+
+            // Describe instances in batches if necessary (AWS allows up to 1000 IDs, we
+            // likely
+            // have fewer)
+            DescribeInstancesResponse response = ec2.describeInstances(DescribeInstancesRequest.builder()
+                    .instanceIds(instanceIds)
+                    .build());
+
+            Map<String, Instance> instanceMap = response.reservations().stream()
+                    .flatMap(r -> r.instances().stream())
+                    .collect(Collectors.toMap(Instance::instanceId, i -> i, (a, b) -> a));
+
+            for (EksCompleteDashboardDto.NodeDetail node : nodes) {
+                if (node.getInstanceId() != null && instanceMap.containsKey(node.getInstanceId())) {
+                    Instance inst = instanceMap.get(node.getInstanceId());
+
+                    // Set Subnet
+                    node.setSubnetIds(Collections.singletonList(inst.subnetId()));
+
+                    // Set Security Groups
+                    List<String> sgIds = inst.securityGroups().stream()
+                            .map(software.amazon.awssdk.services.ec2.model.GroupIdentifier::groupId)
+                            .collect(Collectors.toList());
+                    node.setSecurityGroupIds(sgIds);
+
+                    // Set IAM Role / Profile
+                    if (inst.iamInstanceProfile() != null) {
+                        String profileArn = inst.iamInstanceProfile().arn();
+                        node.setInstanceProfile(profileArn);
+                        // Extract role name from ARN if possible (conventionally the last part)
+                        if (profileArn != null && profileArn.contains("/")) {
+                            node.setIamRole(profileArn.substring(profileArn.lastIndexOf("/") + 1));
+                        }
+                    }
+                }
+            }
+            logger.info("✅ Successfully enriched nodes with AWS metadata");
+
+        } catch (Exception e) {
+            logger.error("❌ Error enriching nodes with AWS metadata: {}", e.getMessage());
+        }
     }
 
     /**
@@ -1363,7 +1922,7 @@ public class EksDashboardService {
     /**
      * Build comprehensive node metrics for dedicated Nodes tab
      */
-    private NodeMetrics buildNodeMetrics(String promUrl, String clusterName) {
+    private NodeMetrics buildNodeMetrics(CloudAccount account, String region, String promUrl, String clusterName) {
         NodeMetrics metrics = new NodeMetrics();
 
         try {
@@ -1375,7 +1934,7 @@ public class EksDashboardService {
             metrics.setConditionsPidPressure(conditionCounts.getOrDefault("PIDPressure", 0));
 
             // Get node details from existing method
-            List<NodeDetail> nodeDetails = buildNodeDetails(promUrl, clusterName);
+            List<NodeDetail> nodeDetails = buildNodeDetails(account, region, promUrl, clusterName);
 
             // Calculate totals from unique nodes
             double totalCpu = 0.0;
@@ -1398,6 +1957,9 @@ public class EksDashboardService {
                 info.setName(nodeName);
                 info.setInternalIp(detail.getInternalIp());
                 info.setReady(detail.getConditions() != null && detail.getConditions().contains("Ready"));
+                info.setDiskPressure(detail.getDiskPressure() != null ? detail.getDiskPressure() : false);
+                info.setMemoryPressure(detail.getMemoryPressure() != null ? detail.getMemoryPressure() : false);
+                info.setPidPressure(detail.getPidPressure() != null ? detail.getPidPressure() : false);
                 info.setCpuCapacity(detail.getCpuCapacity());
                 info.setCpuAllocatable(detail.getCpuAllocatable());
                 info.setCpuUsage(detail.getCpuUsagePercent());
@@ -1407,9 +1969,27 @@ public class EksDashboardService {
                 info.setMemoryUsage(detail.getMemoryUsagePercent());
                 info.setPodCapacity(detail.getPodsCapacity());
                 info.setPodCount(detail.getPodCount());
+                info.setRunningPodsCount(detail.getRunningPodsCount());
                 info.setKubeletVersion(detail.getKubeletVersion());
                 info.setZone(detail.getZone());
                 info.setInstanceId(detail.getInstanceId());
+                info.setInstanceType(detail.getInstanceType());
+                info.setCapacityType(detail.getCapacityType());
+                info.setNodeGroup(detail.getNodeGroup());
+                info.setSystemReservedCpu(detail.getSystemReservedCpu());
+                info.setSystemReservedMemory(detail.getSystemReservedMemory());
+
+                // ✅ NEW: Request metrics
+                info.setCpuRequests(detail.getCpuRequests());
+                info.setMemoryRequests(detail.getMemoryRequests());
+                info.setCpuRequestsPercent(detail.getCpuRequestsPercent());
+                info.setMemoryRequestsPercent(detail.getMemoryRequestsPercent());
+
+                // ✅ NEW: Map AWS Metadata fields
+                info.setIamRole(detail.getIamRole());
+                info.setInstanceProfile(detail.getInstanceProfile());
+                info.setSubnetIds(detail.getSubnetIds());
+                info.setSecurityGroupIds(detail.getSecurityGroupIds());
 
                 totalCpu += detail.getCpuCapacity() != null ? detail.getCpuCapacity() : 0.0;
                 totalMemory += detail.getMemoryCapacity() != null ? detail.getMemoryCapacity() : 0.0;
@@ -1431,6 +2011,56 @@ public class EksDashboardService {
 
         } catch (Exception e) {
             logger.error("❌ Error building node metrics", e);
+        }
+
+        return metrics;
+    }
+
+    /**
+     * Build aggregated pod resource metrics for Pods tab charts
+     */
+    private com.xammer.cloud.dto.k8s.PodResourceMetrics buildPodResourceMetrics(String promUrl, String clusterName) {
+        com.xammer.cloud.dto.k8s.PodResourceMetrics metrics = new com.xammer.cloud.dto.k8s.PodResourceMetrics();
+
+        try {
+            logger.info("🔍 Building pod resource metrics aggregates...");
+
+            // Get aggregated data from Prometheus
+            Map<String, Double> aggregates = prometheusService.getPodResourceAggregates(promUrl, clusterName);
+
+            // Get cluster capacity for context
+            Map<String, Map<String, Double>> nodeCapacity = prometheusService.getNodeCapacity(promUrl, clusterName);
+            double totalCpuCapacity = nodeCapacity.values().stream()
+                    .mapToDouble(m -> m.getOrDefault("cpu", 0.0))
+                    .sum() * 1000; // Convert to millicores
+            double totalMemoryCapacity = nodeCapacity.values().stream()
+                    .mapToDouble(m -> m.getOrDefault("memory", 0.0))
+                    .sum();
+
+            // Populate metrics
+            metrics.setTotalCpuRequests(aggregates.getOrDefault("totalCpuRequests", 0.0));
+            metrics.setTotalCpuLimits(aggregates.getOrDefault("totalCpuLimits", 0.0));
+            metrics.setTotalCpuUsage(aggregates.getOrDefault("totalCpuUsage", 0.0));
+            metrics.setTotalCpuCapacity(totalCpuCapacity);
+
+            metrics.setTotalMemoryRequests(aggregates.getOrDefault("totalMemoryRequests", 0.0));
+            metrics.setTotalMemoryLimits(aggregates.getOrDefault("totalMemoryLimits", 0.0));
+            metrics.setTotalMemoryUsage(aggregates.getOrDefault("totalMemoryUsage", 0.0));
+            metrics.setTotalMemoryCapacity(totalMemoryCapacity);
+
+            metrics.setPodsWithoutRequests(aggregates.getOrDefault("podsWithoutRequests", 0.0).intValue());
+            metrics.setPodsWithoutLimits(aggregates.getOrDefault("podsWithoutLimits", 0.0).intValue());
+
+            logger.info("✅ Pod resource metrics: CPU req={}, lim={}, usage={}; Memory req={}, lim={}, usage={}",
+                    metrics.getTotalCpuRequests(),
+                    metrics.getTotalCpuLimits(),
+                    metrics.getTotalCpuUsage(),
+                    metrics.getTotalMemoryRequests(),
+                    metrics.getTotalMemoryLimits(),
+                    metrics.getTotalMemoryUsage());
+
+        } catch (Exception e) {
+            logger.error("❌ Error building pod resource metrics", e);
         }
 
         return metrics;

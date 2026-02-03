@@ -27,19 +27,23 @@ const EksOverviewTab: React.FC<EksOverviewTabProps> = ({ eksData }) => {
   if (!dashboard) return null;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* Health Score Section */}
-      <section className="bg-white rounded-2xl shadow-lg p-8 border border-gray-100">
-        <h3 className="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
-          <i className="fas fa-heartbeat text-red-500"></i>
-          Cluster Health Score
-        </h3>
+      <section className="bg-white rounded-xl shadow-sm p-8 border border-gray-200">
+        <div className="flex items-center gap-3 mb-8">
+          <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
+            <i className="fas fa-heartbeat text-slate-700 text-lg"></i>
+          </div>
+          <h3 className="text-xl font-bold text-gray-900">
+            Cluster Health Score
+          </h3>
+        </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Overall Health Score */}
           <div
-            className={`lg:col-span-1 flex flex-col items-center justify-center p-6 bg-gradient-to-br from-gray-50 to-white rounded-xl border-2 ${clusterHealthScore >= 80
-              ? 'border-green-200'
+            className={`lg:col-span-1 flex flex-col items-center justify-center p-6 bg-gray-50 rounded-xl border-2 ${clusterHealthScore >= 80
+              ? 'border-emerald-200'
               : clusterHealthScore >= 60
                 ? 'border-blue-200'
                 : clusterHealthScore >= 40
@@ -47,49 +51,49 @@ const EksOverviewTab: React.FC<EksOverviewTabProps> = ({ eksData }) => {
                   : 'border-red-200'
               }`}
           >
-            <div className="relative w-36 h-36">
+            <div className="relative w-32 h-32">
               <svg className="transform -rotate-90" viewBox="0 0 120 120">
-                <circle cx="60" cy="60" r="54" fill="none" stroke="#e5e7eb" strokeWidth="12"></circle>
+                <circle cx="60" cy="60" r="54" fill="none" stroke="#e5e7eb" strokeWidth="10"></circle>
                 <circle
                   cx="60"
                   cy="60"
                   r="54"
                   fill="none"
                   stroke={healthScoreColor}
-                  strokeWidth="12"
+                  strokeWidth="10"
                   strokeLinecap="round"
                   strokeDasharray={`${(clusterHealthScore / 100) * 339.3} 339.3`}
                   className="transition-all duration-1000"
                 ></circle>
               </svg>
               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <div className="text-4xl font-black" style={{ color: healthScoreColor }}>
+                <div className="text-3xl font-bold" style={{ color: healthScoreColor }}>
                   {clusterHealthScore}
                 </div>
-                <div className="text-sm text-gray-500 font-medium">/ 100</div>
+                <div className="text-xs text-gray-500 font-medium">/ 100</div>
               </div>
             </div>
             <div className="text-center mt-4">
-              <div className="text-lg font-bold text-gray-800">{healthScoreLabel}</div>
-              <div className="text-xs text-gray-500 mt-1">Overall cluster wellness</div>
+              <div className="text-base font-semibold text-gray-800">{healthScoreLabel}</div>
+              <div className="text-xs text-gray-500 mt-1">Overall cluster status</div>
             </div>
           </div>
 
           {/* Score Breakdown */}
           <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* Resource Score */}
-            <div className="bg-gradient-to-br from-blue-50 to-white p-6 rounded-xl border border-blue-100">
+            <div className="bg-white p-6 rounded-xl border border-gray-200 hover:border-gray-300 hover:shadow-sm transition-all">
               <div className="flex items-center justify-between mb-4">
-                <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                  <i className="fas fa-server text-blue-600 text-xl"></i>
+                <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center">
+                  <i className="fas fa-server text-blue-600 text-lg"></i>
                 </div>
-                <div className="text-3xl font-black text-blue-600">{resourceScore}</div>
+                <div className="text-2xl font-bold text-gray-900">{resourceScore}</div>
               </div>
-              <h4 className="text-sm font-bold text-gray-800 mb-2">Resource Efficiency</h4>
-              <p className="text-xs text-gray-600">
-                CPU and memory utilization in optimal range (40-75%)
+              <h4 className="text-sm font-semibold text-gray-800 mb-2">Resource Efficiency</h4>
+              <p className="text-xs text-gray-600 leading-relaxed">
+                CPU and memory utilization in optimal range
               </p>
-              <div className="mt-3 h-2 bg-blue-100 rounded-full overflow-hidden">
+              <div className="mt-3 h-1.5 bg-gray-100 rounded-full overflow-hidden">
                 <div
                   className="h-full bg-blue-500 rounded-full transition-all duration-1000"
                   style={{ width: `${resourceScore}%` }}
@@ -98,38 +102,38 @@ const EksOverviewTab: React.FC<EksOverviewTabProps> = ({ eksData }) => {
             </div>
 
             {/* Cost Score */}
-            <div className="bg-gradient-to-br from-green-50 to-white p-6 rounded-xl border border-green-100">
+            <div className="bg-white p-6 rounded-xl border border-gray-200 hover:border-gray-300 hover:shadow-sm transition-all">
               <div className="flex items-center justify-between mb-4">
-                <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                  <i className="fas fa-dollar-sign text-green-600 text-xl"></i>
+                <div className="w-10 h-10 bg-emerald-50 rounded-lg flex items-center justify-center">
+                  <i className="fas fa-dollar-sign text-emerald-600 text-lg"></i>
                 </div>
-                <div className="text-3xl font-black text-green-600">{costScore}</div>
+                <div className="text-2xl font-bold text-gray-900">{costScore}</div>
               </div>
-              <h4 className="text-sm font-bold text-gray-800 mb-2">Cost Optimization</h4>
-              <p className="text-xs text-gray-600">
-                Cluster resources are efficiently utilized with minimal waste
+              <h4 className="text-sm font-semibold text-gray-800 mb-2">Cost Optimization</h4>
+              <p className="text-xs text-gray-600 leading-relaxed">
+                Resource efficiency and cost effectiveness
               </p>
-              <div className="mt-3 h-2 bg-green-100 rounded-full overflow-hidden">
+              <div className="mt-3 h-1.5 bg-gray-100 rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-green-500 rounded-full transition-all duration-1000"
+                  className="h-full bg-emerald-500 rounded-full transition-all duration-1000"
                   style={{ width: `${costScore}%` }}
                 ></div>
               </div>
             </div>
 
             {/* Security Score */}
-            <div className="bg-gradient-to-br from-red-50 to-white p-6 rounded-xl border border-red-100">
+            <div className="bg-white p-6 rounded-xl border border-gray-200 hover:border-gray-300 hover:shadow-sm transition-all">
               <div className="flex items-center justify-between mb-4">
-                <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center">
-                  <i className="fas fa-shield-alt text-red-600 text-xl"></i>
+                <div className="w-10 h-10 bg-red-50 rounded-lg flex items-center justify-center">
+                  <i className="fas fa-shield-alt text-red-600 text-lg"></i>
                 </div>
-                <div className="text-3xl font-black text-red-600">{securityScore}</div>
+                <div className="text-2xl font-bold text-gray-900">{securityScore}</div>
               </div>
-              <h4 className="text-sm font-bold text-gray-800 mb-2">Security Posture</h4>
-              <p className="text-xs text-gray-600">
-                Active security threats and vulnerabilities detected
+              <h4 className="text-sm font-semibold text-gray-800 mb-2">Security Posture</h4>
+              <p className="text-xs text-gray-600 leading-relaxed">
+                Vulnerability and threat detection status
               </p>
-              <div className="mt-3 h-2 bg-red-100 rounded-full overflow-hidden">
+              <div className="mt-3 h-1.5 bg-gray-100 rounded-full overflow-hidden">
                 <div
                   className="h-full bg-red-500 rounded-full transition-all duration-1000"
                   style={{ width: `${securityScore}%` }}
@@ -140,71 +144,77 @@ const EksOverviewTab: React.FC<EksOverviewTabProps> = ({ eksData }) => {
         </div>
       </section>
 
-      {/* COMPONENT ANALYSIS */}
-      <section className="bg-white rounded-2xl shadow-lg p-8 border border-gray-100">
-        <h3 className="text-xl font-bold text-gray-800 mb-4 uppercase tracking-wider text-xs">
-          COMPONENT ANALYSIS
-        </h3>
-        <div className="space-y-4">
+      {/* Key Metrics */}
+      <section className="bg-white rounded-xl shadow-sm p-8 border border-gray-200">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
+            <i className="fas fa-chart-bar text-slate-700 text-lg"></i>
+          </div>
+          <h3 className="text-xl font-bold text-gray-900">
+            Key Metrics
+          </h3>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* CPU Utilization */}
-          <div className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-amber-400"></div>
-              <span className="text-gray-600 font-medium">CPU Utilization</span>
+          <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+            <div className="flex items-center gap-2 mb-3">
+              <i className="fas fa-microchip text-slate-600 text-sm"></i>
+              <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">CPU Usage</span>
             </div>
-            <div className="flex items-center gap-4">
-              <span className="font-bold text-gray-900">
-                {(dashboard.clusterOverview?.cpuUsagePercent || 0).toFixed(0)}%
-              </span>
-              <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700 flex items-center gap-1">
-                <i className="fas fa-exclamation-circle"></i> Can Improve
-              </span>
+            <div className="text-2xl font-bold text-gray-900 mb-2">
+              {(dashboard.clusterOverview?.cpuUsagePercent || 0).toFixed(1)}%
+            </div>
+            <div className="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-slate-600 rounded-full transition-all duration-1000"
+                style={{ width: `${dashboard.clusterOverview?.cpuUsagePercent || 0}%` }}
+              ></div>
             </div>
           </div>
 
           {/* Memory Utilization */}
-          <div className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-amber-400"></div>
-              <span className="text-gray-600 font-medium">Memory Utilization</span>
+          <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+            <div className="flex items-center gap-2 mb-3">
+              <i className="fas fa-memory text-slate-600 text-sm"></i>
+              <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Memory Usage</span>
             </div>
-            <div className="flex items-center gap-4">
-              <span className="font-bold text-gray-900">
-                {(dashboard.clusterOverview?.memoryUsagePercent || 0).toFixed(0)}%
-              </span>
-              <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700 flex items-center gap-1">
-                <i className="fas fa-exclamation-circle"></i> Can Improve
-              </span>
+            <div className="text-2xl font-bold text-gray-900 mb-2">
+              {(dashboard.clusterOverview?.memoryUsagePercent || 0).toFixed(1)}%
+            </div>
+            <div className="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-slate-600 rounded-full transition-all duration-1000"
+                style={{ width: `${dashboard.clusterOverview?.memoryUsagePercent || 0}%` }}
+              ></div>
             </div>
           </div>
 
           {/* Cost Efficiency */}
-          <div className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-red-400"></div>
-              <span className="text-gray-600 font-medium">Cost Efficiency</span>
+          <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+            <div className="flex items-center gap-2 mb-3">
+              <i className="fas fa-chart-line text-slate-600 text-sm"></i>
+              <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Efficiency</span>
             </div>
-            <div className="flex items-center gap-4">
-              <span className="font-bold text-gray-900">{costScore}%</span>
-              <span className="px-3 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700 flex items-center gap-1">
-                <i className="fas fa-times-circle"></i> Wasteful
-              </span>
+            <div className="text-2xl font-bold text-gray-900 mb-2">{costScore}%</div>
+            <div className="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-slate-600 rounded-full transition-all duration-1000"
+                style={{ width: `${costScore}%` }}
+              ></div>
             </div>
           </div>
 
           {/* Security Events */}
-          <div className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-green-400"></div>
-              <span className="text-gray-600 font-medium">Security Events</span>
+          <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+            <div className="flex items-center gap-2 mb-3">
+              <i className="fas fa-shield-alt text-slate-600 text-sm"></i>
+              <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Security</span>
             </div>
-            <div className="flex items-center gap-4">
-              <span className="font-bold text-gray-900">
-                {dashboard?.securityMetrics?.totalEvents || 0} total
-              </span>
-              <span className="px-3 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 flex items-center gap-1">
-                <i className="fas fa-check-circle"></i> No Critical
-              </span>
+            <div className="text-2xl font-bold text-gray-900 mb-2">
+              {dashboard?.securityMetrics?.totalEvents || 0}
+            </div>
+            <div className="text-xs text-gray-600">
+              {dashboard?.securityMetrics?.eventsByPriority?.['4'] || dashboard?.securityMetrics?.eventsByPriority?.['CRITICAL'] || 0} critical events
             </div>
           </div>
         </div>
@@ -212,54 +222,51 @@ const EksOverviewTab: React.FC<EksOverviewTabProps> = ({ eksData }) => {
 
       {/* Quick Wins Section */}
       {quickWins && quickWins.length > 0 && (
-        <section className="bg-white rounded-2xl shadow-lg p-8 border border-gray-100">
-          <h3 className="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
-            <i className="fas fa-bolt text-yellow-500"></i>
-            Quick Wins
-            <span className="text-sm font-normal text-gray-500">
-              — Recommended actions for immediate impact
-            </span>
-          </h3>
+        <section className="bg-white rounded-xl shadow-sm p-8 border border-gray-200">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center">
+              <i className="fas fa-lightbulb text-amber-600 text-lg"></i>
+            </div>
+            <div>
+              <h3 className="text-xl font-bold text-gray-900">
+                Recommendations
+              </h3>
+              <p className="text-sm text-gray-600">Actions for immediate impact</p>
+            </div>
+          </div>
 
-          <div className="space-y-4">
+          <div className="space-y-3">
             {quickWins.map((win: QuickWin, index: number) => (
               <div
                 key={index}
-                className={`p-6 rounded-xl border-l-4 transition-all hover:shadow-md ${win.type === 'security'
-                  ? 'bg-red-50 border-red-500'
-                  : win.type === 'cost'
-                    ? 'bg-amber-50 border-amber-500'
-                    : 'bg-blue-50 border-blue-500'
-                  }`}
+                className="bg-gray-50 rounded-lg p-5 border border-gray-200 hover:border-gray-300 hover:shadow-sm transition-all"
               >
-                <div className="flex items-start justify-between">
-                  <div className="flex items-start gap-4 flex-1">
-                    <div
-                      className={`w-12 h-12 rounded-lg flex items-center justify-center text-2xl ${win.type === 'security'
-                        ? 'bg-red-100 text-red-600'
-                        : win.type === 'cost'
-                          ? 'bg-amber-100 text-amber-600'
-                          : 'bg-blue-100 text-blue-600'
-                        }`}
-                    >
-                      <i className={`fas ${win.icon}`}></i>
-                    </div>
-                    <div className="flex-1">
-                      <h4 className="text-lg font-bold text-gray-800 mb-1">{win.title}</h4>
-                      <p className="text-sm text-gray-600 mb-3">{win.impact}</p>
-                      <div className="flex gap-2">
-                        {win.actions.map((action: string, i: number) => (
-                          <button
-                            key={i}
-                            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${i === 0
-                              ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm'
-                              : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
-                              }`}
-                          >
-                            {action}
-                          </button>
-                        ))}
-                      </div>
+                <div className="flex items-start gap-4">
+                  <div
+                    className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${win.type === 'security'
+                      ? 'bg-red-100 text-red-600'
+                      : win.type === 'cost'
+                        ? 'bg-amber-100 text-amber-600'
+                        : 'bg-blue-100 text-blue-600'
+                      }`}
+                  >
+                    <i className={`fas ${win.icon} text-lg`}></i>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h4 className="text-base font-semibold text-gray-900 mb-1">{win.title}</h4>
+                    <p className="text-sm text-gray-600 mb-3">{win.impact}</p>
+                    <div className="flex gap-2 flex-wrap">
+                      {win.actions.map((action: string, i: number) => (
+                        <button
+                          key={i}
+                          className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${i === 0
+                            ? 'bg-slate-700 text-white hover:bg-slate-800'
+                            : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-300'
+                            }`}
+                        >
+                          {action}
+                        </button>
+                      ))}
                     </div>
                   </div>
                 </div>
@@ -271,74 +278,82 @@ const EksOverviewTab: React.FC<EksOverviewTabProps> = ({ eksData }) => {
 
       {/* Cost Savings Potential */}
       {potentialSavings.affectedNodes > 0 && (
-        <section className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl shadow-lg p-8 border border-amber-200">
-          <h3 className="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
-            <i className="fas fa-piggy-bank text-amber-600"></i>
-            Cost Savings Potential
-          </h3>
+        <section className="bg-amber-50 rounded-xl shadow-sm p-8 border border-amber-200">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center">
+              <i className="fas fa-piggy-bank text-amber-600 text-lg"></i>
+            </div>
+            <h3 className="text-xl font-bold text-gray-900">
+              Savings Opportunity
+            </h3>
+          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-white rounded-xl p-6 border border-amber-100">
-              <div className="text-sm font-semibold text-gray-600 mb-2">Daily Savings</div>
-              <div className="text-3xl font-black text-amber-600 mb-1">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-white rounded-lg p-5 border border-amber-100">
+              <div className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Daily Savings</div>
+              <div className="text-2xl font-bold text-gray-900 mb-1">
                 ${potentialSavings.daily.toFixed(2)}
               </div>
-              <div className="text-xs text-gray-500">Per day</div>
+              <div className="text-xs text-gray-500">Potential per day</div>
             </div>
 
-            <div className="bg-white rounded-xl p-6 border border-amber-100">
-              <div className="text-sm font-semibold text-gray-600 mb-2">Monthly Savings</div>
-              <div className="text-3xl font-black text-amber-600 mb-1">
+            <div className="bg-white rounded-lg p-5 border border-amber-100">
+              <div className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Monthly Savings</div>
+              <div className="text-2xl font-bold text-gray-900 mb-1">
                 ${potentialSavings.monthly.toFixed(2)}
               </div>
-              <div className="text-xs text-gray-500">Per month</div>
+              <div className="text-xs text-gray-500">Potential per month</div>
             </div>
 
-            <div className="bg-white rounded-xl p-6 border border-amber-100">
-              <div className="text-sm font-semibold text-gray-600 mb-2">Affected Nodes</div>
-              <div className="text-3xl font-black text-amber-600 mb-1">
+            <div className="bg-white rounded-lg p-5 border border-amber-100">
+              <div className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Affected Nodes</div>
+              <div className="text-2xl font-bold text-gray-900 mb-1">
                 {potentialSavings.affectedNodes}
               </div>
-              <div className="text-xs text-gray-500">Underutilized (&lt;40% CPU)</div>
+              <div className="text-xs text-gray-500">Underutilized nodes</div>
             </div>
           </div>
         </section>
       )}
 
       {/* Cluster Overview Stats */}
-      <section className="bg-white rounded-2xl shadow-lg p-8 border border-gray-100">
-        <h3 className="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
-          <i className="fas fa-chart-bar text-indigo-500"></i>
-          Cluster Overview
-        </h3>
+      <section className="bg-white rounded-xl shadow-sm p-8 border border-gray-200">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
+            <i className="fas fa-chart-bar text-slate-700 text-lg"></i>
+          </div>
+          <h3 className="text-xl font-bold text-gray-900">
+            Cluster Resources
+          </h3>
+        </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <div className="text-3xl font-black text-gray-800 mb-1">
+          <div className="bg-gray-50 rounded-lg p-5 border border-gray-200">
+            <div className="text-2xl font-bold text-gray-900 mb-1">
               {dashboard.clusterOverview?.totalNodes || 0}
             </div>
-            <div className="text-sm text-gray-600">Total Nodes</div>
+            <div className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Total Nodes</div>
           </div>
 
-          <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <div className="text-3xl font-black text-gray-800 mb-1">
+          <div className="bg-gray-50 rounded-lg p-5 border border-gray-200">
+            <div className="text-2xl font-bold text-gray-900 mb-1">
               {dashboard.clusterOverview?.totalNamespaces || 0}
             </div>
-            <div className="text-sm text-gray-600">Namespaces</div>
+            <div className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Namespaces</div>
           </div>
 
-          <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <div className="text-3xl font-black text-gray-800 mb-1">
+          <div className="bg-gray-50 rounded-lg p-5 border border-gray-200">
+            <div className="text-2xl font-bold text-gray-900 mb-1">
               {(dashboard.clusterOverview?.cpuUsagePercent || 0).toFixed(1)}%
             </div>
-            <div className="text-sm text-gray-600">CPU Usage</div>
+            <div className="text-xs font-semibold text-gray-600 uppercase tracking-wide">CPU Usage</div>
           </div>
 
-          <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <div className="text-3xl font-black text-gray-800 mb-1">
+          <div className="bg-gray-50 rounded-lg p-5 border border-gray-200">
+            <div className="text-2xl font-bold text-gray-900 mb-1">
               {(dashboard.clusterOverview?.memoryUsagePercent || 0).toFixed(1)}%
             </div>
-            <div className="text-sm text-gray-600">Memory Usage</div>
+            <div className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Memory Usage</div>
           </div>
         </div>
       </section>

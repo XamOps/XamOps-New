@@ -1,7 +1,7 @@
 /**
  * EKS Summary Cards Component
  *
- * Compact metric cards showing key cluster statistics
+ * Professional metric cards showing key cluster statistics
  */
 
 import React from 'react';
@@ -19,159 +19,189 @@ const EksSummaryCards: React.FC<EksSummaryCardsProps> = ({ eksData }) => {
     setActiveTab
   } = eksData;
 
+  // Helper to get status color for efficiency
+  const getEfficiencyStatus = () => {
+    if (costEfficiency >= 70) return { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', icon: 'check-circle', label: 'Optimized' };
+    if (costEfficiency >= 50) return { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', icon: 'exclamation-triangle', label: 'Can Improve' };
+    return { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', icon: 'exclamation-circle', label: 'High Waste' };
+  };
+
+  const getCpuStatus = () => {
+    const cpu = dashboard?.clusterOverview?.cpuUsagePercent || 0;
+    if (cpu >= 80) return { border: 'border-red-200', icon: 'text-red-500' };
+    if (cpu >= 60) return { border: 'border-amber-200', icon: 'text-amber-500' };
+    return { border: 'border-slate-200', icon: 'text-slate-600' };
+  };
+
+  const getMemoryStatus = () => {
+    const mem = dashboard?.clusterOverview?.memoryUsagePercent || 0;
+    if (mem >= 80) return { border: 'border-red-200', icon: 'text-red-500' };
+    if (mem >= 60) return { border: 'border-amber-200', icon: 'text-amber-500' };
+    return { border: 'border-slate-200', icon: 'text-slate-600' };
+  };
+
+  const efficiencyStatus = getEfficiencyStatus();
+  const cpuStatus = getCpuStatus();
+  const memoryStatus = getMemoryStatus();
+  const criticalEvents = dashboard?.securityMetrics?.eventsByPriority?.['4'] ||
+    dashboard?.securityMetrics?.eventsByPriority?.['CRITICAL'] || 0;
+
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
+    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 mb-8">
       {/* Cost Today */}
-      <div className="p-3 bg-gradient-to-br from-blue-50 to-white rounded-lg border border-blue-100 hover:shadow-md transition-shadow">
-        <p className="text-[10px] font-semibold text-blue-600 uppercase tracking-wide mb-1 flex items-center gap-1.5">
-          <i className="fas fa-dollar-sign text-xs"></i>
-          Cost Today
-        </p>
-        <p className="text-2xl font-bold text-gray-900">
+      <div className="group bg-white rounded-xl p-5 border border-gray-200 hover:border-gray-300 hover:shadow-md transition-all">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center">
+            <i className="fas fa-dollar-sign text-slate-600 text-sm"></i>
+          </div>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+            Cost Today
+          </p>
+        </div>
+        <p className="text-2xl font-bold text-gray-900 mb-2">
           ${(dashboard?.costMetrics?.dailyCost || 0).toFixed(2)}
         </p>
-        <p className="text-xs text-gray-500 font-medium mt-1">
-          Monthly: <span className="text-gray-900 font-bold">${((dashboard?.costMetrics?.dailyCost || 0) * 30).toFixed(2)}</span>
-        </p>
+        <div className="pt-2 border-t border-gray-100">
+          <p className="text-xs text-gray-600">
+            Monthly Est: <span className="font-semibold text-gray-900">${((dashboard?.costMetrics?.dailyCost || 0) * 30).toFixed(2)}</span>
+          </p>
+        </div>
       </div>
 
       {/* Efficiency */}
-      <div className="p-3 bg-gradient-to-br from-green-50 to-white rounded-lg border border-green-100 hover:shadow-md transition-shadow">
-        <p className="text-[10px] font-semibold text-green-600 uppercase tracking-wide mb-1 flex items-center gap-1.5">
-          <i className="fas fa-chart-line text-xs"></i>
-          Efficiency
-        </p>
-        <p className="text-2xl font-bold text-gray-900">{costEfficiency}%</p>
-        <p
-          className={`text-xs font-medium mt-1 ${
-            costEfficiency >= 70
-              ? 'text-green-600'
-              : costEfficiency >= 50
-              ? 'text-amber-600'
-              : 'text-red-600'
-          }`}
-        >
-          {costEfficiency >= 70 && <span>Optimized</span>}
-          {costEfficiency >= 50 && costEfficiency < 70 && (
-            <span>
-              Save ${((dashboard?.costMetrics?.dailyCost || 0) * (idleCostPercentage / 100)).toFixed(2)}/day
-            </span>
-          )}
-          {costEfficiency < 50 && <span>High waste</span>}
-        </p>
+      <div className={`group bg-white rounded-xl p-5 border ${efficiencyStatus.border} hover:shadow-md transition-all`}>
+        <div className="flex items-center gap-2 mb-3">
+          <div className={`w-8 h-8 rounded-lg ${efficiencyStatus.bg} flex items-center justify-center`}>
+            <i className={`fas fa-chart-line ${efficiencyStatus.text} text-sm`}></i>
+          </div>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+            Efficiency
+          </p>
+        </div>
+        <p className="text-2xl font-bold text-gray-900 mb-2">{costEfficiency}%</p>
+        <div className="pt-2 border-t border-gray-100">
+          <div className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md ${efficiencyStatus.bg} ${efficiencyStatus.text}`}>
+            <i className={`fas fa-${efficiencyStatus.icon} text-xs`}></i>
+            <span className="text-xs font-semibold">{efficiencyStatus.label}</span>
+          </div>
+        </div>
       </div>
 
       {/* Security */}
-      <div className="p-3 bg-gradient-to-br from-red-50 to-white rounded-lg border border-red-100 hover:shadow-md transition-shadow">
-        <p className="text-[10px] font-semibold text-red-600 uppercase tracking-wide mb-1 flex items-center gap-1.5">
-          <i className="fas fa-shield-alt text-xs"></i>
-          Security
-        </p>
-        <p className="text-2xl font-bold text-gray-900">
+      <div className={`group bg-white rounded-xl p-5 border ${criticalEvents > 0 ? 'border-red-200' : 'border-gray-200'} hover:shadow-md transition-all`}>
+        <div className="flex items-center gap-2 mb-3">
+          <div className={`w-8 h-8 rounded-lg ${criticalEvents > 0 ? 'bg-red-50' : 'bg-emerald-50'} flex items-center justify-center`}>
+            <i className={`fas fa-shield-alt ${criticalEvents > 0 ? 'text-red-600' : 'text-emerald-600'} text-sm`}></i>
+          </div>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+            Security
+          </p>
+        </div>
+        <p className="text-2xl font-bold text-gray-900 mb-2">
           {dashboard?.securityMetrics?.totalEvents || 0}
         </p>
-        <p className="text-xs text-red-600 font-medium mt-1">
-          <span>
-            {dashboard?.securityMetrics?.eventsByPriority?.['4'] ||
-              dashboard?.securityMetrics?.eventsByPriority?.['CRITICAL'] ||
-              0}
-          </span>{' '}
-          Critical |{' '}
+        <div className="pt-2 border-t border-gray-100 flex items-center justify-between">
+          <span className={`text-xs font-semibold ${criticalEvents > 0 ? 'text-red-600' : 'text-gray-600'}`}>
+            {criticalEvents} Critical
+          </span>
           <button
             onClick={() => setActiveTab('security')}
-            className="text-blue-600 hover:text-blue-700 font-semibold"
+            className="text-gray-400 hover:text-gray-600 transition-colors"
           >
-            View →
+            <i className="fas fa-arrow-right text-xs"></i>
           </button>
-        </p>
+        </div>
       </div>
 
       {/* NODES CARD */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-3 hover:shadow-md transition-all group">
-        <div className="flex items-center justify-between mb-3">
-          <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center">
-            <i className="fas fa-server text-blue-600 text-lg"></i>
+      <div className="group bg-white rounded-xl p-5 border border-gray-200 hover:border-gray-300 hover:shadow-md transition-all">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
+            <i className="fas fa-server text-blue-600 text-sm"></i>
           </div>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+            Nodes
+          </p>
         </div>
-        <h3 className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">
-          Active Nodes
-        </h3>
-        <p className="text-2xl font-black text-gray-900 mb-1">
+        <p className="text-2xl font-bold text-gray-900 mb-2">
           {dashboard?.clusterOverview?.totalNodes || 0}
         </p>
-        <div className="text-xs text-gray-600">Compute resources</div>
+        <div className="pt-2 border-t border-gray-100">
+          <p className="text-xs text-gray-600">Compute fleet</p>
+        </div>
       </div>
 
       {/* PODS CARD */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-3 hover:shadow-md transition-all group">
-        <div className="flex items-center justify-between mb-3">
-          <div className="w-10 h-10 bg-purple-50 rounded-lg flex items-center justify-center">
-            <i className="fas fa-cubes text-purple-600 text-lg"></i>
+      <div className="group bg-white rounded-xl p-5 border border-gray-200 hover:border-gray-300 hover:shadow-md transition-all">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center">
+            <i className="fas fa-cubes text-indigo-600 text-sm"></i>
           </div>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+            Pods
+          </p>
         </div>
-        <h3 className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">
-          Total Pods
-        </h3>
-        <p className="text-2xl font-black text-gray-900 mb-1">{totalPodsCount}</p>
-        <div className="text-xs text-gray-600">
-          <span className="font-semibold text-gray-900">
-            {dashboard?.clusterOverview?.totalNamespaces || 0}
-          </span>{' '}
-          namespaces
+        <p className="text-2xl font-bold text-gray-900 mb-2">{totalPodsCount}</p>
+        <div className="pt-2 border-t border-gray-100">
+          <p className="text-xs text-gray-600">
+            <span className="font-semibold text-gray-900">
+              {dashboard?.clusterOverview?.totalNamespaces || 0}
+            </span>{' '}
+            namespaces
+          </p>
         </div>
       </div>
 
       {/* CPU CARD */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-3 hover:shadow-md transition-all group">
-        <div className="flex items-center justify-between mb-3">
-          <div className="w-10 h-10 bg-orange-50 rounded-lg flex items-center justify-center">
-            <i className="fas fa-microchip text-orange-600 text-lg"></i>
+      <div className={`group bg-white rounded-xl p-5 border ${cpuStatus.border} hover:shadow-md transition-all`}>
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-8 h-8 rounded-lg bg-slate-50 flex items-center justify-center">
+            <i className={`fas fa-microchip ${cpuStatus.icon} text-sm`}></i>
           </div>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+            CPU
+          </p>
         </div>
-        <h3 className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">
-          Cluster CPU Usage
-        </h3>
-        <p className="text-2xl font-black text-gray-900 mb-1">
-          {(dashboard?.clusterOverview?.cpuUsageMillicores || 0).toFixed(0)}mc /{' '}
-          {(dashboard?.clusterOverview?.cpuCapacityMillicores || 0).toFixed(0)}mc
+        <p className="text-lg font-bold text-gray-900 mb-2">
+          {Math.round(dashboard?.clusterOverview?.cpuUsageMillicores || 0)}m / {Math.round(dashboard?.clusterOverview?.cpuCapacityMillicores || 0)}m
         </p>
-        <p className="text-xs text-gray-500 mb-2">total capacity</p>
-        <div className="flex items-center gap-2">
-          <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+        <div className="pt-2 border-t border-gray-100">
+          <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
             <div
-              className="h-full bg-gradient-to-r from-orange-400 to-orange-500 rounded-full transition-all duration-1000"
+              className="h-full bg-gradient-to-r from-slate-400 to-slate-600 rounded-full transition-all duration-1000"
               style={{
-                width: `${Math.min(100, dashboard?.clusterOverview?.cpuUsagePercent || 0)}%`
+                width: `${Math.min(100, (dashboard?.clusterOverview?.cpuUsageMillicores || 0) / (dashboard?.clusterOverview?.cpuCapacityMillicores || 1) * 100)}%`
               }}
             ></div>
           </div>
-          <span className="text-[10px] font-semibold text-gray-500">USAGE</span>
         </div>
       </div>
 
       {/* MEMORY CARD */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-3 hover:shadow-md transition-all group">
-        <div className="flex items-center justify-between mb-3">
-          <div className="w-10 h-10 bg-pink-50 rounded-lg flex items-center justify-center">
-            <i className="fas fa-memory text-pink-600 text-lg"></i>
+      <div className={`group bg-white rounded-xl p-5 border ${memoryStatus.border} hover:shadow-md transition-all`}>
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-8 h-8 rounded-lg bg-slate-50 flex items-center justify-center">
+            <i className={`fas fa-memory ${memoryStatus.icon} text-sm`}></i>
           </div>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+            Memory
+          </p>
         </div>
-        <h3 className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">
-          Cluster Memory Usage
-        </h3>
-        <p className="text-2xl font-black text-gray-900 mb-2">
-          {(dashboard?.clusterOverview?.memoryUsagePercent || 0).toFixed(1)}%
+        <p className="text-2xl font-bold text-gray-900 mb-2">
+          {(dashboard?.clusterOverview?.memoryUsagePercent || 0).toFixed(0)}%
         </p>
-        <div className="flex items-center gap-2">
-          <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+        <div className="pt-2 border-t border-gray-100">
+          <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
             <div
-              className="h-full bg-gradient-to-r from-pink-400 to-pink-500 rounded-full transition-all duration-1000"
+              className="h-full bg-gradient-to-r from-slate-400 to-slate-600 rounded-full transition-all duration-1000"
               style={{
                 width: `${dashboard?.clusterOverview?.memoryUsagePercent || 0}%`
               }}
             ></div>
           </div>
-          <span className="text-[10px] font-semibold text-gray-500">PRESSURE</span>
+          <p className="text-xs text-gray-500 mt-1.5">
+            {((dashboard?.clusterOverview?.memoryUsageBytes || 0) / (1024 * 1024 * 1024)).toFixed(1)}GB / {((dashboard?.clusterOverview?.memoryCapacityBytes || 0) / (1024 * 1024 * 1024)).toFixed(1)}GB
+          </p>
         </div>
       </div>
     </div>

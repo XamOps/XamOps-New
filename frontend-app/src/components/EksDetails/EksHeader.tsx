@@ -27,17 +27,14 @@ const EksHeader: React.FC<EksHeaderProps> = ({
   const { dashboard, isRefreshing, refresh, lastUpdateTimestamp, getTimeSince, totalPodsCount } = eksData;
 
   return (
-    <div className="sticky top-0 z-40 bg-white/95 backdrop-blur-sm relative rounded-2xl shadow-sm border border-gray-200 p-4 md:p-6 mb-6 md:mb-8 overflow-hidden group">
-      {/* Background Decoration */}
-      <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-indigo-50 to-blue-50 rounded-full blur-3xl opacity-50 -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
-
+    <div className="sticky top-0 z-40 bg-white/95 backdrop-blur-sm relative rounded-xl shadow-sm border border-gray-200 p-4 md:p-6 mb-6 md:mb-8">
       {/* Clean single-row header */}
       <div className="relative flex items-center justify-between">
         {/* Left: Back button + Cluster Info */}
         <div className="flex items-center gap-6">
           <Link
             to={`/cloudk8s?accountIds=${accountId}`}
-            className="w-10 h-10 bg-white border border-gray-200 rounded-lg flex items-center justify-center text-gray-500 hover:text-indigo-600 hover:border-indigo-300 transition-all shadow-sm"
+            className="w-10 h-10 bg-white border border-gray-200 rounded-lg flex items-center justify-center text-gray-500 hover:text-gray-700 hover:border-gray-300 transition-all"
           >
             <i className="fas fa-arrow-left"></i>
           </Link>
@@ -45,11 +42,11 @@ const EksHeader: React.FC<EksHeaderProps> = ({
           <div className="flex items-center gap-4">
             {/* Cluster icon with status */}
             <div className="relative">
-              <div className="w-14 h-14 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-xl flex items-center justify-center text-white text-2xl shadow-lg shadow-indigo-200">
+              <div className="w-14 h-14 bg-slate-700 rounded-xl flex items-center justify-center text-white text-2xl shadow-sm">
                 <i className="fas fa-dharmachakra"></i>
               </div>
               <div
-                className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 border-2 border-white rounded-full"
+                className="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-500 border-2 border-white rounded-full"
                 title="Cluster Active"
               >
                 <div className="w-full h-full flex items-center justify-center">
@@ -61,8 +58,8 @@ const EksHeader: React.FC<EksHeaderProps> = ({
             {/* Cluster name and metadata */}
             <div>
               <div className="flex items-center gap-3 mb-1">
-                <h1 className="text-2xl font-bold text-slate-900">{clusterName}</h1>
-                <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-700 text-xs font-bold uppercase">
+                <h1 className="text-2xl font-bold text-gray-900">{clusterName}</h1>
+                <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-xs font-bold uppercase">
                   EKS
                 </span>
               </div>
@@ -95,13 +92,13 @@ const EksHeader: React.FC<EksHeaderProps> = ({
         <div className="flex items-center gap-3">
           <div className="text-right mr-2">
             <div className="text-xs text-gray-400 font-medium">Last synced</div>
-            <div className="text-xs text-gray-600 font-semibold">
+            <div className="text-xs text-gray-700 font-semibold">
               {getTimeSince(lastUpdateTimestamp)}
             </div>
           </div>
           <button
             onClick={onOpenIntegrationGuide}
-            className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 hover:border-indigo-300 hover:bg-indigo-50 text-gray-700 hover:text-indigo-700 rounded-lg font-semibold transition-all shadow-sm"
+            className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 hover:border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg font-semibold transition-all"
           >
             <i className="fas fa-book text-sm"></i>
             <span>Integration Guide</span>
@@ -109,7 +106,7 @@ const EksHeader: React.FC<EksHeaderProps> = ({
           <button
             onClick={refresh}
             disabled={isRefreshing}
-            className={`flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold shadow-md shadow-indigo-200 transition-all disabled:opacity-70 disabled:cursor-not-allowed ${
+            className={`flex items-center gap-2 px-5 py-2.5 bg-slate-700 hover:bg-slate-800 text-white rounded-lg font-semibold shadow-sm transition-all disabled:opacity-70 disabled:cursor-not-allowed ${
               isRefreshing ? 'animate-pulse' : ''
             }`}
           >
