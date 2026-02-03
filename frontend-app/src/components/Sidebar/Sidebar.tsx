@@ -508,6 +508,62 @@ const Sidebar: React.FC = () => {
             </>
           )}
 
+          {/* Direct BillOps Admin tabs for ROLE_BILLOPS_ADMIN users */}
+          {/* These appear right after account selector for admin role */}
+          {hasAnyRole('ROLE_BILLOPS_ADMIN') && (
+            <>
+              <NavItem
+                href="/billops-admin-dashboard"
+                icon="fas fa-chart-bar"
+                label="Admin Dashboard"
+                gradientClass="from-cyan-500 to-blue-600"
+                isActive={isActive('/billops-admin-dashboard')}
+              />
+              <NavItem
+                href="/billops-support-dashboard"
+                icon="fas fa-headset"
+                label="Support Inbox"
+                gradientClass="from-indigo-500 to-purple-600"
+                isActive={isActive('/billops-support-dashboard')}
+              />
+              <NavItem
+                href="/billops-admin-tickets"
+                icon="fas fa-ticket-alt"
+                label="All Tickets"
+                gradientClass="from-red-500 to-pink-600"
+                isActive={isActive('/billops-admin-tickets')}
+              />
+              <NavItem
+                href="/billops-admin-invoices"
+                icon="fas fa-file-invoice"
+                label="All Invoices"
+                gradientClass="from-purple-500 to-pink-600"
+                isActive={isActive('/billops-admin-invoices')}
+              />
+              <NavItem
+                href="/billops-admin-credits"
+                icon="fas fa-coins"
+                label="Credit Requests"
+                gradientClass="from-yellow-500 to-orange-600"
+                isActive={isActive('/billops-admin-credits')}
+              />
+              <NavItem
+                href="/billops-admin-agreements"
+                icon="fas fa-file-signature"
+                label="Agreement Admin"
+                gradientClass="from-blue-500 to-indigo-600"
+                isActive={isActive('/billops-admin-agreements')}
+              />
+              <NavItem
+                href="/billops-client-details"
+                icon="fas fa-users-cog"
+                label="Client Details"
+                gradientClass="from-green-500 to-teal-600"
+                isActive={isActive('/billops-client-details')}
+              />
+            </>
+          )}
+
           {/* Live Dashboard (React - Converted from dashboard.html) */}
           {/* Provider-aware routing: GCP → /gcp-dashboard, Azure → /azure-dashboard, AWS → /dashboard */}
           {(hasAnyRole('ROLE_XAMOPS') || hasAnyRole('ROLE_SUPER_ADMIN')) && (
@@ -667,9 +723,8 @@ const Sidebar: React.FC = () => {
         {/* Footer - BillOps, Settings & Logout */}
         <div className="p-4 border-t border-gray-200 space-y-2">
           {/* BillOps Section moved to footer */}
-          {/* Only show for ROLE_XAMOPS and ROLE_BILLOPS_ADMIN users */}
-          {/* ROLE_BILLOPS users (non-XAMOPS) have direct tabs at the top instead */}
-          {(hasAnyRole('ROLE_XAMOPS') || hasAnyRole('ROLE_BILLOPS_ADMIN') || hasAnyRole('ROLE_SUPER_ADMIN')) && (
+          {/* Only show for ROLE_XAMOPS and ROLE_SUPER_ADMIN users (Admin items moved to top) */}
+          {(hasAnyRole('ROLE_XAMOPS') || hasAnyRole('ROLE_SUPER_ADMIN')) && (
             <NavSection
               id="billops"
               icon="fas fa-file-invoice-dollar"
@@ -679,38 +734,12 @@ const Sidebar: React.FC = () => {
               onToggle={() => toggleDropdown('billops')}
               direction="up"
             >
-              {/* ROLE_XAMOPS users see standard BillOps items */}
-              {(hasAnyRole('ROLE_XAMOPS') || hasAnyRole('ROLE_SUPER_ADMIN')) && (
-                <>
-                  <NavItem href="/billops-dashboard" icon="fas fa-tachometer-alt" label="Dashboard" isActive={isActive('/billops-dashboard')} />
-                  <NavItem href={getBillingUrl()} icon="fas fa-dollar-sign" label="Billing" isActive={isActive('/billops-billing')} />
-                  <NavItem href="/billops-invoices" icon="fas fa-file-invoice" label="Invoices" isActive={isActive('/billops-invoices')} />
-                  <NavItem href="/billops-credits" icon="fas fa-coins" label="Credits" isActive={isActive('/billops-credits')} />
-                  <NavItem href="/billops-tickets" icon="fas fa-ticket-alt" label="Tickets" isActive={isActive('/billops-tickets')} />
-                  <NavItem href="/billops-agreements" icon="fas fa-file-contract" label="Agreements" isActive={isActive('/billops-agreements')} />
-                </>
-              )}
-              {hasAnyRole('ROLE_BILLOPS_ADMIN') && (
-                <>
-                  <NavItem
-                    href="/billops-admin-dashboard"
-                    icon="fas fa-chart-bar"
-                    label="Admin Dashboard"
-                    isActive={isActive('/billops-admin-dashboard')}
-                  />
-                  <NavItem
-                    href="/billops-support-dashboard"
-                    icon="fas fa-headset"
-                    label="Support Inbox"
-                    isActive={isActive('/billops-support-dashboard')}
-                  />
-                  <NavItem href="/billops-admin-tickets" icon="fas fa-ticket-alt" label="All Tickets" isActive={isActive('/billops-admin-tickets')} />
-                  <NavItem href="/billops-admin-invoices" icon="fas fa-file-invoice" label="All Invoices" isActive={isActive('/billops-admin-invoices')} />
-                  <NavItem href="/billops-admin-credits" icon="fas fa-coins" label="Credit Requests" isActive={isActive('/billops-admin-credits')} />
-                  <NavItem href="/billops-admin-agreements" icon="fas fa-file-signature" label="Agreement Admin" isActive={isActive('/billops-admin-agreements')} />
-                  <NavItem href="/billops/customers.html" icon="fas fa-users" label="Customers" />
-                </>
-              )}
+              <NavItem href="/billops-dashboard" icon="fas fa-tachometer-alt" label="Dashboard" isActive={isActive('/billops-dashboard')} />
+              <NavItem href={getBillingUrl()} icon="fas fa-dollar-sign" label="Billing" isActive={isActive('/billops-billing')} />
+              <NavItem href="/billops-invoices" icon="fas fa-file-invoice" label="Invoices" isActive={isActive('/billops-invoices')} />
+              <NavItem href="/billops-credits" icon="fas fa-coins" label="Credits" isActive={isActive('/billops-credits')} />
+              <NavItem href="/billops-tickets" icon="fas fa-ticket-alt" label="Tickets" isActive={isActive('/billops-tickets')} />
+              <NavItem href="/billops-agreements" icon="fas fa-file-contract" label="Agreements" isActive={isActive('/billops-agreements')} />
             </NavSection>
           )}
 

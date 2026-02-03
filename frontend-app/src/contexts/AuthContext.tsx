@@ -347,6 +347,37 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     fetchUserRoles();
   }, []); // Empty dependency array - only run on mount
 
+  // Check for impersonateUserId and tenantId in URL query parameters
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const userId = params.get('impersonateUserId');
+    const tenantId = params.get('tenantId');
+
+    if (userId || tenantId) {
+      console.log('🔄 Detected impersonation/tenant context in URL:', { userId, tenantId });
+
+      // Clear existing context to ensure clean isolation
+      if (userId) {
+        sessionStorage.removeItem('impersonateUserId');
+        sessionStorage.setItem('impersonateUserId', userId);
+        setImpersonateUser(userId);
+      }
+
+      if (tenantId) {
+        sessionStorage.removeItem('selectedTenantId', tenantId);
+        sessionStorage.setItem('selectedTenantId', tenantId);
+        setSelectedTenant(tenantId);
+      }
+
+      // Clean up the URL
+      const newUrl = window.location.pathname;
+      window.history.replaceState({}, '', newUrl);
+
+      // Refresh to apply context
+      window.location.reload();
+    }
+  }, []);
+
   const value: AuthContextValue = React.useMemo(() => ({
     userRoles,
     userProfile,

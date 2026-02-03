@@ -66,6 +66,7 @@ import UserManagementPage from './pages/UserManagementPage';
 import MyProfilePage from './pages/MyProfilePage';
 import ComplianceOpsPage from './pages/ComplianceOpsPage';
 import BillOpsAdminUserManagerPage from './pages/BillOpsAdminUserManagerPage';
+import ClientDetailsPage from './pages/ClientDetailsPage';
 import GcpDashboard from './pages/GcpDashboard';
 import GcpFinOpsPage from './pages/GcpFinOpsPage';
 import GcpCostPage from './pages/GcpCostPage';
@@ -795,6 +796,16 @@ const AppContent: React.FC = () => {
             <ProtectedRoute>
               <AuthenticatedLayout>
                 <GcpBillingPage />
+              </AuthenticatedLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/billops-client-details"
+          element={
+            <ProtectedRoute>
+              <AuthenticatedLayout>
+                <ClientDetailsPage />
               </AuthenticatedLayout>
             </ProtectedRoute>
           }
