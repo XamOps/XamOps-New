@@ -1,12 +1,12 @@
 /**
  * CostChart Component
  *
- * Stacked bar chart showing cost history across AWS, GCP, and Azure
- * Uses Chart.js for visualization
+ * Advanced Gradient Area Line Graph showing cost history across AWS, GCP, and Azure
+ * Features smooth curves (spline), rich gradient fills, and glassmorphism tooltips
  */
 
 import React, { useEffect, useRef } from 'react';
-import { Chart, registerables } from 'chart.js';
+import { Chart, registerables, TooltipModel } from 'chart.js';
 import type { ProviderData } from '../../types/dashboard';
 
 // Register Chart.js components
@@ -55,45 +55,200 @@ export const CostChart: React.FC<CostChartProps> = ({ awsData, gcpData, azureDat
       return data.selectedAccount.costHistory.costs;
     };
 
-    // Create gradients
-    const awsGradient = ctx.createLinearGradient(0, 0, 0, 400);
-    awsGradient.addColorStop(0, 'rgba(255, 153, 0, 0.8)');
-    awsGradient.addColorStop(1, 'rgba(255, 153, 0, 0.4)');
+    // Create Premium Gradients (Top to Bottom Fade)
+    const createAreaGradient = (colorRGB: string) => {
+      const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+      gradient.addColorStop(0, `rgba(${colorRGB}, 0.5)`);   // High opacity at top
+      gradient.addColorStop(1, `rgba(${colorRGB}, 0.0)`);   // Fade to transparent
+      return gradient;
+    };
 
-    const gcpGradient = ctx.createLinearGradient(0, 0, 0, 400);
-    gcpGradient.addColorStop(0, 'rgba(52, 168, 83, 0.8)');
-    gcpGradient.addColorStop(1, 'rgba(52, 168, 83, 0.4)');
+    const createStrokeGradient = (colorStart: string, colorEnd: string) => {
+      const gradient = ctx.createLinearGradient(0, 0, 400, 0); // Horizontal gradient for the line itself
+      gradient.addColorStop(0, colorStart);
+      gradient.addColorStop(1, colorEnd);
+      return gradient;
+    };
 
-    const azureGradient = ctx.createLinearGradient(0, 0, 0, 400);
-    azureGradient.addColorStop(0, 'rgba(0, 120, 212, 0.8)');
-    azureGradient.addColorStop(1, 'rgba(0, 120, 212, 0.4)');
+    // AWS: Orange
+    const awsFill = createAreaGradient('249, 115, 22');
+    const awsStroke = createStrokeGradient('#F97316', '#FDBA74');
+
+    // GCP: Emerald
+    const gcpFill = createAreaGradient('16, 185, 129');
+    const gcpStroke = createStrokeGradient('#10B981', '#6EE7B7');
+
+    // Azure: Blue
+    const azureFill = createAreaGradient('59, 130, 246');
+    const azureStroke = createStrokeGradient('#3B82F6', '#93C5FD');
+
+    // External Tooltip Handler
+    const getOrCreateTooltip = (chart: Chart) => {
+      let tooltipEl = chart.canvas.parentNode?.querySelector('div#chartjs-tooltip') as HTMLElement;
+
+      if (!tooltipEl) {
+        tooltipEl = document.createElement('div');
+        tooltipEl.id = 'chartjs-tooltip';
+        tooltipEl.style.background = 'rgba(255, 255, 255, 0.85)';
+        tooltipEl.style.backdropFilter = 'blur(12px)';
+        tooltipEl.style.borderRadius = '16px';
+        tooltipEl.style.color = '#1e293b';
+        tooltipEl.style.opacity = '0';
+        tooltipEl.style.pointerEvents = 'none';
+        tooltipEl.style.position = 'absolute';
+        tooltipEl.style.transform = 'translate(-50%, 0)';
+        tooltipEl.style.transition = 'all .2s cubic-bezier(0.16, 1, 0.3, 1)';
+        tooltipEl.style.boxShadow = '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)';
+        tooltipEl.style.border = '1px solid rgba(255, 255, 255, 0.6)';
+        tooltipEl.style.padding = '16px';
+        tooltipEl.style.zIndex = '100';
+        tooltipEl.style.minWidth = '200px';
+
+        const table = document.createElement('table');
+        table.style.margin = '0px';
+
+        tooltipEl.appendChild(table);
+        chart.canvas.parentNode?.appendChild(tooltipEl);
+      }
+
+      return tooltipEl;
+    };
+
+    const externalTooltipHandler = (context: { chart: Chart; tooltip: TooltipModel<any> }) => {
+      const { chart, tooltip } = context;
+      const tooltipEl = getOrCreateTooltip(chart);
+
+      if (tooltip.opacity === 0) {
+        tooltipEl.style.opacity = '0';
+        return;
+      }
+
+      if (tooltip.body) {
+        const titleLines = tooltip.title || [];
+        const bodyLines = tooltip.body.map((b: any) => b.lines);
+
+        const tableHead = document.createElement('thead');
+        titleLines.forEach((title: string) => {
+          const tr = document.createElement('tr');
+          tr.style.borderWidth = '0';
+          const th = document.createElement('th');
+          th.style.borderWidth = '0';
+          th.style.textAlign = 'left';
+          th.style.fontFamily = "'Plus Jakarta Sans', sans-serif";
+          th.style.fontSize = '12px';
+          th.style.fontWeight = '600';
+          th.style.color = '#94a3b8';
+          th.style.textTransform = 'uppercase';
+          th.style.letterSpacing = '0.05em';
+          th.style.paddingBottom = '8px';
+
+          const text = document.createTextNode(title);
+          th.appendChild(text);
+          tr.appendChild(th);
+          tableHead.appendChild(tr);
+        });
+
+        const tableBody = document.createElement('tbody');
+        bodyLines.forEach((body: string, i: number) => {
+          const colors = tooltip.labelColors[i];
+          const span = document.createElement('span');
+          span.style.background = typeof colors.borderColor === 'object' ? (colors.borderColor as any).stops?.[0] : colors.borderColor; // Use stroke color
+          span.style.boxShadow = `0 0 10px ${typeof colors.borderColor === 'object' ? (colors.borderColor as any).stops?.[0] : colors.borderColor}`;
+          span.style.marginRight = '12px';
+          span.style.height = '8px';
+          span.style.width = '8px';
+          span.style.display = 'inline-block';
+          span.style.borderRadius = '50%';
+
+          const tr = document.createElement('tr');
+          tr.style.backgroundColor = 'inherit';
+          tr.style.borderWidth = '0';
+
+          const td = document.createElement('td');
+          td.style.borderWidth = '0';
+          td.style.paddingTop = '8px';
+          td.style.fontFamily = "'Plus Jakarta Sans', sans-serif";
+          td.style.fontSize = '16px';
+          td.style.fontWeight = '700';
+          td.style.color = '#1e293b';
+          td.style.display = 'flex';
+          td.style.alignItems = 'center';
+
+          const text = document.createTextNode(body as unknown as string);
+          td.appendChild(span);
+          td.appendChild(text);
+          tr.appendChild(td);
+          tableBody.appendChild(tr);
+        });
+
+        const tableRoot = tooltipEl.querySelector('table');
+        while (tableRoot?.firstChild) tableRoot.firstChild.remove();
+        tableRoot?.appendChild(tableHead);
+        tableRoot?.appendChild(tableBody);
+      }
+
+      const { offsetLeft: positionX, offsetTop: positionY } = chart.canvas;
+      tooltipEl.style.opacity = '1';
+      tooltipEl.style.left = positionX + tooltip.caretX + 'px';
+      tooltipEl.style.top = positionY + tooltip.caretY + 'px';
+    };
 
     // Create chart
     chartRef.current = new Chart(ctx, {
-      type: 'bar',
+      type: 'line', // Changed to Line
       data: {
         labels,
         datasets: [
           {
             label: 'AWS',
             data: getCosts(awsData),
-            backgroundColor: awsGradient,
-            borderRadius: 8,
-            borderSkipped: false,
+            backgroundColor: awsFill,
+            borderColor: awsStroke,
+            borderWidth: 3,
+            tension: 0.4, // Smooth curve
+            fill: true,
+            pointBackgroundColor: '#ffffff',
+            pointBorderColor: '#F97316',
+            pointBorderWidth: 2,
+            pointRadius: 0, // Hidden by default
+            pointHoverRadius: 6,
+            pointHoverBackgroundColor: '#F97316',
+            pointHoverBorderColor: '#ffffff',
+            pointHoverBorderWidth: 3,
           },
           {
             label: 'GCP',
             data: getCosts(gcpData),
-            backgroundColor: gcpGradient,
-            borderRadius: 8,
-            borderSkipped: false,
+            backgroundColor: gcpFill,
+            borderColor: gcpStroke,
+            borderWidth: 3,
+            tension: 0.4,
+            fill: true,
+            pointBackgroundColor: '#ffffff',
+            pointBorderColor: '#10B981',
+            pointBorderWidth: 2,
+            pointRadius: 0,
+            pointHoverRadius: 6,
+            pointHoverBackgroundColor: '#10B981',
+            pointHoverBorderColor: '#ffffff',
+            pointHoverBorderWidth: 3,
           },
           {
             label: 'Azure',
             data: getCosts(azureData),
-            backgroundColor: azureGradient,
-            borderRadius: 8,
-            borderSkipped: false,
+            backgroundColor: azureFill,
+            borderColor: azureStroke,
+            borderWidth: 3,
+            tension: 0.4,
+            fill: true,
+            pointBackgroundColor: '#ffffff',
+            pointBorderColor: '#3B82F6',
+            pointBorderWidth: 2,
+            pointRadius: 0,
+            pointHoverRadius: 6,
+            pointHoverBackgroundColor: '#3B82F6',
+            pointHoverBorderColor: '#ffffff',
+            pointHoverBorderWidth: 3,
           },
         ],
       },
@@ -104,77 +259,67 @@ export const CostChart: React.FC<CostChartProps> = ({ awsData, gcpData, azureDat
           mode: 'index',
           intersect: false,
         },
-        animation: {
-          duration: 1500,
-          easing: 'easeInOutQuart',
+        plugins: {
+          legend: {
+            position: 'top',
+            align: 'end',
+            labels: {
+              usePointStyle: true,
+              pointStyle: 'circle',
+              padding: 20,
+              font: {
+                family: "'Plus Jakarta Sans', sans-serif",
+                size: 11,
+                weight: '600',
+              },
+              color: '#64748b',
+              boxWidth: 6,
+              boxHeight: 6
+            },
+          },
+          tooltip: {
+            enabled: false,
+            external: externalTooltipHandler,
+          },
         },
         scales: {
           x: {
-            stacked: true,
             grid: {
               display: false,
-            },
-            ticks: {
-              font: {
-                size: 12,
-                weight: '600',
-              },
-              color: '#6B7280',
-            },
-          },
-          y: {
-            stacked: true,
-            grid: {
-              color: '#F3F4F6',
               drawBorder: false,
             },
             ticks: {
               font: {
-                size: 12,
+                family: "'Plus Jakarta Sans', sans-serif",
+                size: 11,
+                weight: '500',
               },
-              color: '#6B7280',
-              callback: function (value) {
+              color: '#94a3b8',
+              padding: 12,
+            },
+            border: { display: false }
+          },
+          y: {
+            grid: {
+              color: 'rgba(226, 232, 240, 0.4)',
+              borderDash: [8, 8],
+              drawBorder: false,
+              drawTicks: false
+            },
+            ticks: {
+              font: {
+                family: "'Plus Jakarta Sans', sans-serif",
+                size: 10,
+                weight: '500',
+              },
+              color: '#cbd5e1',
+              padding: 12,
+              maxTicksLimit: 5,
+              callback: function (value: number | string) {
                 return '$' + Number(value).toLocaleString();
               },
             },
-          },
-        },
-        plugins: {
-          legend: {
-            position: 'bottom',
-            labels: {
-              usePointStyle: true,
-              pointStyle: 'circle',
-              padding: 15,
-              font: {
-                size: 13,
-                weight: '600',
-              },
-              color: '#374151',
-            },
-          },
-          tooltip: {
-            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-            padding: 12,
-            titleFont: {
-              size: 14,
-              weight: 'bold',
-            },
-            bodyFont: {
-              size: 13,
-            },
-            borderColor: 'rgba(255, 255, 255, 0.1)',
-            borderWidth: 1,
-            callbacks: {
-              label: function (context) {
-                let label = context.dataset.label || '';
-                if (label) {
-                  label += ': ';
-                }
-                label += '$' + context.parsed.y.toLocaleString();
-                return label;
-              },
-            },
+            border: { display: false }
           },
         },
       },
@@ -184,26 +329,30 @@ export const CostChart: React.FC<CostChartProps> = ({ awsData, gcpData, azureDat
       if (chartRef.current) {
         chartRef.current.destroy();
       }
+      const tooltipEl = document.querySelector('div#chartjs-tooltip');
+      if (tooltipEl) tooltipEl.remove();
     };
   }, [awsData, gcpData, azureData]);
 
   return (
-    <div className="lg:col-span-2 glass-card rounded-xl p-6 flex flex-col border-t-4 border-t-indigo-500">
-      <div className="flex items-center justify-between mb-4">
+    <div className="lg:col-span-2 glass-card rounded-2xl p-8 flex flex-col border-t-0 shadow-lg hover:shadow-xl transition-shadow duration-300">
+      <div className="flex items-center justify-between mb-8">
         <div>
-          <h3 className="text-lg font-black text-gray-900 flex items-center gap-2">
-            <i className="fas fa-chart-bar text-indigo-600"></i>
-            Multi-Cloud Spend Trend
+          <h3 className="text-xl font-bold text-slate-800 flex items-center gap-3">
+            <span className="w-10 h-10 rounded-xl bg-orange-50 flex items-center justify-center text-orange-500 shadow-sm border border-orange-100">
+              <i className="fas fa-chart-line"></i>
+            </span>
+            Spend Velocity
           </h3>
-          <p className="text-xs text-gray-500 mt-1 font-medium">Monthly cost analysis across providers</p>
+          <p className="text-sm text-slate-500 mt-1.5 ml-[52px] font-medium">Real-time cost trajectory analysis</p>
         </div>
         <div className="flex gap-2">
-          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-indigo-50 to-purple-50 flex items-center justify-center">
-            <i className="fas fa-chart-line text-indigo-600 text-sm"></i>
-          </div>
+          <button className="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition shadow-sm">
+            This Month
+          </button>
         </div>
       </div>
-      <div className="relative w-full" style={{ height: '350px' }}>
+      <div className="relative w-full flex-1 min-h-[350px]">
         <canvas ref={canvasRef}></canvas>
       </div>
     </div>
