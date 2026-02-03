@@ -20,7 +20,7 @@ RUN npm run build
 
 # Stage 2: Serve the static files with Nginx
 # Use a lightweight Nginx image
-FROM nginx:1.25-alpine
+FROM nginx:1.29.4-alpine
 
 # Copy the custom Nginx configuration
 # Configured for multi-page application (MPA) serving, proxying exact file requests
