@@ -30,7 +30,6 @@ import AccountSelector from './AccountSelector';
 import NavItem from './NavItem';
 import NavSection from './NavSection';
 import SuperAdminPanel from './SuperAdminPanel';
-import UserLogoutCard from './UserLogoutCard';
 import clsx from 'clsx';
 
 const Sidebar: React.FC = () => {
@@ -147,10 +146,6 @@ const Sidebar: React.FC = () => {
       return currentPath === '/gcp-rightsizing' || currentPath === '/gcp_rightsizing.html';
     }
 
-    // Special case: CloudList matches both React route and HTML
-    if (path === '/cloudlist') {
-      return currentPath === '/cloudlist' || currentPath === '/cloudlist.html';
-    }
 
     // Special case: Reservation matches both React route and HTML
     if (path === '/reservation') {
@@ -239,20 +234,6 @@ const Sidebar: React.FC = () => {
       );
     }
 
-    // Special case: CloudShell matches both React route and HTML
-    if (path === '/cloudshell') {
-      return currentPath === '/cloudshell' || currentPath === '/cloudshell.html';
-    }
-
-    // Special case: CloudMap matches both React route and HTML
-    if (path === '/cloudmap') {
-      return currentPath === '/cloudmap' || currentPath === '/cloudmap.html';
-    }
-
-    // Special case: GCP CloudMap matches both React route and HTML
-    if (path === '/gcp-cloudmap') {
-      return currentPath === '/gcp-cloudmap' || currentPath === '/gcp_cloudmap.html';
-    }
 
     // Special case: Account Manager matches both React route and HTML
     if (path === '/account-manager') {
@@ -542,14 +523,6 @@ const Sidebar: React.FC = () => {
               isOpen={openDropdown === 'cloudops'}
               onToggle={() => toggleDropdown('cloudops')}
             >
-              <NavItem href="/cloudlist" icon="fas fa-list" label="CloudList" isActive={isActive('/cloudlist')} />
-              <NavItem href="/cloudshell" icon="fas fa-terminal" label="CloudShell" isActive={isActive('/cloudshell')} />
-              <NavItem
-                href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-cloudmap' : '/cloudmap'}
-                icon="fas fa-project-diagram"
-                label="CloudMap"
-                isActive={isActive('/cloudmap') || isActive('/gcp-cloudmap')}
-              />
               <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-cloudk8s' : '/cloudk8s'} icon="fas fa-dharmachakra" label="CloudK8s" isActive={isActive('/cloudk8s')} />
               <NavItem href="/sonarqube" icon="fas fa-chart-line" label="SonarQube" isActive={isActive('/sonarqube')} />
               <NavItem href="/cicd-pipelines" icon="fas fa-cogs" label="CICD Pipelines" isActive={isActive('/cicd-pipelines')} />
@@ -697,7 +670,6 @@ const Sidebar: React.FC = () => {
             )}
           </NavSection>
 
-          <UserLogoutCard />
         </div>
       </div>
     </>

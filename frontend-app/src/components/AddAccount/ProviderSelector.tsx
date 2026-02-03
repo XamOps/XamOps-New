@@ -33,7 +33,9 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
           className={`provider-option ${selectedProvider === 'aws' ? 'selected' : ''}`}
           onClick={() => onSelectProvider('aws')}
         >
-          <i className="fab fa-aws provider-icon-aws" />
+          <div className="provider-icon-wrapper">
+            <i className="fab fa-aws provider-icon-aws" />
+          </div>
           <h3>Amazon Web Services</h3>
         </button>
 
@@ -42,7 +44,9 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
           className={`provider-option ${selectedProvider === 'gcp' ? 'selected' : ''}`}
           onClick={() => onSelectProvider('gcp')}
         >
-          <i className="fab fa-google provider-icon-gcp" />
+          <div className="provider-icon-wrapper">
+            <i className="fab fa-google provider-icon-gcp" />
+          </div>
           <h3>Google Cloud Platform</h3>
         </button>
 
@@ -51,12 +55,16 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
           className={`provider-option ${selectedProvider === 'azure' ? 'selected' : ''}`}
           onClick={() => onSelectProvider('azure')}
         >
-          <i className="fab fa-microsoft provider-icon-azure" />
+          <div className="provider-icon-wrapper">
+            <i className="fab fa-microsoft provider-icon-azure" />
+          </div>
           <h3>Microsoft Azure</h3>
         </button>
 
         <Link to="/add-github-config" className="provider-option">
-          <i className="fab fa-github provider-icon-github" />
+          <div className="provider-icon-wrapper">
+            <i className="fab fa-github provider-icon-github" />
+          </div>
           <h3>GitHub Actions</h3>
         </Link>
 
@@ -65,7 +73,9 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
           className={`provider-option ${selectedProvider === 'jenkins' ? 'selected' : ''}`}
           onClick={() => onSelectProvider('jenkins')}
         >
-          <i className="fab fa-jenkins provider-icon-jenkins" />
+          <div className="provider-icon-wrapper">
+            <i className="fab fa-jenkins provider-icon-jenkins" />
+          </div>
           <h3>Jenkins Server</h3>
         </button>
       </div>

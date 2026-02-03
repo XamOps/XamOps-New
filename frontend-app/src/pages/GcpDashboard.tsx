@@ -238,6 +238,13 @@ const GcpDashboard: React.FC = () => {
             <i className="fas fa-calculator text-[10px]"></i>
             <span>Calculator</span>
           </Link>
+          <Link
+            to="/cloudshell"
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[11px] font-bold text-slate-600 hover:bg-white hover:text-blue-600 hover:shadow-sm transition-all"
+          >
+            <i className="fas fa-terminal text-[10px]"></i>
+            <span>CloudShell</span>
+          </Link>
         </div>
 
         {/* Sync Status */}

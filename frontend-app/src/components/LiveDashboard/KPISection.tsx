@@ -47,7 +47,7 @@ const KPICard: React.FC<KPICardProps> = ({
 }) => {
   const chartInstanceRef = useRef<any>(null);
 
-  // Render sparkline on mouse enter (matches original dashboard.html behavior)
+  // Render sparkline on mouse enter
   const handleMouseEnter = useCallback(() => {
     if (!window.Chart || !trendData || trendData.length === 0) return;
 
@@ -99,7 +99,7 @@ const KPICard: React.FC<KPICardProps> = ({
             borderWidth: 1,
             cornerRadius: 6,
             callbacks: {
-              label: (context: any) => `Value: ${context.parsed.y?.toLocaleString() || 0}`
+              label: (context: any) => `Value: $${context.parsed.y?.toLocaleString('en-US') || 0}`
             }
           }
         },
@@ -113,24 +113,21 @@ const KPICard: React.FC<KPICardProps> = ({
 
   return (
     <div
-      className="kpi-card rounded-xl group"
+      className="glass-card kpi-card p-6 rounded-xl group relative overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-xl"
       onMouseEnter={handleMouseEnter}
+      style={{ borderTop: `4px solid ${chartColor}` }}
     >
-      {/* Main Content - visible by default, hidden on hover */}
-      <div className="main-content">
+      {/* Main Content */}
+      <div className="main-content relative z-10">
         <div className="flex justify-between items-start h-full">
           <div className="flex-1">
             <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">{title}</h3>
             <p className="text-3xl font-black text-gray-900 tracking-tight mb-2 metric-value">{value}</p>
             <div className="flex items-center text-[11px] font-bold">
               <span className={`flex items-center gap-1 ${change >= 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
-                {change >= 0 ? (
+                {change !== 0 && (
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                  </svg>
-                ) : (
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d={change >= 0 ? "M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" : "M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6"} />
                   </svg>
                 )}
                 {Math.abs(change).toFixed(1)}%
@@ -138,7 +135,7 @@ const KPICard: React.FC<KPICardProps> = ({
               <span className="text-gray-400 ml-1.5 uppercase font-black">vs last period</span>
             </div>
           </div>
-          <div className={`w-12 h-12 bg-gradient-to-br ${gradientClass} rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-500/20 transform group-hover:scale-110 transition-transform duration-300`}>
+          <div className={`w-12 h-12 bg-gradient-to-br ${gradientClass} rounded-2xl flex items-center justify-center shadow-lg transform group-hover:scale-110 transition-transform duration-300`}>
             {icon === 'fa-dollar-sign' && (
               <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -146,7 +143,7 @@ const KPICard: React.FC<KPICardProps> = ({
             )}
             {icon === 'fa-chart-line' && (
               <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
               </svg>
             )}
             {icon === 'fa-calendar-alt' && (
@@ -164,7 +161,7 @@ const KPICard: React.FC<KPICardProps> = ({
       </div>
 
       {/* Sparkline Container - hidden by default, visible on hover */}
-      <div className="sparkline-container">
+      <div className="sparkline-container absolute inset-0 bg-white/95 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-0">
         <div className="w-full h-full p-4">
           <canvas id={sparklineId}></canvas>
         </div>
@@ -174,8 +171,6 @@ const KPICard: React.FC<KPICardProps> = ({
 };
 
 const KPISection: React.FC<KPISectionProps> = ({ kpiData, costHistory, isLoading }) => {
-  console.log('🎨 [KPISection] Rendering with data:', kpiData, 'isLoading:', isLoading);
-
   const formatCurrency = (num: number): string => {
     return '$' + (num != null ? num.toLocaleString('en-US', {
       minimumFractionDigits: 2,
@@ -183,7 +178,6 @@ const KPISection: React.FC<KPISectionProps> = ({ kpiData, costHistory, isLoading
     }) : '0.00');
   };
 
-  // Calculate change percentages (matches original dashboard.html logic)
   const costs = costHistory?.costs || [];
   const mtdSpend = kpiData.mtdSpend || 0;
   const lastMonthSpend = kpiData.lastMonthSpend || 0;
@@ -209,7 +203,7 @@ const KPISection: React.FC<KPISectionProps> = ({ kpiData, costHistory, isLoading
       title: 'Forecasted Spend',
       value: formatCurrency(forecastedSpend),
       icon: 'fa-chart-line',
-      gradientClass: 'from-yellow-500 to-yellow-600',
+      gradientClass: 'from-amber-500 to-amber-600',
       chartColor: '#f59e0b',
       trendData: costs.length > 0 ? [...costs, forecastedSpend] : [forecastedSpend],
       change: forecastChange,
@@ -219,8 +213,8 @@ const KPISection: React.FC<KPISectionProps> = ({ kpiData, costHistory, isLoading
       title: 'Last Month Spend',
       value: formatCurrency(lastMonthSpend),
       icon: 'fa-calendar-alt',
-      gradientClass: 'from-gray-500 to-gray-600',
-      chartColor: '#6b7280',
+      gradientClass: 'from-slate-500 to-slate-600',
+      chartColor: '#64748b',
       trendData: costs.length > 1 ? costs.slice(0, -1) : [lastMonthSpend],
       change: lastMonthChange,
       sparklineId: 'sparkline-lastMonthSpend',
@@ -229,39 +223,16 @@ const KPISection: React.FC<KPISectionProps> = ({ kpiData, costHistory, isLoading
       title: 'Potential Savings',
       value: formatCurrency(potentialSavings),
       icon: 'fa-piggy-bank',
-      gradientClass: 'from-green-500 to-green-600',
-      chartColor: '#22c55e',
+      gradientClass: 'from-emerald-500 to-emerald-600',
+      chartColor: '#10b981',
       trendData: [0, potentialSavings],
-      change: 100,
+      change: 0,
       sparklineId: 'sparkline-potentialSavings',
     },
   ];
 
   return (
     <>
-      <div className="flex items-center justify-between mb-8">
-        <div className="flex items-center group">
-          <div className="w-8 h-8 bg-indigo-50 items-center justify-center rounded-lg mr-3 group-hover:bg-indigo-100 transition-colors hidden md:flex">
-            <svg className="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
-          </div>
-          <h2 className="text-xl font-black text-gray-900 tracking-tight uppercase">Key Performance Indicators</h2>
-        </div>
-        <div className="flex items-center space-x-3 text-[11px] font-black uppercase tracking-widest text-gray-400 bg-white/50 backdrop-blur-sm px-4 py-2 rounded-full border border-gray-100 shadow-sm">
-          {isLoading ? (
-            <div className="flex items-center gap-2">
-              <div className="loading-spinner w-3 h-3 border-2 border-indigo-500/20 border-t-indigo-500"></div>
-              <span>Updating...</span>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 bg-green-500 rounded-full shadow-[0_0_8px_rgba(34,197,94,0.4)] animate-pulse"></div>
-              <span>Live metrics</span>
-            </div>
-          )}
-        </div>
-      </div>
 
       {/* Loading Skeleton */}
       {isLoading && (

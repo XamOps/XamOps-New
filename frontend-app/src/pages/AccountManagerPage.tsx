@@ -15,10 +15,10 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useAccountManager } from '../hooks/useAccountManager';
+import { useTopbar } from '../contexts/TopbarContext';
 import {
-  AccountManagerHeader,
   AccountManagerKPICards,
   CloudAccountsTable,
   GitHubReposTable,
@@ -32,7 +32,6 @@ import type { CloudAccount, GitHubConfig, JenkinsConfig } from '../types/account
 import '../styles/accountManager.css';
 
 const AccountManagerPage: React.FC = () => {
-  const navigate = useNavigate();
   const {
     accounts,
     githubConfigs,
@@ -47,15 +46,47 @@ const AccountManagerPage: React.FC = () => {
     getStatusColor,
   } = useAccountManager();
 
+  console.log('🏗️ AccountManagerPage render:', {
+    accountsCount: accounts.length,
+    githubCount: githubConfigs.length,
+    jenkinsCount: jenkinsConfigs.length,
+    isLoading,
+    isGithubLoading,
+    isJenkinsLoading
+  });
+
+  const { setActions, clearActions } = useTopbar();
+
+  React.useEffect(() => {
+    console.log('🚀 AccountManagerPage Mounted!');
+
+    // Register Topbar actions
+    setActions(
+      <div className="flex items-center gap-3">
+        <Link
+          to="/add-account"
+          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-500/20"
+        >
+          <i className="fas fa-plus"></i>
+          <span>Add Account</span>
+        </Link>
+        <Link
+          to="/add-github-config"
+          className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-xl text-xs font-bold hover:bg-slate-900 transition-all shadow-lg shadow-slate-500/10"
+        >
+          <i className="fab fa-github"></i>
+          <span>Add Repo</span>
+        </Link>
+      </div>
+    );
+
+    return () => clearActions();
+  }, [setActions, clearActions]);
+
   // Modal states
   const [isVerificationModalOpen, setIsVerificationModalOpen] = useState(false);
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
   const [verifyingAccount, setVerifyingAccount] = useState<CloudAccount | null>(null);
-
-  // Handle add account navigation
-  const handleAddAccount = useCallback(() => {
-    navigate('/add-account');
-  }, [navigate]);
 
   // Handle verify account
   const handleOpenVerificationModal = useCallback((account: CloudAccount) => {
@@ -81,7 +112,7 @@ const AccountManagerPage: React.FC = () => {
       // If the removed account was selected, redirect to dashboard
       const selectedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
       if (selectedIds.includes(account.id)) {
-        window.location.href = '/dashboard';
+        globalThis.location.href = '/dashboard';
       }
     } catch (err) {
       alert(`Error: ${err instanceof Error ? err.message : 'Failed to remove account'}`);
@@ -117,12 +148,9 @@ const AccountManagerPage: React.FC = () => {
   }, [removeJenkinsConfig]);
 
   return (
-    <main className="account-manager-page">
-      {/* Header */}
-      <AccountManagerHeader onAddAccount={handleAddAccount} />
-
+    <div className="account-manager-page pb-12">
       {/* Content */}
-      <div className="account-manager-content">
+      <div className="account-manager-content pt-6">
         {/* KPI Cards */}
         <AccountManagerKPICards
           accounts={accounts}
@@ -177,7 +205,7 @@ const AccountManagerPage: React.FC = () => {
         isOpen={isHelpModalOpen}
         onClose={() => setIsHelpModalOpen(false)}
       />
-    </main>
+    </div>
   );
 };
 

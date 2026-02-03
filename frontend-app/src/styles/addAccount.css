@@ -5,22 +5,25 @@
  * Converted and enhanced from: add-account.html
  */
 
-/* ============================================
-   CSS Variables
-   ============================================ */
+@import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;500;600;700&family=Poppins:wght@400;500;600;700&display=swap');
+
 :root {
-  --aa-primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  /* Inherit consistent variables from Account Manager theme */
+  --aa-primary-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+  --aa-success-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
   --aa-gcp-gradient: linear-gradient(135deg, #4285F4 0%, #34A853 100%);
   --aa-aws-orange: #ff9900;
   --aa-azure-blue: #0078D4;
   --aa-jenkins-red: #D33833;
   --aa-github-dark: #1F2937;
-  --aa-glass-bg: rgba(255, 255, 255, 0.98);
-  --aa-glass-border: rgba(255, 255, 255, 0.2);
+
+  /* Glassmorphism System */
+  --aa-glass-bg: rgba(255, 255, 255, 0.7);
+  --aa-glass-border: rgba(255, 255, 255, 0.5);
   --aa-shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  --aa-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-  --aa-shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
-  --aa-shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  --aa-shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.08), 0 2px 6px -1px rgb(0 0 0 / 0.04);
+  --aa-shadow-lg: 0 12px 24px -4px rgb(0 0 0 / 0.12), 0 8px 16px -4px rgb(0 0 0 / 0.08);
+  --aa-shadow-xl: 0 20px 32px -8px rgb(0 0 0 / 0.15), 0 12px 20px -8px rgb(0 0 0 / 0.1);
 }
 
 /* ============================================
@@ -31,7 +34,18 @@
   display: flex;
   flex-direction: column;
   min-height: 100%;
-  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  background: radial-gradient(circle at 0% 0%, #f1f5f9 0%, #e2e8f0 100%);
+  font-family: 'Open Sans', sans-serif;
+}
+
+h1,
+h2,
+h3,
+h4,
+.header-title,
+.form-card-title,
+.provider-option h3 {
+  font-family: 'Poppins', sans-serif;
 }
 
 .add-account-content {
@@ -63,8 +77,8 @@
   justify-content: space-between;
   padding: 1.25rem 2rem;
   background: var(--aa-glass-bg);
-  border-bottom: 1px solid #e5e7eb;
-  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--aa-glass-border);
+  backdrop-filter: blur(16px);
   position: sticky;
   top: 0;
   z-index: 10;
@@ -138,7 +152,9 @@
 
 .back-button:hover {
   background: white;
-  border-color: #e5e7eb;
+  border-color: #cbd5e1;
+  transform: translateY(-1px);
+  box-shadow: var(--aa-shadow-sm);
 }
 
 /* ============================================
@@ -146,7 +162,7 @@
    ============================================ */
 .glass-card {
   background: var(--aa-glass-bg);
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(16px);
   border: 1px solid var(--aa-glass-border);
   border-radius: 1rem;
   box-shadow: var(--aa-shadow-lg);
@@ -159,8 +175,8 @@
   position: relative;
   overflow: hidden;
   background: var(--aa-glass-bg);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(229, 231, 235, 0.8);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--aa-glass-border);
   border-radius: 1rem;
   box-shadow: var(--aa-shadow-md);
   padding: 2rem;
@@ -259,8 +275,8 @@
   align-items: center;
   justify-content: center;
   padding: 1.5rem;
-  background: var(--aa-glass-bg);
-  border: 2px solid rgba(229, 231, 235, 0.8);
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid var(--aa-glass-border);
   border-radius: 1rem;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -275,9 +291,9 @@
 }
 
 .provider-option.selected {
-  border-color: #667eea;
-  background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  border-color: #6366f1;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(168, 85, 247, 0.1) 100%);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
 }
 
 .provider-option i {
@@ -292,11 +308,25 @@
   text-align: center;
 }
 
-.provider-icon-aws { color: var(--aa-aws-orange); }
-.provider-icon-gcp { color: #4285F4; }
-.provider-icon-azure { color: var(--aa-azure-blue); }
-.provider-icon-github { color: var(--aa-github-dark); }
-.provider-icon-jenkins { color: var(--aa-jenkins-red); }
+.provider-icon-aws {
+  color: var(--aa-aws-orange);
+}
+
+.provider-icon-gcp {
+  color: #4285F4;
+}
+
+.provider-icon-azure {
+  color: var(--aa-azure-blue);
+}
+
+.provider-icon-github {
+  color: var(--aa-github-dark);
+}
+
+.provider-icon-jenkins {
+  color: var(--aa-jenkins-red);
+}
 
 /* ============================================
    Radio Option (Access Level)
@@ -306,9 +336,9 @@
   align-items: flex-start;
   gap: 0.75rem;
   padding: 1rem;
-  background: var(--aa-glass-bg);
-  border: 2px solid rgba(229, 231, 235, 0.8);
-  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid var(--aa-glass-border);
+  border-radius: 1rem;
   cursor: pointer;
   transition: all 0.2s ease;
 }
@@ -318,8 +348,9 @@
 }
 
 .radio-option.selected {
-  border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  border-color: #6366f1;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, rgba(168, 85, 247, 0.05) 100%);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
 }
 
 .radio-option input[type="radio"] {
@@ -368,17 +399,18 @@
   width: 100%;
   padding: 0.875rem 1rem;
   font-size: 0.875rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid #cbd5e1;
   border-radius: 0.75rem;
-  background: white;
+  background: rgba(255, 255, 255, 0.8);
   transition: all 0.2s ease;
 }
 
 .form-input:focus {
   outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
 }
+
 
 .form-input::placeholder {
   color: #9ca3af;
@@ -540,7 +572,9 @@ textarea.form-input {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ============================================
@@ -614,6 +648,7 @@ textarea.form-input {
     opacity: 0;
     transform: scale(0.95) translateY(10px);
   }
+
   to {
     opacity: 1;
     transform: scale(1) translateY(0);
@@ -728,6 +763,7 @@ textarea.form-input {
     opacity: 0;
     transform: translateY(20px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);

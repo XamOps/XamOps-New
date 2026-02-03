@@ -116,7 +116,7 @@ const MapSection: React.FC<MapSectionProps> = ({ regionStatus, isLoading }) => {
       )}
 
       {/* Map Container */}
-      <div className="relative rounded-lg overflow-hidden bg-slate-50" style={{ height: '400px' }}>
+      <div className="relative rounded-lg overflow-hidden bg-slate-50" style={{ height: '480px' }}>
         {/* Zoom Controls - positioned outside SVG stacking context */}
         <div className="absolute bottom-4 left-4 z-50 flex flex-col gap-1" style={{ pointerEvents: 'auto' }}>
           <button
@@ -161,7 +161,7 @@ const MapSection: React.FC<MapSectionProps> = ({ regionStatus, isLoading }) => {
         <ComposableMap
           projection="geoMercator"
           projectionConfig={{
-            scale: 120,
+            scale: 160,
           }}
           style={{ width: '100%', height: '100%', position: 'relative', zIndex: 1 }}
         >
@@ -219,34 +219,34 @@ const MapSection: React.FC<MapSectionProps> = ({ regionStatus, isLoading }) => {
                 }}
               >
                 <circle
-                  r={8 / zoom}
+                  r={10 / zoom}
                   fill={statusColors[region.status] || '#6b7280'}
                   stroke="#ffffff"
-                  strokeWidth={2 / zoom}
+                  strokeWidth={2.5 / zoom}
                   style={{
                     cursor: 'pointer',
                     transition: 'r 0.2s, stroke-width 0.2s',
                   }}
                   onMouseEnter={(e: React.MouseEvent<SVGCircleElement>) => {
-                    (e.target as SVGCircleElement).setAttribute('r', String(12 / zoom));
-                    (e.target as SVGCircleElement).setAttribute('stroke-width', String(3 / zoom));
+                    (e.target as SVGCircleElement).setAttribute('r', String(14 / zoom));
+                    (e.target as SVGCircleElement).setAttribute('stroke-width', String(3.5 / zoom));
                   }}
                   onMouseLeave={(e: React.MouseEvent<SVGCircleElement>) => {
-                    (e.target as SVGCircleElement).setAttribute('r', String(8 / zoom));
-                    (e.target as SVGCircleElement).setAttribute('stroke-width', String(2 / zoom));
+                    (e.target as SVGCircleElement).setAttribute('r', String(10 / zoom));
+                    (e.target as SVGCircleElement).setAttribute('stroke-width', String(2.5 / zoom));
                   }}
                 />
                 <text
                   textAnchor="middle"
-                  y={-15 / zoom}
+                  y={-20 / zoom}
                   style={{
                     fontFamily: 'Inter, sans-serif',
                     fill: '#1f2937',
-                    fontSize: `${10 / zoom}px`,
+                    fontSize: `${14 / zoom}px`,
                     fontWeight: 'bold',
                     paintOrder: 'stroke',
                     stroke: '#ffffff',
-                    strokeWidth: 2 / zoom,
+                    strokeWidth: 3 / zoom,
                   }}
                 >
                   {region.regionId}
