@@ -94,17 +94,24 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
     setIsLoading(true);
 
     try {
+      console.log('🔄 [AccountContext] fetchAccounts. ImpersonateId:', sessionStorage.getItem('impersonateUserId'));
       const data = await apiClient.get<Account[]>('/api/xamops/account-manager/accounts');
-      const connectedAccounts = data.filter(acc => acc.status === 'CONNECTED');
+      console.log('📊 [AccountContext] Accounts received:', data.length, data);
 
-      setAccounts(connectedAccounts);
-      sessionStorage.setItem('cached_accounts', JSON.stringify(connectedAccounts));
+      // Included more statuses for visibility, especially during impersonation
+      const filtered = data.filter(acc =>
+        ['CONNECTED', 'PENDING', 'DISCONNECTED', 'ERROR'].includes(acc.status) || !acc.status
+      );
+
+      console.log('📊 [AccountContext] Filtered (Visible) accounts:', filtered.length);
+      setAccounts(filtered);
+      sessionStorage.setItem('cached_accounts', JSON.stringify(filtered));
 
       // Auto-select first account if none selected
       const currentSelectedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-      if (currentSelectedIds.length === 0 && connectedAccounts.length > 0) {
-        console.log('📝 No account selected, auto-selecting first account:', connectedAccounts[0].id);
-        const firstId = connectedAccounts[0].id;
+      if (currentSelectedIds.length === 0 && filtered.length > 0) {
+        console.log('📝 No account selected, auto-selecting first account:', filtered[0].id);
+        const firstId = filtered[0].id;
         setSelectedAccountIds([firstId]);
         setTempSelectedAccounts([firstId]);
         sessionStorage.setItem('selectedAccountIds', JSON.stringify([firstId]));
@@ -127,9 +134,18 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
     checkCurrentPage();
     fetchAccounts();
 
-    // Listen for account changes from legacy scripts
+    // Listen for account changes from legacy scripts or Super Admin Panel
     const handleAccountChangedEvent = () => {
-      console.log('🔄 Account changed event received, fetching accounts...');
+      console.log('🔄 Account changed event received, syncing state and fetching accounts...');
+
+      // Sync state from sessionStorage
+      const newSelectedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+      const newMultiMode = sessionStorage.getItem('multiAccountMode') === 'true';
+
+      setSelectedAccountIds(newSelectedIds);
+      setTempSelectedAccounts(newSelectedIds);
+      setMultiAccountMode(newMultiMode);
+
       fetchAccounts();
     };
     globalThis.addEventListener('account-changed', handleAccountChangedEvent);
@@ -267,9 +283,10 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
     const account = accounts.find(a => a.id === firstSelectedId);
     const provider = account?.provider || 'AWS';
 
-    // Determine target page
+    // Determine target page based on provider
     let targetPage = '/dashboard';
     if (provider === 'GCP') targetPage = '/gcp-dashboard';
+    if (provider === 'Azure') targetPage = '/azure-dashboard';
 
     // If on a specialized page, stay there
     if (location.pathname.includes('billing') || location.pathname.includes('finops') || location.pathname.includes('cloudlist')) {

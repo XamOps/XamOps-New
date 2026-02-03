@@ -1,7 +1,6 @@
 package com.xammer.cloud.config.multitenancy;
 
 import com.xammer.cloud.dto.GlobalUserDto;
-import com.xammer.cloud.service.MasterDatabaseService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -11,7 +10,6 @@ import org.springframework.stereotype.Component;
 
 import javax.servlet.*;
 import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
 import java.io.IOException;
 import java.util.Optional;
@@ -26,38 +24,49 @@ public class TenantFilter implements Filter {
     private static final String SPRING_SECURITY_CONTEXT_KEY = "SPRING_SECURITY_CONTEXT";
 
     @Autowired
-    private MasterDatabaseService masterDatabaseService;
+    private com.xammer.cloud.service.MasterDatabaseService masterDatabaseService;
+
+    @Autowired
+    private com.xammer.cloud.service.EnvironmentService environmentService;
 
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
             throws IOException, ServletException {
 
         HttpServletRequest req = (HttpServletRequest) request;
+        String env = environmentService.getCurrentEnvironment();
 
-        // 1. Try getting Tenant ID from Header (Used by API calls / Sidebar)
-        String tenantId = req.getHeader(TENANT_HEADER);
+        // ONLY apply tenant context from headers in PROD
+        // In Local/UAT, we use a single database and phantom tenants like
+        // 'local-xammer'
+        // can break JPA lookups if Hibernate is expecting a specific schema.
+        if ("prod".equals(env)) {
+            // 1. Try getting Tenant ID from Header
+            String tenantId = req.getHeader(TENANT_HEADER);
 
-        // 2. If Header is missing, try getting from Request Parameter (Used by Login
-        // Form)
-        if (tenantId == null || tenantId.isEmpty()) {
-            tenantId = request.getParameter(TENANT_PARAM);
-        }
+            // 2. If Header is missing, try getting from Request Parameter
+            if (tenantId == null || tenantId.isEmpty()) {
+                tenantId = request.getParameter(TENANT_PARAM);
+            }
 
-        // 3. FALLBACK: If Header/Param missing, try resolving from Session
-        // This fixes the issue where dashboard reloads fail because headers are lost
-        if (tenantId == null || tenantId.isEmpty()) {
-            tenantId = resolveTenantFromSession(req);
-        }
+            // 3. FALLBACK: resolver from session
+            if (tenantId == null || tenantId.isEmpty()) {
+                tenantId = resolveTenantFromSession(req);
+            }
 
-        // 4. If found, set context for this thread
-        if (tenantId != null && !tenantId.isEmpty()) {
-            TenantContext.setCurrentTenant(tenantId);
+            // 4. If found, set context
+            if (tenantId != null && !tenantId.isEmpty()) {
+                TenantContext.setCurrentTenant(tenantId);
+            }
+        } else {
+            // Local/UAT: Default to 'default' tenant or null to ensure single-DB access
+            // works
+            TenantContext.setCurrentTenant("default");
         }
 
         try {
             chain.doFilter(request, response);
         } finally {
-            // 5. ALWAYS Clear context to prevent memory leaks
             TenantContext.clear();
         }
     }

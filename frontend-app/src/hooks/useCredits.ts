@@ -3,12 +3,13 @@
  *
  * Converted from: billops/credits.html (creditManager Alpine.js component)
  *
- * Manages Credits Management data fetching with:
+ * Manages Multicloud Credits Management data fetching with:
  * - Real-time polling every 5 seconds
  * - Form state management
  * - Filter functionality
  * - Toast notifications
  * - Proper cleanup on unmount
+ * - Multicloud support (AWS, GCP, Azure)
  *
  * What stayed the same:
  * - Same API endpoints: GET /api/billops/credits/user/:userId and POST /api/billops/credits
@@ -93,7 +94,7 @@ export const useCredits = (): UseCreditsReturn => {
       !newRequestData.services ||
       !newRequestData.useCase
     ) {
-      showNotification('Please fill all fields correctly.', 'error');
+      showNotification('Please fill all required fields correctly.', 'error');
       return;
     }
 
@@ -222,9 +223,8 @@ export const useCredits = (): UseCreditsReturn => {
  */
 function showNotification(message: string, type: 'success' | 'error') {
   const notification = document.createElement('div');
-  notification.className = `fixed top-4 right-4 px-6 py-3 rounded-lg text-white z-50 animate-fade-in ${
-    type === 'success' ? 'bg-green-600' : 'bg-red-600'
-  }`;
+  notification.className = `fixed top-4 right-4 px-6 py-3 rounded-lg text-white z-50 animate-fade-in ${type === 'success' ? 'bg-green-600' : 'bg-red-600'
+    }`;
   notification.textContent = message;
   document.body.appendChild(notification);
   setTimeout(() => notification.remove(), 3000);

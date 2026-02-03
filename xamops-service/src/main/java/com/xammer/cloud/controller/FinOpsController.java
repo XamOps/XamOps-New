@@ -66,7 +66,8 @@ public class FinOpsController {
 
             // Fallback: Fetch fresh data
             if (startDate != null && endDate != null) {
-                logger.info("Fetching FinOps report for account {} with date range: {} to {}", accountId, startDate, endDate);
+                logger.info("Fetching FinOps report for account {} with date range: {} to {}", accountId, startDate,
+                        endDate);
             } else {
                 logger.info("Fetching fresh FinOps report for account {}", accountId);
             }
@@ -74,20 +75,22 @@ public class FinOpsController {
             FinOpsReportDto report = finOpsService.getFinOpsReport(accountId, forceRefresh, startDate, endDate).join();
 
             if (report == null) {
-                logger.warn("FinOps report returned null for account {} (dates: {} to {})", accountId, startDate, endDate);
+                logger.warn("FinOps report returned null for account {} (dates: {} to {})", accountId, startDate,
+                        endDate);
                 return ResponseEntity.status(HttpStatus.NO_CONTENT)
-                    .body(Map.of("error", "No data available for the specified date range."));
+                        .body(Map.of("error", "No data available for the specified date range."));
             }
 
-            logger.info("Successfully fetched FinOps report for account {} (dates: {} to {})", accountId, startDate, endDate);
+            logger.info("Successfully fetched FinOps report for account {} (dates: {} to {})", accountId, startDate,
+                    endDate);
             return ResponseEntity.ok(report);
         } catch (Exception e) {
             logger.error("Error fetching FinOps report for account {} (dates: {} to {}): {}",
-                accountId, startDate, endDate, e.getMessage(), e);
+                    accountId, startDate, endDate, e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "Failed to retrieve FinOps report.",
-                        "message", e.getMessage() != null ? e.getMessage() : "Unknown error",
-                        "type", e.getClass().getSimpleName()));
+                            "message", e.getMessage() != null ? e.getMessage() : "Unknown error",
+                            "type", e.getClass().getSimpleName()));
         }
     }
 

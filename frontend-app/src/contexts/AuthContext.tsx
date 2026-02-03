@@ -8,6 +8,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import apiClient from '../utils/apiClient';
 import { UserRole, UserProfile, Tenant, TenantUser } from '../types/auth';
+import { Account } from '../types/account';
 
 interface AuthContextValue {
   userRoles: UserRole[];
@@ -17,17 +18,23 @@ interface AuthContextValue {
   // Super admin features
   tenantList: Tenant[];
   tenantUsers: TenantUser[];
+  tenantAccounts: Account[];
   selectedTenant: string;
   impersonateUser: string;
+  selectedAccountId: string;
+  environment: 'local' | 'uat' | 'prod';
 
   // Methods
   fetchUserRoles: () => Promise<void>;
   hasAnyRole: (roles: UserRole | UserRole[]) => boolean;
   switchTenant: (tenantId: string) => void;
   switchUser: (userId: string) => void;
+  switchAccount: (accountId: string) => void;
   resetContext: () => void;
   fetchTenants: () => Promise<void>;
   fetchTenantUsers: (tenantId: string) => Promise<void>;
+  fetchTenantAccounts: (userId: string, tenantId?: string) => Promise<void>;
+  fetchEnvironment: () => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -43,18 +50,35 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Super admin state
   const [tenantList, setTenantList] = useState<Tenant[]>([]);
   const [tenantUsers, setTenantUsers] = useState<TenantUser[]>([]);
+  const [tenantAccounts, setTenantAccounts] = useState<Account[]>([]);
+  const [environment, setEnvironment] = useState<'local' | 'uat' | 'prod'>('local');
+
   const [selectedTenant, setSelectedTenant] = useState<string>(
     () => sessionStorage.getItem('selectedTenantId') || ''
   );
   const [impersonateUser, setImpersonateUser] = useState<string>(
     () => sessionStorage.getItem('impersonateUserId') || ''
   );
+  const [selectedAccountId, setSelectedAccountId] = useState<string>(
+    () => sessionStorage.getItem('superAdminSelectedAccountId') || ''
+  );
 
   // Initialization guard to prevent double mounting in React Strict Mode
   const initializedRef = React.useRef(false);
+
+  /**
+   * Fetch environment info (super admin only)
+   */
+  const fetchEnvironment = useCallback(async () => {
+    try {
+      const data = await apiClient.get<{ environment: 'local' | 'uat' | 'prod' }>('/api/xamops/superadmin/environment');
+      setEnvironment(data.environment);
+    } catch (e) {
+      console.error('Failed to load environment info', e);
+    }
+  }, []);
 
   /**
    * Fetch tenants (super admin only)
@@ -71,12 +95,27 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   /**
    * Fetch tenant users (super admin only)
    */
-  const fetchTenantUsers = useCallback(async (_tenantId: string) => {
+  const fetchTenantUsers = useCallback(async (tenantId: string) => {
     try {
-      const data = await apiClient.get<TenantUser[]>('/api/xamops/superadmin/users');
+      const data = await apiClient.get<TenantUser[]>(`/api/xamops/superadmin/users?tenantId=${tenantId}`);
       setTenantUsers(data);
     } catch (e) {
       console.error('Failed to load tenant users', e);
+    }
+  }, []);
+
+  /**
+   * Fetch tenant accounts (super admin only)
+   */
+  const fetchTenantAccounts = useCallback(async (userId: string, tenantId?: string) => {
+    try {
+      const url = tenantId
+        ? `/api/xamops/superadmin/accounts-by-user/${userId}?tenantId=${tenantId}`
+        : `/api/xamops/superadmin/accounts-by-user/${userId}`;
+      const data = await apiClient.get<Account[]>(url);
+      setTenantAccounts(data);
+    } catch (e) {
+      console.error('Failed to load tenant accounts', e);
     }
   }, []);
 
@@ -109,13 +148,27 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setUserProfile(data);
       sessionStorage.setItem('cached_user_roles', JSON.stringify(roles));
 
-      // If super admin, fetch tenants
+      // If super admin, fetch tenants and environment
       if (roles.includes('ROLE_SUPER_ADMIN')) {
+        await fetchEnvironment();
         await fetchTenants();
         const currentTenant = sessionStorage.getItem('selectedTenantId') || '';
+        const currentImpersonateUser = sessionStorage.getItem('impersonateUserId') || '';
         if (currentTenant) {
           await fetchTenantUsers(currentTenant);
         }
+        if (currentImpersonateUser) {
+          await fetchTenantAccounts(currentImpersonateUser, currentTenant);
+        }
+      } else {
+        // Proactively clear super admin context for regular users
+        // This handles cases where a super admin switched users without proper logout
+        sessionStorage.removeItem('selectedTenantId');
+        sessionStorage.removeItem('impersonateUserId');
+        sessionStorage.removeItem('superAdminSelectedAccountId');
+        setSelectedTenant('');
+        setImpersonateUser('');
+        setSelectedAccountId('');
       }
     } catch (err) {
       console.warn(`⚠️ Could not fetch user profile from ${primaryEndpoint}, trying fallback:`, err);
@@ -133,11 +186,24 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         sessionStorage.setItem('cached_user_roles', JSON.stringify(roles));
 
         if (roles.includes('ROLE_SUPER_ADMIN')) {
+          await fetchEnvironment();
           await fetchTenants();
           const currentTenant = sessionStorage.getItem('selectedTenantId') || '';
+          const currentImpersonateUser = sessionStorage.getItem('impersonateUserId') || '';
           if (currentTenant) {
             await fetchTenantUsers(currentTenant);
           }
+          if (currentImpersonateUser) {
+            await fetchTenantAccounts(currentImpersonateUser, currentTenant);
+          }
+        } else {
+          // Proactively clear super admin context for regular users
+          sessionStorage.removeItem('selectedTenantId');
+          sessionStorage.removeItem('impersonateUserId');
+          sessionStorage.removeItem('superAdminSelectedAccountId');
+          setSelectedTenant('');
+          setImpersonateUser('');
+          setSelectedAccountId('');
         }
       } catch (error_) {
         console.error('❌ Could not fetch user profile from either endpoint:', error_);
@@ -158,16 +224,25 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     [userRoles]
   );
 
-  /**
-   * Switch tenant (super admin only)
-   */
   const switchTenant = useCallback((tenantId: string) => {
     if (tenantId) {
+      console.log('🏢 Switching Tenant (Soft):', tenantId);
       sessionStorage.setItem('selectedTenantId', tenantId);
       sessionStorage.removeItem('impersonateUserId');
+      sessionStorage.removeItem('superAdminSelectedAccountId');
+      sessionStorage.removeItem('selectedAccountIds');
+      sessionStorage.removeItem('cached_accounts');
+
       setSelectedTenant(tenantId);
       setImpersonateUser('');
-      globalThis.location.reload();
+      setSelectedAccountId('');
+      setTenantUsers([]);
+      setTenantAccounts([]);
+
+      // Notify other contexts to refresh
+      globalThis.dispatchEvent(new CustomEvent('account-changed', {
+        detail: { tenantId, reason: 'tenant-switch' }
+      }));
     } else {
       resetContext();
     }
@@ -178,9 +253,39 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
    */
   const switchUser = useCallback((userId: string) => {
     if (userId) {
+      console.log('👤 Impersonating User (Soft):', userId);
       sessionStorage.setItem('impersonateUserId', userId);
+      sessionStorage.removeItem('superAdminSelectedAccountId');
+      sessionStorage.removeItem('selectedAccountIds');
+      sessionStorage.removeItem('cached_accounts');
+
       setImpersonateUser(userId);
-      globalThis.location.reload();
+      setSelectedAccountId('');
+      setTenantAccounts([]);
+
+      // Notify other contexts to refresh
+      globalThis.dispatchEvent(new CustomEvent('account-changed', {
+        detail: { userId, reason: 'user-switch' }
+      }));
+    }
+  }, []);
+
+  /**
+   * Switch account (super admin only)
+   */
+  const switchAccount = useCallback((accountId: string) => {
+    if (accountId) {
+      console.log('💳 Switching Account (Soft):', accountId);
+      sessionStorage.setItem('superAdminSelectedAccountId', accountId);
+      // Also update the main account context selection
+      sessionStorage.setItem('selectedAccountIds', JSON.stringify([accountId]));
+
+      setSelectedAccountId(accountId);
+
+      // Notify other contexts to refresh
+      globalThis.dispatchEvent(new CustomEvent('account-changed', {
+        detail: { accountId, reason: 'account-switch' }
+      }));
     }
   }, []);
 
@@ -188,7 +293,24 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
    * Reset tenant context
    */
   const resetContext = useCallback(() => {
-    globalThis.location.reload();
+    console.log('🔄 Resetting Super Admin Context (Soft)');
+    sessionStorage.removeItem('selectedTenantId');
+    sessionStorage.removeItem('impersonateUserId');
+    sessionStorage.removeItem('superAdminSelectedAccountId');
+    sessionStorage.removeItem('cached_user_roles');
+    sessionStorage.removeItem('selectedAccountIds');
+    sessionStorage.removeItem('cached_accounts');
+
+    setSelectedTenant('');
+    setImpersonateUser('');
+    setSelectedAccountId('');
+    setTenantUsers([]);
+    setTenantAccounts([]);
+
+    // Notify other contexts to refresh
+    globalThis.dispatchEvent(new CustomEvent('account-changed', {
+      detail: { reason: 'context-reset' }
+    }));
   }, []);
 
   /**
@@ -231,15 +353,21 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     isLoading,
     tenantList,
     tenantUsers,
+    tenantAccounts,
     selectedTenant,
     impersonateUser,
+    selectedAccountId,
+    environment,
     fetchUserRoles,
     hasAnyRole,
     switchTenant,
     switchUser,
+    switchAccount,
     resetContext,
     fetchTenants,
     fetchTenantUsers,
+    fetchTenantAccounts,
+    fetchEnvironment,
     logout,
   }), [
     userRoles,
@@ -247,15 +375,21 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     isLoading,
     tenantList,
     tenantUsers,
+    tenantAccounts,
     selectedTenant,
     impersonateUser,
+    selectedAccountId,
+    environment,
     fetchUserRoles,
     hasAnyRole,
     switchTenant,
     switchUser,
+    switchAccount,
     resetContext,
     fetchTenants,
     fetchTenantUsers,
+    fetchTenantAccounts,
+    fetchEnvironment,
     logout,
   ]);
 
