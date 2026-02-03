@@ -1,13 +1,18 @@
 /**
  * MapSection Component
  *
- * Converted from: dashboard.html (Highcharts world map section)
- *
- * Displays interactive world map with AWS region points.
- * All logic and styling preserved from original.
+ * Displays interactive world map with AWS region points using react-simple-maps.
+ * Replaced Highcharts due to loading issues with external CDN dependencies.
  */
 
-import React, { useEffect, useRef } from 'react';
+import React, { useState, useCallback, memo } from 'react';
+import {
+  ComposableMap,
+  Geographies,
+  Geography,
+  Marker,
+  ZoomableGroup,
+} from 'react-simple-maps';
 import type { RegionStatus } from '../../types/liveDashboard';
 
 interface MapSectionProps {
@@ -15,214 +20,27 @@ interface MapSectionProps {
   isLoading: boolean;
 }
 
-// Highcharts global type (loaded via CDN)
-declare global {
-  interface Window {
-    Highcharts: any;
-  }
-}
+// World map TopoJSON URL (Natural Earth data, very reliable)
+const geoUrl = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json';
+
+// Status colors matching original
+const statusColors: Record<string, string> = {
+  'ACTIVE': '#3b82f6',     // blue
+  'SEMI_ACTIVE': '#ef4444', // red
+  'SUSTAINABLE': '#22c55e', // green
+  'NON_ACTIVE': '#6b7280'   // gray
+};
 
 const MapSection: React.FC<MapSectionProps> = ({ regionStatus, isLoading }) => {
-  const mapContainerRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<any>(null);
+  const [tooltipContent, setTooltipContent] = useState<string | null>(null);
+  const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [center, setCenter] = useState<[number, number]>([0, 20]);
 
   /**
-   * Get color based on region status (matches original dashboard.html)
+   * Handle region click - show notification
    */
-  const statusColors: Record<string, string> = {
-    'ACTIVE': '#3b82f6',     // blue
-    'SEMI_ACTIVE': '#ef4444', // red
-    'SUSTAINABLE': '#22c55e', // green
-    'NON_ACTIVE': '#6b7280'   // gray
-  };
-
-  /**
-   * Render Highcharts map (matches original renderHighchartMap function)
-   */
-  useEffect(() => {
-    if (!mapContainerRef.current || isLoading) {
-      return;
-    }
-
-    if (!regionStatus || regionStatus.length === 0) {
-      console.warn('[Map] No region data available');
-      return;
-    }
-
-    const globalAny = globalThis as any;
-    if (!globalAny.Highcharts) {
-      console.error('[Map Debug] CRITICAL: Highcharts object NOT found on globalThis.');
-      return;
-    }
-
-    console.log('[Map Debug] Highcharts object found on window.');
-
-    // Prepare region points (matches original dashboard.html format)
-    const regionPoints = regionStatus.map(r => ({
-      name: r.regionId,
-      fullName: `${r.regionId} (${r.status})`,
-      lat: r.latitude,
-      lon: r.longitude,
-      color: statusColors[r.status] || '#6b7280',
-      id: r.regionId,
-      status: r.status
-    }));
-
-    console.log('Rendering map with', regionPoints.length, 'regions');
-
-    // Fetch world map topology
-    fetch('https://code.highcharts.com/mapdata/custom/world.topo.json')
-      .then(response => {
-        if (!response.ok) {
-          throw new Error('Failed to fetch world map data');
-        }
-        return response.json();
-      })
-      .then(worldMap => {
-        console.log('World map data loaded successfully');
-
-        // Destroy existing chart if any
-        if (chartRef.current) {
-          chartRef.current.destroy();
-          chartRef.current = null;
-        }
-
-        // Create Highcharts map (matches original dashboard.html exactly)
-        const chart = globalAny.Highcharts.mapChart(mapContainerRef.current, {
-          chart: {
-            map: worldMap,
-            backgroundColor: 'transparent',
-            style: {
-              fontFamily: 'Inter, sans-serif'
-            }
-          },
-          title: { text: null },
-          credits: { enabled: false },
-          mapNavigation: {
-            enabled: true,
-            enableMouseWheelZoom: true,
-            buttonOptions: {
-              verticalAlign: 'bottom',
-              theme: {
-                'stroke-width': 1,
-                stroke: '#FF9900',
-                r: 4,
-                fill: 'white'
-              }
-            }
-          },
-          tooltip: {
-            useHTML: true,
-            backgroundColor: 'rgba(0, 0, 0, 0.85)',
-            borderColor: 'rgba(255, 153, 0, 0.8)',
-            borderRadius: 8,
-            style: {
-              color: 'white',
-              fontSize: '12px'
-            },
-            pointFormat: '<div style="padding: 4px;">' +
-              '<b>{point.fullName}</b><br/>' +
-              '<span style="font-size: 10px;">Click to filter dashboard</span>' +
-              '</div>'
-          },
-          plotOptions: {
-            mappoint: {
-              point: {
-                events: {
-                  click: function (this: any) {
-                    console.log('Region clicked:', this.id);
-                    filterByRegion(this.id);
-                  }
-                }
-              }
-            }
-          },
-          series: [
-            {
-              type: 'map',
-              name: 'World',
-              mapData: worldMap,
-              color: '#f1f5f9',
-              nullColor: '#e5e7eb',
-              enableMouseTracking: false,
-              states: {
-                hover: {
-                  color: '#e2e8f0',
-                  brightness: 0.05
-                }
-              },
-              borderColor: '#cbd5e1',
-              borderWidth: 0.5,
-              dataLabels: {
-                enabled: false
-              }
-            },
-            {
-              type: 'mappoint',
-              name: 'AWS Regions',
-              data: regionPoints,
-              marker: {
-                lineWidth: 2,
-                lineColor: '#ffffff',
-                radius: 8,
-                symbol: 'circle',
-                states: {
-                  hover: {
-                    lineWidth: 3,
-                    radius: 12,
-                    animation: {
-                      duration: 200
-                    }
-                  }
-                }
-              },
-              cursor: 'pointer',
-              dataLabels: {
-                enabled: true,
-                format: '{point.name}',
-                style: {
-                  color: '#1f2937',
-                  fontSize: '10px',
-                  fontWeight: 'bold',
-                  textOutline: '2px white'
-                },
-                y: -15
-              }
-            }
-          ]
-        });
-
-        chartRef.current = chart;
-        console.log('Map rendered successfully');
-      })
-      .catch(error => {
-        console.error('Failed to load world map:', error);
-        if (mapContainerRef.current) {
-          mapContainerRef.current.innerHTML =
-            '<div class="flex items-center justify-center h-full">' +
-            '<div class="text-center p-8">' +
-            '<svg class="w-12 h-12 text-red-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">' +
-            '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />' +
-            '</svg>' +
-            '<p class="text-red-600 font-semibold">Failed to load world map</p>' +
-            '<p class="text-sm text-gray-500 mt-2">' + error.message + '</p>' +
-            '</div></div>';
-        }
-      });
-
-    // Cleanup
-    return () => {
-      if (chartRef.current) {
-        chartRef.current.destroy();
-        chartRef.current = null;
-      }
-    };
-  }, [regionStatus, isLoading]);
-
-  /**
-   * Handle region click - show notification (matches original)
-   */
-  const filterByRegion = (regionId: string) => {
+  const filterByRegion = useCallback((regionId: string) => {
     const notification = document.createElement('div');
     notification.className = 'fixed top-4 right-4 bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded-lg shadow-lg z-50 max-w-sm';
     notification.innerHTML = `
@@ -241,6 +59,19 @@ const MapSection: React.FC<MapSectionProps> = ({ regionStatus, isLoading }) => {
     setTimeout(() => {
       notification.remove();
     }, 4000);
+  }, []);
+
+  const handleZoomIn = () => {
+    if (zoom < 4) setZoom(zoom * 1.5);
+  };
+
+  const handleZoomOut = () => {
+    if (zoom > 1) setZoom(zoom / 1.5);
+  };
+
+  const handleMoveEnd = (position: { coordinates: [number, number]; zoom: number }) => {
+    setCenter(position.coordinates);
+    setZoom(position.zoom);
   };
 
   return (
@@ -285,14 +116,148 @@ const MapSection: React.FC<MapSectionProps> = ({ regionStatus, isLoading }) => {
       )}
 
       {/* Map Container */}
-      <div
-        ref={mapContainerRef}
-        id="highcharts-map-container"
-        style={{ height: '400px' }}
-        className="rounded-lg overflow-hidden"
-      ></div>
+      <div className="relative rounded-lg overflow-hidden bg-slate-50" style={{ height: '400px' }}>
+        {/* Zoom Controls - positioned outside SVG stacking context */}
+        <div className="absolute bottom-4 left-4 z-50 flex flex-col gap-1" style={{ pointerEvents: 'auto' }}>
+          <button
+            onClick={handleZoomIn}
+            className="w-10 h-10 bg-white border-2 border-orange-400 rounded-lg flex items-center justify-center hover:bg-orange-50 transition-colors shadow-md"
+            title="Zoom In"
+            type="button"
+          >
+            <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+            </svg>
+          </button>
+          <button
+            onClick={handleZoomOut}
+            className="w-10 h-10 bg-white border-2 border-orange-400 rounded-lg flex items-center justify-center hover:bg-orange-50 transition-colors shadow-md"
+            title="Zoom Out"
+            type="button"
+          >
+            <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Tooltip */}
+        {tooltipContent && (
+          <div
+            className="absolute z-30 pointer-events-none px-3 py-2 rounded-lg text-white text-sm font-medium shadow-lg"
+            style={{
+              left: tooltipPosition.x,
+              top: tooltipPosition.y,
+              backgroundColor: 'rgba(0, 0, 0, 0.85)',
+              border: '1px solid rgba(255, 153, 0, 0.8)',
+              transform: 'translate(-50%, -100%)',
+              marginTop: '-10px',
+            }}
+          >
+            <div dangerouslySetInnerHTML={{ __html: tooltipContent }} />
+          </div>
+        )}
+
+        <ComposableMap
+          projection="geoMercator"
+          projectionConfig={{
+            scale: 120,
+          }}
+          style={{ width: '100%', height: '100%', position: 'relative', zIndex: 1 }}
+        >
+          <ZoomableGroup
+            zoom={zoom}
+            center={center}
+            onMoveEnd={handleMoveEnd}
+            minZoom={1}
+            maxZoom={4}
+          >
+            <Geographies geography={geoUrl}>
+              {({ geographies }: { geographies: Array<{ rsmKey: string }> }) =>
+                geographies.map((geo: { rsmKey: string }) => (
+                  <Geography
+                    key={geo.rsmKey}
+                    geography={geo}
+                    fill="#f1f5f9"
+                    stroke="#cbd5e1"
+                    strokeWidth={0.5}
+                    style={{
+                      default: { outline: 'none' },
+                      hover: { fill: '#e2e8f0', outline: 'none' },
+                      pressed: { outline: 'none' },
+                    }}
+                  />
+                ))
+              }
+            </Geographies>
+
+            {/* Region Markers */}
+            {regionStatus.map((region) => (
+              <Marker
+                key={region.regionId}
+                coordinates={[region.longitude, region.latitude]}
+                onMouseEnter={(e: React.MouseEvent<SVGElement>) => {
+                  const rect = (e.target as SVGElement).getBoundingClientRect();
+                  const container = (e.target as SVGElement).closest('.relative')?.getBoundingClientRect();
+                  if (container) {
+                    setTooltipPosition({
+                      x: rect.left - container.left + rect.width / 2,
+                      y: rect.top - container.top,
+                    });
+                  }
+                  setTooltipContent(`
+                    <div style="padding: 4px;">
+                      <b>${region.regionId} (${region.status})</b><br/>
+                      <span style="font-size: 10px;">Click to filter dashboard</span>
+                    </div>
+                  `);
+                }}
+                onMouseLeave={() => setTooltipContent(null)}
+                onClick={() => {
+                  console.log('Region clicked:', region.regionId);
+                  filterByRegion(region.regionId);
+                }}
+              >
+                <circle
+                  r={8 / zoom}
+                  fill={statusColors[region.status] || '#6b7280'}
+                  stroke="#ffffff"
+                  strokeWidth={2 / zoom}
+                  style={{
+                    cursor: 'pointer',
+                    transition: 'r 0.2s, stroke-width 0.2s',
+                  }}
+                  onMouseEnter={(e: React.MouseEvent<SVGCircleElement>) => {
+                    (e.target as SVGCircleElement).setAttribute('r', String(12 / zoom));
+                    (e.target as SVGCircleElement).setAttribute('stroke-width', String(3 / zoom));
+                  }}
+                  onMouseLeave={(e: React.MouseEvent<SVGCircleElement>) => {
+                    (e.target as SVGCircleElement).setAttribute('r', String(8 / zoom));
+                    (e.target as SVGCircleElement).setAttribute('stroke-width', String(2 / zoom));
+                  }}
+                />
+                <text
+                  textAnchor="middle"
+                  y={-15 / zoom}
+                  style={{
+                    fontFamily: 'Inter, sans-serif',
+                    fill: '#1f2937',
+                    fontSize: `${10 / zoom}px`,
+                    fontWeight: 'bold',
+                    paintOrder: 'stroke',
+                    stroke: '#ffffff',
+                    strokeWidth: 2 / zoom,
+                  }}
+                >
+                  {region.regionId}
+                </text>
+              </Marker>
+            ))}
+          </ZoomableGroup>
+        </ComposableMap>
+      </div>
     </div>
   );
 };
 
-export default MapSection;
+export default memo(MapSection);
