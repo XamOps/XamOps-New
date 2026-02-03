@@ -290,16 +290,16 @@ export const FinOpsPage: React.FC = () => {
             {(reportData.rightsizingRecommendations.length > 0 ||
               reportData.wastedResources.length > 0 ||
               reportData.costAnomalies.length > 0) && (
-              <FinOpsInsights
-                costAnomalies={reportData.costAnomalies}
-                rightsizingRecommendations={reportData.rightsizingRecommendations}
-                wastedResources={reportData.wastedResources}
-                rightsizingPagination={rightsizingPagination}
-                wastedPagination={wastedPagination}
-                onRightsizingPaginationChange={(updates) => updatePagination('rightsizing', updates)}
-                onWastedPaginationChange={(updates) => updatePagination('wasted', updates)}
-              />
-            )}
+                <FinOpsInsights
+                  costAnomalies={reportData.costAnomalies}
+                  rightsizingRecommendations={reportData.rightsizingRecommendations}
+                  wastedResources={reportData.wastedResources}
+                  rightsizingPagination={rightsizingPagination}
+                  wastedPagination={wastedPagination}
+                  onRightsizingPaginationChange={(updates) => updatePagination('rightsizing', updates)}
+                  onWastedPaginationChange={(updates) => updatePagination('wasted', updates)}
+                />
+              )}
           </>
         )}
       </div>

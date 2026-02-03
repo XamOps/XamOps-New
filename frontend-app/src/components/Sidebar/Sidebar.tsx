@@ -29,7 +29,6 @@ import { useAccounts } from '../../contexts/AccountContext';
 import AccountSelector from './AccountSelector';
 import NavItem from './NavItem';
 import NavSection from './NavSection';
-import SuperAdminPanel from './SuperAdminPanel';
 import UserLogoutCard from './UserLogoutCard';
 import clsx from 'clsx';
 
@@ -113,6 +112,7 @@ const Sidebar: React.FC = () => {
         currentPath === '/dashboard.html' ||
         currentPath === '/gcp-dashboard' ||
         currentPath === '/gcp_dashboard.html' ||
+        currentPath === '/azure-dashboard' ||
         currentPath === '/azure_dashboard.html'
       );
     }
@@ -150,6 +150,11 @@ const Sidebar: React.FC = () => {
     // Special case: CloudList matches both React route and HTML
     if (path === '/cloudlist') {
       return currentPath === '/cloudlist' || currentPath === '/cloudlist.html';
+    }
+
+    // Special case: Azure CloudList matches both React route and HTML
+    if (path === '/azure-cloudlist') {
+      return currentPath === '/azure-cloudlist' || currentPath === '/azure_cloudlist.html';
     }
 
     // Special case: Reservation matches both React route and HTML
@@ -212,6 +217,11 @@ const Sidebar: React.FC = () => {
     // Special case: GCP FinOps matches both React route and HTML
     if (path === '/gcp-finops') {
       return currentPath === '/gcp-finops' || currentPath === '/gcp_finops.html';
+    }
+
+    // Special case: Azure FinOps matches both React route and HTML
+    if (path === '/azure-finops') {
+      return currentPath === '/azure-finops' || currentPath === '/azure-finops-report.html';
     }
 
     // Special case: Performance matches both React route and HTML
@@ -455,12 +465,6 @@ const Sidebar: React.FC = () => {
           </Link>
         </div>
 
-        {/* Super Admin Panel */}
-        {hasAnyRole('ROLE_SUPER_ADMIN') && (
-          <div className="p-4 border-b border-gray-200">
-            <SuperAdminPanel />
-          </div>
-        )}
 
         {/* Account Selector */}
         <div className="p-4 border-b border-gray-200">
@@ -474,12 +478,64 @@ const Sidebar: React.FC = () => {
         {/* Navigation Menu */}
         <div className="flex-1 overflow-y-auto sidebar-scroll p-4 space-y-2">
 
+          {/* Direct BillOps tabs for ROLE_BILLOPS users (non-XAMOPS) */}
+          {/* These appear right after account selector, not nested in any module */}
+          {hasAnyRole('ROLE_BILLOPS') && !hasAnyRole('ROLE_XAMOPS') && (
+            <>
+              <NavItem
+                href="/billops-dashboard"
+                icon="fas fa-tachometer-alt"
+                label="Dashboard"
+                gradientClass="from-cyan-500 to-blue-600"
+                isActive={isActive('/billops-dashboard')}
+              />
+              <NavItem
+                href={getBillingUrl()}
+                icon="fas fa-dollar-sign"
+                label="Billing"
+                gradientClass="from-green-500 to-teal-600"
+                isActive={isActive('/billops-billing')}
+              />
+              <NavItem
+                href="/billops-invoices"
+                icon="fas fa-file-invoice"
+                label="Invoices"
+                gradientClass="from-purple-500 to-pink-600"
+                isActive={isActive('/billops-invoices')}
+              />
+              <NavItem
+                href="/billops-credits"
+                icon="fas fa-coins"
+                label="Credits"
+                gradientClass="from-yellow-500 to-orange-600"
+                isActive={isActive('/billops-credits')}
+              />
+              <NavItem
+                href="/billops-tickets"
+                icon="fas fa-ticket-alt"
+                label="Tickets"
+                gradientClass="from-red-500 to-pink-600"
+                isActive={isActive('/billops-tickets')}
+              />
+              <NavItem
+                href="/billops-agreements"
+                icon="fas fa-file-contract"
+                label="Agreements"
+                gradientClass="from-indigo-500 to-purple-600"
+                isActive={isActive('/billops-agreements')}
+              />
+            </>
+          )}
 
           {/* Live Dashboard (React - Converted from dashboard.html) */}
-          {/* Provider-aware routing: GCP accounts go to /gcp-dashboard, others to /dashboard */}
-          {hasAnyRole('ROLE_XAMOPS') && (
+          {/* Provider-aware routing: GCP → /gcp-dashboard, Azure → /azure-dashboard, AWS → /dashboard */}
+          {(hasAnyRole('ROLE_XAMOPS') || hasAnyRole('ROLE_SUPER_ADMIN')) && (
             <NavItem
-              href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-dashboard' : '/dashboard'}
+              href={
+                selectedAccountDisplay.provider === 'GCP' ? '/gcp-dashboard' :
+                  selectedAccountDisplay.provider === 'Azure' ? '/azure-dashboard' :
+                    '/dashboard'
+              }
               icon="fas fa-chart-line"
               label="Account Dashboard"
               gradientClass="from-blue-500 to-indigo-600"
@@ -488,7 +544,7 @@ const Sidebar: React.FC = () => {
           )}
 
           {/* FinOps Section */}
-          {hasAnyRole('ROLE_XAMOPS') && (
+          {(hasAnyRole('ROLE_XAMOPS') || hasAnyRole('ROLE_SUPER_ADMIN')) && (
             <NavSection
               id="finops"
               icon="fas fa-dollar-sign"
@@ -498,31 +554,51 @@ const Sidebar: React.FC = () => {
               onToggle={() => toggleDropdown('finops')}
             >
               <NavItem
-                href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-cost' : '/cost'}
+                href={
+                  selectedAccountDisplay.provider === 'GCP' ? '/gcp-cost' :
+                    selectedAccountDisplay.provider === 'Azure' ? '/cost' :
+                      '/cost'
+                }
                 icon="fas fa-dollar-sign"
                 label="Cost Management"
                 isActive={isActive('/cost') || isActive('/gcp-cost')}
               />
               <NavItem
-                href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-reservations' : '/reservation'}
+                href={
+                  selectedAccountDisplay.provider === 'GCP' ? '/gcp-reservations' :
+                    selectedAccountDisplay.provider === 'Azure' ? '/reservation' :
+                      '/reservation'
+                }
                 icon="fas fa-file-contract"
                 label="Reservation Management"
                 isActive={isActive('/reservation') || isActive('/gcp-reservations')}
               />
               <NavItem
-                href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-finops' : '/finops'}
+                href={
+                  selectedAccountDisplay.provider === 'GCP' ? '/gcp-finops' :
+                    selectedAccountDisplay.provider === 'Azure' ? '/azure-finops' :
+                      '/finops'
+                }
                 icon="fas fa-file-invoice-dollar"
                 label="FinOps Reports"
-                isActive={isActive('/finops') || isActive('/gcp-finops')}
+                isActive={isActive('/finops') || isActive('/gcp-finops') || isActive('/azure-finops')}
               />
               <NavItem
-                href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-waste' : '/waste'}
+                href={
+                  selectedAccountDisplay.provider === 'GCP' ? '/gcp-waste' :
+                    selectedAccountDisplay.provider === 'Azure' ? '/waste' :
+                      '/waste'
+                }
                 icon="fas fa-recycle"
                 label="Waste Management"
                 isActive={isActive('/waste') || isActive('/gcp-waste')}
               />
               <NavItem
-                href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-rightsizing' : '/rightsizing'}
+                href={
+                  selectedAccountDisplay.provider === 'GCP' ? '/gcp-rightsizing' :
+                    selectedAccountDisplay.provider === 'Azure' ? '/rightsizing' :
+                      '/rightsizing'
+                }
                 icon="fas fa-compress-arrows-alt"
                 label="Rightsizing"
                 isActive={isActive('/rightsizing') || isActive('/gcp-rightsizing')}
@@ -533,7 +609,7 @@ const Sidebar: React.FC = () => {
           )}
 
           {/* CloudOps Section */}
-          {hasAnyRole('ROLE_XAMOPS') && (
+          {(hasAnyRole('ROLE_XAMOPS') || hasAnyRole('ROLE_SUPER_ADMIN')) && (
             <NavSection
               id="cloudops"
               icon="fas fa-server"
@@ -542,7 +618,16 @@ const Sidebar: React.FC = () => {
               isOpen={openDropdown === 'cloudops'}
               onToggle={() => toggleDropdown('cloudops')}
             >
-              <NavItem href="/cloudlist" icon="fas fa-list" label="CloudList" isActive={isActive('/cloudlist')} />
+              <NavItem
+                href={
+                  selectedAccountDisplay.provider === 'GCP' ? '/gcp-cloudlist' :
+                    selectedAccountDisplay.provider === 'Azure' ? '/azure-cloudlist' :
+                      '/cloudlist'
+                }
+                icon="fas fa-list"
+                label="CloudList"
+                isActive={isActive('/cloudlist') || isActive('/gcp-cloudlist') || isActive('/azure-cloudlist')}
+              />
               <NavItem href="/cloudshell" icon="fas fa-terminal" label="CloudShell" isActive={isActive('/cloudshell')} />
               <NavItem
                 href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-cloudmap' : '/cloudmap'}
@@ -562,7 +647,7 @@ const Sidebar: React.FC = () => {
           )}
 
           {/* SecOps Section */}
-          {hasAnyRole('ROLE_XAMOPS') && (
+          {(hasAnyRole('ROLE_XAMOPS') || hasAnyRole('ROLE_SUPER_ADMIN')) && (
             <NavSection
               id="security"
               icon="fas fa-shield-alt"
@@ -599,7 +684,7 @@ const Sidebar: React.FC = () => {
 
 
           {/* Licenses Section for ROLE_XAMOPS */}
-          {hasAnyRole('ROLE_XAMOPS') && (
+          {(hasAnyRole('ROLE_XAMOPS') || hasAnyRole('ROLE_SUPER_ADMIN')) && (
             <NavSection
               id="licenses"
               icon="fas fa-key"
@@ -618,7 +703,9 @@ const Sidebar: React.FC = () => {
         {/* Footer - BillOps, Settings & Logout */}
         <div className="p-4 border-t border-gray-200 space-y-2">
           {/* BillOps Section moved to footer */}
-          {hasAnyRole(['ROLE_BILLOPS', 'ROLE_BILLOPS_ADMIN', 'ROLE_XAMOPS']) && (
+          {/* Only show for ROLE_XAMOPS and ROLE_BILLOPS_ADMIN users */}
+          {/* ROLE_BILLOPS users (non-XAMOPS) have direct tabs at the top instead */}
+          {(hasAnyRole('ROLE_XAMOPS') || hasAnyRole('ROLE_BILLOPS_ADMIN') || hasAnyRole('ROLE_SUPER_ADMIN')) && (
             <NavSection
               id="billops"
               icon="fas fa-file-invoice-dollar"
@@ -629,7 +716,7 @@ const Sidebar: React.FC = () => {
               direction="up"
             >
               {/* ROLE_XAMOPS users see standard BillOps items */}
-              {hasAnyRole('ROLE_XAMOPS') && (
+              {(hasAnyRole('ROLE_XAMOPS') || hasAnyRole('ROLE_SUPER_ADMIN')) && (
                 <>
                   <NavItem href="/billops-dashboard" icon="fas fa-tachometer-alt" label="Dashboard" isActive={isActive('/billops-dashboard')} />
                   <NavItem href={getBillingUrl()} icon="fas fa-dollar-sign" label="Billing" isActive={isActive('/billops-billing')} />
@@ -637,19 +724,6 @@ const Sidebar: React.FC = () => {
                   <NavItem href="/billops-credits" icon="fas fa-coins" label="Credits" isActive={isActive('/billops-credits')} />
                   <NavItem href="/billops-tickets" icon="fas fa-ticket-alt" label="Tickets" isActive={isActive('/billops-tickets')} />
                   <NavItem href="/billops-agreements" icon="fas fa-file-contract" label="Agreements" isActive={isActive('/billops-agreements')} />
-                </>
-              )}
-              {/* ROLE_BILLOPS users (non-XAMOPS) see user-specific items */}
-              {hasAnyRole('ROLE_BILLOPS') && !hasAnyRole('ROLE_XAMOPS') && (
-                <>
-                  <NavItem
-                    href="/billops-dashboard"
-                    icon="fas fa-tachometer-alt"
-                    label="My Dashboard"
-                    isActive={isActive('/billops-dashboard')}
-                  />
-                  <NavItem href="/billops/tickets_user.html" icon="fas fa-ticket-alt" label="My Tickets" />
-                  <NavItem href="/billops/invoices_user.html" icon="fas fa-file-invoice" label="My Invoices" />
                 </>
               )}
               {hasAnyRole('ROLE_BILLOPS_ADMIN') && (
@@ -686,13 +760,13 @@ const Sidebar: React.FC = () => {
             onToggle={() => toggleDropdown('settings')}
             direction="up"
           >
-            {hasAnyRole('ROLE_XAMOPS') && (
+            {hasAnyRole(['ROLE_XAMOPS', 'ROLE_BILLOPS', 'ROLE_SUPER_ADMIN']) && (
               <NavItem href="/account-manager" icon="fas fa-cloud" label="Account Management" isActive={isActive('/account-manager')} />
             )}
-            {hasAnyRole('ROLE_XAMOPS') && (
+            {hasAnyRole(['ROLE_XAMOPS', 'ROLE_BILLOPS', 'ROLE_SUPER_ADMIN']) && (
               <NavItem href="/user-management" icon="fas fa-users-cog" label="User Management" isActive={isActive('/user-management')} />
             )}
-            {hasAnyRole('ROLE_BILLOPS_ADMIN') && (
+            {(hasAnyRole('ROLE_BILLOPS_ADMIN') || hasAnyRole('ROLE_SUPER_ADMIN')) && (
               <NavItem href="/billops-admin-user-manager" icon="fas fa-user-cog" label="User Manager" isActive={isActive('/billops-admin-user-manager')} />
             )}
           </NavSection>

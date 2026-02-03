@@ -17,7 +17,8 @@ public class FinOpsRefreshService {
     private final CacheService cacheService;
 
     @Autowired
-    public FinOpsRefreshService(FinOpsService finOpsService, DashboardUpdateService dashboardUpdateService, CacheService cacheService) {
+    public FinOpsRefreshService(FinOpsService finOpsService, DashboardUpdateService dashboardUpdateService,
+            CacheService cacheService) {
         this.finOpsService = finOpsService;
         this.dashboardUpdateService = dashboardUpdateService;
         this.cacheService = cacheService;
