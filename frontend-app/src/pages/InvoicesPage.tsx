@@ -28,7 +28,7 @@ import React, { useEffect } from 'react';
 import { useInvoices } from '../hooks/useInvoices';
 import { useTopbar } from '../contexts/TopbarContext';
 import Big from 'big.js';
-import type { Invoice, InvoiceDiscount } from '../types/invoices';
+import type { InvoiceDiscount } from '../types/invoices';
 import '../styles/invoices.css';
 
 const InvoicesPage: React.FC = () => {
@@ -88,8 +88,25 @@ const InvoicesPage: React.FC = () => {
   const formatNumber = (value: number | string | null | undefined): string => {
     if (typeof value !== 'number' && typeof value !== 'string') return '0';
     const num = Number(value);
-    if (isNaN(num)) return '0';
+    if (Number.isNaN(num)) return '0';
     return num.toLocaleString('en-US', { maximumFractionDigits: 3 });
+  };
+
+  /**
+   * Get account/project ID for an invoice
+   */
+  const getAccountId = (invoice: any): string => {
+    if (invoice.awsAccountId && invoice.awsAccountId !== 'N/A') return invoice.awsAccountId;
+    if (invoice.gcpProjectId && invoice.gcpProjectId !== 'N/A') return invoice.gcpProjectId;
+    return invoice.azureSubscriptionId || 'N/A';
+  };
+
+  /**
+   * Get status badge class
+   */
+  const getStatusBadgeClass = (status: string): string => {
+    if (status === 'FINALIZED') return 'bg-green-50 text-green-700 border-green-200';
+    return 'bg-gray-50 text-gray-600 border-gray-200';
   };
 
   /**
@@ -110,6 +127,9 @@ const InvoicesPage: React.FC = () => {
         }
       }
       return amount * -1;
+    } catch (err) {
+      console.error('[Invoices] Discount calculation error:', err);
+      return 0;
     }
   };
 
@@ -138,18 +158,18 @@ const InvoicesPage: React.FC = () => {
           <div className="flex items-center gap-2">
             <button
               onClick={goBackToList}
-              className="px-4 py-2 bg-white text-slate-600 border border-slate-200 rounded-xl text-xs font-bold hover:bg-slate-50 transition-all shadow-sm"
+              className="px-4 py-2 bg-white text-slate-600 border border-slate-200 rounded-xl text-xs font-bold hover:bg-slate-50 transition-all shadow-sm flex items-center gap-2"
             >
-              <i className="fas fa-arrow-left mr-2" />
-              Back
+              <i className="fas fa-arrow-left" />
+              <span>Back</span>
             </button>
             <button
               onClick={downloadInvoice}
               disabled={!selectedInvoice || detailLoading}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-500/20 hover:bg-indigo-700 transition-all disabled:opacity-50"
+              className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-500/20 hover:bg-indigo-700 transition-all disabled:opacity-50 flex items-center gap-2"
             >
-              <i className="fas fa-download mr-2" />
-              Download PDF
+              <i className="fas fa-download" />
+              <span>Download PDF</span>
             </button>
           </div>
         )}
@@ -353,11 +373,7 @@ const InvoicesPage: React.FC = () => {
                         </td>
                         <td className="px-6 py-5 whitespace-nowrap">
                           <span className="font-mono text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded border border-gray-200">
-                            {invoice.awsAccountId && invoice.awsAccountId !== 'N/A'
-                              ? invoice.awsAccountId
-                              : invoice.gcpProjectId && invoice.gcpProjectId !== 'N/A'
-                                ? invoice.gcpProjectId
-                                : invoice.azureSubscriptionId}
+                            {getAccountId(invoice)}
                           </span>
                         </td>
                         <td className="px-6 py-5 whitespace-nowrap text-sm text-gray-600 font-medium">
@@ -368,10 +384,7 @@ const InvoicesPage: React.FC = () => {
                         </td>
                         <td className="px-6 py-5 whitespace-nowrap text-center">
                           <span
-                            className={`px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-full border ${invoice.status === 'FINALIZED'
-                              ? 'bg-green-50 text-green-700 border-green-200'
-                              : 'bg-gray-50 text-gray-600 border-gray-200'
-                              }`}
+                            className={`px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-full border ${getStatusBadgeClass(invoice.status)}`}
                           >
                             {invoice.status}
                           </span>
@@ -515,11 +528,17 @@ const InvoicesPage: React.FC = () => {
                                 >
                                   <td className="py-3 pl-4 text-center">
                                     <div className="w-px h-full bg-gray-200 mx-auto absolute top-0 bottom-0 left-7 -z-10"></div>
-                                    <div
-                                      className={`ml-6 w-5 h-5 rounded flex items-center justify-center transition-transform duration-200 ${expandedRegions[`${service.serviceName}-${region.regionName}`] ? 'text-indigo-500 rotate-90' : 'text-gray-400'}`}
-                                    >
-                                      <i className="fas fa-caret-right text-xs" />
-                                    </div>
+                                    {(() => {
+                                      const regionKey = `${service.serviceName}-${region.regionName}`;
+                                      return (
+                                        <div
+                                          className={`ml-6 w-5 h-5 rounded flex items-center justify-center transition-transform duration-200 ${expandedRegions[regionKey] ? 'text-indigo-500 rotate-90' : 'text-gray-400'
+                                            }`}
+                                        >
+                                          <i className="fas fa-caret-right text-xs" />
+                                        </div>
+                                      );
+                                    })()}
                                   </td>
                                   <td className="py-3 pl-8">
                                     <div className="text-sm font-medium text-gray-700 flex items-center">
@@ -546,9 +565,9 @@ const InvoicesPage: React.FC = () => {
                                         <div className="text-xs text-gray-600 font-mono break-all pl-2 border-l-2 border-gray-100">{resource.resourceName}</div>
                                       </td>
                                       <td className="py-2 text-right text-xs text-gray-500">
-                                        {resource.quantity != null
-                                          ? `${formatNumber(resource.quantity)} ${resource.unit || ''}`
-                                          : '-'}
+                                        {resource.quantity === null
+                                          ? '-'
+                                          : `${formatNumber(resource.quantity)} ${resource.unit || ''}`}
                                       </td>
                                       <td className="py-2 pr-6 text-right">
                                         <div className="font-mono text-xs text-gray-600">
