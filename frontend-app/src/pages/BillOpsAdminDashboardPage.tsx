@@ -27,10 +27,12 @@ import React, { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import Chart from 'chart.js/auto';
 import { useBillOpsAdminDashboard } from '../hooks/useBillOpsAdminDashboard';
+import { useTopbar } from '../contexts/TopbarContext';
 import type { TopSpendingAccount, AdminInvoice, AdminTicket } from '../types/billopsAdminDashboard';
 
 const BillOpsAdminDashboardPage: React.FC = () => {
   const { data, loading, isRefreshing, error, refreshDashboard } = useBillOpsAdminDashboard();
+  const { setActions, clearActions } = useTopbar();
 
   // Chart refs
   const providerChartRef = useRef<HTMLCanvasElement>(null);
@@ -235,48 +237,32 @@ const BillOpsAdminDashboardPage: React.FC = () => {
     return providerMap[provider] || 'fas fa-cloud';
   };
 
-  return (
-    <div className="admin-dashboard flex-1 flex flex-col h-screen overflow-hidden">
-      {/* Header */}
-      <header className="admin-header h-20 flex items-center justify-between px-8 sticky top-0 z-20">
-        <div className="flex items-center gap-4">
-          <div className="admin-header-icon w-12 h-12 rounded-xl flex items-center justify-center text-white transition-transform">
-            <i className="fas fa-user-shield text-lg" />
+  /**
+   * Set Topbar Actions
+   */
+  useEffect(() => {
+    setActions(
+      <div className="flex items-center gap-4">
+        {data?.lastUpdated && (
+          <div className="text-xs text-slate-500 font-medium hidden md:block">
+            Last updated: {new Date(data.lastUpdated).toLocaleString()}
           </div>
-          <div>
-            <h1 className="text-xl font-black text-gray-900 tracking-tight flex items-center gap-2">
-              BillOps Command Center
-              <span className="text-xs font-semibold px-2 py-0.5 bg-gradient-to-r from-purple-100 to-pink-100 text-purple-600 rounded-full">
-                Admin
-              </span>
-            </h1>
-            <div className="flex items-center gap-3 text-xs text-gray-500 mt-1">
-              <div className="flex items-center gap-1.5">
-                <div className="w-2 h-2 bg-green-500 rounded-full admin-live-indicator" />
-                <span className="font-medium">System Overview</span>
-              </div>
-              <span className="text-gray-300">|</span>
-              <span className="text-gray-400">All Clients</span>
-            </div>
-          </div>
-        </div>
+        )}
+        <button
+          onClick={refreshDashboard}
+          disabled={isRefreshing}
+          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-500/20 hover:bg-indigo-700 transition-all disabled:opacity-50"
+        >
+          <i className={`fas fa-sync-alt ${isRefreshing ? 'animate-spin' : ''}`} />
+          Refresh
+        </button>
+      </div>
+    );
+    return () => clearActions();
+  }, [setActions, clearActions, data?.lastUpdated, isRefreshing, refreshDashboard]);
 
-        <div className="flex items-center gap-4">
-          {data?.lastUpdated && (
-            <div className="text-xs text-gray-500 font-medium hidden md:block">
-              Last updated: {new Date(data.lastUpdated).toLocaleString()}
-            </div>
-          )}
-          <button
-            onClick={refreshDashboard}
-            disabled={isRefreshing}
-            className="admin-refresh-btn flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white rounded-lg shadow-md"
-          >
-            <i className={`fas fa-sync-alt ${isRefreshing ? 'admin-spin' : ''}`} />
-            Refresh
-          </button>
-        </div>
-      </header>
+  return (
+    <div className="admin-dashboard flex-1 flex flex-col h-full bg-transparent overflow-hidden">
 
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto p-8 space-y-6 admin-scrollbar">
