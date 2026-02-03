@@ -1,0 +1,148 @@
+/* Professional Enterprise Styles for Client Details */
+
+@keyframes premium-fade-in-up {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes premium-pulse {
+
+    0%,
+    100% {
+        opacity: 1;
+        background-color: rgba(229, 231, 235, 0.4);
+    }
+
+    50% {
+        opacity: 0.6;
+        background-color: rgba(229, 231, 235, 0.2);
+    }
+}
+
+.animate-premium-fade-in {
+    animation: premium-fade-in-up 0.5s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}
+
+.animate-premium-pulse {
+    animation: premium-pulse 2s infinite ease-in-out;
+}
+
+/* Professional Card - Clean Paper Style */
+.premium-glass {
+    background: #ffffff !important;
+    backdrop-filter: none !important;
+    border: 1px solid #e2e8f0 !important;
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px 0 rgba(0, 0, 0, 0.03) !important;
+}
+
+.premium-card-shadow {
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03) !important;
+}
+
+.premium-card-hover {
+    transition: all 0.3s ease !important;
+}
+
+.premium-card-hover:hover {
+    transform: none !important;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -2px rgba(0, 0, 0, 0.04) !important;
+    border-color: #cbd5e1 !important;
+}
+
+/* Professional Gradients (Muted & Deep) */
+.gradient-text-lucrative {
+    background: none !important;
+    -webkit-text-fill-color: initial !important;
+    color: #1e293b !important;
+    font-weight: 800 !important;
+}
+
+.gradient-bg-lucrative {
+    background: #1e293b !important;
+}
+
+/* Enterprise Tab Styling */
+.premium-tab-active {
+    color: #4f46e5 !important;
+    border-bottom: 2px solid #4f46e5 !important;
+}
+
+/* Standard Professional Button */
+.premium-button {
+    transition: all 0.2s ease !important;
+    background-color: #4f46e5 !important;
+    color: white !important;
+    font-weight: 600 !important;
+    position: relative !important;
+    overflow: hidden !important;
+    transform: none !important;
+}
+
+.premium-button:hover {
+    background-color: #4338ca !important;
+    box-shadow: 0 4px 12px rgba(79, 70, 229, 0.2) !important;
+}
+
+.premium-button::after {
+    display: none !important;
+}
+
+.premium-button-secondary {
+    background-color: white !important;
+    color: #334155 !important;
+    border: 1px solid #e2e8f0 !important;
+}
+
+.premium-button-secondary:hover {
+    background-color: #f8fafc !important;
+    border-color: #cbd5e1 !important;
+}
+
+/* Stats Badges */
+.badge-enterprise {
+    padding: 0.25rem 0.625rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    border-radius: 9999px;
+    letter-spacing: 0.025em;
+    border-width: 1px;
+}
+
+.badge-enterprise-blue {
+    background-color: #eff6ff !important;
+    color: #1d4ed8 !important;
+    border-color: #dbeafe !important;
+}
+
+.badge-enterprise-purple {
+    background-color: #f5f3ff !important;
+    color: #6d28d9 !important;
+    border-color: #ede9fe !important;
+}
+
+.stagger-1 {
+    animation-delay: 0.05s;
+}
+
+.stagger-2 {
+    animation-delay: 0.1s;
+}
+
+.stagger-3 {
+    animation-delay: 0.15s;
+}
+
+.stagger-4 {
+    animation-delay: 0.2s;
+}
+
+.stagger-5 {
+    animation-delay: 0.25s;
+}
