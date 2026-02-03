@@ -2,12 +2,13 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { useTopbar } from '../../contexts/TopbarContext';
 import { useAuth } from '../../contexts/AuthContext';
+import SuperAdminTopBar from './SuperAdminTopBar';
 import LogoutModal from './LogoutModal';
 
 const Topbar: React.FC = () => {
     const location = useLocation();
     const { actions } = useTopbar();
-    const { userProfile, logout } = useAuth();
+    const { userProfile, logout, hasAnyRole } = useAuth();
     const [isProfileOpen, setIsProfileOpen] = useState(false);
     const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
@@ -55,7 +56,6 @@ const Topbar: React.FC = () => {
     };
 
     const pageTitle = getPageTitle(location.pathname);
-
     const displayName = userProfile?.username || userProfile?.email?.split('@')[0] || 'User';
 
     return (
@@ -72,6 +72,11 @@ const Topbar: React.FC = () => {
                             <span className="text-indigo-500/80">{pageTitle}</span>
                         </div>
                     </div>
+                </div>
+
+                {/* Super Admin Panel */}
+                <div className="flex-1 flex justify-center px-4">
+                    {hasAnyRole('ROLE_SUPER_ADMIN') && <SuperAdminTopBar />}
                 </div>
 
                 <div className="flex items-center gap-6">

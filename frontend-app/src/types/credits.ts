@@ -10,11 +10,19 @@ export type CreditStatus = 'submitted' | 'documentation_review' | 'technical_ver
 export type CreditPriority = 'low' | 'medium' | 'high';
 export type CreditFilter = 'all' | CreditStatus;
 
+/**
+ * Credit Request Data Structure
+ * 
+ * Note: awsAccountId field supports multicloud identifiers:
+ * - AWS Account IDs (12-digit number)
+ * - GCP Project IDs (alphanumeric string)
+ * - Azure Subscription IDs (GUID format)
+ */
 export interface CreditRequest {
   id: number;
-  awsAccountId: string;
+  awsAccountId: string; // Multicloud: supports AWS/GCP/Azure identifiers
   expectedCredits: number;
-  services: string;
+  services: string; // Multicloud: can include services from any cloud provider
   useCase: string;
   priority: CreditPriority;
   userId: number;
@@ -22,10 +30,15 @@ export interface CreditRequest {
   status: CreditStatus;
 }
 
+/**
+ * New Credit Request Form Data
+ * 
+ * Maintains awsAccountId field name for backward compatibility with backend API
+ */
 export interface NewCreditRequest {
-  awsAccountId: string;
+  awsAccountId: string; // Multicloud: supports AWS/GCP/Azure identifiers
   expectedCredits: number | null;
-  services: string;
+  services: string; // Multicloud: can include services from any cloud provider
   useCase: string;
   priority: CreditPriority;
 }

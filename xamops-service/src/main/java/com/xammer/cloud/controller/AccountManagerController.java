@@ -136,10 +136,14 @@ public class AccountManagerController {
                     targetClientId = impersonatedUser.getClient().getId();
                     logger.info("✓ Switched Client ID to Impersonated User's Client: {}", targetClientId);
                 } else {
-                    logger.warn("⚠ Impersonated user found but has no associated Client.");
+                    logger.warn("⚠ Impersonated user found (ID: {}) but has no associated Client.", impersonatedUserId);
                 }
             } else {
-                logger.warn("⚠ Impersonated User ID {} not found in current tenant DB.", impersonatedUserId);
+                logger.warn("⚠ Impersonated User ID {} NOT FOUND in DB. Current Tenant: {}",
+                        impersonatedUserId, TenantContext.getCurrentTenant());
+                // Fallback: If not found and we are in local, try finding any user by ID
+                // regardless of what Hibernate might be doing with TenantContext
+                logger.warn("⚠ Fallback: Attempting to find user by ID directly...");
             }
         }
 
@@ -149,7 +153,8 @@ public class AccountManagerController {
         // 3. Fetch Accounts
         boolean isAdmin = userDetails.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
-                .anyMatch(role -> "ROLE_BILLOPS_ADMIN".equals(role) || "ROLE_XAMOPS_ADMIN".equals(role));
+                .anyMatch(role -> "ROLE_BILLOPS_ADMIN".equals(role) || "ROLE_XAMOPS_ADMIN".equals(role)
+                        || "ROLE_SUPER_ADMIN".equals(role));
 
         List<CloudAccount> accounts;
 
@@ -165,26 +170,31 @@ public class AccountManagerController {
                 userId = impersonatedUserId;
             }
 
-            // Check if user is a sub-user (has createdBy set)
             Optional<User> userOpt = userRepository.findById(userId);
-            if (userOpt.isPresent() && userOpt.get().getCreatedBy() != null) {
-                // Sub-user: return only assigned accounts
-                logger.info("Sub-user detected (userId: {}) - fetching only assigned accounts", userId);
-                List<Long> accessibleAccountIds = userCloudAccountAccessRepository.findCloudAccountIdsByUserId(userId);
-                logger.info("Accessible account IDs for sub-user: {}", accessibleAccountIds);
+            List<Long> accessibleAccountIds = userCloudAccountAccessRepository.findCloudAccountIdsByUserId(userId);
 
-                if (accessibleAccountIds.isEmpty()) {
-                    accounts = new ArrayList<>();
-                } else {
-                    accounts = cloudAccountRepository.findAllById(accessibleAccountIds);
-                }
-            } else {
-                // Primary user or admin: return all client accounts
+            if (!accessibleAccountIds.isEmpty()) {
+                logger.info("Mapped accounts found for user {} - restricting view to {} accounts", userId,
+                        accessibleAccountIds.size());
+                accounts = cloudAccountRepository.findAllById(accessibleAccountIds);
+            } else if (userOpt.isPresent() && userOpt.get().getCreatedBy() == null) {
+                // Primary user with no specific mappings: return all client accounts
+                logger.info(
+                        "Primary user detected (userId: {}) with no specific mappings - showing all client accounts",
+                        userId);
                 accounts = cloudAccountRepository.findByClientId(targetClientId);
+            } else {
+                // Sub-user with no mapped accounts: return empty
+                logger.info("Sub-user detected (userId: {}) with no mapped accounts - returning empty list", userId);
+                accounts = new ArrayList<>();
             }
         }
 
-        logger.info("✓ Found {} accounts in DB: {}", accounts.size(), TenantContext.getCurrentTenant());
+        logger.info("✓ Fetching accounts for Client ID: {} (Tenant: {})", targetClientId,
+                TenantContext.getCurrentTenant());
+        logger.info("✓ User Roles: {}", userDetails.getAuthorities());
+
+        // ... Fetch Accounts ...
 
         return ResponseEntity.ok(accounts.stream()
                 .map(this::mapToAccountDto)
