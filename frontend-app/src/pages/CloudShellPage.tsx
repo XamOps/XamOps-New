@@ -327,7 +327,7 @@ const CloudShellPage: React.FC = () => {
       </div>
     );
     return () => clearActions();
-  }, [setActions, clearActions, statusDisplay, connectionStatus]);
+  }, [setActions, clearActions, connectionStatus, currentAccountId]);
 
   return (
     <main className="flex-1 flex flex-col min-h-0 relative bg-gray-50">

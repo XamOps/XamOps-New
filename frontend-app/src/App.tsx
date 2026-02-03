@@ -15,6 +15,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { AccountProvider } from './contexts/AccountContext';
+import { VPCProvider } from './contexts/VPCContext';
 import { Sidebar } from './components/Sidebar';
 import { TopbarProvider } from './contexts/TopbarContext';
 import Topbar from './components/Shared/Topbar';
@@ -1010,7 +1011,9 @@ const App: React.FC = () => {
     <Router>
       <AuthProvider>
         <AccountProvider>
-          <AppContent />
+          <VPCProvider>
+            <AppContent />
+          </VPCProvider>
         </AccountProvider>
       </AuthProvider>
     </Router>
