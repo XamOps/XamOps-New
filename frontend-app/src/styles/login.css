@@ -271,8 +271,8 @@ body {
 
 .brand-subtitle {
   font-size: 1.25rem;
-  color: #475569;
-  /* Muted gray/blue from image */
+  color: #94A3B8;
+  /* Lighter slate blue */
   margin-top: 0.75rem;
   font-weight: 500;
   letter-spacing: -0.01em;
@@ -318,8 +318,8 @@ body {
 .label-text {
   font-size: 0.875rem;
   font-weight: 600;
-  color: #94A3B8;
-  /* Slate tint for better theme matching */
+  color: #CBD5E1;
+  /* Lighter slate gray */
 }
 
 .input-container {
@@ -328,8 +328,8 @@ body {
 
 .input-field {
   width: 100%;
-  background: rgba(0, 0, 0, 0.45);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(59, 130, 246, 0.1);
   border-radius: 1rem;
   padding: 0.875rem 1rem 0.875rem 3rem;
   color: #E0E7FF;

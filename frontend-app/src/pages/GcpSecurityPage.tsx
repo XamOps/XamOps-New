@@ -17,10 +17,12 @@
  * - GET /api/xamops/gcp/security/container-vulnerabilities?accountId={accountId}
  */
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
+import { useTopbar } from '../contexts/TopbarContext';
 import { useGcpSecurityData } from '../hooks/useGcpSecurityData';
 import type { GcpSeverityLevel, GcpSecurityFinding } from '../types/gcpSecurity';
+import clsx from 'clsx';
 import '../styles/gcpSecurity.css';
 
 const GcpSecurityPage: React.FC = () => {
@@ -50,6 +52,34 @@ const GcpSecurityPage: React.FC = () => {
     closeModal,
     getFindingsBySeverity,
   } = useGcpSecurityData({ selectedAccountId });
+
+  // Topbar Integration
+  const { setActions, clearActions } = useTopbar();
+
+  useEffect(() => {
+    setActions(
+      <div className="flex items-center gap-3">
+        <button
+          onClick={exportData}
+          disabled={isExporting}
+          className="flex items-center gap-2 px-4 py-2 bg-white text-emerald-600 text-xs font-bold rounded-xl border border-emerald-100 shadow-sm hover:shadow-md transition-all disabled:opacity-50"
+        >
+          <i className={clsx('fas', isExporting ? 'fa-spinner fa-spin' : 'fa-file-excel')}></i>
+          <span>{isExporting ? 'Exporting...' : 'Export Report'}</span>
+        </button>
+
+        <button
+          onClick={() => loadAllData(true)}
+          disabled={isRefreshing}
+          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50 active:scale-95"
+        >
+          <i className={clsx('fas fa-sync-alt', isRefreshing && 'animate-spin')}></i>
+          <span>{isRefreshing ? 'Scanning...' : 'Refresh Scan'}</span>
+        </button>
+      </div>
+    );
+    return () => clearActions();
+  }, [setActions, clearActions, isRefreshing, isExporting, exportData, loadAllData]);
 
   /**
    * Get severity header color
@@ -105,37 +135,6 @@ const GcpSecurityPage: React.FC = () => {
 
   return (
     <main className="gcp-security-page">
-      {/* Header */}
-      <header className="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-20 flex-shrink-0">
-        <div className="flex items-center space-x-4">
-          <div className="w-12 h-12 bg-gradient-to-br from-red-500 to-yellow-500 rounded-xl flex items-center justify-center">
-            <i className="fas fa-shield-alt text-white text-xl"></i>
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-800">GCP Security Center</h1>
-            <p className="text-sm text-gray-600">Monitor security findings and compliance status</p>
-          </div>
-        </div>
-        <div className="flex items-center space-x-4">
-          <button
-            onClick={exportData}
-            disabled={isExporting}
-            className="btn-success flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md"
-          >
-            <i className={`fas ${isExporting ? 'fa-spinner fa-spin' : 'fa-file-excel'}`}></i>
-            <span>{isExporting ? 'Exporting...' : 'Export Report'}</span>
-          </button>
-          <button
-            onClick={() => loadAllData(true)}
-            disabled={isRefreshing}
-            className="btn-primary flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md"
-          >
-            <i className={`fas fa-sync-alt ${isRefreshing ? 'fa-spin' : ''}`}></i>
-            <span>{isRefreshing ? 'Scanning...' : 'Refresh Scan'}</span>
-          </button>
-        </div>
-      </header>
-
       <div className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar bg-gray-50">
         {/* No Account Selected */}
         {!selectedAccountId && !isLoading && (

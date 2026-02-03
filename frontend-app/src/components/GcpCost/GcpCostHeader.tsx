@@ -1,9 +1,5 @@
-/**
- * GcpCostHeader Component
- * Header with GCP branding, title, and refresh button
- */
-
-import React from 'react';
+import React, { useEffect } from 'react';
+import { useTopbar } from '../../contexts/TopbarContext';
 
 interface GcpCostHeaderProps {
   isLoading: boolean;
@@ -11,33 +7,33 @@ interface GcpCostHeaderProps {
 }
 
 const GcpCostHeader: React.FC<GcpCostHeaderProps> = ({ isLoading, onRefresh }) => {
-  return (
-    <header className="gcp-cost-header">
-      <div className="gcp-cost-header-left">
-        <div className="gcp-cost-header-icon">
-          <i className="fas fa-dollar-sign"></i>
-        </div>
-        <div className="gcp-cost-header-text">
-          <h1>GCP Cost Management</h1>
-          <p>Analyze and optimize your GCP spending</p>
+  const { setActions, clearActions } = useTopbar();
+
+  useEffect(() => {
+    setActions(
+      <div className="flex items-center gap-4">
+        {/* Status & Refresh */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.4)]"></div>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Live</span>
+          </div>
+
+          <button
+            onClick={onRefresh}
+            disabled={isLoading}
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all disabled:opacity-50 shadow-sm"
+          >
+            <i className={`fas fa-sync-alt ${isLoading ? 'animate-spin' : ''}`}></i>
+            <span>{isLoading ? 'Refreshing...' : 'Refresh'}</span>
+          </button>
         </div>
       </div>
-      <div className="gcp-cost-header-right">
-        <span className="gcp-cost-live-badge">
-          <span className="gcp-cost-live-dot"></span>
-          Live data
-        </span>
-        <button
-          onClick={onRefresh}
-          disabled={isLoading}
-          className="gcp-cost-refresh-btn"
-        >
-          <i className={`fas fa-sync-alt ${isLoading ? 'fa-spin' : ''}`}></i>
-          <span>{isLoading ? 'Refreshing...' : 'Refresh Data'}</span>
-        </button>
-      </div>
-    </header>
-  );
+    );
+    return () => clearActions();
+  }, [setActions, clearActions, isLoading, onRefresh]);
+
+  return null;
 };
 
 export default GcpCostHeader;

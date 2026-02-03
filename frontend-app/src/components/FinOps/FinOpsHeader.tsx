@@ -5,6 +5,7 @@
  */
 
 import React from 'react';
+import { useTopbar } from '../../contexts/TopbarContext';
 import type { DateFilter } from '../../types/finops';
 
 interface FinOpsHeaderProps {
@@ -25,72 +26,59 @@ const FinOpsHeader: React.FC<FinOpsHeaderProps> = ({
   onRefresh,
 }) => {
   const today = new Date().toISOString().split('T')[0];
+  const { setActions, clearActions } = useTopbar();
 
-  return (
-    <header className="bg-white/95 backdrop-blur-md border-b border-gray-200 h-20 flex items-center justify-between px-8 sticky top-0 z-10 transition-all duration-300">
-      <div className="flex items-center space-x-4">
-        <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-teal-600 rounded-xl flex items-center justify-center shadow-lg shadow-green-500/20">
-          <i className="fas fa-chart-pie text-white text-xl"></i>
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">FinOps Report</h1>
-          <p className="text-sm text-gray-600">Cloud financial operations dashboard</p>
-        </div>
-      </div>
-      <div className="flex items-center space-x-4">
+  // Register FinOps actions in Topbar
+  React.useEffect(() => {
+    setActions(
+      <div className="flex items-center gap-4">
         {/* Date Range Filter */}
-        <div className="flex items-center space-x-2 bg-white border border-gray-300 rounded-lg px-4 py-2 shadow-sm">
-          <i className="fas fa-calendar text-gray-400"></i>
+        <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-4 py-1.5 shadow-sm">
+          <i className="fas fa-calendar text-slate-400 text-xs"></i>
           <input
             type="date"
             value={dateFilter.startDate}
             onChange={(e) => onDateFilterChange({ ...dateFilter, startDate: e.target.value })}
-            className="border-0 focus:ring-0 text-sm text-gray-700 bg-transparent"
+            className="border-0 focus:ring-0 text-xs text-slate-700 bg-transparent p-0 w-28"
             max={dateFilter.endDate || today}
-            placeholder="Start Date"
           />
-          <span className="text-gray-400">to</span>
+          <span className="text-slate-400 text-[10px] uppercase font-bold">to</span>
           <input
             type="date"
             value={dateFilter.endDate}
             onChange={(e) => onDateFilterChange({ ...dateFilter, endDate: e.target.value })}
-            className="border-0 focus:ring-0 text-sm text-gray-700 bg-transparent"
+            className="border-0 focus:ring-0 text-xs text-slate-700 bg-transparent p-0 w-28"
             min={dateFilter.startDate}
             max={today}
-            placeholder="End Date"
           />
           <button
             onClick={onApplyDateFilter}
             disabled={!dateFilter.startDate || !dateFilter.endDate}
-            className="ml-2 px-3 py-1 bg-indigo-600 text-white text-xs font-semibold rounded hover:bg-indigo-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            className="ml-2 px-3 py-1 bg-indigo-600 text-white text-[10px] font-bold rounded-lg hover:bg-indigo-700 transition-all disabled:opacity-50"
           >
-            Apply
+            APPLY
           </button>
           {(dateFilter.startDate || dateFilter.endDate) && (
-            <button
-              onClick={onClearDateFilter}
-              className="text-gray-400 hover:text-gray-600"
-              title="Clear filter"
-            >
+            <button onClick={onClearDateFilter} className="text-slate-400 hover:text-slate-600 ml-1">
               <i className="fas fa-times"></i>
             </button>
           )}
         </div>
-        <div className="flex items-center space-x-2">
-          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-          <span className="text-sm text-gray-600">Live data</span>
-        </div>
+
         <button
           onClick={onRefresh}
           disabled={isRefreshing}
-          className="flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-sm font-semibold rounded-lg shadow-md hover:shadow-lg transition-all disabled:opacity-50"
+          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50"
         >
-          <i className={`fas fa-sync-alt ${isRefreshing ? 'animate-spin' : ''}`}></i>
-          <span>{isRefreshing ? 'Refreshing...' : 'Refresh Data'}</span>
+          <i className={`fas fa-sync-alt ${isRefreshing ? 'fa-spin' : ''}`} />
+          <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
         </button>
       </div>
-    </header>
-  );
+    );
+    return () => clearActions();
+  }, [dateFilter, isRefreshing, onDateFilterChange, onApplyDateFilter, onClearDateFilter, onRefresh, setActions, clearActions, today]);
+
+  return null;
 };
 
 export default FinOpsHeader;

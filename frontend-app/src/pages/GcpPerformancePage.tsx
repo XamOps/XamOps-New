@@ -13,6 +13,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { useTopbar } from '../contexts/TopbarContext';
 import { useGcpPerformanceData } from '../hooks/useGcpPerformanceData';
 import { PerformanceSeverity, PerformanceInsight } from '../types/gcpPerformance';
 import MetricsCards from '../components/GcpPerformance/MetricsCards';
@@ -20,6 +21,7 @@ import FilterButtons from '../components/GcpPerformance/FilterButtons';
 import BulkActionBar from '../components/GcpPerformance/BulkActionBar';
 import InsightsTable from '../components/GcpPerformance/InsightsTable';
 import BestPracticesTable from '../components/GcpPerformance/BestPracticesTable';
+import clsx from 'clsx';
 import '../styles/gcpPerformance.css';
 
 const GcpPerformancePage: React.FC = () => {
@@ -35,6 +37,9 @@ const GcpPerformancePage: React.FC = () => {
     accountId: selectedAccountId,
     autoRefresh: false,
   });
+
+  // Topbar Integration
+  const { setActions, clearActions } = useTopbar();
 
   // Load account ID from session storage or URL params
   useEffect(() => {
@@ -186,6 +191,31 @@ const GcpPerformancePage: React.FC = () => {
     showNotification('Report exported successfully', 'success');
   };
 
+  // Topbar Actions
+  useEffect(() => {
+    setActions(
+      <div className="flex items-center gap-3">
+        <button
+          onClick={handleExport}
+          className="flex items-center gap-2 px-4 py-2 bg-white text-blue-600 text-xs font-bold rounded-xl border border-blue-100 shadow-sm hover:shadow-md transition-all active:scale-95"
+        >
+          <i className="fas fa-download"></i>
+          <span>Export CSV</span>
+        </button>
+
+        <button
+          onClick={refresh}
+          disabled={loading}
+          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50 active:scale-95"
+        >
+          <i className={clsx('fas fa-sync-alt', loading && 'animate-spin')}></i>
+          <span>{loading ? 'Scanning...' : 'Refresh Insights'}</span>
+        </button>
+      </div>
+    );
+    return () => clearActions();
+  }, [setActions, clearActions, loading, refresh]); // Note: handleExport dependency omitted to avoid cycle, usually safe if stable
+
   // Empty state if no account selected
   if (!selectedAccountId) {
     return (
@@ -221,24 +251,7 @@ const GcpPerformancePage: React.FC = () => {
 
   return (
     <div className="gcp-performance-content">
-      {/* Header */}
-      <header className="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-20 flex-shrink-0">
-        <div className="flex items-center space-x-4">
-          <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center text-white">
-            <i className="fas fa-tachometer-alt text-xl"></i>
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-800">GCP Performance Insights</h1>
-            <p className="text-sm text-gray-600">Monitor and optimize your Google Cloud Platform resources</p>
-          </div>
-        </div>
-        <button
-          onClick={handleExport}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all font-semibold"
-        >
-          <i className="fas fa-download mr-2"></i>Export CSV
-        </button>
-      </header>
+      {/* Header Removed - Integrated into Topbar */}
 
       {/* Main Content */}
       <div className="flex-1 overflow-y-auto p-8 custom-scrollbar bg-gray-50">
@@ -254,8 +267,8 @@ const GcpPerformancePage: React.FC = () => {
                 <button
                   onClick={() => setActiveTab('insights')}
                   className={`tab-button w-1/2 py-4 px-1 text-center border-b-2 font-medium text-sm transition-colors ${activeTab === 'insights'
-                      ? 'active border-indigo-500 text-indigo-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    ? 'active border-indigo-500 text-indigo-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                     }`}
                 >
                   Critical Insights
@@ -263,8 +276,8 @@ const GcpPerformancePage: React.FC = () => {
                 <button
                   onClick={() => setActiveTab('best_practices')}
                   className={`tab-button w-1/2 py-4 px-1 text-center border-b-2 font-medium text-sm transition-colors ${activeTab === 'best_practices'
-                      ? 'active border-indigo-500 text-indigo-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    ? 'active border-indigo-500 text-indigo-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                     }`}
                 >
                   Best Practice Audits

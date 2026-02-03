@@ -18,29 +18,23 @@
  * - Same core information and branding
  */
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useWorkspaceLicenses } from '../hooks/useWorkspaceLicenses';
+import { useTopbar } from '../contexts/TopbarContext';
 
 const WorkspaceLicensesPage: React.FC = () => {
-  const {} = useWorkspaceLicenses();
+  const { } = useWorkspaceLicenses();
+  const { clearActions } = useTopbar();
+
+  // Topbar Integration
+  useEffect(() => {
+    clearActions();
+    return () => clearActions();
+  }, [clearActions]);
 
   return (
     <main className="workspace-licenses-page flex-1 flex flex-col min-h-screen bg-gray-50">
-      {/* Header Bar */}
-      <header className="workspace-licenses-header bg-white border-b border-gray-100 sticky top-0 z-20 px-8 py-5 flex items-center justify-between shadow-sm backdrop-blur-sm bg-white/95">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 bg-gradient-to-br from-orange-500 to-amber-600 rounded-xl flex items-center justify-center shadow-md">
-            <i className="fas fa-id-card text-white text-xl"></i>
-          </div>
-          <div>
-            <h1 className="text-2xl font-black text-gray-900 tracking-tight">WorkSpace Licenses</h1>
-            <p className="text-xs text-gray-500 font-semibold mt-1 flex items-center gap-2">
-              <i className="fas fa-users text-orange-500 text-[10px]"></i>
-              Centralized SaaS seat and license management
-            </p>
-          </div>
-        </div>
-      </header>
+      {/* Header Removed - Integrated into Topbar */}
 
       {/* Main Content */}
       <div className="flex-1 flex items-center justify-center p-8">

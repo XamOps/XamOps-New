@@ -6,7 +6,10 @@ import {
 import { useGcpDashboardData } from '../hooks/useGcpDashboardData';
 import {
   mapInventoryToResources,
+  formatCurrency,
+  formatCompactNumber,
 } from '../api/gcpDashboardApi';
+import { useTopbar } from '../contexts/TopbarContext';
 import '../styles/gcpDashboard.css'; // Keeping for some specific styles if needed, but mostly relying on Tailwind now
 
 // Import new components
@@ -37,6 +40,8 @@ const GcpDashboard: React.FC = () => {
       autoRefresh: true,
       refreshInterval: 60,
     });
+
+  const { setActions, clearActions } = useTopbar();
 
   // Widget visibility state
   const [widgetVisibility] = useState({
@@ -252,15 +257,49 @@ const GcpDashboard: React.FC = () => {
 
   const singleData = dashboardData ? ('accounts' in dashboardData ? null : (dashboardData as GcpDashboardData)) : null;
 
+  // Register Topbar actions
+  useEffect(() => {
+    setActions(
+      <div className="flex items-center gap-4">
+        {/* GCP Project Info */}
+        {(singleData?.projectId || multiAccountMode) && (
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-100/50 rounded-lg border border-slate-200/50 text-xs font-medium text-slate-500">
+            <img src="/icons/gcp-icon.png" alt="GCP" className="w-3.5 h-3.5" />
+            <span>{multiAccountMode ? 'Multi-Project View' : `ID: ${singleData?.projectId}`}</span>
+          </div>
+        )}
+
+        {/* Sync Status */}
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-100/50 rounded-lg border border-slate-200/50">
+          <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+            {lastUpdated ? `Updated ${new Date(lastUpdated).toLocaleTimeString()}` : 'Connected'}
+          </span>
+        </div>
+
+        {/* Refresh Button */}
+        <button
+          onClick={refresh}
+          disabled={loading.global}
+          className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all disabled:opacity-50 shadow-sm"
+        >
+          <i className={`fas fa-sync-alt ${loading.global ? 'animate-spin' : ''}`}></i>
+          <span>{loading.global ? 'Refreshing...' : 'Refresh'}</span>
+        </button>
+      </div>
+    );
+    return () => clearActions();
+  }, [setActions, clearActions, singleData, multiAccountMode, lastUpdated, refresh, loading.global]);
+
   return (
     <main className="flex-1 p-6 bg-transparent space-y-6">
       {/* Notification Toast */}
       {notification && (
         <div className={`fixed top-4 right-4 z-50 transform transition-all duration-300 ${notification ? 'translate-y-0 opacity-100' : '-translate-y-4 opacity-0'}`}>
           <div className={`flex items-center p-4 rounded-lg shadow-lg border ${notification.type === 'info' ? 'bg-blue-50 border-blue-100 text-blue-800' :
-              notification.type === 'success' ? 'bg-green-50 border-green-100 text-green-800' :
-                notification.type === 'warning' ? 'bg-yellow-50 border-yellow-100 text-yellow-800' :
-                  'bg-red-50 border-red-100 text-red-800'
+            notification.type === 'success' ? 'bg-green-50 border-green-100 text-green-800' :
+              notification.type === 'warning' ? 'bg-yellow-50 border-yellow-100 text-yellow-800' :
+                'bg-red-50 border-red-100 text-red-800'
             }`}>
             {notification.message}
             <button onClick={() => setNotification(null)} className="ml-4 hover:opacity-75 font-bold">&times;</button>
@@ -268,6 +307,7 @@ const GcpDashboard: React.FC = () => {
         </div>
       )}
 
+      {/* Notification Toast */}
       {/* Header */}
       <GcpDashboardHeader
         accountName={singleData?.accountName || 'Multi-Account Dashboard'}
@@ -331,6 +371,25 @@ const GcpDashboard: React.FC = () => {
           optimization={singleData.optimization}
           isLoading={loading.optimization}
         />
+      )}
+
+      {/* Floating Action Button */}
+      <button
+        className="gcp-fab"
+        onClick={() => showNotification('Quick actions are coming soon!', 'info')}
+      >
+        <i className="fas fa-bolt"></i>
+      </button>
+
+      {/* Notifications */}
+      {notification && (
+        <div className="gcp-notification fade-in">
+          <div className={`gcp-status-dot ${notification.type}`}></div>
+          <div className="flex-1">
+            <p className="text-sm font-bold text-gray-800">{notification.message}</p>
+            <p className="text-xs text-gray-500">Live Notification</p>
+          </div>
+        </div>
       )}
     </main>
   );

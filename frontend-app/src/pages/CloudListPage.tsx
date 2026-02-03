@@ -23,6 +23,8 @@ import { fetchCloudlistServicesPaginated, triggerCloudlistRefresh } from '../ser
 import type { ServiceGroup } from '../types/cloudlist';
 import SockJS from 'sockjs-client';
 import Stomp from 'stompjs';
+import { useTopbar } from '../contexts/TopbarContext';
+import Skeleton from '../components/Shared/Skeleton';
 
 const CloudListPage: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -42,6 +44,8 @@ const CloudListPage: React.FC = () => {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [expandedResources, setExpandedResources] = useState<Set<string>>(new Set());
   const [initialServiceProcessed, setInitialServiceProcessed] = useState(false);
+
+  const { setActions, clearActions } = useTopbar();
 
   // WebSocket
   const stompClientRef = useRef<Stomp.Client | null>(null);
@@ -495,36 +499,31 @@ const CloudListPage: React.FC = () => {
     };
   }, [loadInitialResources]);
 
+  // Topbar Integration
+  useEffect(() => {
+    setActions(
+      <div className="flex items-center gap-4">
+        <div className="flex items-center space-x-2 bg-white/50 px-3 py-1.5 rounded-lg border border-slate-200/50 backdrop-blur-sm">
+          <div className={`w-2 h-2 rounded-full ${statusColor === 'green' ? 'bg-green-500 animate-pulse' : statusColor === 'yellow' ? 'bg-yellow-500' : 'bg-red-500'}`}></div>
+          <span className="text-xs font-medium text-slate-600">{statusMessage}</span>
+        </div>
+        <button
+          onClick={() => loadInitialResources(true)}
+          disabled={isRefreshing}
+          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50 active:scale-95"
+        >
+          <i className={`fas fa-sync-alt ${isRefreshing ? 'animate-spin' : ''}`}></i>
+          <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
+        </button>
+      </div>
+    );
+    return () => clearActions();
+  }, [setActions, clearActions, isRefreshing, statusMessage, statusColor, loadInitialResources]);
+
   return (
     <main className="cloudlist-page flex-1 flex flex-col overflow-hidden" style={{ minHeight: '100vh', background: '#f8fafc' }}>
       {/* Header */}
-      <header className="cloudlist-header h-20 flex-shrink-0 flex items-center justify-between px-8 sticky top-0 z-10">
-        <div className="flex items-center space-x-4">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center">
-              <i className="fas fa-list text-white text-lg"></i>
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-800">Cloudlist</h1>
-              <p className="text-sm text-gray-600">Manage your cloud resources</p>
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center space-x-4">
-          <div className="flex items-center space-x-2">
-            <div className={`w-2 h-2 rounded-full ${statusColor === 'green' ? 'bg-green-500 pulse-dot' : statusColor === 'yellow' ? 'bg-yellow-500' : 'bg-red-500'}`}></div>
-            <span className="text-sm text-gray-600">{statusMessage}</span>
-          </div>
-          <button
-            onClick={() => loadInitialResources(true)}
-            disabled={isRefreshing}
-            className="group flex items-center space-x-2 px-4 py-2 text-sm font-semibold text-indigo-600 hover:text-white bg-white hover:bg-indigo-600 rounded-lg border border-indigo-200 hover:border-indigo-600 transition-all duration-200 hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <i className={`fas fa-sync-alt transition-transform ${isRefreshing ? 'animate-spin' : 'group-hover:rotate-180'}`}></i>
-            <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
-          </button>
-        </div>
-      </header>
+      {/* Content */}
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-8">
@@ -574,7 +573,7 @@ const CloudListPage: React.FC = () => {
         {isLoading ? (
           <div className="space-y-4">
             {[1, 2, 3, 4].map(i => (
-              <div key={i} className="h-24 bg-gray-200 rounded-lg skeleton"></div>
+              <Skeleton key={i} variant="rounded" height={96} className="w-full shadow-sm" />
             ))}
           </div>
         ) : filteredGroups.length === 0 ? (
@@ -728,5 +727,4 @@ const CloudListPage: React.FC = () => {
     </main>
   );
 };
-
 export default CloudListPage;

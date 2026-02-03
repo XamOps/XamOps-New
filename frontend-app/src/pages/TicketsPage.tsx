@@ -18,6 +18,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useAccounts } from '../contexts/AccountContext';
+import { useTopbar } from '../contexts/TopbarContext';
+import Skeleton from '../components/Shared/Skeleton';
 
 interface Ticket {
   id: number;
@@ -60,6 +62,7 @@ const TicketsPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { setActions, clearActions } = useTopbar();
 
   const [form, setForm] = useState<TicketForm>({
     category: 'Technical',
@@ -285,66 +288,52 @@ const TicketsPage: React.FC = () => {
     navigate(`/ticket-detail?id=${ticketId}`);
   };
 
-  return (
-    <div className="tickets-page">
-      {/* Header */}
-      <div className="tickets-header">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-bold text-gray-900">
-              Support Tickets
-            </h1>
-            {isUpdating && (
-              <div className="spinner" title="Refreshing data...">
-                <i className="fas fa-sync-alt fa-spin text-indigo-600"></i>
-              </div>
-            )}
-          </div>
-          <p className="text-sm text-gray-500 mt-2">
-            Technical Support Cases
-            {selectedAccountIds.length > 0 && (
-              <span className="ml-2 text-gray-700">
-                • {selectedAccountIds.length === 1
-                  ? `Account: ${selectedAccountIds[0]}`
-                  : `${selectedAccountIds.length} Accounts Selected`}
-              </span>
-            )}
-          </p>
-        </div>
+  // Topbar Integration
+  useEffect(() => {
+    setActions(
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => fetchTickets(true)}
+          disabled={loading || isUpdating}
+          className="w-9 h-9 flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+          title="Refresh Tickets"
+        >
+          <i className={`fas fa-sync-alt ${isUpdating ? 'animate-spin' : ''}`}></i>
+        </button>
 
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => fetchTickets(true)}
-            disabled={loading || isUpdating}
-            className="btn-icon"
-            title="Refresh Tickets"
-          >
-            <i className={`fas fa-sync-alt ${isUpdating ? 'fa-spin' : ''}`}></i>
-          </button>
-
-          <button
-            onClick={openCreateModal}
-            disabled={loading}
-            className="btn-primary"
-          >
-            <i className="fas fa-plus mr-2"></i>
-            Create New Ticket
-          </button>
-        </div>
+        <button
+          onClick={openCreateModal}
+          disabled={loading}
+          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50 active:scale-95"
+        >
+          <i className="fas fa-plus"></i>
+          <span>Create Ticket</span>
+        </button>
       </div>
+    );
+    return () => clearActions();
+  }, [setActions, clearActions, loading, isUpdating, fetchTickets]);
+
+  return (
+    <div className="tickets-page p-8">
 
       {/* Loading Skeleton */}
       {loading && (
         <div className="tickets-grid">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="ticket-card skeleton">
-              <div className="skeleton-header">
-                <div className="skeleton-title"></div>
-                <div className="skeleton-badge"></div>
+            <div key={i} className="ticket-card p-6">
+              <div className="flex justify-between items-start mb-4">
+                <div className="space-y-2 w-2/3">
+                  <Skeleton variant="text" height={24} width="80%" />
+                  <Skeleton variant="text" height={16} width="40%" />
+                </div>
+                <Skeleton variant="rounded" height={24} width={80} />
               </div>
-              <div className="skeleton-text"></div>
-              <div className="skeleton-text short"></div>
-              <div className="skeleton-footer"></div>
+              <div className="space-y-2 mb-4">
+                <Skeleton variant="text" height={16} width="100%" />
+                <Skeleton variant="text" height={16} width="90%" />
+              </div>
+              <Skeleton variant="text" height={16} width={120} />
             </div>
           ))}
         </div>

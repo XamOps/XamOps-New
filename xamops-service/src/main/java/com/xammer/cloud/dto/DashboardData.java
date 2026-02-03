@@ -661,6 +661,7 @@ public class DashboardData {
     private String passwordLastUsed;
     private List<String> groups;
     private List<IamPolicyDetail> attachedPolicies;
+    private boolean mfaEnabled;
   }
 
   @Data
