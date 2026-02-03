@@ -21,7 +21,7 @@ import React, { useEffect } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useGcpSecurityData } from '../hooks/useGcpSecurityData';
-import type { GcpSeverityLevel, GcpSecurityFinding } from '../types/gcpSecurity';
+import type { GcpSeverityLevel } from '../types/gcpSecurity';
 import clsx from 'clsx';
 import '../styles/gcpSecurity.css';
 

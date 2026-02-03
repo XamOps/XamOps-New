@@ -107,22 +107,6 @@ const BillOpsSupportDashboardPage: React.FC = () => {
   };
 
   /**
-   * Get provider icon class
-   */
-  const getProviderIcon = (provider: CloudProvider | ''): string => {
-    switch (provider) {
-      case 'AWS':
-        return 'fab fa-aws';
-      case 'Azure':
-        return 'fab fa-microsoft';
-      case 'GCP':
-        return 'fab fa-google';
-      default:
-        return 'fas fa-globe';
-    }
-  };
-
-  /**
    * Render conversation list item
    */
   const renderConversationItem = (conv: SupportConversation) => (

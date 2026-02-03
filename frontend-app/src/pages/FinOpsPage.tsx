@@ -72,7 +72,7 @@ export const FinOpsPage: React.FC = () => {
   // Toast state
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
-  const [lastScheduleFrequency, setLastScheduleFrequency] = useState('');
+  const [, setLastScheduleFrequency] = useState('');
 
   // Pagination states
   const [taggingPagination, setTaggingPagination] = useState<PaginationState>({

@@ -37,8 +37,8 @@ const BillOpsUserDashboardPage: React.FC = () => {
   // Chart refs
   const trendChartRef = useRef<HTMLCanvasElement>(null);
   const providerChartRef = useRef<HTMLCanvasElement>(null);
-  const trendChartInstance = useRef<Chart | null>(null);
-  const providerChartInstance = useRef<Chart | null>(null);
+  const trendChartInstance = useRef<Chart<'line'> | null>(null);
+  const providerChartInstance = useRef<Chart<'doughnut'> | null>(null);
 
   /**
    * Format currency value

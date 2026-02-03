@@ -84,7 +84,6 @@ const CostPage: React.FC = () => {
     costData,
     isLoading,
     isRefreshing,
-    loadCostData,
     loadHistoricalData,
     loadForecast,
     refreshAll,

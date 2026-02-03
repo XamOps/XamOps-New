@@ -201,18 +201,6 @@ export const UnifiedDashboard: React.FC = () => {
     setShowModal(true);
   };
 
-  // Calculate trends for visualization (Mock logic based on current values as we don't have historical data here)
-  const getTrendIndicator = (value: number, type: 'up-good' | 'down-good') => {
-    // This is visual-only since we don't have real trend data in this scope
-    const isPositive = type === 'up-good';
-    return (
-      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 ${isPositive ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
-        <i className={`fas fa-arrow-${isPositive ? 'up' : 'down'} text-[10px]`}></i>
-        <span>{Math.floor(Math.random() * 5) + 1}%</span>
-      </span>
-    );
-  };
-
   // Navigation handlers
   const navigateToAccount = useCallback((accountId: string, mode: ViewMode) => {
     const account = getAllAccounts().find((a) => a.id === accountId);

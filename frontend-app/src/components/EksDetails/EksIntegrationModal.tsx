@@ -148,11 +148,10 @@ const EksIntegrationModal: React.FC<EksIntegrationModalProps> = ({ isOpen, onClo
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors border-b-2 ${
-                activeTab === tab.id
+              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors border-b-2 ${activeTab === tab.id
                   ? 'text-blue-600 border-blue-600 bg-white'
                   : 'text-gray-600 border-transparent hover:text-gray-800 hover:bg-gray-100'
-              }`}
+                }`}
             >
               <i className={tab.icon}></i>
               {tab.label}
@@ -1191,6 +1190,12 @@ rules:
   verbs: ['get', 'list', 'watch']
 - apiGroups: ['aquasecurity.github.io']
   resources: ['vulnerabilityreports', 'configauditreports', 'exposedsecretreports', 'rbacassessmentreports']
+  verbs: ['get', 'list', 'watch']
+- apiGroups: ['apiextensions.k8s.io']
+  resources: ['customresourcedefinitions']
+  verbs: ['get', 'list']
+- apiGroups: ['karpenter.sh', 'karpenter.k8s.aws']
+  resources: ['nodepools', 'nodeclaims', 'ec2nodeclasses', 'machines', 'provisioners']
   verbs: ['get', 'list', 'watch']
 ---
 apiVersion: rbac.authorization.k8s.io/v1

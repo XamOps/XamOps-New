@@ -1,20 +1,18 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { GcpResource, GcpServiceGroup, GcpCloudListPageData } from '../types/gcpCloudList';
+import { useLocation } from 'react-router-dom';
+import { GcpServiceGroup, GcpCloudListPageData } from '../types/gcpCloudList';
 import '../styles/gcpCloudList.css';
 
 const GcpCloudListPage: React.FC = () => {
   const location = useLocation();
-  const navigate = useNavigate();
 
   // Parse URL parameters
   const searchParams = new URLSearchParams(location.search);
-  const initialServiceType = searchParams.get('service') || '';
   const urlAccountIds = searchParams.get('accountIds') || '';
 
   // State management
   const [allGroups, setAllGroups] = useState<GcpServiceGroup[]>([]);
-  const [totalResources, setTotalResources] = useState(0);
+  const [, setTotalResources] = useState(0);
   const [totalServices, setTotalServices] = useState(0);
   const [hasNextPage, setHasNextPage] = useState(true);
   const [currentPage, setCurrentPage] = useState(0);
@@ -28,7 +26,7 @@ const GcpCloudListPage: React.FC = () => {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   // UI states
-  const [lastUpdated, setLastUpdated] = useState<string>('');
+  const [, setLastUpdated] = useState<string>('');
   const [updateStatus, setUpdateStatus] = useState('Ready');
 
   const servicesPerPage = 10;

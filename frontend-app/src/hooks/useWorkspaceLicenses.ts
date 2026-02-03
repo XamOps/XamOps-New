@@ -23,7 +23,7 @@ interface WorkspaceLicense {
 }
 
 export const useWorkspaceLicenses = () => {
-  const [licenses, setLicenses] = useState<WorkspaceLicense[]>([]);
+  const [licenses] = useState<WorkspaceLicense[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

@@ -16,7 +16,6 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useSonarQube } from '../hooks/useSonarQube';
 import { QualityGateStatus, Rating, NewSonarQubeProject } from '../types/sonarqube';
 import { useTopbar } from '../contexts/TopbarContext';
@@ -24,7 +23,6 @@ import Skeleton from '../components/Shared/Skeleton';
 import clsx from 'clsx';
 
 const SonarQubePage: React.FC = () => {
-  const navigate = useNavigate();
   const {
     projects,
     selectedProjectId,

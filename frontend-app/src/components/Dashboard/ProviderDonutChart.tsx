@@ -96,7 +96,7 @@ export const ProviderDonutChart: React.FC<ProviderDonutChartProps> = ({ awsData,
         const bodyLines = tooltip.body.map((b: any) => b.lines);
         const tableBody = document.createElement('tbody');
 
-        bodyLines.forEach((body: string, i: number) => {
+        bodyLines.forEach((_body: string, i: number) => {
           const colors = tooltip.labelColors[i];
           const dataIndex = tooltip.dataPoints[0].dataIndex;
           const dataset = chart.data.datasets[0];

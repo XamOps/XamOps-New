@@ -6,10 +6,10 @@ import mapInit from 'highcharts/modules/map';
 import exportingInit from 'highcharts/modules/exporting';
 
 // Initialize map module
-mapInit(Highcharts);
+(mapInit as any)(Highcharts);
 
 // Initialize exporting module
-exportingInit(Highcharts);
+(exportingInit as any)(Highcharts);
 
 // Make Highcharts available globally for legacy components
 if (typeof globalThis !== 'undefined') {

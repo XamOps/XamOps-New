@@ -7,7 +7,7 @@
 import React from 'react';
 
 const EksKarpenterTab: React.FC<{ eksData: any }> = ({ eksData }) => {
-  const { dashboard, karpenterOverallStatus, karpenterProvisioningStatus } = eksData;
+  const { dashboard, karpenterProvisioningStatus } = eksData;
   const karpenter = dashboard?.karpenter;
 
   if (!karpenter) {

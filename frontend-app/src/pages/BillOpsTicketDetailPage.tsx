@@ -28,7 +28,7 @@
  * - Same RCA form structure
  */
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useBillOpsTicketDetail } from '../hooks/useBillOpsTicketDetail';
 import { RCAFormData, RCAFormSection } from '../types/billopsTickets';
@@ -47,7 +47,6 @@ const BillOpsTicketDetailPage: React.FC = () => {
     isSubmitting,
     error,
     isAdmin,
-    fetchTicketDetails,
     submitReply,
     closeTicket,
     submitRCA

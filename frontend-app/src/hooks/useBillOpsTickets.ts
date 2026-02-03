@@ -10,8 +10,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   BillOpsTicket,
   CreateTicketFormData,
-  TicketCacheData,
-  SERVICE_OPTIONS
+  TicketCacheData
 } from '../types/billopsTickets';
 import { useAccounts } from '../contexts/AccountContext';
 

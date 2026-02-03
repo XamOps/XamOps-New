@@ -14,15 +14,12 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useDevOpsScripts } from '../hooks/useDevOpsScripts';
 import { DevOpsScript, ScriptCategory } from '../types/devopsInTheBox';
-import { useTopbar } from '../contexts/TopbarContext';
 import Skeleton from '../components/Shared/Skeleton';
 import clsx from 'clsx';
 
 const DevOpsInTheBoxPage: React.FC = () => {
-  const navigate = useNavigate();
   const {
     filteredScripts,
     isLoading,
