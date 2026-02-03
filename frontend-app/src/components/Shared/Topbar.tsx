@@ -1,10 +1,27 @@
-import React from 'react';
-import { useLocation } from 'react-router-dom';
+import React, { useState, useRef, useEffect } from 'react';
+import { useLocation, Link } from 'react-router-dom';
 import { useTopbar } from '../../contexts/TopbarContext';
+import { useAuth } from '../../contexts/AuthContext';
 
 const Topbar: React.FC = () => {
     const location = useLocation();
     const { actions } = useTopbar();
+    const { userProfile, logout } = useAuth();
+    const [isProfileOpen, setIsProfileOpen] = useState(false);
+    const dropdownRef = useRef<HTMLDivElement>(null);
+
+    // Close dropdown when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+                setIsProfileOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    const toggleProfile = () => setIsProfileOpen(!isProfileOpen);
 
     // Simple breadcrumb logic based on the path
     const getPageTitle = (path: string) => {
@@ -26,6 +43,8 @@ const Topbar: React.FC = () => {
     };
 
     const pageTitle = getPageTitle(location.pathname);
+
+    const displayName = userProfile?.username || userProfile?.email?.split('@')[0] || 'User';
 
     return (
         <header className="sticky top-0 z-30 w-full">
@@ -61,11 +80,57 @@ const Topbar: React.FC = () => {
 
                     <div className="h-8 w-[1px] bg-slate-200 mx-1"></div>
 
-                    {/* User Quick Info */}
-                    <div className="flex items-center gap-3 pl-2">
-                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/20">
-                            <i className="fas fa-user text-sm"></i>
-                        </div>
+                    {/* User Profile Dropdown */}
+                    <div className="relative" ref={dropdownRef}>
+                        <button
+                            onClick={toggleProfile}
+                            className={`flex items-center gap-3 pl-2 p-1.5 rounded-2xl transition-all duration-200 ${isProfileOpen ? 'bg-indigo-50' : 'hover:bg-slate-50'}`}
+                        >
+                            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/20">
+                                <i className="fas fa-user text-sm"></i>
+                            </div>
+                            <div className="hidden lg:flex flex-col items-start pr-2">
+                                <span className="text-sm font-semibold text-slate-700">{displayName}</span>
+                                <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Member</span>
+                            </div>
+                            <i className={`fas fa-chevron-down text-[10px] text-slate-400 transition-transform duration-200 ${isProfileOpen ? 'rotate-180' : ''}`}></i>
+                        </button>
+
+                        {/* Dropdown Menu */}
+                        {isProfileOpen && (
+                            <div className="absolute top-full right-0 mt-3 w-56 bg-white rounded-2xl shadow-2xl border border-slate-100 py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+                                <div className="px-4 py-3 border-b border-slate-50 mb-1">
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Signed in as</p>
+                                    <p className="text-sm font-semibold text-slate-700 truncate">{userProfile?.email || displayName}</p>
+                                </div>
+
+                                <Link
+                                    to="/my-profile"
+                                    onClick={() => setIsProfileOpen(false)}
+                                    className="flex items-center gap-3 px-4 py-2.5 text-sm text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
+                                >
+                                    <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center group-hover:bg-white transition-colors">
+                                        <i className="fas fa-user-circle text-xs"></i>
+                                    </div>
+                                    <span>My Profile</span>
+                                </Link>
+
+                                <div className="mx-2 my-1 border-t border-slate-50"></div>
+
+                                <button
+                                    onClick={() => {
+                                        setIsProfileOpen(false);
+                                        logout();
+                                    }}
+                                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-rose-600 hover:bg-rose-50 transition-colors"
+                                >
+                                    <div className="w-7 h-7 rounded-lg bg-rose-100/50 flex items-center justify-center transition-colors">
+                                        <i className="fas fa-sign-out-alt text-xs"></i>
+                                    </div>
+                                    <span>Sign Out</span>
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
