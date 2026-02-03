@@ -123,20 +123,24 @@ const AddAccountPage: React.FC = () => {
   };
 
   return (
-    <main className="add-account-page">
+    <main className="add-account-page fade-in">
+      {/* Glass Background Elements */}
+      <div className="glass-shape shape-1"></div>
+      <div className="glass-shape shape-2"></div>
+
       {/* Header */}
       <AddAccountHeader provider={provider} headerText={getHeaderText()} />
 
       {/* Content */}
-      <div className="add-account-content">
-        <div className="add-account-grid">
+      <div className="add-account-content container">
+        <div className="split-layout">
           {/* Left Column - Connection Steps */}
-          <div>
+          <div className="sidebar-column">
             <ConnectionSteps provider={provider} />
           </div>
 
           {/* Right Column - Forms */}
-          <div>
+          <div className="content-column">
             {/* Provider Selector */}
             <ProviderSelector
               selectedProvider={provider}

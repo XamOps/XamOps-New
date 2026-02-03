@@ -107,7 +107,13 @@ export const useEksDashboard = ({
       );
 
       setDashboard(data);
-      setLastUpdateTimestamp(Date.now());
+
+      // Use server's lastSyncedAt if available, otherwise use current time
+      if (data.lastSyncedAt) {
+        setLastUpdateTimestamp(new Date(data.lastSyncedAt).getTime());
+      } else {
+        setLastUpdateTimestamp(Date.now());
+      }
 
       // Store metric snapshot for trends
       storeMetricSnapshot(clusterName, data);

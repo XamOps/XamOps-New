@@ -43,13 +43,14 @@ public class OpenCostService {
             // Also build a map of node name -> instance type for enrichment
             Set<String> activeNodeNames = new HashSet<>();
             Map<String, String> nodeInstanceTypes = new HashMap<>();
+            Map<String, Boolean> nodePreemptibleMap = new HashMap<>();
             try {
                 var nodes = client.nodes().list().getItems();
                 for (var node : nodes) {
                     String nodeName = node.getMetadata().getName();
                     activeNodeNames.add(nodeName);
 
-                    // Get instance type from node labels
+                    // Get instance type and capacity type from node labels
                     Map<String, String> labels = node.getMetadata().getLabels();
                     if (labels != null) {
                         String instanceType = labels.get("node.kubernetes.io/instance-type");
@@ -59,10 +60,16 @@ public class OpenCostService {
                         if (instanceType != null) {
                             nodeInstanceTypes.put(nodeName, instanceType);
                         }
+
+                        // Check for Spot/Preemptible status
+                        boolean isSpot = "spot".equalsIgnoreCase(labels.get("eks.amazonaws.com/capacityType")) ||
+                                "spot".equalsIgnoreCase(labels.get("karpenter.sh/capacity-type")) ||
+                                "true".equalsIgnoreCase(labels.get("cloud.google.com/gke-preemptible"));
+                        nodePreemptibleMap.put(nodeName, isSpot);
                     }
                 }
                 logger.info("Connectivity verified. Cluster has {} active nodes: {}",
-                    activeNodeNames.size(), activeNodeNames);
+                        activeNodeNames.size(), activeNodeNames);
             } catch (Exception e) {
                 logger.error("Connectivity check failed!", e);
                 return dashboard;
@@ -111,12 +118,13 @@ public class OpenCostService {
                         if (instanceType != null) {
                             na.setInstanceType(instanceType);
                         }
+                        na.setPreemptible(nodePreemptibleMap.getOrDefault(na.getNode(), false));
                         return na;
                     })
                     .collect(java.util.stream.Collectors.toList());
             dashboard.setNodeAllocations(activeNodeAllocations);
             logger.info("Fetched {} node allocations, filtered to {} active nodes",
-                nodeAllocations.size(), activeNodeAllocations.size());
+                    nodeAllocations.size(), activeNodeAllocations.size());
 
             // Note: Controller allocations are now derived from pod allocations above
             // No need to enrich - they already have accurate namespace/cost data
@@ -129,8 +137,8 @@ public class OpenCostService {
 
             dashboard.setEnabled(true);
             logger.info("OpenCost data fetch complete. Total daily cost: ${}, {} optimization recommendations",
-                String.format("%.2f", dashboard.getSummary().getTotalDailyCost()),
-                dashboard.getOptimizations().size());
+                    String.format("%.2f", dashboard.getSummary().getTotalDailyCost()),
+                    dashboard.getOptimizations().size());
 
         } catch (Exception e) {
             logger.error("Error fetching OpenCost data: {}", e.getMessage(), e);
@@ -171,14 +179,16 @@ public class OpenCostService {
 
     /**
      * Fetch allocation data by controller with namespace info
-     * Uses combined aggregation to get namespace + controllerKind + controller in one query
+     * Uses combined aggregation to get namespace + controllerKind + controller in
+     * one query
      */
     private List<ControllerAllocation> fetchControllerAllocationsWithNamespace(KubernetesClient client, String window) {
         List<ControllerAllocation> allocations = new ArrayList<>();
         try {
             // Use combined aggregation: namespace,controllerKind,controller
             // This gives us all the info we need with proper cost data
-            String path = String.format("/allocation/compute?window=%s&aggregate=namespace,controllerKind,controller&accumulate=true",
+            String path = String.format(
+                    "/allocation/compute?window=%s&aggregate=namespace,controllerKind,controller&accumulate=true",
                     URLEncoder.encode(window, StandardCharsets.UTF_8));
             JsonNode response = proxyRequest(client, path);
 
@@ -205,7 +215,7 @@ public class OpenCostService {
 
             // Sort by total cost descending
             allocations.sort((a, b) -> Double.compare(
-                nullSafe(b.getTotalCost()), nullSafe(a.getTotalCost())));
+                    nullSafe(b.getTotalCost()), nullSafe(a.getTotalCost())));
 
             logger.info("Fetched {} controller allocations with costs", allocations.size());
 
@@ -216,10 +226,12 @@ public class OpenCostService {
     }
 
     /**
-     * Parse controller allocation from combined key format: namespace/controllerKind/controller
+     * Parse controller allocation from combined key format:
+     * namespace/controllerKind/controller
      */
     private ControllerAllocation parseControllerAllocationFromCombinedKey(JsonNode alloc, String combinedKey) {
-        if (alloc == null || alloc.isNull()) return null;
+        if (alloc == null || alloc.isNull())
+            return null;
 
         ControllerAllocation ca = new ControllerAllocation();
 
@@ -275,6 +287,7 @@ public class OpenCostService {
 
     /**
      * Fetch allocation data by controller (deployments, statefulsets, daemonsets)
+     * 
      * @deprecated Use fetchControllerAllocationsWithNamespace instead
      */
     @Deprecated
@@ -387,11 +400,12 @@ public class OpenCostService {
             }
 
             logger.debug("OpenCost raw response (first 500 chars): {}",
-                responseString.length() > 500 ? responseString.substring(0, 500) : responseString);
+                    responseString.length() > 500 ? responseString.substring(0, 500) : responseString);
 
             JsonNode result = objectMapper.readTree(responseString);
 
-            // OpenCost API returns {"status": "success", "data": [...]} or {"status": "error", "error": "..."}
+            // OpenCost API returns {"status": "success", "data": [...]} or {"status":
+            // "error", "error": "..."}
             if (result.has("status")) {
                 String status = result.get("status").asText();
                 if ("success".equalsIgnoreCase(status)) {
@@ -416,12 +430,12 @@ public class OpenCostService {
             }
 
             logger.warn("OpenCost API returned unexpected response format: {}",
-                responseString.length() > 200 ? responseString.substring(0, 200) : responseString);
+                    responseString.length() > 200 ? responseString.substring(0, 200) : responseString);
             return result;
 
         } catch (Exception e) {
             logger.error("Failed to proxy request to OpenCost: {} - {} ({})",
-                path, e.getMessage(), e.getClass().getSimpleName());
+                    path, e.getMessage(), e.getClass().getSimpleName());
             if (logger.isDebugEnabled()) {
                 logger.debug("Full exception stack trace:", e);
             }
@@ -433,7 +447,8 @@ public class OpenCostService {
      * Parse namespace allocation from OpenCost response
      */
     private NamespaceAllocation parseNamespaceAllocation(JsonNode alloc, String namespace) {
-        if (alloc == null || alloc.isNull()) return null;
+        if (alloc == null || alloc.isNull())
+            return null;
 
         NamespaceAllocation na = new NamespaceAllocation();
         na.setNamespace(namespace);
@@ -494,7 +509,8 @@ public class OpenCostService {
      * Parse controller allocation from OpenCost response
      */
     private ControllerAllocation parseControllerAllocation(JsonNode alloc, String controller) {
-        if (alloc == null || alloc.isNull()) return null;
+        if (alloc == null || alloc.isNull())
+            return null;
 
         ControllerAllocation ca = new ControllerAllocation();
         ca.setController(controller);
@@ -538,7 +554,8 @@ public class OpenCostService {
      * Parse pod allocation from OpenCost response
      */
     private PodAllocation parsePodAllocation(JsonNode alloc, String pod) {
-        if (alloc == null || alloc.isNull()) return null;
+        if (alloc == null || alloc.isNull())
+            return null;
 
         PodAllocation pa = new PodAllocation();
         pa.setPod(pod);
@@ -581,7 +598,8 @@ public class OpenCostService {
      * Parse node allocation from OpenCost response
      */
     private NodeAllocation parseNodeAllocation(JsonNode alloc, String node) {
-        if (alloc == null || alloc.isNull()) return null;
+        if (alloc == null || alloc.isNull())
+            return null;
 
         NodeAllocation na = new NodeAllocation();
         na.setNode(node);
@@ -614,7 +632,8 @@ public class OpenCostService {
 
     /**
      * Derive controller allocations by aggregating pod allocation data
-     * This is more reliable than OpenCost's direct controller aggregation which often misses namespace/cost
+     * This is more reliable than OpenCost's direct controller aggregation which
+     * often misses namespace/cost
      */
     private List<ControllerAllocation> deriveControllerAllocationsFromPods(List<PodAllocation> podAllocations) {
         // Group pods by controller key (namespace + controller name)
@@ -629,7 +648,8 @@ public class OpenCostService {
                 continue;
             }
 
-            // Use namespace/controller as key to handle same controller name in different namespaces
+            // Use namespace/controller as key to handle same controller name in different
+            // namespaces
             String key = (namespace != null ? namespace : "default") + "/" + controller;
             podsByController.computeIfAbsent(key, k -> new ArrayList<>()).add(pod);
         }
@@ -638,7 +658,8 @@ public class OpenCostService {
 
         for (Map.Entry<String, List<PodAllocation>> entry : podsByController.entrySet()) {
             List<PodAllocation> pods = entry.getValue();
-            if (pods.isEmpty()) continue;
+            if (pods.isEmpty())
+                continue;
 
             // Get controller info from first pod
             PodAllocation firstPod = pods.get(0);
@@ -728,23 +749,27 @@ public class OpenCostService {
         }
 
         // Sort by total cost descending
-        controllerAllocations.sort((a, b) ->
-            Double.compare(nullSafe(b.getTotalCost()), nullSafe(a.getTotalCost())));
+        controllerAllocations.sort((a, b) -> Double.compare(nullSafe(b.getTotalCost()), nullSafe(a.getTotalCost())));
 
         logger.info("Derived {} controller allocations from {} pods",
-            controllerAllocations.size(), podAllocations.size());
+                controllerAllocations.size(), podAllocations.size());
 
         return controllerAllocations;
     }
 
     /**
-     * Enrich controller allocations with namespace and controllerKind from pod allocations
-     * OpenCost's controller aggregation sometimes doesn't include namespace in properties
-     * @deprecated Use deriveControllerAllocationsFromPods instead for more accurate data
+     * Enrich controller allocations with namespace and controllerKind from pod
+     * allocations
+     * OpenCost's controller aggregation sometimes doesn't include namespace in
+     * properties
+     * 
+     * @deprecated Use deriveControllerAllocationsFromPods instead for more accurate
+     *             data
      */
     @Deprecated
     private void enrichControllerAllocations(OpenCostDashboard dashboard) {
-        // This method is no longer needed since we derive controller allocations from pods
+        // This method is no longer needed since we derive controller allocations from
+        // pods
         // Kept for backward compatibility
         logger.debug("enrichControllerAllocations called but no longer needed");
     }
@@ -850,7 +875,8 @@ public class OpenCostService {
             double cost = nullSafe(ca.getTotalCost());
 
             // Skip if no meaningful cost or data
-            if (cost < 0.01) continue;
+            if (cost < 0.01)
+                continue;
 
             // Over-provisioned: efficiency < 40%
             if (efficiency > 0 && efficiency < 0.4) {
@@ -877,11 +903,11 @@ public class OpenCostService {
 
                 // Calculate potential savings
                 double cpuSavingsRatio = opt.getCurrentCpuRequest() > 0
-                    ? (opt.getCurrentCpuRequest() - recCpu) / opt.getCurrentCpuRequest()
-                    : 0;
+                        ? (opt.getCurrentCpuRequest() - recCpu) / opt.getCurrentCpuRequest()
+                        : 0;
                 double memSavingsRatio = opt.getCurrentMemoryRequest() > 0
-                    ? (opt.getCurrentMemoryRequest() - recMem) / opt.getCurrentMemoryRequest()
-                    : 0;
+                        ? (opt.getCurrentMemoryRequest() - recMem) / opt.getCurrentMemoryRequest()
+                        : 0;
                 double avgSavingsRatio = (cpuSavingsRatio + memSavingsRatio) / 2;
 
                 double monthlyCost = nullSafe(ca.getMonthlyCost());
@@ -889,9 +915,9 @@ public class OpenCostService {
                 opt.setSavingsPercentage(avgSavingsRatio * 100);
 
                 opt.setDescription(String.format("%s in %s is only %.0f%% efficient",
-                    ca.getController(), ca.getNamespace(), efficiency * 100));
+                        ca.getController(), ca.getNamespace(), efficiency * 100));
                 opt.setRecommendation(String.format("Reduce CPU from %.0fm to %.0fm, Memory from %.0fMi to %.0fMi",
-                    opt.getCurrentCpuRequest(), recCpu, opt.getCurrentMemoryRequest(), recMem));
+                        opt.getCurrentCpuRequest(), recCpu, opt.getCurrentMemoryRequest(), recMem));
 
                 optimizations.add(opt);
             }
@@ -903,10 +929,12 @@ public class OpenCostService {
             double totalCost = nullSafe(na.getTotalCost());
 
             // Skip system namespaces and low-cost namespaces
-            if (totalCost < 0.05) continue;
+            if (totalCost < 0.05)
+                continue;
             if ("kube-system".equals(na.getNamespace()) ||
-                "kube-public".equals(na.getNamespace()) ||
-                "kube-node-lease".equals(na.getNamespace())) continue;
+                    "kube-public".equals(na.getNamespace()) ||
+                    "kube-node-lease".equals(na.getNamespace()))
+                continue;
 
             // If idle cost is > 50% of total cost, flag it
             if (totalCost > 0 && idleCost / totalCost > 0.5) {
@@ -924,7 +952,7 @@ public class OpenCostService {
                 opt.setSavingsPercentage((idleCost / totalCost) * 100);
 
                 opt.setDescription(String.format("Namespace %s has %.0f%% idle resources",
-                    na.getNamespace(), (idleCost / totalCost) * 100));
+                        na.getNamespace(), (idleCost / totalCost) * 100));
                 opt.setRecommendation("Review and right-size workloads in this namespace");
 
                 optimizations.add(opt);
@@ -938,7 +966,13 @@ public class OpenCostService {
             double avgEff = (cpuEff + ramEff) / 2;
             double cost = nullSafe(na.getTotalCost());
 
-            if (cost < 0.01) continue;
+            if (cost < 0.01)
+                continue;
+
+            // Only consider On-Demand nodes (skip preemptible/spot nodes)
+            if (na.getPreemptible() != null && na.getPreemptible()) {
+                continue;
+            }
 
             // Node with < 40% average efficiency - flag for rightsizing
             if (avgEff > 0 && avgEff < 0.4) {
@@ -975,8 +1009,9 @@ public class OpenCostService {
                 opt.setSavingsPercentage(savingsRatio * 100);
 
                 String instanceType = na.getInstanceType() != null ? na.getInstanceType() : "Unknown";
-                opt.setDescription(String.format("Node %s (%s) is %.0f%% utilized - CPU: %.1f/%.1f cores, RAM: %.1f/%.1f GB",
-                    na.getNode(), instanceType, avgEff * 100, cpuUsage, cpuCores, ramUsageGb, ramGb));
+                opt.setDescription(
+                        String.format("Node %s (%s) is %.0f%% utilized - CPU: %.1f/%.1f cores, RAM: %.1f/%.1f GB",
+                                na.getNode(), instanceType, avgEff * 100, cpuUsage, cpuCores, ramUsageGb, ramGb));
 
                 String recommendation = generateNodeRightsizingRecommendation(instanceType, avgEff, cpuCores, cpuUsage);
                 opt.setRecommendation(recommendation);
@@ -986,8 +1021,8 @@ public class OpenCostService {
         }
 
         // Sort by estimated savings (highest first)
-        optimizations.sort((a, b) ->
-            Double.compare(nullSafe(b.getEstimatedMonthlySavings()), nullSafe(a.getEstimatedMonthlySavings())));
+        optimizations.sort((a, b) -> Double.compare(nullSafe(b.getEstimatedMonthlySavings()),
+                nullSafe(a.getEstimatedMonthlySavings())));
 
         // Limit to top 20 recommendations
         if (optimizations.size() > 20) {
@@ -998,16 +1033,18 @@ public class OpenCostService {
 
         // Log summary
         double totalPotentialSavings = optimizations.stream()
-            .mapToDouble(o -> nullSafe(o.getEstimatedMonthlySavings()))
-            .sum();
+                .mapToDouble(o -> nullSafe(o.getEstimatedMonthlySavings()))
+                .sum();
         logger.info("Generated {} optimization recommendations with ${} potential monthly savings",
-            optimizations.size(), String.format("%.2f", totalPotentialSavings));
+                optimizations.size(), String.format("%.2f", totalPotentialSavings));
     }
 
     /**
-     * Generate node rightsizing recommendation based on instance type and utilization
+     * Generate node rightsizing recommendation based on instance type and
+     * utilization
      */
-    private String generateNodeRightsizingRecommendation(String instanceType, double avgEfficiency, double cpuCores, double cpuUsage) {
+    private String generateNodeRightsizingRecommendation(String instanceType, double avgEfficiency, double cpuCores,
+            double cpuUsage) {
         // Map common instance families to smaller alternatives
         if (instanceType == null || instanceType.equals("Unknown")) {
             return "Consider downsizing to a smaller instance type or enabling cluster autoscaler to remove idle nodes";
@@ -1016,14 +1053,16 @@ public class OpenCostService {
         // Parse instance type (e.g., m5.xlarge -> m5, xlarge)
         String[] parts = instanceType.split("\\.");
         if (parts.length < 2) {
-            return String.format("Consider downsizing from %s - current utilization is only %.0f%%", instanceType, avgEfficiency * 100);
+            return String.format("Consider downsizing from %s - current utilization is only %.0f%%", instanceType,
+                    avgEfficiency * 100);
         }
 
         String family = parts[0];
         String size = parts[1];
 
         // Size ordering for recommendations
-        String[] sizeOrder = {"nano", "micro", "small", "medium", "large", "xlarge", "2xlarge", "4xlarge", "8xlarge", "12xlarge", "16xlarge", "24xlarge"};
+        String[] sizeOrder = { "nano", "micro", "small", "medium", "large", "xlarge", "2xlarge", "4xlarge", "8xlarge",
+                "12xlarge", "16xlarge", "24xlarge" };
         int currentIndex = -1;
         for (int i = 0; i < sizeOrder.length; i++) {
             if (size.equals(sizeOrder[i])) {
@@ -1042,12 +1081,13 @@ public class OpenCostService {
             recommendedSize = sizeOrder[Math.max(0, currentIndex - 1)];
         } else {
             // Moderate under-utilization - consider consolidation
-            return String.format("Consider consolidating workloads from %s or enabling cluster autoscaler", instanceType);
+            return String.format("Consider consolidating workloads from %s or enabling cluster autoscaler",
+                    instanceType);
         }
 
         String recommendedType = family + "." + recommendedSize;
         return String.format("Consider downsizing from %s to %s (estimated %.0f%% cost reduction)",
-            instanceType, recommendedType, (1 - avgEfficiency * 2) * 100);
+                instanceType, recommendedType, (1 - avgEfficiency * 2) * 100);
     }
 
     // Helper methods
@@ -1056,19 +1096,23 @@ public class OpenCostService {
     }
 
     private Double getDoubleValue(JsonNode node, String fieldName) {
-        if (node == null || !node.has(fieldName)) return 0.0;
+        if (node == null || !node.has(fieldName))
+            return 0.0;
         JsonNode field = node.get(fieldName);
-        if (field.isNull()) return 0.0;
+        if (field.isNull())
+            return 0.0;
         return field.asDouble(0.0);
     }
 
     private String getStringValue(JsonNode node, String... path) {
         JsonNode current = node;
         for (String field : path) {
-            if (current == null || !current.has(field)) return null;
+            if (current == null || !current.has(field))
+                return null;
             current = current.get(field);
         }
-        if (current == null || current.isNull()) return null;
+        if (current == null || current.isNull())
+            return null;
         return current.asText();
     }
 }

@@ -118,7 +118,7 @@ const AzureForm: React.FC<AzureFormProps> = ({
       {/* Credentials Form */}
       <form
         onSubmit={handleSubmit}
-        style={{ borderTop: '1px solid #e5e7eb', paddingTop: '2rem' }}
+        style={{ borderTop: '1px solid var(--aa-glass-border)', paddingTop: '2rem', marginTop: '2rem' }}
       >
         <div className="form-card-header">
           <div className="step-number large">3</div>
@@ -132,6 +132,7 @@ const AzureForm: React.FC<AzureFormProps> = ({
 
         <div className="form-group">
           <label htmlFor="azureAccountName" className="form-label">
+            <i className="fas fa-tag" style={{ color: 'var(--aa-azure-blue)' }} />
             Account Name
           </label>
           <input
@@ -147,6 +148,7 @@ const AzureForm: React.FC<AzureFormProps> = ({
 
         <div className="form-group">
           <label htmlFor="azureCredentialsJson" className="form-label">
+            <i className="fas fa-key" style={{ color: 'var(--aa-azure-blue)' }} />
             Azure Credentials (JSON)
           </label>
           <textarea
@@ -174,7 +176,10 @@ const AzureForm: React.FC<AzureFormProps> = ({
                 Connecting...
               </>
             ) : (
-              'Verify & Connect'
+              <>
+                <i className="fas fa-check" />
+                <span>Verify & Connect</span>
+              </>
             )}
           </button>
         </div>

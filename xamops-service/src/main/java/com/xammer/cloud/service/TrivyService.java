@@ -1,386 +1,211 @@
 package com.xammer.cloud.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.cloud.dto.k8s.TrivyDashboard;
 import com.xammer.cloud.dto.k8s.TrivyDashboard.*;
 import io.fabric8.kubernetes.api.model.GenericKubernetesResource;
+import io.fabric8.kubernetes.api.model.GenericKubernetesResourceList;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import io.fabric8.kubernetes.client.dsl.base.CustomResourceDefinitionContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
+import java.time.ZonedDateTime;
 import java.util.*;
-import java.util.stream.Collectors;
 
 @Service
 public class TrivyService {
 
     private static final Logger logger = LoggerFactory.getLogger(TrivyService.class);
     private static final String GROUP = "aquasecurity.github.io";
+    private static final String VERSION = "v1alpha1";
+
+    // Contexts for Trivy CRDs
+    private static final CustomResourceDefinitionContext VULN_REPORT_CTX = new CustomResourceDefinitionContext.Builder()
+            .withGroup(GROUP)
+            .withVersion(VERSION)
+            .withScope("Namespaced")
+            .withPlural("vulnerabilityreports")
+            .build();
+
+    private static final CustomResourceDefinitionContext CLUSTER_VULN_REPORT_CTX = new CustomResourceDefinitionContext.Builder()
+            .withGroup(GROUP)
+            .withVersion(VERSION)
+            .withScope("Cluster")
+            .withPlural("clustervulnerabilityreports")
+            .build();
+
+    private static final CustomResourceDefinitionContext CONFIG_AUDIT_CTX = new CustomResourceDefinitionContext.Builder()
+            .withGroup(GROUP)
+            .withVersion(VERSION)
+            .withScope("Namespaced")
+            .withPlural("configauditreports")
+            .build();
+
+    private static final CustomResourceDefinitionContext CLUSTER_CONFIG_AUDIT_CTX = new CustomResourceDefinitionContext.Builder()
+            .withGroup(GROUP)
+            .withVersion(VERSION)
+            .withScope("Cluster")
+            .withPlural("clusterconfigauditreports")
+            .build();
 
     public TrivyDashboard fetchDashboardData(KubernetesClient client) {
         TrivyDashboard dashboard = new TrivyDashboard();
-        try {
-            logger.info("🛡️ Fetching Trivy security data...");
 
-            // Connectivity Check
+        try {
+            // 1. Fetch Vulnerability Reports (Namespaced)
+            GenericKubernetesResourceList vulnReports = client.genericKubernetesResources(VULN_REPORT_CTX).list();
+            dashboard.getWorkloads().addAll(transformVulnerabilities(vulnReports.getItems()));
+
+            // 2. Fetch Cluster Vulnerability Reports
             try {
-                int nodeCount = client.nodes().list().getItems().size();
-                logger.info("📡 Connectivity verified. Cluster has {} nodes.", nodeCount);
+                GenericKubernetesResourceList clusterVulnReports = client
+                        .genericKubernetesResources(CLUSTER_VULN_REPORT_CTX).list();
+                dashboard.getWorkloads().addAll(transformVulnerabilities(clusterVulnReports.getItems()));
             } catch (Exception e) {
-                logger.error("❌ Connectivity check failed!", e);
-                return dashboard;
+                logger.debug("ClusterVulnerabilityReports not found or accessible: {}", e.getMessage());
             }
 
-            // 1. Fetch Vulnerability Reports
-            // Added both plural and singular names for robustness
-            List<Map<String, Object>> vulnRaw = fetchCRD(client, "vulnerabilityreports", GROUP);
-            logger.info("📊 Found {} VulnerabilityReports", vulnRaw.size());
-            dashboard.setWorkloads(transformVulnerabilities(vulnRaw));
+            // 3. Fetch Config Audit Reports
+            try {
+                GenericKubernetesResourceList configAudits = client.genericKubernetesResources(CONFIG_AUDIT_CTX).list();
+                dashboard.getConfigAudits().addAll(transformConfigAudits(configAudits.getItems()));
+            } catch (Exception e) {
+                logger.debug("ConfigAuditReports not found or accessible: {}", e.getMessage());
+            }
 
-            // 2. Fetch Config Audits
-            List<Map<String, Object>> configRaw = fetchCRD(client, "configauditreports", GROUP);
-            logger.info("📊 Found {} ConfigAuditReports", configRaw.size());
-            dashboard.setConfigAudits(transformConfigAudits(configRaw));
-
-            // 3. Fetch Exposed Secrets
-            List<Map<String, Object>> secretRaw = fetchCRD(client, "exposedsecretreports", GROUP);
-            logger.info("📊 Found {} ExposedSecretReports", secretRaw.size());
-            dashboard.setExposedSecrets(transformExposedSecrets(secretRaw));
-
-            // 4. Fetch RBAC Assessments
-            List<Map<String, Object>> rbacRaw = fetchCRD(client, "rbacassessmentreports", GROUP);
-            logger.info("📊 Found {} RbacAssessmentReports", rbacRaw.size());
-            dashboard.setRbacAssessments(transformRbacAssessments(rbacRaw));
+            // 4. Fetch Cluster Config Audit Reports
+            try {
+                GenericKubernetesResourceList clusterConfigAudits = client
+                        .genericKubernetesResources(CLUSTER_CONFIG_AUDIT_CTX).list();
+                dashboard.getConfigAudits().addAll(transformConfigAudits(clusterConfigAudits.getItems()));
+            } catch (Exception e) {
+                logger.debug("ClusterConfigAuditReports not found or accessible: {}", e.getMessage());
+            }
 
             // 5. Calculate Summary
             calculateSummary(dashboard);
 
-            logger.info("✅ Trivy data fetch complete. Workloads: {}, Critical: {}, High: {}",
-                    dashboard.getWorkloads().size(),
-                    dashboard.getSummary().getTotalCritical(),
-                    dashboard.getSummary().getTotalHigh());
-
         } catch (Exception e) {
-            logger.error("❌ Error fetching Trivy data", e);
+            logger.error("Error fetching Trivy dashboard data", e);
         }
+
         return dashboard;
     }
 
-    private List<Map<String, Object>> fetchCRD(KubernetesClient client, String plural, String group) {
-        // Prioritize v1alpha1 as per user feedback
-        List<String> versions = List.of("v1alpha1", "v1", "v1beta1");
+    @SuppressWarnings("unchecked")
+    private List<WorkloadVulnerability> transformVulnerabilities(List<GenericKubernetesResource> resources) {
+        List<WorkloadVulnerability> list = new ArrayList<>();
 
-        for (String version : versions) {
+        for (GenericKubernetesResource resource : resources) {
             try {
-                logger.debug("🔎 Attempting to fetch {}/{}/{}...", group, version, plural);
+                WorkloadVulnerability w = new WorkloadVulnerability();
+                Map<String, Object> metadata = resource.getMetadata().getAdditionalProperties();
+                Map<String, Object> labels = (Map<String, Object>) metadata.get("labels");
 
-                CustomResourceDefinitionContext context = new CustomResourceDefinitionContext.Builder()
-                        .withGroup(group)
-                        .withVersion(version)
-                        .withPlural(plural)
-                        .withScope("Namespaced")
-                        .build();
+                w.setName(resource.getMetadata().getName());
+                w.setNamespace(resource.getMetadata().getNamespace());
 
-                List<GenericKubernetesResource> resources = client.genericKubernetesResources(context)
-                        .inAnyNamespace()
-                        .list()
-                        .getItems();
-
-                if (!resources.isEmpty()) {
-                    logger.info("✅ Successfully fetched {} {} resources using version {}", resources.size(), plural,
-                            version);
-                    return convertToMaps(resources);
-                } else {
-                    logger.debug("⚠️ No items found for {} version {}", plural, version);
+                if (labels != null) {
+                    w.setKind((String) labels.get("trivy-operator.resource.kind"));
+                    w.setImage((String) labels.get("trivy-operator.container.name")); // Often the container name is
+                                                                                      // more useful here
                 }
-            } catch (Exception e) {
-                logger.warn("⚠️ Failed to fetch {} version {}: {}", plural, version, e.getMessage());
-            }
-        }
-        logger.warn("❌ Failed to fetch {} in any version. Returning empty list.", plural);
-        return new ArrayList<>();
-    }
 
-    private List<Map<String, Object>> convertToMaps(List<GenericKubernetesResource> resources) {
-        return resources.stream().map(r -> {
-            Map<String, Object> map = new HashMap<>();
-            if (r.getMetadata() != null) {
-                Map<String, Object> metadata = new HashMap<>();
-                metadata.put("name", r.getMetadata().getName());
-                metadata.put("namespace", r.getMetadata().getNamespace());
-                metadata.put("creationTimestamp", r.getMetadata().getCreationTimestamp());
-                metadata.put("labels", r.getMetadata().getLabels());
-                map.put("metadata", metadata);
-            }
-            if (r.getAdditionalProperties() != null) {
-                map.putAll(r.getAdditionalProperties());
-            }
-            return map;
-        }).collect(Collectors.toList());
-    }
-
-    private List<WorkloadVulnerability> transformVulnerabilities(List<Map<String, Object>> data) {
-        List<WorkloadVulnerability> results = new ArrayList<>();
-        for (Map<String, Object> item : data) {
-            try {
-                WorkloadVulnerability vuln = new WorkloadVulnerability();
-                Map<String, Object> metadata = (Map<String, Object>) item.get("metadata");
-                Map<String, String> labels = (Map<String, String>) metadata.get("labels");
-
-                // Enhanced Workload Name Logic
-                String workloadName = labels != null ? labels.get("trivy-operator.resource.name") : null;
-                if (workloadName == null)
-                    workloadName = (String) metadata.get("name");
-                vuln.setName(workloadName);
-
-                vuln.setNamespace((String) metadata.get("namespace"));
-
-                String workloadKind = labels != null ? labels.get("trivy-operator.resource.kind") : "Workload";
-                vuln.setKind(workloadKind);
-
-                vuln.setLastScanTime((String) metadata.get("creationTimestamp"));
-
-                Map<String, Object> report = (Map<String, Object>) item.get("report");
+                Map<String, Object> report = (Map<String, Object>) resource.getAdditionalProperties().get("report");
                 if (report != null) {
-                    Map<String, Object> artifact = (Map<String, Object>) report.get("artifact");
-                    if (artifact != null) {
-                        vuln.setImage((String) artifact.get("repository"));
-                        vuln.setTag((String) artifact.get("tag"));
-                    }
-
                     Map<String, Object> summary = (Map<String, Object>) report.get("summary");
                     if (summary != null) {
-                        vuln.setCritical(getIntValue(summary, "criticalCount"));
-                        vuln.setHigh(getIntValue(summary, "highCount"));
-                        vuln.setMedium(getIntValue(summary, "mediumCount"));
-                        vuln.setLow(getIntValue(summary, "lowCount"));
+                        w.setCritical(getIntValue(summary, "criticalCount"));
+                        w.setHigh(getIntValue(summary, "highCount"));
+                        w.setMedium(getIntValue(summary, "mediumCount"));
+                        w.setLow(getIntValue(summary, "lowCount"));
                     }
 
-                    // Extract detailed vulnerability information (P1 enhancement)
-                    List<VulnerabilityDetail> vulnerabilityDetails = extractVulnerabilityDetails(report);
-                    vuln.setVulnerabilities(vulnerabilityDetails);
-                }
-                results.add(vuln);
-            } catch (Exception e) {
-                logger.warn("Skipping invalid Trivy vuln report: {}", e.getMessage());
-            }
-        }
-        return results;
-    }
+                    // Extract last scan time from metadata or report
+                    String creationTimestamp = (String) metadata.get("creationTimestamp");
+                    w.setLastScanTime(creationTimestamp);
 
-    /**
-     * Extract detailed vulnerability information from Trivy report
-     * This includes CVE IDs, affected packages, severity, and fix versions
-     */
-    @SuppressWarnings("unchecked")
-    private List<VulnerabilityDetail> extractVulnerabilityDetails(Map<String, Object> report) {
-        List<VulnerabilityDetail> details = new ArrayList<>();
-        try {
-            List<Map<String, Object>> allVulnerabilities = new ArrayList<>();
+                    // Detailed List
+                    List<Map<String, Object>> vulns = (List<Map<String, Object>>) report.get("vulnerabilities");
+                    if (vulns != null) {
+                        List<VulnerabilityDetail> details = new ArrayList<>();
+                        for (Map<String, Object> v : vulns) {
+                            VulnerabilityDetail d = new VulnerabilityDetail();
+                            d.setVulnerabilityId((String) v.get("vulnerabilityID"));
+                            d.setSeverity((String) v.get("severity"));
+                            d.setPackageName((String) v.get("pkgName"));
+                            d.setInstalledVersion((String) v.get("installedVersion"));
+                            d.setFixedVersion((String) v.get("fixedVersion"));
+                            d.setTitle((String) v.get("title"));
+                            d.setDescription((String) v.get("description"));
+                            d.setPrimaryLink((String) v.get("primaryLink"));
 
-            // Try direct vulnerabilities array first (Trivy Operator v0.16+)
-            List<Map<String, Object>> directVulns = (List<Map<String, Object>>) report.get("vulnerabilities");
-            if (directVulns != null && !directVulns.isEmpty()) {
-                allVulnerabilities.addAll(directVulns);
-            }
+                            // Try to get score
+                            Object scoreObj = v.get("score");
+                            if (scoreObj instanceof Number) {
+                                d.setScore(((Number) scoreObj).doubleValue());
+                            } else if (scoreObj instanceof String) {
+                                try {
+                                    d.setScore(Double.parseDouble((String) scoreObj));
+                                } catch (Exception ignored) {
+                                }
+                            }
 
-            // Also try results array (older Trivy format: report.results[].vulnerabilities)
-            List<Map<String, Object>> results = (List<Map<String, Object>>) report.get("results");
-            if (results != null) {
-                for (Map<String, Object> result : results) {
-                    String target = getStringValue(result, "Target");
-                    List<Map<String, Object>> resultVulns = (List<Map<String, Object>>) result.get("Vulnerabilities");
-                    if (resultVulns != null) {
-                        for (Map<String, Object> v : resultVulns) {
-                            // Add target info to each vulnerability
-                            v.put("target", target);
-                            allVulnerabilities.add(v);
+                            details.add(d);
                         }
+                        w.setVulnerabilities(details);
                     }
                 }
+
+                list.add(w);
+            } catch (Exception e) {
+                logger.warn("Error processing vulnerability report: {}", e.getMessage());
             }
-
-            if (allVulnerabilities.isEmpty()) {
-                return details;
-            }
-
-            // Limit to top 50 vulnerabilities per workload to avoid response bloat
-            int limit = Math.min(allVulnerabilities.size(), 50);
-            for (int i = 0; i < limit; i++) {
-                Map<String, Object> v = allVulnerabilities.get(i);
-                VulnerabilityDetail detail = new VulnerabilityDetail();
-
-                // Try different field name formats (camelCase and PascalCase)
-                detail.setVulnerabilityId(coalesce(getStringValue(v, "vulnerabilityID"), getStringValue(v, "VulnerabilityID")));
-                detail.setSeverity(coalesce(getStringValue(v, "severity"), getStringValue(v, "Severity")));
-                detail.setPackageName(coalesce(getStringValue(v, "pkgName"), getStringValue(v, "PkgName")));
-                detail.setInstalledVersion(coalesce(getStringValue(v, "installedVersion"), getStringValue(v, "InstalledVersion")));
-                detail.setFixedVersion(coalesce(getStringValue(v, "fixedVersion"), getStringValue(v, "FixedVersion")));
-                detail.setTitle(coalesce(getStringValue(v, "title"), getStringValue(v, "Title")));
-                detail.setDescription(truncateDescription(coalesce(getStringValue(v, "description"), getStringValue(v, "Description")), 500));
-                detail.setPrimaryLink(coalesce(getStringValue(v, "primaryURL"), getStringValue(v, "PrimaryURL")));
-                detail.setTarget(coalesce(getStringValue(v, "target"), getStringValue(v, "Target")));
-
-                // Extract CVSS score if available
-                Double score = extractCvssScore(v);
-                detail.setScore(score);
-
-                // Only add if we have a valid vulnerability ID
-                if (detail.getVulnerabilityId() != null && !detail.getVulnerabilityId().isEmpty()) {
-                    details.add(detail);
-                }
-            }
-
-            // Sort by severity (CRITICAL > HIGH > MEDIUM > LOW)
-            details.sort((a, b) -> {
-                int severityA = getSeverityWeight(a.getSeverity());
-                int severityB = getSeverityWeight(b.getSeverity());
-                return severityB - severityA;
-            });
-
-        } catch (Exception e) {
-            logger.warn("Error extracting vulnerability details: {}", e.getMessage());
         }
-        return details;
-    }
-
-    private String coalesce(String... values) {
-        for (String v : values) {
-            if (v != null && !v.isEmpty()) return v;
-        }
-        return null;
-    }
-
-    private String getStringValue(Map<String, Object> map, String key) {
-        Object val = map.get(key);
-        return val != null ? val.toString() : null;
-    }
-
-    private String truncateDescription(String description, int maxLength) {
-        if (description == null) return null;
-        if (description.length() <= maxLength) return description;
-        return description.substring(0, maxLength) + "...";
+        return list;
     }
 
     @SuppressWarnings("unchecked")
-    private Double extractCvssScore(Map<String, Object> vulnerability) {
-        try {
-            // Try cvss.nvd.V3Score first
-            Map<String, Object> cvss = (Map<String, Object>) vulnerability.get("cvss");
-            if (cvss != null) {
-                Map<String, Object> nvd = (Map<String, Object>) cvss.get("nvd");
-                if (nvd != null) {
-                    Object v3Score = nvd.get("V3Score");
-                    if (v3Score instanceof Number) {
-                        return ((Number) v3Score).doubleValue();
-                    }
-                }
-            }
-            // Fallback to score field directly
-            Object score = vulnerability.get("score");
-            if (score instanceof Number) {
-                return ((Number) score).doubleValue();
-            }
-        } catch (Exception ignored) {
-        }
-        return null;
-    }
-
-    private int getSeverityWeight(String severity) {
-        if (severity == null) return 0;
-        switch (severity.toUpperCase()) {
-            case "CRITICAL": return 4;
-            case "HIGH": return 3;
-            case "MEDIUM": return 2;
-            case "LOW": return 1;
-            default: return 0;
-        }
-    }
-
-    private List<ConfigAudit> transformConfigAudits(List<Map<String, Object>> data) {
-        List<ConfigAudit> results = new ArrayList<>();
-        for (Map<String, Object> item : data) {
+    private List<ConfigAudit> transformConfigAudits(List<GenericKubernetesResource> resources) {
+        List<ConfigAudit> list = new ArrayList<>();
+        for (GenericKubernetesResource resource : resources) {
             try {
-                ConfigAudit audit = new ConfigAudit();
-                Map<String, Object> metadata = (Map<String, Object>) item.get("metadata");
-                Map<String, String> labels = (Map<String, String>) metadata.get("labels");
+                ConfigAudit c = new ConfigAudit();
+                Map<String, Object> metadata = resource.getMetadata().getAdditionalProperties();
+                Map<String, Object> labels = (Map<String, Object>) metadata.get("labels");
 
-                String workloadName = labels != null ? labels.get("trivy-operator.resource.name")
-                        : (String) metadata.get("name");
-                audit.setName(workloadName);
+                c.setName(resource.getMetadata().getName());
+                c.setNamespace(resource.getMetadata().getNamespace());
 
-                audit.setNamespace((String) metadata.get("namespace"));
-                audit.setKind(
-                        labels != null ? labels.getOrDefault("trivy-operator.resource.kind", "Workload") : "Workload");
+                if (labels != null) {
+                    c.setKind((String) labels.get("trivy-operator.resource.kind"));
+                }
 
-                Map<String, Object> report = (Map<String, Object>) item.get("report");
+                Map<String, Object> report = (Map<String, Object>) resource.getAdditionalProperties().get("report");
                 if (report != null) {
                     Map<String, Object> summary = (Map<String, Object>) report.get("summary");
                     if (summary != null) {
-                        audit.setSuccessCount(getIntValue(summary, "passCount"));
-                        audit.setDangerCount(getIntValue(summary, "failCount"));
-                        audit.setWarningCount(getIntValue(summary, "warningCount"));
+                        c.setDangerCount(getIntValue(summary, "dangerCount")); // mapping "critical" or "high" to danger
+                        c.setWarningCount(getIntValue(summary, "warningCount")); // mapping "medium" or "low" to warning
+                        c.setSuccessCount(getIntValue(summary, "passCount"));
                     }
                 }
-                results.add(audit);
-            } catch (Exception ignored) {
+                list.add(c);
+            } catch (Exception e) {
+                logger.warn("Error processing config audit: {}", e.getMessage());
             }
         }
-        return results;
-    }
-
-    private List<ExposedSecret> transformExposedSecrets(List<Map<String, Object>> data) {
-        List<ExposedSecret> results = new ArrayList<>();
-        for (Map<String, Object> item : data) {
-            try {
-                ExposedSecret secret = new ExposedSecret();
-                Map<String, Object> metadata = (Map<String, Object>) item.get("metadata");
-                secret.setName((String) metadata.get("name"));
-                secret.setNamespace((String) metadata.get("namespace"));
-
-                Map<String, Object> report = (Map<String, Object>) item.get("report");
-                if (report != null) {
-                    Map<String, Object> summary = (Map<String, Object>) report.get("summary");
-                    if (summary != null) {
-                        secret.setSecretCount(
-                                getIntValue(summary, "criticalCount") + getIntValue(summary, "highCount"));
-                    }
-                }
-                results.add(secret);
-            } catch (Exception ignored) {
-            }
-        }
-        return results;
-    }
-
-    private List<RbacAssessment> transformRbacAssessments(List<Map<String, Object>> data) {
-        List<RbacAssessment> results = new ArrayList<>();
-        for (Map<String, Object> item : data) {
-            try {
-                RbacAssessment rbac = new RbacAssessment();
-                Map<String, Object> metadata = (Map<String, Object>) item.get("metadata");
-                rbac.setName((String) metadata.get("name"));
-
-                Map<String, Object> report = (Map<String, Object>) item.get("report");
-                if (report != null) {
-                    Map<String, Object> summary = (Map<String, Object>) report.get("summary");
-                    if (summary != null) {
-                        rbac.setDangerCount(getIntValue(summary, "failCount"));
-                        rbac.setWarningCount(getIntValue(summary, "warningCount"));
-                    }
-                }
-                results.add(rbac);
-            } catch (Exception ignored) {
-            }
-        }
-        return results;
+        return list;
     }
 
     private void calculateSummary(TrivyDashboard dashboard) {
         Summary s = dashboard.getSummary();
         Set<String> images = new HashSet<>();
         Set<String> namespaces = new HashSet<>();
+        ZonedDateTime latestScan = null;
 
         s.setTotalVulnerabilityReports(dashboard.getWorkloads().size());
 
@@ -395,16 +220,25 @@ public class TrivyService {
             }
             if (v.getNamespace() != null)
                 namespaces.add(v.getNamespace());
+
+            // Track latest scan time
+            if (v.getLastScanTime() != null) {
+                try {
+                    ZonedDateTime scanTime = ZonedDateTime.parse(v.getLastScanTime());
+                    if (latestScan == null || scanTime.isAfter(latestScan)) {
+                        latestScan = scanTime;
+                    }
+                } catch (Exception ignored) {
+                }
+            }
         }
 
         s.setUniqueImagesScanned(images.size());
         s.setNamespacesCovered(namespaces.size());
 
-        int secrets = 0;
-        for (ExposedSecret es : dashboard.getExposedSecrets()) {
-            secrets += es.getSecretCount();
+        if (latestScan != null) {
+            s.setLastScanTime(latestScan.toLocalDateTime());
         }
-        s.setTotalExposedSecrets(secrets);
 
         int failures = 0;
         for (ConfigAudit ca : dashboard.getConfigAudits()) {

@@ -112,30 +112,6 @@ const CalculatorPage: React.FC = () => {
 
   return (
     <main className="flex-1 bg-gray-50">
-      {/* Header Bar */}
-      <header className="bg-white border-b border-gray-100 sticky top-0 z-20 px-8 py-5 flex items-center justify-between shadow-sm backdrop-blur-sm bg-white/95">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => navigate(-1)}
-            className="flex items-center justify-center w-10 h-10 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 hover:text-gray-900 transition-all"
-          >
-            <i className="fas fa-arrow-left"></i>
-          </button>
-          <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-md">
-            <i className="fas fa-calculator text-white text-xl"></i>
-          </div>
-          <div>
-            <h1 className="text-2xl font-black text-gray-900 tracking-tight">
-              Cloud Pricing Calculator
-            </h1>
-            <p className="text-xs text-gray-500 font-semibold mt-1 flex items-center gap-2">
-              <i className="fas fa-dollar-sign text-blue-500 text-[10px]"></i>
-              Real-time pricing estimates across AWS categories
-            </p>
-          </div>
-        </div>
-      </header>
-
       <div className="p-8">
         {/* Error banner */}
         {error && (
