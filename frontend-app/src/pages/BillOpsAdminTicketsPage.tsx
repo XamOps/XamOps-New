@@ -22,9 +22,10 @@
  * - All business logic preserved exactly
  */
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useBillOpsAdminTickets } from '../hooks/useBillOpsAdminTickets';
+import { useTopbar } from '../contexts/TopbarContext';
 import {
   AdminTicket,
   AdminTicketTab,
@@ -47,6 +48,8 @@ const BillOpsAdminTicketsPage: React.FC = () => {
     fetchTickets,
     getCategoryCount
   } = useBillOpsAdminTickets();
+
+  const { setActions, clearActions } = useTopbar();
 
   /**
    * Format date for ticket display
@@ -121,6 +124,47 @@ const BillOpsAdminTicketsPage: React.FC = () => {
       window.location.href = `/xamops_ticket_detail.html?id=${id}`;
     }
   };
+
+  /**
+   * Set Topbar Actions
+   */
+  useEffect(() => {
+    setActions(
+      <div className="flex items-center gap-4">
+        {/* Search Input in Topbar */}
+        <div className="relative group hidden md:block">
+          <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+            <i className="fas fa-search text-slate-400 group-focus-within:text-indigo-500 transition-colors"></i>
+          </span>
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search tickets..."
+            className="pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500 focus:bg-white focus:border-indigo-500 w-64 transition-all"
+          />
+        </div>
+
+        {/* Sync Info */}
+        {lastUpdatedDisplay && (
+          <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest hidden lg:block">
+            Synced {lastUpdatedDisplay}
+          </div>
+        )}
+
+        {/* Refresh Button */}
+        <button
+          onClick={() => fetchTickets(true)}
+          disabled={loading || isUpdating}
+          className="w-10 h-10 flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-xl transition-all disabled:opacity-50"
+          title="Refresh Data"
+        >
+          <i className={`fas fa-sync-alt ${isUpdating ? 'animate-spin' : ''}`}></i>
+        </button>
+      </div>
+    );
+    return () => clearActions();
+  }, [setActions, clearActions, search, setSearch, lastUpdatedDisplay, loading, isUpdating, fetchTickets]);
 
   /**
    * Render loading skeleton
@@ -259,52 +303,16 @@ const BillOpsAdminTicketsPage: React.FC = () => {
   );
 
   return (
-    <div className="billops-admin-tickets-page min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm z-10 p-4 flex justify-between items-center border-b border-gray-200 sticky top-0">
-        <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-3">
-          <i className="fas fa-user-shield text-indigo-600"></i>
-          Ticket Administration
-          {isUpdating && (
-            <span className="updating-spinner" title="Refreshing...">
-              <i className="fas fa-sync-alt fa-spin text-indigo-600"></i>
-            </span>
-          )}
-        </h1>
-        <div className="flex items-center gap-3">
-          {/* Last Updated Display */}
-          {lastUpdatedDisplay && (
-            <div className="text-[10px] text-gray-400 font-medium bg-gray-50 px-1.5 py-1 rounded border border-gray-100 opacity-80">
-              <i className="far fa-clock mr-1"></i>
-              Last Synced: <span>{lastUpdatedDisplay}</span>
-            </div>
-          )}
-
-          {/* Search Input */}
-          <div className="relative">
-            <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <i className="fas fa-search text-gray-400"></i>
-            </span>
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search tickets..."
-              className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-sm w-64 transition shadow-sm"
-            />
+    <div className="billops-admin-tickets-page flex-1 flex flex-col h-full overflow-hidden bg-transparent">
+      {/* Category Summary (Simplified) */}
+      <div className="px-6 py-4 flex gap-4 bg-white/50 border-b border-slate-200/50 xl:hidden">
+        {ADMIN_TICKET_TABS.map(tab => (
+          <div key={tab.id} className="flex-1 text-center">
+            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">{tab.label}</div>
+            <div className="text-sm font-bold text-slate-700">{getCategoryCount(tab.id)}</div>
           </div>
-
-          {/* Refresh Button */}
-          <button
-            onClick={() => fetchTickets(true)}
-            disabled={loading || isUpdating}
-            className="bg-gray-100 hover:bg-gray-200 text-gray-700 p-2 rounded-lg transition border border-gray-300 disabled:opacity-50"
-            title="Refresh Data"
-          >
-            <i className={`fas fa-sync-alt ${isUpdating ? 'fa-spin' : ''}`}></i>
-          </button>
-        </div>
-      </header>
+        ))}
+      </div>
 
       {/* Main Content */}
       <div className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 p-6">
@@ -316,11 +324,10 @@ const BillOpsAdminTicketsPage: React.FC = () => {
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors ${
-                    activeTab === tab.id
+                  className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors ${activeTab === tab.id
                       ? 'border-indigo-500 text-indigo-600'
                       : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
+                    }`}
                 >
                   <i className={tab.icon}></i>
                   {tab.label}

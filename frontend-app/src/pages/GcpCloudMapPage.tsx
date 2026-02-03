@@ -22,6 +22,9 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAccounts } from '../contexts/AccountContext';
+import { useTopbar } from '../contexts/TopbarContext';
+import { useVPC } from '../contexts/VPCContext';
+import GcpCloudMapTopbarControls from '../components/CloudMap/GcpCloudMapTopbarControls';
 
 // Import Cytoscape and extensions
 import cytoscape from 'cytoscape';
@@ -53,6 +56,8 @@ interface GraphElement {
 const GcpCloudMapPage: React.FC = () => {
   const navigate = useNavigate();
   const { selectedAccountIds } = useAccounts();
+  const { gcpVpcs, gcpVpcsLoading, gcpVpcsError, fetchGcpVpcs } = useVPC();
+  const { setActions } = useTopbar();
 
   // Get the first selected account ID
   const accountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
@@ -62,9 +67,7 @@ const GcpCloudMapPage: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
 
   // UI State
-  const [vpcs, setVpcs] = useState<VpcOption[]>([]);
   const [selectedVpcValue, setSelectedVpcValue] = useState<string>('');
-  const [loadingVpcs, setLoadingVpcs] = useState<boolean>(false);
   const [loadingGraph, setLoadingGraph] = useState<boolean>(false);
   const [graphError, setGraphError] = useState<string | null>(null);
   const [infoPanelOpen, setInfoPanelOpen] = useState(false);
@@ -86,47 +89,31 @@ const GcpCloudMapPage: React.FC = () => {
   };
 
   /**
-   * Load VPCs from backend
+   * Load VPCs when account changes
    */
   const loadVpcs = useCallback(async () => {
-    if (!accountId) {
-      setMessageOverlay({
-        show: true,
-        title: 'Account Required',
-        subtitle: 'Please select a GCP account to begin mapping the infrastructure.',
-        type: 'error'
-      });
-      return;
-    }
+    if (!accountId) return;
 
-    setLoadingVpcs(true);
     try {
-      const response = await fetch(`/api/xamops/gcp/cloudmap/vpcs?accountId=${accountId}`, {
-        credentials: 'include',
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch VPCs');
+      const vpcsData = await fetchGcpVpcs(accountId);
+      // Auto-select first VPC if available
+      if (vpcsData.length > 0) {
+        setSelectedVpcValue(vpcsData[0].id);
+        loadGraph(vpcsData[0].id);
       }
-
-      const data = await response.json();
-      setVpcs(Array.isArray(data) ? data : []);
-
-      // Load global view by default
-      loadGraph('');
     } catch (error) {
-      console.error('Error fetching VPCs:', error);
-      setVpcs([]);
-      setMessageOverlay({
-        show: true,
-        title: 'Error Loading VPCs',
-        subtitle: 'Could not load VPCs. Please try again.',
-        type: 'error'
-      });
-    } finally {
-      setLoadingVpcs(false);
+      console.error('Error loading VPCs:', error);
     }
-  }, [accountId]);
+  }, [accountId, fetchGcpVpcs]);
+
+  /**
+   * Initialize component
+   */
+  useEffect(() => {
+    if (accountId) {
+      loadVpcs();
+    }
+  }, [accountId, loadVpcs]);
 
   /**
    * Load graph data for selected VPC
@@ -326,28 +313,6 @@ const GcpCloudMapPage: React.FC = () => {
   }, [icons]);
 
   /**
-   * Export graph to PNG
-   */
-  const handleExportPng = () => {
-    if (cyRef.current) {
-      const png64 = cyRef.current.png({ output: 'base64uri', bg: '#fff', full: true });
-      const link = document.createElement('a');
-      link.download = `gcp-cloudmap-${selectedVpcValue || 'global'}-${new Date().toISOString().split('T')[0]}.png`;
-      link.href = png64;
-      link.click();
-    }
-  };
-
-  /**
-   * Handle VPC selection change
-   */
-  const handleVpcChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const value = e.target.value;
-    setSelectedVpcValue(value);
-    loadGraph(value);
-  };
-
-  /**
    * Get icon for node type
    */
   const getIconForType = (type: string): string => {
@@ -369,6 +334,47 @@ const GcpCloudMapPage: React.FC = () => {
       loadVpcs();
     }
   }, [accountId, loadVpcs]);
+
+  /**
+   * Handle VPC selection change
+   */
+  const handleVpcChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = e.target.value;
+    setSelectedVpcValue(value);
+    loadGraph(value);
+  }, [setSelectedVpcValue, loadGraph]);
+
+  /**
+   * Export graph to PNG
+   */
+  const handleExportPng = useCallback(() => {
+    if (cyRef.current) {
+      const png64 = cyRef.current.png({ output: 'base64uri', bg: '#fff', full: true });
+      const link = document.createElement('a');
+      link.download = `gcp-cloudmap-${selectedVpcValue || 'global'}-${new Date().toISOString().split('T')[0]}.png`;
+      link.href = png64;
+      link.click();
+    }
+  }, [selectedVpcValue]);
+
+  /**
+   * Inject GCP CloudMap controls into topbar
+   */
+  useEffect(() => {
+    setActions(
+      <GcpCloudMapTopbarControls
+        vpcs={gcpVpcs}
+        selectedVpcValue={selectedVpcValue}
+        onVpcChange={handleVpcChange}
+        loadingVpcs={gcpVpcsLoading}
+        onExportPng={handleExportPng}
+        cyRef={cyRef}
+      />
+    );
+
+    // Cleanup: Remove controls when component unmounts
+    return () => setActions(null);
+  }, [gcpVpcs, selectedVpcValue, gcpVpcsLoading, setActions, handleVpcChange, handleExportPng]);
 
   /**
    * Render info panel
@@ -421,55 +427,6 @@ const GcpCloudMapPage: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full bg-gray-100">
-      {/* Header */}
-      <header className="gcp-cloudmap-header">
-        <div className="flex items-center space-x-4">
-          <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center">
-            <i className="fas fa-project-diagram text-white text-lg"></i>
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-gray-800">GCP Cloudmap</h1>
-            <p className="text-sm text-gray-600">Visualize your GCP infrastructure</p>
-          </div>
-        </div>
-        <div className="flex items-center space-x-4">
-          <div className="flex items-center space-x-2">
-            <div className="w-2 h-2 bg-green-500 rounded-full pulse-dot"></div>
-            <span className="text-sm text-gray-600">Live topology</span>
-          </div>
-          <div className="flex items-center space-x-3 glass-card rounded-xl p-3">
-            <label htmlFor="vpc-selector" className="text-sm font-semibold text-gray-700">VPC:</label>
-            <select
-              id="vpc-selector"
-              value={selectedVpcValue}
-              onChange={handleVpcChange}
-              className="form-select text-sm rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
-              disabled={loadingVpcs}
-            >
-              {loadingVpcs && <option value="">Loading VPCs...</option>}
-              {!loadingVpcs && (
-                <>
-                  <option value="">🌐 Global & Unattached</option>
-                  {vpcs.map((vpc) => (
-                    <option key={vpc.id} value={vpc.id}>
-                      {vpc.name} ({vpc.id})
-                    </option>
-                  ))}
-                </>
-              )}
-            </select>
-          </div>
-          <button
-            onClick={handleExportPng}
-            className="btn-primary px-4 py-2 text-sm font-semibold rounded-lg shadow-md flex items-center space-x-2"
-            disabled={!cyRef.current}
-          >
-            <i className="fas fa-download"></i>
-            <span>Export PNG</span>
-          </button>
-        </div>
-      </header>
-
       {/* Main Content */}
       <div className="flex-1 relative" id="cloudmap-container">
         <div id="graph-container" className="w-full h-full p-4">

@@ -21,9 +21,10 @@
  * - All business logic preserved exactly
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useBillOpsTickets } from '../hooks/useBillOpsTickets';
+import { useTopbar } from '../contexts/TopbarContext';
 import {
   CreateTicketFormData,
   SERVICE_OPTIONS,
@@ -44,6 +45,8 @@ const BillOpsTicketsPage: React.FC = () => {
     fetchTickets,
     submitTicket
   } = useBillOpsTickets();
+
+  const { setActions, clearActions } = useTopbar();
 
   const [showModal, setShowModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -171,6 +174,37 @@ const BillOpsTicketsPage: React.FC = () => {
   };
 
   /**
+   * Set Topbar Actions
+   */
+  useEffect(() => {
+    setActions(
+      <div className="flex items-center gap-4">
+        {lastUpdated && (
+          <div className="text-xs text-slate-500 font-medium hidden md:block">
+            Synced {lastUpdatedDisplay}
+          </div>
+        )}
+        <button
+          onClick={() => fetchTickets(true)}
+          disabled={loading || isUpdating}
+          className="w-10 h-10 flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-xl transition-all disabled:opacity-50"
+          title="Refresh Tickets"
+        >
+          <i className={`fas fa-sync-alt ${isUpdating ? 'animate-spin' : ''}`}></i>
+        </button>
+        <button
+          onClick={openCreateModal}
+          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-500/20 hover:bg-indigo-700 transition-all active:scale-95"
+        >
+          <i className="fas fa-plus mr-2" />
+          Create New Case
+        </button>
+      </div>
+    );
+    return () => clearActions();
+  }, [setActions, clearActions, lastUpdated, lastUpdatedDisplay, loading, isUpdating, fetchTickets]);
+
+  /**
    * Render loading skeleton
    */
   const renderLoadingSkeleton = () => (
@@ -236,8 +270,8 @@ const BillOpsTicketsPage: React.FC = () => {
             {/* Status Badge */}
             <span
               className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ring-1 ring-inset ${ticket.status === 'OPEN' ? 'bg-green-50 text-green-700 ring-green-600/20' :
-                  ticket.status === 'IN_PROGRESS' ? 'bg-yellow-50 text-yellow-800 ring-yellow-600/20' :
-                    'bg-gray-50 text-gray-600 ring-gray-500/10'
+                ticket.status === 'IN_PROGRESS' ? 'bg-yellow-50 text-yellow-800 ring-yellow-600/20' :
+                  'bg-gray-50 text-gray-600 ring-gray-500/10'
                 }`}
             >
               <span
@@ -305,57 +339,19 @@ const BillOpsTicketsPage: React.FC = () => {
   );
 
   return (
-    <div className="billops-tickets-page flex-1 flex flex-col h-screen overflow-hidden bg-gray-50/50">
+    <div className="billops-tickets-page flex-1 flex flex-col h-full overflow-hidden bg-transparent">
       {/* Main Content Scroll Area */}
       <main className="flex-1 overflow-y-auto custom-scrollbar p-8">
         <div className="w-full space-y-8">
 
-          {/* Header Section */}
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900 flex items-center">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white mr-3 shadow-sm">
-                  <i className="fas fa-ticket-alt text-lg"></i>
-                </div>
-                Support Tickets
-                {isUpdating && (
-                  <span className="ml-3 inline-block w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></span>
-                )}
-              </h1>
-              <div className="flex items-center gap-3 mt-1 ml-13">
-                <p className="text-gray-500">Manage your billing and account support requests</p>
-                {selectedAccountId && (
-                  <span className="text-xs font-medium px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-100">
-                    Account: {selectedAccountId}
-                  </span>
-                )}
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <div className="bg-white p-1 rounded-lg border border-gray-200 shadow-sm flex items-center">
-                {lastUpdated && (
-                  <span className="text-xs text-gray-400 px-3 py-1.5 border-r border-gray-100">
-                    Synced {lastUpdatedDisplay}
-                  </span>
-                )}
-                <button
-                  onClick={() => fetchTickets(true)}
-                  disabled={loading || isUpdating}
-                  className="p-2 text-gray-500 hover:text-indigo-600 hover:bg-gray-50 rounded-md transition-all duration-200"
-                  title="Refresh Tickets"
-                >
-                  <i className={`fas fa-sync-alt ${isUpdating ? 'animate-spin' : ''}`}></i>
-                </button>
-              </div>
-
-              <button
-                onClick={openCreateModal}
-                className="inline-flex items-center px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-xl shadow-sm hover:shadow-md transition-all duration-200"
-              >
-                <i className="fas fa-plus mr-2"></i> Create New Case
-              </button>
-            </div>
+          {/* Account Indicator (Simplified) */}
+          <div className="flex items-center gap-3">
+            {selectedAccountId && (
+              <span className="text-xs font-medium px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-100">
+                Account: {selectedAccountId}
+              </span>
+            )}
+            {isUpdating && <span className="inline-block w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></span>}
           </div>
 
           {/* Loading State */}

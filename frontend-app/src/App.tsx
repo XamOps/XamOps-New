@@ -15,6 +15,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { AccountProvider } from './contexts/AccountContext';
+import { VPCProvider } from './contexts/VPCContext';
 import { Sidebar } from './components/Sidebar';
 import { TopbarProvider } from './contexts/TopbarContext';
 import Topbar from './components/Shared/Topbar';
@@ -120,16 +121,12 @@ import './styles/dataops.css';
 import './styles/billopsUserDashboard.css';
 import './styles/billing.css';
 import './styles/invoices.css';
-import './styles/credits.css';
 import './styles/billopsTickets.css';
 import './styles/billopsTicketDetail.css';
 import './styles/supportDashboard.css';
 import './styles/billopsAdminDashboard.css';
 import './styles/billopsAdminInvoices.css';
-import './styles/billopsAdminCredits.css';
 import './styles/billopsAdminTickets.css';
-import './styles/agreements.css';
-import './styles/billopsAdminAgreements.css';
 import './styles/marketplacePurchases.css';
 import './styles/workspaceLicenses.css';
 import './styles/userManagement.css';
@@ -1063,7 +1060,9 @@ const App: React.FC = () => {
     <Router>
       <AuthProvider>
         <AccountProvider>
-          <AppContent />
+          <VPCProvider>
+            <AppContent />
+          </VPCProvider>
         </AccountProvider>
       </AuthProvider>
     </Router>

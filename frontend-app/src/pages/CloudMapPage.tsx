@@ -18,7 +18,10 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAccounts } from '../contexts/AccountContext';
+import { useTopbar } from '../contexts/TopbarContext';
+import { useVPC } from '../contexts/VPCContext';
 import { useCloudMap } from '../hooks/useCloudMap';
+import CloudMapTopbarControls from '../components/CloudMap/CloudMapTopbarControls';
 import {
   NODE_TYPE_DATA,
   TAILWIND_COLORS,
@@ -42,6 +45,8 @@ cytoscape.use(cytoscapeEdgehandles);
 const CloudMapPage: React.FC = () => {
   const navigate = useNavigate();
   const { selectedAccountIds } = useAccounts();
+  const { awsVpcs, awsVpcsLoading, fetchAwsVpcs } = useVPC();
+  const { setActions } = useTopbar();
 
   // Get the first selected account ID
   const accountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
@@ -67,11 +72,12 @@ const CloudMapPage: React.FC = () => {
   // Drag & drop state
   const [draggedType, setDraggedType] = useState<string | null>(null);
 
+  // Local UI state
+  const [selectedVpcValue, setSelectedVpcValue] = useState<string>('');
+
   // Use custom hook for data management
   const {
     vpcs,
-    selectedVpcValue,
-    setSelectedVpcValue,
     loadingVpcs,
     vpcError,
     graphElements,
@@ -87,7 +93,25 @@ const CloudMapPage: React.FC = () => {
     loadBlueprint,
     clearBlueprint,
     exportToPng,
-  } = useCloudMap({ accountId, mode });
+  } = useCloudMap({
+    accountId,
+    mode,
+    selectedVpcValue,
+  });
+
+  // Load VPCs when account changes (Live Mode only)
+  useEffect(() => {
+    if (mode === 'live' && accountId) {
+      fetchAwsVpcs(accountId).then(vpcsData => {
+        if (vpcsData.length > 0) {
+          setSelectedVpcValue('ALL');
+          // Load graph handled separately
+        }
+      }).catch(err => {
+        console.error('Error loading VPCs:', err);
+      });
+    }
+  }, [accountId, mode, fetchAwsVpcs]);
 
   /**
    * Initialize or update Cytoscape graph
@@ -112,10 +136,10 @@ const CloudMapPage: React.FC = () => {
       layout: isEditable
         ? { name: 'preset' }
         : {
-            name: 'dagre',
-            nodeSep: 80,
-            rankDir: 'TB',
-          },
+          name: 'dagre',
+          nodeSep: 80,
+          rankDir: 'TB',
+        },
       style: getCytoscapeStyle(),
       wheelSensitivity: 0.2,
     });
@@ -327,7 +351,7 @@ const CloudMapPage: React.FC = () => {
   /**
    * Switch between Live and Design modes
    */
-  const handleModeSwitch = (newMode: CloudMapMode) => {
+  const handleModeSwitch = useCallback((newMode: CloudMapMode) => {
     setMode(newMode);
     setInfoPanelOpen(false);
     setShowEmptyState(false);
@@ -335,21 +359,21 @@ const CloudMapPage: React.FC = () => {
     if (newMode === 'design') {
       clearBlueprint();
     }
-  };
+  }, [clearBlueprint]);
 
   /**
    * Handle VPC selection change
    */
-  const handleVpcChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+  const handleVpcChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value;
     setSelectedVpcValue(value);
     loadGraph(value);
-  };
+  }, [setSelectedVpcValue, loadGraph]);
 
   /**
    * Handle blueprint selection change
    */
-  const handleBlueprintChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+  const handleBlueprintChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value;
     if (value) {
       loadBlueprint(value);
@@ -357,12 +381,12 @@ const CloudMapPage: React.FC = () => {
       clearBlueprint();
       renderGraph([], true);
     }
-  };
+  }, [loadBlueprint, clearBlueprint, renderGraph]);
 
   /**
    * Handle save design
    */
-  const handleSaveDesign = async () => {
+  const handleSaveDesign = useCallback(async () => {
     if (!cyRef.current) return;
 
     const name = prompt('Name your design:', 'My Cloud Architecture');
@@ -375,19 +399,68 @@ const CloudMapPage: React.FC = () => {
     } catch (error) {
       alert('Save failed: ' + (error instanceof Error ? error.message : 'Unknown error'));
     }
-  };
+  }, [saveBlueprint]);
 
   /**
    * Handle clear canvas
    */
-  const handleClearCanvas = () => {
+  const handleClearCanvas = useCallback(() => {
     if (confirm('Clear everything? Unsaved changes will be lost.')) {
       clearBlueprint();
       if (cyRef.current) {
         cyRef.current.elements().remove();
       }
     }
-  };
+  }, [clearBlueprint]);
+
+  /**
+   * Handle export to PNG
+   */
+  const handleExportPng = useCallback(() => {
+    const vpcSelector = document.getElementById('vpc-selector') as HTMLSelectElement | null;
+    exportToPng(cyRef.current, vpcSelector);
+  }, [exportToPng]);
+
+  /**
+   * Inject CloudMap controls into topbar
+   */
+  useEffect(() => {
+    setActions(
+      <CloudMapTopbarControls
+        mode={mode}
+        onModeSwitch={handleModeSwitch}
+        vpcs={awsVpcs}
+        selectedVpcValue={selectedVpcValue}
+        onVpcChange={handleVpcChange}
+        loadingVpcs={awsVpcsLoading}
+        onExportPng={handleExportPng}
+        blueprints={blueprints}
+        selectedBlueprintId={selectedBlueprintId}
+        onBlueprintChange={handleBlueprintChange}
+        onSaveDesign={handleSaveDesign}
+        onClearCanvas={handleClearCanvas}
+        savingBlueprint={savingBlueprint}
+      />
+    );
+
+    // Cleanup: Remove controls when component unmounts
+    return () => setActions(null);
+  }, [
+    mode,
+    vpcs,
+    selectedVpcValue,
+    loadingVpcs,
+    blueprints,
+    selectedBlueprintId,
+    savingBlueprint,
+    setActions,
+    handleModeSwitch,
+    handleVpcChange,
+    handleBlueprintChange,
+    handleSaveDesign,
+    handleClearCanvas,
+    handleExportPng,
+  ]);
 
   /**
    * Handle drag start from palette
@@ -427,14 +500,6 @@ const CloudMapPage: React.FC = () => {
     });
 
     setDraggedType(null);
-  };
-
-  /**
-   * Handle export to PNG
-   */
-  const handleExportPng = () => {
-    const vpcSelector = document.getElementById('vpc-selector') as HTMLSelectElement | null;
-    exportToPng(cyRef.current, vpcSelector);
   };
 
   /**
@@ -565,102 +630,6 @@ const CloudMapPage: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full relative overflow-hidden">
-      {/* Header */}
-      <header className="cloudmap-header">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-6">
-            <div className="flex items-center space-x-3">
-              <button
-                onClick={() => navigate('/dashboard')}
-                className="back-btn"
-              >
-                <i className="fas fa-arrow-left" />
-              </button>
-              <div className="icon-wrapper">
-                <i className="fas fa-project-diagram text-white text-lg" />
-              </div>
-              <div>
-                <h1 className="text-xl font-black text-gray-900 tracking-tight">CloudMap</h1>
-                <p className="text-xs text-gray-500 font-medium">Network Visualization</p>
-              </div>
-            </div>
-            <div className="flex bg-gray-100 p-1 rounded-xl shadow-sm">
-              <button
-                onClick={() => handleModeSwitch('live')}
-                className={`tab-btn ${mode === 'live' ? 'active' : ''}`}
-              >
-                <i className="fas fa-network-wired text-sm" /> Live View
-              </button>
-              <button
-                onClick={() => handleModeSwitch('design')}
-                className={`tab-btn ${mode === 'design' ? 'active' : ''}`}
-              >
-                <i className="fas fa-pencil-ruler text-sm" /> Design Studio
-              </button>
-            </div>
-          </div>
-
-          <div className="flex items-center space-x-3">
-            {/* Live Mode Controls */}
-            {mode === 'live' && (
-              <div className="flex items-center gap-3">
-                <div className="live-badge">
-                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse shadow-md" />
-                  <span>Live Monitoring</span>
-                </div>
-                <select
-                  id="vpc-selector"
-                  value={selectedVpcValue}
-                  onChange={handleVpcChange}
-                  className="vpc-selector"
-                >
-                  {loadingVpcs && <option value="">Loading...</option>}
-                  {!loadingVpcs && vpcs.length === 0 && <option value="">🌐 Global & S3</option>}
-                  {!loadingVpcs && vpcs.length > 0 && (
-                    <>
-                      <option value="ALL">🏢 All VPCs</option>
-                      {vpcs.map((vpc) => (
-                        <option key={vpc.id} value={`${vpc.id}|${vpc.region}`}>
-                          {vpc.name} ({vpc.id} - {vpc.region})
-                        </option>
-                      ))}
-                      <option value="">🌐 Global & S3</option>
-                    </>
-                  )}
-                </select>
-                <button onClick={handleExportPng} className="export-btn">
-                  <i className="fas fa-download mr-1" /> Export PNG
-                </button>
-              </div>
-            )}
-
-            {/* Design Mode Controls */}
-            {mode === 'design' && (
-              <div className="flex items-center gap-3">
-                <select
-                  value={selectedBlueprintId || ''}
-                  onChange={handleBlueprintChange}
-                  className="blueprint-selector"
-                >
-                  <option value="">-- New Design --</option>
-                  {blueprints.map((bp) => (
-                    <option key={bp.id} value={bp.id}>
-                      {bp.name}
-                    </option>
-                  ))}
-                </select>
-                <button onClick={handleSaveDesign} className="save-btn" disabled={savingBlueprint}>
-                  <i className="fas fa-save" /> {savingBlueprint ? 'Saving...' : 'Save'}
-                </button>
-                <button onClick={handleClearCanvas} className="clear-btn">
-                  <i className="fas fa-trash" /> Clear
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      </header>
-
       {/* Main Content */}
       <div className="flex flex-1 relative overflow-hidden">
         {/* Design Palette (Design Mode Only) */}
