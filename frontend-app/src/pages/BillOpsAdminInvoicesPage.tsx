@@ -13,9 +13,10 @@
  * For: ROLE_BILLOPS_ADMIN
  */
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useBillOpsAdminInvoices from '../hooks/useBillOpsAdminInvoices';
+import { useTopbar } from '../contexts/TopbarContext';
 import type { AdminInvoiceItem } from '../types/billopsAdminInvoices';
 import '../styles/billopsAdminInvoices.css';
 
@@ -61,6 +62,8 @@ const BillOpsAdminInvoicesPage: React.FC = () => {
     isCloudFront,
   } = useBillOpsAdminInvoices();
 
+  const { setActions, clearActions } = useTopbar();
+
   /**
    * Format currency for display
    */
@@ -104,44 +107,38 @@ const BillOpsAdminInvoicesPage: React.FC = () => {
    */
   const navigateToDetail = useCallback((invoiceId: number) => {
     navigate(`/billops-admin-invoice-detail?id=${invoiceId}`);
+    navigate(`/billops-admin-invoice-detail?id=${invoiceId}`);
   }, [navigate]);
 
-  return (
-    <div className="admin-invoices-page flex-1 flex flex-col h-screen overflow-hidden">
-      {/* Header */}
-      <header className="admin-invoices-header h-20 flex items-center justify-between px-8 sticky top-0 z-20">
-        <div className="flex items-center">
-          <h2 className="text-2xl font-bold text-gray-800">Invoice Administration</h2>
-          {isUpdating && (
-            <div
-              className="invoice-updating-spinner"
-              title="Refreshing list in background..."
-            />
-          )}
-        </div>
-
-        <div className="flex items-center space-x-4">
-          {lastUpdatedDisplay && (
-            <div className="invoice-last-updated">
-              <i className="far fa-clock" />
-              <span>Last Updated: {lastUpdatedDisplay}</span>
-            </div>
-          )}
-
-          <button
-            onClick={() => fetchData(true)}
-            disabled={loading || isUpdating}
-            className={`invoice-refresh-btn ${isUpdating ? 'spinning' : ''}`}
-            title="Refresh List"
-          >
-            <i className="fas fa-sync-alt" />
-          </button>
-
-          <div className="invoice-total-counter">
-            Total: {filteredInvoices.length}
+  /**
+   * Set Topbar Actions
+   */
+  useEffect(() => {
+    setActions(
+      <div className="flex items-center gap-4">
+        {lastUpdatedDisplay && (
+          <div className="text-xs text-slate-500 font-medium hidden md:block">
+            Last Updated: {lastUpdatedDisplay}
           </div>
+        )}
+        <div className="flex items-center bg-slate-100 rounded-xl px-4 py-2 border border-slate-200">
+          <span className="text-xs font-bold text-slate-600">Total: {filteredInvoices.length}</span>
         </div>
-      </header>
+        <button
+          onClick={() => fetchData(true)}
+          disabled={loading || isUpdating}
+          className="w-10 h-10 flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-xl transition-all disabled:opacity-50"
+          title="Refresh List"
+        >
+          <i className={`fas fa-sync-alt ${isUpdating ? 'animate-spin' : ''}`} />
+        </button>
+      </div>
+    );
+    return () => clearActions();
+  }, [setActions, clearActions, lastUpdatedDisplay, filteredInvoices.length, loading, isUpdating, fetchData]);
+
+  return (
+    <div className="admin-invoices-page flex-1 flex flex-col h-full overflow-hidden bg-transparent">
 
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto p-8 space-y-6 admin-invoices-scrollbar">
@@ -371,18 +368,16 @@ const BillOpsAdminInvoicesPage: React.FC = () => {
                       {/* Status */}
                       <td className="text-center">
                         <span
-                          className={`invoice-status-badge ${
-                            invoice.status === 'FINALIZED'
+                          className={`invoice-status-badge ${invoice.status === 'FINALIZED'
                               ? 'invoice-status-finalized'
                               : invoice.status === 'DRAFT'
-                              ? 'invoice-status-draft'
-                              : 'invoice-status-void'
-                          }`}
+                                ? 'invoice-status-draft'
+                                : 'invoice-status-void'
+                            }`}
                         >
                           <i
-                            className={`fas ${
-                              invoice.status === 'FINALIZED' ? 'fa-check' : 'fa-pencil-alt'
-                            }`}
+                            className={`fas ${invoice.status === 'FINALIZED' ? 'fa-check' : 'fa-pencil-alt'
+                              }`}
                           />
                           {invoice.status}
                         </span>
