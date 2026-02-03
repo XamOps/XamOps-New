@@ -85,7 +85,7 @@ const GcpMapSection: React.FC<GcpMapSectionProps> = ({ regionStatus, isLoading, 
             )}
 
             {/* Map Container */}
-            <div className="relative rounded-lg overflow-hidden bg-slate-50" style={{ height: '400px' }}>
+            <div className="relative rounded-lg overflow-hidden bg-slate-50" style={{ height: '480px' }}>
                 {/* Zoom Controls */}
                 <div className="absolute bottom-4 left-4 z-50 flex flex-col gap-1">
                     <button
@@ -124,7 +124,7 @@ const GcpMapSection: React.FC<GcpMapSectionProps> = ({ regionStatus, isLoading, 
                 <ComposableMap
                     projection="geoMercator"
                     projectionConfig={{
-                        scale: 120,
+                        scale: 160,
                     }}
                     style={{ width: '100%', height: '100%', position: 'relative', zIndex: 1 }}
                 >
@@ -179,10 +179,10 @@ const GcpMapSection: React.FC<GcpMapSectionProps> = ({ regionStatus, isLoading, 
                                 onClick={() => onRegionClick(region.region)}
                             >
                                 <circle
-                                    r={6 / zoom}
+                                    r={10 / zoom}
                                     fill={statusColors[region.status] || '#9AA0A6'}
                                     stroke="#ffffff"
-                                    strokeWidth={2 / zoom}
+                                    strokeWidth={2.5 / zoom}
                                     style={{
                                         cursor: 'pointer',
                                         transition: 'all 0.2s',
@@ -190,15 +190,15 @@ const GcpMapSection: React.FC<GcpMapSectionProps> = ({ regionStatus, isLoading, 
                                 />
                                 <text
                                     textAnchor="middle"
-                                    y={-12 / zoom}
+                                    y={-20 / zoom}
                                     style={{
                                         fontFamily: 'Inter, sans-serif',
                                         fill: '#475569',
-                                        fontSize: `${9 / zoom}px`,
+                                        fontSize: `${14 / zoom}px`,
                                         fontWeight: '800',
                                         paintOrder: 'stroke',
                                         stroke: '#ffffff',
-                                        strokeWidth: 2 / zoom,
+                                        strokeWidth: 3 / zoom,
                                         textTransform: 'uppercase'
                                     }}
                                 >

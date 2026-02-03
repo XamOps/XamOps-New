@@ -18,7 +18,7 @@ const GcpCostSection: React.FC<GcpCostSectionProps> = ({ costHistory, billingSum
     const chartInstanceRef = useRef<any>(null);
 
     const formatCurrency = (num: number): string => {
-        return '$' + (num != null ? num.toLocaleString('en-US', {
+        return '₹' + (num != null ? num.toLocaleString('en-IN', {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2
         }) : '0.00');

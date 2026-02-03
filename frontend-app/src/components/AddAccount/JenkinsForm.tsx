@@ -28,12 +28,7 @@ const JenkinsForm: React.FC<JenkinsFormProps> = ({
   return (
     <div className="form-card fade-in">
       <div className="form-card-header">
-        <div
-          className="header-icon jenkins"
-          style={{ width: '2.5rem', height: '2.5rem', borderRadius: '0.75rem' }}
-        >
-          <i className="fab fa-jenkins" style={{ fontSize: '1rem' }} />
-        </div>
+        <div className="step-number large">2</div>
         <div>
           <h2 className="form-card-title">Connect Jenkins Server</h2>
           <p className="form-card-subtitle">Enter your Jenkins URL and API Token</p>
@@ -43,6 +38,7 @@ const JenkinsForm: React.FC<JenkinsFormProps> = ({
       <form onSubmit={handleSubmit}>
         <div className="form-group">
           <label htmlFor="jenkinsUrl" className="form-label">
+            <i className="fas fa-link" style={{ color: 'var(--aa-jenkins-red)' }} />
             Jenkins URL
           </label>
           <input
@@ -61,6 +57,7 @@ const JenkinsForm: React.FC<JenkinsFormProps> = ({
 
         <div className="form-group">
           <label htmlFor="jenkinsUsername" className="form-label">
+            <i className="fas fa-user-circle" style={{ color: 'var(--aa-jenkins-red)' }} />
             Username
           </label>
           <input
@@ -76,6 +73,7 @@ const JenkinsForm: React.FC<JenkinsFormProps> = ({
 
         <div className="form-group">
           <label htmlFor="jenkinsToken" className="form-label">
+            <i className="fas fa-key" style={{ color: 'var(--aa-jenkins-red)' }} />
             API Token
           </label>
           <input
@@ -93,14 +91,17 @@ const JenkinsForm: React.FC<JenkinsFormProps> = ({
         </div>
 
         <div className="form-actions">
-          <button type="submit" className="btn-primary" disabled={isLoading}>
+          <button type="submit" className="btn-primary" disabled={isLoading} style={{ background: 'var(--aa-jenkins-red)', border: 'none' }}>
             {isLoading ? (
               <>
                 <span className="loading-spinner" />
                 Connecting...
               </>
             ) : (
-              'Connect Jenkins'
+              <>
+                <i className="fas fa-plug" />
+                <span>Connect Jenkins</span>
+              </>
             )}
           </button>
         </div>

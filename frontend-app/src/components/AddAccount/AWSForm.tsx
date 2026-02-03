@@ -49,9 +49,24 @@ const AWSForm: React.FC<AWSFormProps> = ({
   if (isVerifying) {
     return (
       <div className="form-card fade-in">
-        <div className="success-message" style={{ marginBottom: '1.5rem' }}>
-          <h2>Stack Launched!</h2>
-          <p>Complete the final step to verify the connection.</p>
+        <div className="form-card-header">
+          <div className="step-number large">4</div>
+          <div>
+            <h2 className="form-card-title">Verify Connection</h2>
+            <p className="form-card-subtitle">
+              Enter the AWS Account ID and Role Name to complete setup.
+            </p>
+          </div>
+        </div>
+
+        <div className="success-message" style={{ marginBottom: '1.5rem', background: '#f0fdf4', borderRadius: '0.75rem', padding: '1rem', border: '1px solid #bbf7d0' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: '#166534' }}>
+            <i className="fas fa-check-circle" style={{ fontSize: '1.25rem' }} />
+            <div>
+              <strong style={{ display: 'block', fontSize: '0.875rem' }}>Stack Launched Successfully!</strong>
+              <span style={{ fontSize: '0.875rem' }}>Please enter the details created by the CloudFormation stack below.</span>
+            </div>
+          </div>
         </div>
 
         <form onSubmit={handleSubmit}>
@@ -108,7 +123,10 @@ const AWSForm: React.FC<AWSFormProps> = ({
                   Verifying...
                 </>
               ) : (
-                'Verify & Connect'
+                <>
+                  <i className="fas fa-check" />
+                  <span>Verify & Connect</span>
+                </>
               )}
             </button>
           </div>
@@ -120,16 +138,11 @@ const AWSForm: React.FC<AWSFormProps> = ({
   return (
     <div className="form-card fade-in">
       <div className="form-card-header">
-        <div
-          className="header-icon aws"
-          style={{ width: '2.5rem', height: '2.5rem', borderRadius: '0.75rem' }}
-        >
-          <i className="fas fa-cog" style={{ fontSize: '1rem' }} />
-        </div>
+        <div className="step-number large">2</div>
         <div>
-          <h2 className="form-card-title">Cross-Account Role Connection</h2>
+          <h2 className="form-card-title">Configure Access</h2>
           <p className="form-card-subtitle">
-            Configure secure access to your AWS account
+            Set up your AWS account connection details.
           </p>
         </div>
       </div>
@@ -137,26 +150,26 @@ const AWSForm: React.FC<AWSFormProps> = ({
       <form onSubmit={handleSubmit}>
         <div className="form-group">
           <label htmlFor="accountName" className="form-label">
-            <i className="fas fa-user-tag" />
+            <i className="fas fa-tag" style={{ color: 'var(--aa-primary-gradient)' }} />
             Account Name
           </label>
           <input
             type="text"
             id="accountName"
             className="form-input"
-            placeholder="e.g. AWS Production, AWS Development"
+            placeholder="e.g. AWS Production"
             value={accountName}
             onChange={(e) => onAccountNameChange(e.target.value)}
             required
           />
           <p className="form-hint">
-            Choose a descriptive name to identify this account
+            A friendly name to identify this account in XamOps.
           </p>
         </div>
 
         <div className="form-group">
           <label className="form-label">
-            <i className="fas fa-key" />
+            <i className="fas fa-shield-alt" style={{ color: 'var(--aa-primary-gradient)' }} />
             Access Level
           </label>
           <div
@@ -173,22 +186,22 @@ const AWSForm: React.FC<AWSFormProps> = ({
             />
             <div className="radio-option-content">
               <label htmlFor="read-only" className="radio-option-label">
-                Read-Only Access
+                Read-Only Access (Recommended)
               </label>
               <p className="radio-option-description">
-                Full visibility with comprehensive cost analysis and optimization insights
+                Grants visibility into costs, usage, and inventory without modification rights.
               </p>
             </div>
           </div>
         </div>
 
-        <div className="form-group">
-          <label className="form-label">
-            <i className="fas fa-shield-alt" />
-            Policies
-          </label>
+        <div className="form-group" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem', background: 'rgba(255,255,255,0.5)', borderRadius: '0.75rem', border: '1px solid var(--aa-glass-border)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <i className="fas fa-file-contract" style={{ color: '#64748b' }} />
+            <span style={{ fontSize: '0.875rem', color: '#334155', fontWeight: 500 }}>IAM Policies</span>
+          </div>
           <button type="button" className="btn-link" onClick={onOpenPolicyModal}>
-            View Policies
+            View Required Permissions
           </button>
         </div>
 
@@ -204,7 +217,10 @@ const AWSForm: React.FC<AWSFormProps> = ({
                 Generating...
               </>
             ) : (
-              'Launch Stack'
+              <>
+                <span>Launch CloudFormation Stack</span>
+                <i className="fas fa-external-link-alt" />
+              </>
             )}
           </button>
         </div>

@@ -5,20 +5,21 @@
  * Converted and enhanced from: account-manager.html
  */
 
-/* ============================================
-   CSS Variables
-   ============================================ */
+@import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;500;600;700&family=Poppins:wght@400;500;600;700&display=swap');
+
 :root {
-  --am-primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --am-primary-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
   --am-success-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
   --am-warning-gradient: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
   --am-error-gradient: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-  --am-glass-bg: rgba(255, 255, 255, 0.98);
-  --am-glass-border: rgba(255, 255, 255, 0.2);
+  --am-glass-bg: rgba(255, 255, 255, 0.7);
+  --am-glass-border: rgba(255, 255, 255, 0.5);
   --am-shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  --am-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-  --am-shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
-  --am-shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  --am-shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.08), 0 2px 6px -1px rgb(0 0 0 / 0.04);
+  --am-shadow-lg: 0 12px 24px -4px rgb(0 0 0 / 0.12), 0 8px 16px -4px rgb(0 0 0 / 0.08);
+  --am-shadow-xl: 0 20px 32px -8px rgb(0 0 0 / 0.15), 0 12px 20px -8px rgb(0 0 0 / 0.1);
+  --am-primary: #6366f1;
+  --am-secondary: #f472b6;
 }
 
 /* ============================================
@@ -29,46 +30,32 @@
   display: flex;
   flex-direction: column;
   min-height: 100%;
-  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  background: radial-gradient(circle at 0% 0%, #f1f5f9 0%, #e2e8f0 100%);
+  font-family: 'Open Sans', sans-serif;
 }
 
 .account-manager-content {
   flex: 1;
-  padding: 2rem;
+  padding: 2rem 3rem;
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 2rem;
   max-width: 1600px;
   margin: 0 auto;
   width: 100%;
 }
 
+h1,
+h2,
+h3,
+h4 {
+  font-family: 'Poppins', sans-serif;
+}
+
 /* ============================================
    Header
    ============================================ */
-.account-manager-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1.25rem 2rem;
-  background: var(--am-glass-bg);
-  border-bottom: 1px solid #e5e7eb;
-  backdrop-filter: blur(12px);
-  position: sticky;
-  top: 0;
-  z-index: 10;
-}
-
-.header-icon {
-  width: 3rem;
-  height: 3rem;
-  background: var(--am-primary-gradient);
-  border-radius: 0.75rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: var(--am-shadow-md);
-}
+/* (Header styles removed - now using Topbar) */
 
 .status-indicator {
   width: 0.5rem;
@@ -82,8 +69,15 @@
 }
 
 @keyframes pulse-dot {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.5;
+  }
 }
 
 /* ============================================
@@ -177,13 +171,16 @@
    ============================================ */
 .kpi-card {
   background: var(--am-glass-bg);
-  border-radius: 1rem;
-  padding: 1.5rem;
-  border: 1px solid rgba(229, 231, 235, 0.8);
+  border-radius: 1.25rem;
+  padding: 1.5rem 1.5rem 2.75rem 1.5rem;
+  border: 1px solid var(--am-glass-border);
   box-shadow: var(--am-shadow-md);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  backdrop-filter: blur(16px);
+  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
   position: relative;
-  overflow: hidden;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
 }
 
 .kpi-card::before {
@@ -317,7 +314,9 @@
 
 .data-table {
   width: 100%;
+  border-collapse: collapse;
   font-size: 0.875rem;
+  table-layout: auto;
 }
 
 .data-table thead {
@@ -325,7 +324,7 @@
 }
 
 .data-table th {
-  padding: 0.875rem 1.5rem;
+  padding: 0.875rem 0.75rem;
   text-align: left;
   font-size: 0.75rem;
   font-weight: 700;
@@ -335,8 +334,9 @@
 }
 
 .data-table td {
-  padding: 1rem 1.5rem;
+  padding: 1rem 0.75rem;
   border-bottom: 1px solid #f3f4f6;
+  vertical-align: middle;
 }
 
 .data-table tbody tr {
@@ -349,6 +349,26 @@
 
 .data-table tbody tr:last-child td {
   border-bottom: none;
+}
+
+.w-1 {
+  width: 1%;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+.w-full {
+  width: 100%;
+}
+
+.text-right {
+  text-align: right !important;
+}
+
+.text-center {
+  text-align: center !important;
 }
 
 /* ============================================
@@ -426,7 +446,12 @@
 /* ============================================
    Empty State
    ============================================ */
-.empty-state {
+.account-manager-page .empty-state,
+.data-card .empty-state {
+  position: relative;
+  inset: unset;
+  z-index: auto;
+  background: transparent;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -435,7 +460,8 @@
   text-align: center;
 }
 
-.empty-state-icon {
+.account-manager-page .empty-state-icon,
+.data-card .empty-state-icon {
   width: 5rem;
   height: 5rem;
   border-radius: 50%;
@@ -446,19 +472,22 @@
   margin-bottom: 1.5rem;
 }
 
-.empty-state-icon i {
+.account-manager-page .empty-state-icon i,
+.data-card .empty-state-icon i {
   font-size: 2rem;
   color: #9ca3af;
 }
 
-.empty-state-title {
+.account-manager-page .empty-state-title,
+.data-card .empty-state-title {
   font-size: 1.25rem;
   font-weight: 700;
   color: #111827;
   margin-bottom: 0.5rem;
 }
 
-.empty-state-text {
+.account-manager-page .empty-state-text,
+.data-card .empty-state-text {
   font-size: 0.875rem;
   color: #6b7280;
   max-width: 24rem;
@@ -475,8 +504,13 @@
 }
 
 @keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
+  0% {
+    background-position: -200% 0;
+  }
+
+  100% {
+    background-position: 200% 0;
+  }
 }
 
 /* ============================================
@@ -507,6 +541,7 @@
     opacity: 0;
     transform: scale(0.95) translateY(10px);
   }
+
   to {
     opacity: 1;
     transform: scale(1) translateY(0);
@@ -580,7 +615,9 @@
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ============================================
@@ -604,6 +641,7 @@
     opacity: 0;
     max-height: 0;
   }
+
   to {
     opacity: 1;
     max-height: 1000px;
@@ -665,6 +703,7 @@
     opacity: 0;
     transform: translateY(20px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -675,11 +714,7 @@
    Responsive Adjustments
    ============================================ */
 @media (max-width: 768px) {
-  .account-manager-header {
-    flex-direction: column;
-    gap: 1rem;
-    align-items: flex-start;
-  }
+  /* (Header responsive styles removed) */
 
   .account-manager-content {
     padding: 1rem;

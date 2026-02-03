@@ -173,7 +173,7 @@ const KPICard: React.FC<KPICardProps> = ({
 
 const GcpKPISection: React.FC<GcpKPISectionProps> = ({ kpiData, costHistory, isLoading }) => {
     const formatCurrency = (num: number): string => {
-        return '$' + (num != null ? num.toLocaleString('en-US', {
+        return '₹' + (num != null ? num.toLocaleString('en-IN', {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2
         }) : '0.00');
@@ -236,27 +236,6 @@ const GcpKPISection: React.FC<GcpKPISectionProps> = ({ kpiData, costHistory, isL
 
     return (
         <>
-            <div className="flex items-center justify-between mb-8">
-                <div className="flex items-center group">
-                    <div className="w-8 h-8 bg-blue-50 items-center justify-center rounded-lg mr-3 group-hover:bg-blue-100 transition-colors hidden md:flex">
-                        <img src="/icons/gcp-icon.png" className="w-4 h-4" alt="GCP" />
-                    </div>
-                    <h2 className="text-xl font-black text-gray-900 tracking-tight uppercase">Key Performance Indicators</h2>
-                </div>
-                <div className="flex items-center space-x-3 text-[11px] font-black uppercase tracking-widest text-gray-400 bg-white/50 backdrop-blur-sm px-4 py-2 rounded-full border border-gray-100 shadow-sm">
-                    {isLoading ? (
-                        <div className="flex items-center gap-2">
-                            <div className="loading-spinner w-3 h-3 border-2 border-blue-500/20 border-t-blue-500"></div>
-                            <span>Updating...</span>
-                        </div>
-                    ) : (
-                        <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 bg-green-500 rounded-full shadow-[0_0_8px_rgba(34,197,94,0.4)] animate-pulse"></div>
-                            <span>Live metrics</span>
-                        </div>
-                    )}
-                </div>
-            </div>
 
             {/* Loading Skeleton */}
             {isLoading && (
