@@ -6,6 +6,7 @@
 
 import React from 'react';
 import { EKSCluster } from '../../pages/CloudK8sPage';
+import Skeleton from '../Shared/Skeleton';
 
 interface CloudK8sClusterTableProps {
   clusters: EKSCluster[];
@@ -34,9 +35,10 @@ const CloudK8sClusterTable: React.FC<CloudK8sClusterTableProps> = ({
 
       {/* Loading State */}
       {isLoading && (
-        <div className="text-center py-16">
-          <div className="loading-spinner mx-auto mb-4"></div>
-          <p className="text-gray-500">Loading clusters...</p>
+        <div className="space-y-3">
+          {[1, 2, 3].map(i => (
+            <Skeleton key={i} variant="rounded" height={60} className="w-full" />
+          ))}
         </div>
       )}
 

@@ -1,10 +1,5 @@
-/**
- * GcpRightsizingHeader Component
- *
- * Header section for GCP Rightsizing page with title and refresh button
- */
-
-import React from 'react';
+import React, { useEffect } from 'react';
+import { useTopbar } from '../../contexts/TopbarContext';
 
 interface GcpRightsizingHeaderProps {
   isRefreshing: boolean;
@@ -15,29 +10,25 @@ export const GcpRightsizingHeader: React.FC<GcpRightsizingHeaderProps> = ({
   isRefreshing,
   onRefresh,
 }) => {
-  return (
-    <header className="gcp-rightsizing-header">
-      <div className="gcp-rightsizing-header-content">
-        <div className="gcp-rightsizing-header-icon">
-          <i className="fas fa-compress-arrows-alt"></i>
-        </div>
-        <div className="gcp-rightsizing-header-text">
-          <h1>GCP Rightsizing</h1>
-          <p>Optimize your GCP resource sizing</p>
-        </div>
-      </div>
-      <div className="gcp-rightsizing-header-actions">
+  const { setActions, clearActions } = useTopbar();
+
+  useEffect(() => {
+    setActions(
+      <div className="flex items-center gap-4">
         <button
           onClick={onRefresh}
-          className={`gcp-rightsizing-refresh-btn ${isRefreshing ? 'refreshing' : ''}`}
           disabled={isRefreshing}
+          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50 active:scale-95"
         >
-          <i className={`fas fa-sync-alt ${isRefreshing ? 'fa-spin' : ''}`}></i>
+          <i className={`fas fa-sync-alt ${isRefreshing ? 'animate-spin' : ''}`}></i>
           <span>{isRefreshing ? 'Analyzing...' : 'Refresh Analysis'}</span>
         </button>
       </div>
-    </header>
-  );
+    );
+    return () => clearActions();
+  }, [setActions, clearActions, isRefreshing, onRefresh]);
+
+  return null;
 };
 
 export default GcpRightsizingHeader;

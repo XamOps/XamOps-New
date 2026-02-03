@@ -17,6 +17,8 @@ import React, { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useDevOpsScripts } from '../hooks/useDevOpsScripts';
 import { DevOpsScript, ScriptCategory } from '../types/devopsInTheBox';
+import { useTopbar } from '../contexts/TopbarContext';
+import Skeleton from '../components/Shared/Skeleton';
 import clsx from 'clsx';
 
 const DevOpsInTheBoxPage: React.FC = () => {
@@ -157,27 +159,7 @@ const DevOpsInTheBoxPage: React.FC = () => {
   return (
     <div className="devops-container min-h-screen bg-gray-50">
       {/* Header Bar */}
-      <header className="bg-white border-b border-gray-100 sticky top-0 z-20 px-8 py-5 flex items-center justify-between shadow-sm backdrop-blur-sm bg-white/95">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => navigate(-1)}
-            className="flex items-center justify-center w-10 h-10 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 hover:text-gray-900 transition-all"
-            aria-label="Go back"
-          >
-            <i className="fas fa-arrow-left"></i>
-          </button>
-          <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-md">
-            <i className="fas fa-toolbox text-white text-xl"></i>
-          </div>
-          <div>
-            <h1 className="text-2xl font-black text-gray-900 tracking-tight">DevOps-in-the-Box</h1>
-            <p className="text-xs text-gray-500 font-semibold mt-1 flex items-center gap-2">
-              <i className="fas fa-code text-purple-500 text-[10px]"></i>
-              Automation scripts and infrastructure tools
-            </p>
-          </div>
-        </div>
-      </header>
+      {/* Main Content */}
 
       {/* Main Content */}
       <div className="p-8">
@@ -284,11 +266,26 @@ const DevOpsInTheBoxPage: React.FC = () => {
 
         {/* Loading State */}
         {isLoading && (
-          <div className="flex justify-center items-center py-20">
-            <div className="flex flex-col items-center gap-4">
-              <div className="animate-spin rounded-full h-16 w-16 border-4 border-indigo-200 border-t-indigo-600"></div>
-              <p className="text-gray-600 font-medium">Loading scripts...</p>
-            </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <div key={i} className="bg-white rounded-xl p-6 border-l-4 border-gray-100 shadow-sm h-48 flex flex-col justify-between">
+                <div>
+                  <div className="flex justify-between items-start mb-4">
+                    <Skeleton variant="text" width="60%" height={24} className="mb-2" />
+                    <Skeleton variant="rounded" width={80} height={24} />
+                  </div>
+                  <Skeleton variant="text" width="90%" height={16} className="mb-1" />
+                  <Skeleton variant="text" width="80%" height={16} />
+                </div>
+                <div className="flex justify-between items-center mt-4 pt-4 border-t border-gray-50">
+                  <div className="flex gap-4">
+                    <Skeleton variant="text" width={40} height={16} />
+                    <Skeleton variant="text" width={80} height={16} />
+                  </div>
+                  <Skeleton variant="text" width={40} height={16} />
+                </div>
+              </div>
+            ))}
           </div>
         )}
 

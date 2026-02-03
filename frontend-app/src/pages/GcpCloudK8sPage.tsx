@@ -14,8 +14,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAccounts } from '../contexts/AccountContext';
+import { useTopbar } from '../contexts/TopbarContext';
 import apiClient from '../utils/apiClient';
-import GcpCloudK8sHeader from '../components/GcpCloudK8s/GcpCloudK8sHeader';
+import clsx from 'clsx';
 import GcpCloudK8sClusterTable from '../components/GcpCloudK8s/GcpCloudK8sClusterTable';
 import GcpCloudK8sIntegrations from '../components/GcpCloudK8s/GcpCloudK8sIntegrations';
 import GcpCloudK8sHelpModal from '../components/GcpCloudK8s/GcpCloudK8sHelpModal';
@@ -25,6 +26,7 @@ const GcpCloudK8sPage: React.FC = () => {
   const navigate = useNavigate();
   const { selectedAccountIds, selectedAccountDisplay } = useAccounts();
   const selectedAccountId = selectedAccountIds[0] || null;
+  const { setActions, clearActions } = useTopbar();
 
   const [clusters, setClusters] = useState<GKECluster[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -163,13 +165,26 @@ const GcpCloudK8sPage: React.FC = () => {
     }
   }, [selectedAccountDisplay.provider, navigate]);
 
+  // Topbar Integration
+  useEffect(() => {
+    setActions(
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => fetchClusters(true)}
+          disabled={isRefreshing}
+          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50 active:scale-95"
+        >
+          <i className={clsx('fas fa-sync-alt', isRefreshing && 'animate-spin')}></i>
+          <span>{isRefreshing ? 'Refreshing...' : 'Refresh Now'}</span>
+        </button>
+      </div>
+    );
+    return () => clearActions();
+  }, [setActions, clearActions, isRefreshing, fetchClusters]);
+
   return (
     <main className="gcp-cloudk8s-page flex-1 flex flex-col min-h-screen bg-gray-50">
-      {/* Header */}
-      <GcpCloudK8sHeader
-        isRefreshing={isRefreshing}
-        onRefresh={() => fetchClusters(true)}
-      />
+      {/* Header Removed - Integrated into Topbar */}
 
       {/* Main Content */}
       <div className="flex-1 p-4 md:p-8 space-y-8">

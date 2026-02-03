@@ -2073,11 +2073,13 @@ public class DashboardDataService {
                     iam.listUserPolicies(r -> r.userName(user.userName())).policyNames()
                             .forEach(p -> policies.add(new DashboardData.IamPolicyDetail(p, null, "Inline")));
 
+                    boolean mfaEnabled = !iam.listMFADevices(r -> r.userName(user.userName())).mfaDevices().isEmpty();
+
                     return new DashboardData.IamUserDetail(
                             user.userName(), user.userId(), user.arn(),
                             user.createDate().toString(),
                             user.passwordLastUsed() != null ? user.passwordLastUsed().toString() : "Never",
-                            groups, policies);
+                            groups, policies, mfaEnabled);
                 } catch (Exception e) {
                     logger.warn("Failed to fetch details for user {}", user.userName());
                     return null;

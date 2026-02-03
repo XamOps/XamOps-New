@@ -22,14 +22,13 @@
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { useAccounts } from '../contexts/AccountContext';
+import { useTopbar } from '../contexts/TopbarContext';
 import '@xterm/xterm/css/xterm.css';
 
 const CloudShellPage: React.FC = () => {
-  const navigate = useNavigate();
   const { selectedAccountIds } = useAccounts();
 
   const terminalRef = useRef<HTMLDivElement>(null);
@@ -316,33 +315,22 @@ const CloudShellPage: React.FC = () => {
 
   const statusDisplay = getConnectionStatusDisplay();
 
+  // Topbar Integration
+  const { setActions, clearActions } = useTopbar();
+  useEffect(() => {
+    setActions(
+      <div className="flex items-center gap-4">
+        <div className={statusDisplay.className}>
+          <div className={`w-1.5 h-1.5 rounded-full ${statusDisplay.icon} ${connectionStatus === 'connected' ? 'animate-pulse' : ''}`}></div>
+          <span>{statusDisplay.text}</span>
+        </div>
+      </div>
+    );
+    return () => clearActions();
+  }, [setActions, clearActions, statusDisplay, connectionStatus]);
+
   return (
     <main className="flex-1 flex flex-col min-h-0 relative bg-gray-50">
-      {/* Page Header */}
-      <header className="bg-white border-b px-8 py-4 flex items-center justify-between sticky top-0 z-20 shadow-sm">
-        <div className="flex items-center gap-4">
-          <button
-            type="button"
-            onClick={() => navigate('/dashboard')}
-            className="flex items-center justify-center w-10 h-10 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 hover:text-gray-900 transition-all"
-          >
-            <i className="fas fa-arrow-left"></i>
-          </button>
-          <div className="w-12 h-12 bg-gradient-to-br from-orange-500 to-amber-600 rounded-xl flex items-center justify-center">
-            <i className="fas fa-terminal text-white text-xl"></i>
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-800">CloudShell</h1>
-            <p className="text-sm text-gray-600">Interactive cloud terminal access</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className={statusDisplay.className}>
-            <div className={`w-1.5 h-1.5 rounded-full ${statusDisplay.icon} ${connectionStatus === 'connected' ? 'animate-pulse' : ''}`}></div>
-            <span>{statusDisplay.text}</span>
-          </div>
-        </div>
-      </header>
 
       {/* Terminal Section */}
       <div className="flex-1 flex flex-col min-h-0 bg-gray-900">

@@ -1,10 +1,5 @@
-/**
- * WasteHeader Component
- *
- * Header section for the Waste Management page with title and refresh button
- */
-
-import React from 'react';
+import React, { useEffect } from 'react';
+import { useTopbar } from '../../contexts/TopbarContext';
 
 interface WasteHeaderProps {
   isRefreshing: boolean;
@@ -12,33 +7,32 @@ interface WasteHeaderProps {
 }
 
 const WasteHeader: React.FC<WasteHeaderProps> = ({ isRefreshing, onRefresh }) => {
-  return (
-    <header className="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-10">
-      <div className="flex items-center space-x-4">
-        <div className="w-12 h-12 bg-gradient-to-br from-red-500 to-pink-600 rounded-xl flex items-center justify-center shadow-lg">
-          <i className="fas fa-recycle text-white text-xl"></i>
+  const { setActions, clearActions } = useTopbar();
+
+  useEffect(() => {
+    setActions(
+      <div className="flex items-center gap-4">
+        {/* Status */}
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-rose-50 rounded-lg border border-rose-200">
+          <div className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(244,63,94,0.4)]"></div>
+          <span className="text-[10px] font-bold text-rose-600 uppercase tracking-wide">Waste detected</span>
         </div>
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">Waste Management</h1>
-          <p className="text-sm text-gray-600">Identify and eliminate unused cloud resources</p>
-        </div>
-      </div>
-      <div className="flex items-center space-x-4">
-        <div className="flex items-center space-x-2">
-          <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-          <span className="text-sm text-gray-600">Waste detected</span>
-        </div>
+
+        {/* Action Button */}
         <button
           onClick={onRefresh}
           disabled={isRefreshing}
-          className="btn-primary flex items-center space-x-2 px-6 py-3 text-sm font-semibold rounded-lg shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex items-center gap-2 px-4 py-2 bg-rose-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-rose-200 hover:bg-rose-700 transition-all disabled:opacity-50 active:scale-95"
         >
-          <i className={`fas fa-sync-alt ${isRefreshing ? 'fa-spin' : ''}`}></i>
+          <i className={`fas fa-sync-alt ${isRefreshing ? 'animate-spin' : ''}`}></i>
           <span>{isRefreshing ? 'Scanning...' : 'Scan Resources'}</span>
         </button>
       </div>
-    </header>
-  );
+    );
+    return () => clearActions();
+  }, [setActions, clearActions, isRefreshing, onRefresh]);
+
+  return null;
 };
 
 export default WasteHeader;

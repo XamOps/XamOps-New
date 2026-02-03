@@ -1,5 +1,7 @@
 import React, { useState, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
+import { useAccounts } from '../../contexts/AccountContext';
 
 interface LoginFormProps {
   onForgotPassword: () => void;
@@ -12,6 +14,8 @@ interface LoginResponse {
 
 const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword }) => {
   const navigate = useNavigate();
+  const { fetchUserRoles } = useAuth();
+  const { fetchAccounts } = useAccounts();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -54,14 +58,18 @@ const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword }) => {
           if (data.tenantId) {
             sessionStorage.setItem('selectedTenantId', data.tenantId);
           }
-          setTimeout(() => {
-            navigate('/unified-dashboard', { replace: true });
-          }, 200);
-        } else {
-          setTimeout(() => {
-            navigate('/unified-dashboard', { replace: true });
-          }, 200);
         }
+
+        // Trigger data fetching immediately after login
+        console.log('🔄 Login successful, fetching user roles and accounts...');
+        await Promise.all([
+          fetchUserRoles(),
+          fetchAccounts()
+        ]);
+
+        setTimeout(() => {
+          navigate('/unified-dashboard', { replace: true });
+        }, 200);
       } else {
         throw new Error(`Authentication failed: Status ${response.status}`);
       }
