@@ -53,7 +53,7 @@ const GcpBillingPage: React.FC = () => {
   const costHistoryChartRef = useRef<HTMLCanvasElement>(null);
   const serviceBreakdownChartRef = useRef<HTMLCanvasElement>(null);
   const costHistoryChartInstance = useRef<Chart | null>(null);
-  const serviceBreakdownChartInstance = useRef<Chart | null>(null);
+  const serviceBreakdownChartInstance = useRef<Chart<'doughnut'> | null>(null);
 
   /**
    * Format currency value (INR)
@@ -206,7 +206,6 @@ const GcpBillingPage: React.FC = () => {
                 return '₹' + num;
               },
             },
-            border: { display: false },
           },
           x: {
             grid: { display: false },
@@ -214,7 +213,6 @@ const GcpBillingPage: React.FC = () => {
               color: '#9ca3af',
               font: { size: 11 },
             },
-            border: { display: false },
           },
         },
         interaction: {

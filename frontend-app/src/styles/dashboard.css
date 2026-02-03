@@ -1,103 +1,140 @@
 /**
- * Unified Dashboard Styles
- *
- * CSS styles for the unified dashboard matching the original design
+ * Unified Dashboard Styles - Premium Light Edition
+ * Design System: Soft Glass Minimal
+ * 
+ * Characteristics:
+ * - Base: Slate 50 (#F8FAFC)
+ * - Surface: White Glass (High opacity + Blur)
+ * - Typography: Inter / Plus Jakarta Sans
+ * - Shadows: Soft, layered, diffuse
  */
 
-/* Glass Card Effect */
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+
+:root {
+  /* Palette - Soft Glass Minimal */
+  --bg-app: #F8FAFC;
+  /* Slate 50 */
+  --bg-surface: #FFFFFF;
+  /* White */
+  --bg-glass: rgba(255, 255, 255, 0.75);
+  --bg-glass-hover: rgba(255, 255, 255, 0.85);
+
+  --text-primary: #1E293B;
+  /* Slate 800 */
+  --text-secondary: #64748B;
+  /* Slate 500 */
+  --text-tertiary: #94A3B8;
+  /* Slate 400 */
+
+  --primary: #3B82F6;
+  /* Blue 500 */
+  --primary-light: #EFF6FF;
+  /* Blue 50 */
+  --primary-dark: #2563EB;
+  /* Blue 600 */
+
+  --accent-orange: #F97316;
+  --accent-green: #10B981;
+  --accent-purple: #8B5CF6;
+
+  --border-subtle: rgba(226, 232, 240, 0.8);
+  /* Slate 200 */
+  --border-glass: rgba(255, 255, 255, 0.6);
+
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-glass: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+  --shadow-hover: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -2px rgba(0, 0, 0, 0.04);
+  --shadow-glow: 0 0 15px rgba(59, 130, 246, 0.15);
+}
+
+body {
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  font-family: 'Plus Jakarta Sans', sans-serif;
+}
+
+/* Glass Card - The Core Component */
 .glass-card {
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
+  background: var(--bg-glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-glass);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.4);
+  border-right: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 1.25rem;
+  /* 20px - smoother corners */
+  box-shadow: var(--shadow-glass);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   overflow: hidden;
 }
 
-.glass-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
-  transition: left 0.5s;
-}
-
-.glass-card:hover::before {
-  left: 100%;
-}
-
 .glass-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08);
-  border-color: rgba(99, 102, 241, 0.2);
+  background: var(--bg-glass-hover);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-hover);
+  border-color: rgba(255, 255, 255, 0.9);
 }
 
-/* Metric Card Enhancements */
-.metric-card {
-  position: relative;
-  z-index: 1;
-}
-
+/* Metric Value Gradient */
 .metric-value {
-  font-weight: 800;
-  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  background: linear-gradient(135deg, var(--text-primary) 0%, #334155 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
-.stat-badge {
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
-}
-
-/* Provider Card Colors */
+/* Provider Cards */
 .provider-card {
-  border-top: 3px solid transparent;
-  transition: all 0.3s ease;
+  position: relative;
 }
 
-.provider-card.aws-card {
-  border-top-color: #ff9900;
+.provider-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, transparent, currentColor, transparent);
+  opacity: 0.2;
 }
 
-.provider-card.gcp-card {
-  border-top-color: #34a853;
+.aws-card {
+  color: #FF9900;
 }
 
-.provider-card.azure-card {
-  border-top-color: #0078d4;
+.gcp-card {
+  color: #34A853;
 }
 
-/* Enhanced Chart Container */
-.chart-container {
-  background: rgba(255, 255, 255, 0.98);
-  border-radius: 16px;
-  padding: 24px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+.azure-card {
+  color: #0078D4;
 }
 
 /* Ticker Animation */
 .ticker-wrap {
   width: 100%;
   overflow: hidden;
-  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-  color: white;
-  height: 44px;
+  background: rgba(255, 255, 255, 0.5);
+  /* Lighter background */
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  height: 40px;
   display: flex;
   align-items: center;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
 .ticker {
   display: inline-block;
   white-space: nowrap;
-  padding-right: 100%;
-  animation: ticker 45s linear infinite;
+  animation: ticker 60s linear infinite;
+  /* Slower, smoother */
+  will-change: transform;
 }
 
 @keyframes ticker {
@@ -112,21 +149,32 @@
 
 .ticker-item {
   display: inline-block;
-  padding: 0 2rem;
-  font-size: 0.875rem;
+  padding: 0 3rem;
+  font-size: 0.8125rem;
   font-weight: 500;
+  color: var(--text-secondary);
 }
 
-/* Professional Shimmer Effect */
+.ticker-item strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* Shimmer Loading */
 .shimmer {
-  background: #f6f7f8;
-  background-image: linear-gradient(to right, #f6f7f8 0%, #edeef1 20%, #f6f7f8 40%, #f6f7f8 100%);
+  background: #f1f5f9;
+  background-image: linear-gradient(to right,
+      #f1f5f9 0%,
+      #e2e8f0 20%,
+      #f1f5f9 40%,
+      #f1f5f9 100%);
   background-repeat: no-repeat;
   background-size: 800px 100%;
-  animation: placeholderShimmer 1.5s linear infinite forwards;
+  animation: shimmer 1.5s infinite linear;
+  border-radius: 6px;
 }
 
-@keyframes placeholderShimmer {
+@keyframes shimmer {
   0% {
     background-position: -468px 0;
   }
@@ -136,9 +184,13 @@
   }
 }
 
-/* Fade In Animation */
+/* Animations */
 .fade-in {
-  animation: fadeIn 0.5s ease-out forwards;
+  animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.slide-up {
+  animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 @keyframes fadeIn {
@@ -151,21 +203,61 @@
   }
 }
 
-/* Custom Scrollbar */
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Custom Scrollbar - Minimal */
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: transparent;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 3px;
+  background: #CBD5E1;
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: content-box;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background-color: #94A3B8;
+}
+
+/* Utility Pills */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.pill-success {
+  background: rgba(16, 185, 129, 0.1);
+  color: #059669;
+}
+
+.pill-warning {
+  background: rgba(245, 158, 11, 0.1);
+  color: #D97706;
+}
+
+.pill-error {
+  background: rgba(239, 68, 68, 0.1);
+  color: #DC2626;
 }

@@ -44,6 +44,7 @@ export const Dashboard: React.FC = () => {
     error,
     isRefreshing,
     refreshDashboard,
+    updateResourceInventory,
   } = useDashboardData({
     selectedAccountIds,
     isMultiAccountMode: multiAccountMode,
@@ -85,8 +86,8 @@ export const Dashboard: React.FC = () => {
     console.log('📦 Real-time inventory update received:', inventory);
     setLastUpdateTime(new Date().toLocaleTimeString());
     // Update dashboard data with new inventory
-    // This will trigger a re-render of the InventorySection
-  }, []);
+    updateResourceInventory(inventory);
+  }, [updateResourceInventory]);
 
   useWebSocket({
     accountId: selectedAccountIds.length === 1 ? selectedAccountIds[0] : null,
