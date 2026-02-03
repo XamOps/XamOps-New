@@ -520,7 +520,7 @@ const RuntimeSecurityView: React.FC<RuntimeSecurityViewProps> = ({ securityMetri
     if (namespaceData.length === 0) return null;
 
     let currentAngle = -90;
-    const segments = namespaceData.map((ns, index) => {
+    const segments = namespaceData.map((ns) => {
       const angle = (ns.percentage / 100) * 360;
       const startAngle = currentAngle;
       const endAngle = currentAngle + angle;

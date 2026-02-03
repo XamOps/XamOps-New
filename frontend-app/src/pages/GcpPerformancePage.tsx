@@ -15,7 +15,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useGcpPerformanceData } from '../hooks/useGcpPerformanceData';
-import { PerformanceSeverity, PerformanceInsight } from '../types/gcpPerformance';
+import { PerformanceSeverity } from '../types/gcpPerformance';
 import MetricsCards from '../components/GcpPerformance/MetricsCards';
 import FilterButtons from '../components/GcpPerformance/FilterButtons';
 import BulkActionBar from '../components/GcpPerformance/BulkActionBar';

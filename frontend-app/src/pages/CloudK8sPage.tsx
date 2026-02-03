@@ -108,7 +108,7 @@ const CloudK8sPage: React.FC = () => {
     const { name, region } = cluster;
 
     try {
-      const result = await apiClient.post(
+      await apiClient.post(
         `/api/xamops/eks/${name}/enable-monitoring?accountId=${selectedAccountId}&region=${region}`
       );
 

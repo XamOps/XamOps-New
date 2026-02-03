@@ -38,7 +38,7 @@ const GcpOptimizationSection: React.FC<GcpOptimizationSectionProps> = ({ optimiz
         }));
     };
 
-    const renderEmptyCard = (title: string, icon: string) => (
+    const renderEmptyCard = (title: string, _icon: string) => (
         <div className="rounded-xl p-4 border border-gray-100 bg-gray-50/50 backdrop-blur-sm shadow-inner">
             <div className="flex items-center justify-between mb-4">
                 <h4 className="font-black text-[10px] text-gray-400 uppercase tracking-widest flex items-center">

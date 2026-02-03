@@ -4,16 +4,16 @@
  */
 
 import React from 'react';
-import type { PricingResult, ServiceConfig } from '../../types/calculator';
+import type { PricingResult as PricingResultType, ServiceConfig } from '../../types/calculator';
 
 interface PricingResultProps {
-  result: PricingResult | null;
+  result: PricingResultType | null;
   serviceConfig: ServiceConfig;
   region: string;
   onAddToCart: () => void;
 }
 
-export const PricingResult: React.FC<PricingResultProps> = ({
+export const PricingResultComponent: React.FC<PricingResultProps> = ({
   result,
   serviceConfig,
   region,
@@ -159,3 +159,6 @@ export const PricingResult: React.FC<PricingResultProps> = ({
     </div>
   );
 };
+
+// Export with original name for backwards compatibility
+export { PricingResultComponent as PricingResult };

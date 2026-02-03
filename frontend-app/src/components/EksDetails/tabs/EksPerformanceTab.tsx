@@ -58,10 +58,6 @@ const EksPerformanceTab: React.FC<EksPerformanceTabProps> = ({ eksData }) => {
     return `${gb.toFixed(1)} GB`;
   };
 
-  const formatCores = (millicores: number) => {
-    return `${(millicores / 1000).toFixed(2)}`;
-  };
-
   // Calculate additional metrics
   const totalCpuCores = (cpuCapacityMillicores / 1000).toFixed(1);
   const usedCpuCores = (cpuUsageMillicores / 1000).toFixed(1);

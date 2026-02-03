@@ -20,7 +20,6 @@ interface NavSectionProps {
 }
 
 const NavSection: React.FC<NavSectionProps> = ({
-  id,
   icon,
   label,
   gradientClass = 'from-green-500 to-teal-600',

@@ -11,7 +11,7 @@ import { useTopbar } from '../contexts/TopbarContext';
  */
 const ComplianceOpsPage: React.FC = () => {
     // Topbar Integration
-    const { setActions, clearActions } = useTopbar();
+    const { clearActions } = useTopbar();
 
     useEffect(() => {
         // No specific actions for this landing page, but we ensure clearActions is called

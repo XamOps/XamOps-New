@@ -16,7 +16,6 @@ import React, { useEffect } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useGcpAlertsData } from '../hooks/useGcpAlertsData';
-import type { GcpAlert } from '../types/gcpAlerts';
 import clsx from 'clsx';
 
 const GcpAlertsPage: React.FC = () => {
