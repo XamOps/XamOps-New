@@ -6,6 +6,7 @@
 /frontend-app/node_modules/
 node_modules/
 frontend-app/node_modules/
+frontend-app/dist/
 .idea/
 
 # Snyk Security Extension - AI Rules (auto-generated)

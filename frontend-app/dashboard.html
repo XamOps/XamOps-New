@@ -661,6 +661,7 @@
                             <div
                                 class="bg-white bg-opacity-90 backdrop-blur-sm p-1.5 rounded-xl shadow-sm border border-gray-200 flex items-center space-x-2">
                                 <select x-model="selectedTenant" @change="switchTenant()"
+                                    aria-label="Select Customer"
                                     class="text-sm border border-gray-300 rounded-lg shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:ring-opacity-50 py-2 px-3 outline-none hover:border-gray-400 bg-white font-medium text-gray-700">
                                     <option value="">-- Select Customer --</option>
                                     <template x-for="tenant in tenantList" :key="tenant.tenantId">
@@ -670,6 +671,7 @@
                                 </select>
 
                                 <select x-show="selectedTenant" x-model="impersonateUser" @change="switchUser()"
+                                    aria-label="Impersonate User"
                                     class="text-sm border border-gray-300 rounded-lg shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:ring-opacity-50 py-2 px-3 outline-none hover:border-gray-400 bg-white font-medium text-gray-700">
                                     <option value="">-- Impersonate User --</option>
                                     <template x-for="user in tenantUsers" :key="user.id">
@@ -680,7 +682,7 @@
 
                                 <button x-show="selectedTenant" @click="resetContext()"
                                     class="text-red-500 hover:text-red-700 hover:bg-red-50 p-2 rounded-lg transition-colors"
-                                    title="Reset Context">
+                                    title="Reset Context" aria-label="Reset Context">
                                     <i class="fas fa-times-circle text-lg"></i>
                                 </button>
                             </div>
@@ -707,17 +709,17 @@
                         <!-- Calculator Button -->
                         <a :href="getLink('/calculator.html')"
                             class="flex items-center justify-center w-10 h-10 text-gray-600 hover:text-purple-600 bg-white hover:bg-purple-50 rounded-lg transition-all border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-md group"
-                            title="Pricing Calculator">
+                            title="Pricing Calculator" aria-label="Pricing Calculator">
                             <i class="fas fa-calculator text-lg group-hover:scale-110 transition-transform"></i>
                         </a>
 
                         <!-- CloudShell Button -->
                         <a href="/cloudshell.html" x-show="hasAnyRole(['ROLE_XAMOPS'])"
                             class="flex items-center text-sm font-semibold text-gray-600 hover:text-indigo-600 px-4 py-2 rounded-lg hover:bg-indigo-50 transition-all border border-transparent hover:border-indigo-100 group"
-                            title="Launch CloudShell">
+                            title="Launch CloudShell" aria-label="Launch CloudShell">
                             <i class="fas fa-laptop-code mr-2 text-gray-500 group-hover:text-indigo-600 transition-colors text-lg drop-shadow-sm group-hover:drop-shadow-md"
                                 style="text-shadow: 0 1px 2px var(--gradient-primary);"></i>
-                            <span></span>
+                            <span>CloudShell</span>
                         </a>
 
                         <!-- Save Layout Button -->
