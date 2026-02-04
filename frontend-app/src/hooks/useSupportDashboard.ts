@@ -82,11 +82,20 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
   const previousMessageCountRef = useRef(0);
   const previousInboxRef = useRef<Map<string, number>>(new Map());
   const notificationInitializedRef = useRef(false);
+  const isMountedRef = useRef(true);
 
   // Keep ref in sync with state
   useEffect(() => {
     activeAccountRef.current = activeAccount;
   }, [activeAccount]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   /**
    * Fetch inbox (list of conversations)
@@ -97,6 +106,9 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
 
     try {
       const data = await apiClient.get<SupportConversation[]>('/api/billops/support/inbox');
+
+      if (!isMountedRef.current) return;
+
       const inboxData = data || [];
 
       // Check for new messages from customers (only on silent refresh to avoid initial load notifications)
@@ -125,11 +137,11 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
       setConversations(inboxData);
     } catch (err) {
       console.error('Inbox Error:', err);
-      if (!silent) {
+      if (isMountedRef.current && !silent) {
         setError('Failed to load inbox. Please try again.');
       }
     } finally {
-      if (!silent) setLoading(false);
+      if (isMountedRef.current && !silent) setLoading(false);
     }
   }, []);
 
@@ -144,6 +156,8 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
       const data = await apiClient.get<ChatMessage[]>(
         `/api/billops/support/chat/${account.accountId}`
       );
+
+      if (!isMountedRef.current) return;
 
       const chatData = data || [];
 
@@ -192,14 +206,20 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
       const data = await apiClient.get<ChatMessage[]>(
         `/api/billops/support/chat/${account.accountId}`
       );
-      const chatData = data || [];
-      setMessages(chatData);
-      previousMessageCountRef.current = chatData.length; // Set initial message count
+      if (isMountedRef.current) {
+        const chatData = data || [];
+        setMessages(chatData);
+        previousMessageCountRef.current = chatData.length; // Set initial message count
+      }
     } catch (err) {
       console.error('Chat Error:', err);
-      setError('Failed to load chat messages.');
+      if (isMountedRef.current) {
+        setError('Failed to load chat messages.');
+      }
     } finally {
-      setChatLoading(false);
+      if (isMountedRef.current) {
+        setChatLoading(false);
+      }
     }
   }, []);
 
@@ -219,15 +239,21 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
 
       await apiClient.post('/api/billops/support/reply', payload);
 
+      if (!isMountedRef.current) return true;
+
       // Refresh chat after sending
       await fetchChat();
       return true;
     } catch (err) {
       console.error('Send Reply Error:', err);
-      setError('Failed to send message. Please try again.');
+      if (isMountedRef.current) {
+        setError('Failed to send message. Please try again.');
+      }
       return false;
     } finally {
-      setSending(false);
+      if (isMountedRef.current) {
+        setSending(false);
+      }
     }
   }, [activeAccount, fetchChat]);
 
@@ -317,7 +343,7 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
     setProviderFilter,
     selectConversation,
     sendReply,
-    refreshInbox: () => fetchInbox(),
+    refreshInbox: fetchInbox,
     refreshChat: fetchChat,
   };
 };
