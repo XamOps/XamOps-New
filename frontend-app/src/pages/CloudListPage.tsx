@@ -51,6 +51,7 @@ const CloudListPage: React.FC = () => {
   const stompClientRef = useRef<Stomp.Client | null>(null);
   const isConnectingRef = useRef<boolean>(false);
   const isMountedRef = useRef<boolean>(true);
+  const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Constants
   const servicesPerPage = 5;
@@ -103,6 +104,18 @@ const CloudListPage: React.FC = () => {
         setStatusMessage('Fetching resources from AWS... This may take 2-5 minutes.');
         setStatusColor('yellow');
       }
+
+      // Add safety timeout (5 minutes)
+      if (refreshTimeoutRef.current) clearTimeout(refreshTimeoutRef.current);
+      refreshTimeoutRef.current = setTimeout(() => {
+        if (isMountedRef.current && isRefreshing) {
+          console.log('⏰ [CloudList] Refresh safety timeout reached');
+          setIsRefreshing(false);
+          setStatusMessage('Refresh timed out. Please check again in a few minutes.');
+          setStatusColor('yellow');
+        }
+      }, 300000);
+
       try {
         await triggerCloudlistRefresh(selectedAccountId);
         if (isMountedRef.current) {
@@ -114,6 +127,10 @@ const CloudListPage: React.FC = () => {
           setStatusMessage('Refresh started (backend will fetch in background)');
           setStatusColor('yellow');
           setIsRefreshing(false);
+          if (refreshTimeoutRef.current) {
+            clearTimeout(refreshTimeoutRef.current);
+            refreshTimeoutRef.current = null;
+          }
         }
       }
       return;
@@ -202,7 +219,17 @@ const CloudListPage: React.FC = () => {
         const body = JSON.parse(message.body);
         console.log('📨 [CloudList] WebSocket message received:', body);
 
-        if (body.accountId === selectedAccountId) {
+        // Handle both single and multi-account scenarios
+        const isTargetAccount = selectedAccountId === body.accountId ||
+          (selectedAccountId && selectedAccountId.split(',').includes(body.accountId));
+
+        if (isTargetAccount) {
+          // Clear safety timeout
+          if (refreshTimeoutRef.current) {
+            clearTimeout(refreshTimeoutRef.current);
+            refreshTimeoutRef.current = null;
+          }
+
           if (body.status === 'refresh-complete') {
             setIsRefreshing(false);
             setStatusMessage(`Updated: ${new Date().toLocaleTimeString()}`);
@@ -458,6 +485,9 @@ const CloudListPage: React.FC = () => {
     return () => {
       isMountedRef.current = false;
       disconnectWebSocket();
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current);
+      }
     };
   }, [connectWebSocket, loadInitialResources, disconnectWebSocket]);
 

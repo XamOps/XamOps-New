@@ -23,7 +23,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useSupportDashboard } from '../hooks/useSupportDashboard';
-import { useTopbar } from '../contexts/TopbarContext';
+import { useTopbarActions } from '../contexts/TopbarContext';
 import { SupportConversation, ChatMessage, CloudProvider } from '../types/supportDashboard';
 
 const BillOpsSupportDashboardPage: React.FC = () => {
@@ -44,7 +44,7 @@ const BillOpsSupportDashboardPage: React.FC = () => {
     refreshChat,
   } = useSupportDashboard();
 
-  const { setActions, clearActions } = useTopbar();
+  const { setActions, clearActions } = useTopbarActions();
 
   const [replyText, setReplyText] = useState('');
   const [providerDropdownOpen, setProviderDropdownOpen] = useState(false);
@@ -114,8 +114,8 @@ const BillOpsSupportDashboardPage: React.FC = () => {
       key={conv.accountId}
       onClick={() => selectConversation(conv)}
       className={`p-4 border-b border-gray-50 cursor-pointer transition-all hover:bg-white hover:shadow-sm group relative ${activeAccount?.accountId === conv.accountId
-          ? 'bg-indigo-50/80 border-l-4 border-l-indigo-600'
-          : 'border-l-4 border-l-transparent'
+        ? 'bg-indigo-50/80 border-l-4 border-l-indigo-600'
+        : 'border-l-4 border-l-transparent'
         }`}
     >
       <div className="flex justify-between items-start mb-1">
@@ -151,8 +151,8 @@ const BillOpsSupportDashboardPage: React.FC = () => {
     >
       <div
         className={`max-w-[75%] rounded-2xl px-5 py-3 shadow-sm text-sm relative group transition-transform ${msg.userMessage
-            ? 'bg-white text-gray-800 rounded-tl-none border border-gray-200'
-            : 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-tr-none shadow-indigo-200'
+          ? 'bg-white text-gray-800 rounded-tl-none border border-gray-200'
+          : 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-tr-none shadow-indigo-200'
           }`}
       >
         <p className="leading-relaxed whitespace-pre-wrap">{msg.content}</p>
@@ -220,8 +220,11 @@ const BillOpsSupportDashboardPage: React.FC = () => {
   /**
    * Set Topbar Actions
    */
+  /**
+   * Set Topbar Actions
+   */
   useEffect(() => {
-    setActions(
+    const actionsNode = (
       <div className="flex items-center gap-4">
         <button
           onClick={() => refreshInbox()}
@@ -237,7 +240,12 @@ const BillOpsSupportDashboardPage: React.FC = () => {
         </span>
       </div>
     );
-    return () => clearActions();
+
+    setActions(actionsNode);
+
+    return () => {
+      clearActions();
+    };
   }, [setActions, clearActions, loading, refreshInbox]);
 
   return (

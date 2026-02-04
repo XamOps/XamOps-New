@@ -1,14 +1,20 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 
-interface TopbarContextType {
+// Context for state (actions node, etc.)
+interface TopbarStateContextType {
     actions: ReactNode | null;
+    onHelpClick: (() => void) | null;
+}
+
+// Context for dispatchers (setters)
+interface TopbarDispatchContextType {
     setActions: (actions: ReactNode | null) => void;
     clearActions: () => void;
-    onHelpClick: (() => void) | null;
     setOnHelpClick: (handler: (() => void) | null) => void;
 }
 
-const TopbarContext = createContext<TopbarContextType | undefined>(undefined);
+const TopbarStateContext = createContext<TopbarStateContextType | undefined>(undefined);
+const TopbarDispatchContext = createContext<TopbarDispatchContextType | undefined>(undefined);
 
 export const TopbarProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [actions, setActionsState] = useState<ReactNode | null>(null);
@@ -26,17 +32,44 @@ export const TopbarProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         setOnHelpClickState(() => handler);
     }, []);
 
+    const dispatchValue = React.useMemo(() => ({
+        setActions,
+        clearActions,
+        setOnHelpClick
+    }), [setActions, clearActions, setOnHelpClick]);
+
+    const stateValue = React.useMemo(() => ({
+        actions,
+        onHelpClick
+    }), [actions, onHelpClick]);
+
     return (
-        <TopbarContext.Provider value={{ actions, setActions, clearActions, onHelpClick, setOnHelpClick }}>
-            {children}
-        </TopbarContext.Provider>
+        <TopbarDispatchContext.Provider value={dispatchValue}>
+            <TopbarStateContext.Provider value={stateValue}>
+                {children}
+            </TopbarStateContext.Provider>
+        </TopbarDispatchContext.Provider>
     );
 };
 
+// Legacy hook for backward compatibility (returns both)
+// WARNING: Using this hook will cause re-renders when actions update.
 export const useTopbar = () => {
-    const context = useContext(TopbarContext);
-    if (context === undefined) {
+    const state = useContext(TopbarStateContext);
+    const dispatch = useContext(TopbarDispatchContext);
+
+    if (state === undefined || dispatch === undefined) {
         throw new Error('useTopbar must be used within a TopbarProvider');
     }
-    return context;
+
+    return { ...state, ...dispatch };
+};
+
+// New hook for components that ONLY need to set actions (restricts re-renders)
+export const useTopbarActions = () => {
+    const dispatch = useContext(TopbarDispatchContext);
+    if (dispatch === undefined) {
+        throw new Error('useTopbarActions must be used within a TopbarProvider');
+    }
+    return dispatch;
 };
