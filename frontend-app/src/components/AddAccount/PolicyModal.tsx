@@ -21,40 +21,47 @@ const PolicyModal: React.FC<PolicyModalProps> = ({ isOpen, onClose }) => {
   };
 
   return (
-    <div className="modal-overlay" onClick={handleOverlayClick}>
-      <div className="modal-content" style={{ maxWidth: '48rem' }}>
+    <div className="modal-overlay" onClick={handleOverlayClick} role="dialog" aria-modal="true">
+      <div className="modal-content" style={{ maxWidth: '36rem' }}>
         <div className="modal-header">
-          <h2 className="modal-title">IAM Policies</h2>
-          <button className="modal-close" onClick={onClose}>
+          <div className="modal-header-content">
+            <div className="modal-icon">
+              <i className="fas fa-shield-alt" />
+            </div>
+            <h2 className="modal-title">Required IAM Policies</h2>
+          </div>
+          <button className="modal-close" onClick={onClose} aria-label="Close modal">
             <i className="fas fa-times" />
           </button>
         </div>
 
         <div className="modal-body">
-          <p style={{ color: '#6b7280', marginBottom: '1.5rem', fontSize: '0.875rem' }}>
-            The CloudFormation stack will create an IAM role (e.g., <code>XamOpsRole</code>)
-            with these two policies attached.
+          <p className="modal-description">
+            The CloudFormation stack creates an IAM role with the following managed policy attached:
           </p>
 
           <div className="policy-section">
-            <h3>1. AWSReadOnlyAccess</h3>
+            <div className="policy-header">
+              <i className="fab fa-aws" />
+              <h3>ReadOnlyAccess</h3>
+              <span className="policy-badge">AWS Managed</span>
+            </div>
             <div className="policy-box">
-              <p>
-                <span className="label">Policy Name:</span> <code>AWSReadOnlyAccess</code> (AWS Managed Policy)
-              </p>
-              <p>
-                <span className="label">ARN:</span> <code>arn:aws:iam::aws:policy/ReadOnlyAccess</code>
-              </p>
-              <p style={{ marginTop: '0.75rem', color: '#374151' }}>
-                This policy provides broad read-only access to all AWS services and resources.
+              <div className="policy-detail">
+                <span className="label">Policy ARN</span>
+                <code>arn:aws:iam::aws:policy/ReadOnlyAccess</code>
+              </div>
+              <p className="policy-description">
+                Provides read-only access to AWS services and resources. This allows XamOps
+                to view your costs, usage, and resource inventory without any modification rights.
               </p>
             </div>
           </div>
         </div>
 
         <div className="modal-footer">
-          <button className="btn-primary" onClick={onClose}>
-            Close
+          <button className="btn-secondary" onClick={onClose}>
+            <span>Got it</span>
           </button>
         </div>
       </div>

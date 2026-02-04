@@ -29,6 +29,10 @@ import {
   CloudProvider,
   ReplyPayload,
 } from '../types/supportDashboard';
+import {
+  initNotificationService,
+  notifyNewCustomerMessage,
+} from '../utils/notificationService';
 
 interface UseSupportDashboardReturn {
   // Data
@@ -75,11 +79,23 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
   const inboxIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const chatIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const activeAccountRef = useRef<SupportConversation | null>(null);
+  const previousMessageCountRef = useRef(0);
+  const previousInboxRef = useRef<Map<string, number>>(new Map());
+  const notificationInitializedRef = useRef(false);
+  const isMountedRef = useRef(true);
 
   // Keep ref in sync with state
   useEffect(() => {
     activeAccountRef.current = activeAccount;
   }, [activeAccount]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   /**
    * Fetch inbox (list of conversations)
@@ -90,14 +106,42 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
 
     try {
       const data = await apiClient.get<SupportConversation[]>('/api/billops/support/inbox');
-      setConversations(data || []);
+
+      if (!isMountedRef.current) return;
+
+      const inboxData = data || [];
+
+      // Check for new messages from customers (only on silent refresh to avoid initial load notifications)
+      if (silent && previousInboxRef.current.size > 0) {
+        for (const conv of inboxData) {
+          const previousUnread = previousInboxRef.current.get(conv.accountId) || 0;
+          const currentUnread = conv.unreadCount || 0;
+
+          // Notify if unread count increased and page is not visible or not focused on this conversation
+          if (currentUnread > previousUnread && (document.hidden || activeAccountRef.current?.accountId !== conv.accountId)) {
+            notifyNewCustomerMessage(
+              conv.accountName || conv.accountId,
+              conv.lastMessage || 'New message received'
+            );
+          }
+        }
+      }
+
+      // Update previous inbox state
+      const newInboxMap = new Map<string, number>();
+      for (const conv of inboxData) {
+        newInboxMap.set(conv.accountId, conv.unreadCount || 0);
+      }
+      previousInboxRef.current = newInboxMap;
+
+      setConversations(inboxData);
     } catch (err) {
       console.error('Inbox Error:', err);
-      if (!silent) {
+      if (isMountedRef.current && !silent) {
         setError('Failed to load inbox. Please try again.');
       }
     } finally {
-      if (!silent) setLoading(false);
+      if (isMountedRef.current && !silent) setLoading(false);
     }
   }, []);
 
@@ -113,10 +157,34 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
         `/api/billops/support/chat/${account.accountId}`
       );
 
+      if (!isMountedRef.current) return;
+
+      const chatData = data || [];
+
+      // Check for new customer messages (userMessage = true means customer sent it)
+      const previousCount = previousMessageCountRef.current;
+      const newCount = chatData.length;
+
+      if (previousCount > 0 && newCount > previousCount) {
+        const newMessages = chatData.slice(previousCount);
+        const newCustomerMessages = newMessages.filter(msg => msg.userMessage);
+
+        // Notify if there are new customer messages and page is not visible
+        if (newCustomerMessages.length > 0 && document.hidden) {
+          const latestMessage = newCustomerMessages[newCustomerMessages.length - 1];
+          notifyNewCustomerMessage(
+            account.accountName || account.accountId,
+            latestMessage.content
+          );
+        }
+      }
+
+      previousMessageCountRef.current = newCount;
+
       // Only update if we have new messages
       setMessages(prevMessages => {
-        if (data.length > prevMessages.length || data.length !== prevMessages.length) {
-          return data || [];
+        if (chatData.length > prevMessages.length || chatData.length !== prevMessages.length) {
+          return chatData;
         }
         return prevMessages;
       });
@@ -132,17 +200,26 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
     setActiveAccount(account);
     setMessages([]);
     setChatLoading(true);
+    previousMessageCountRef.current = 0; // Reset message count for new conversation
 
     try {
       const data = await apiClient.get<ChatMessage[]>(
         `/api/billops/support/chat/${account.accountId}`
       );
-      setMessages(data || []);
+      if (isMountedRef.current) {
+        const chatData = data || [];
+        setMessages(chatData);
+        previousMessageCountRef.current = chatData.length; // Set initial message count
+      }
     } catch (err) {
       console.error('Chat Error:', err);
-      setError('Failed to load chat messages.');
+      if (isMountedRef.current) {
+        setError('Failed to load chat messages.');
+      }
     } finally {
-      setChatLoading(false);
+      if (isMountedRef.current) {
+        setChatLoading(false);
+      }
     }
   }, []);
 
@@ -162,15 +239,21 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
 
       await apiClient.post('/api/billops/support/reply', payload);
 
+      if (!isMountedRef.current) return true;
+
       // Refresh chat after sending
       await fetchChat();
       return true;
     } catch (err) {
       console.error('Send Reply Error:', err);
-      setError('Failed to send message. Please try again.');
+      if (isMountedRef.current) {
+        setError('Failed to send message. Please try again.');
+      }
       return false;
     } finally {
-      setSending(false);
+      if (isMountedRef.current) {
+        setSending(false);
+      }
     }
   }, [activeAccount, fetchChat]);
 
@@ -193,6 +276,12 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
    * Initialize: fetch inbox and set up auto-refresh
    */
   useEffect(() => {
+    // Initialize notification service (requests permission)
+    if (!notificationInitializedRef.current) {
+      notificationInitializedRef.current = true;
+      initNotificationService();
+    }
+
     // Initial fetch
     fetchInbox();
 
@@ -254,7 +343,7 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
     setProviderFilter,
     selectConversation,
     sendReply,
-    refreshInbox: () => fetchInbox(),
+    refreshInbox: fetchInbox,
     refreshChat: fetchChat,
   };
 };

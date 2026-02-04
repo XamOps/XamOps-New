@@ -87,6 +87,7 @@ import AzureDashboard from './pages/AzureDashboard';
 import AzureCloudList from './pages/AzureCloudList';
 import AzureFinOpsPage from './pages/AzureFinOpsPage';
 import { SupportChatWidget } from './components/SupportChat';
+import ErrorBoundary from './components/Shared/ErrorBoundary';
 
 
 // Import styles
@@ -214,17 +215,19 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 // Authenticated Layout - Just handles the visual wrapper for protected routes
 const AuthenticatedLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return (
-    <div className="flex h-screen bg-gray-50 overflow-hidden">
-      <Sidebar />
-      <div id="main-content" className="flex-1 lg:pl-64 flex flex-col h-full overflow-y-auto relative">
-        <Topbar />
-        <div className="flex-1">
-          {children}
+    <ErrorBoundary>
+      <div className="flex h-screen bg-gray-50 overflow-hidden">
+        <Sidebar />
+        <div id="main-content" className="flex-1 lg:pl-64 flex flex-col h-full overflow-y-auto relative">
+          <Topbar />
+          <div className="flex-1">
+            {children}
+          </div>
         </div>
+        {/* Support Chat Widget - Visible on all authenticated pages for ROLE_XAMOPS users */}
+        <SupportChatWidget />
       </div>
-      {/* Support Chat Widget - Visible on all authenticated pages for ROLE_XAMOPS users */}
-      <SupportChatWidget />
-    </div>
+    </ErrorBoundary>
   );
 };
 
@@ -1029,7 +1032,7 @@ const AppContent: React.FC = () => {
         {/* Catch all - redirect to login */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-    </TopbarProvider>
+    </TopbarProvider >
   );
 };
 

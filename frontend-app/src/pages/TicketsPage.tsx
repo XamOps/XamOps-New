@@ -18,7 +18,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useAccounts } from '../contexts/AccountContext';
-import { useTopbar } from '../contexts/TopbarContext';
+import { useTopbarActions } from '../contexts/TopbarContext';
 import Skeleton from '../components/Shared/Skeleton';
 
 interface Ticket {
@@ -62,7 +62,7 @@ const TicketsPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const { setActions, clearActions } = useTopbar();
+  const { setActions, clearActions } = useTopbarActions();
 
   const [form, setForm] = useState<TicketForm>({
     category: 'Technical',
@@ -290,7 +290,9 @@ const TicketsPage: React.FC = () => {
 
   // Topbar Integration
   useEffect(() => {
-    setActions(
+    // Only update actions when loading/updating state changes to avoid flickering
+    // internal navigation state is handled by the buttons
+    const actionsNode = (
       <div className="flex items-center gap-3">
         <button
           onClick={() => fetchTickets(true)}
@@ -311,8 +313,16 @@ const TicketsPage: React.FC = () => {
         </button>
       </div>
     );
-    return () => clearActions();
-  }, [setActions, clearActions, loading, isUpdating, fetchTickets]);
+
+    setActions(actionsNode);
+
+    // Cleanup function
+    return () => {
+      // Ensure actions are cleared when component unmounts
+      // This is critical for preventing "stuck" topbar state
+      clearActions();
+    };
+  }, [setActions, clearActions, loading, isUpdating, fetchTickets]); // fetchTickets is cached via useCallback
 
   return (
     <div className="tickets-page p-8">
