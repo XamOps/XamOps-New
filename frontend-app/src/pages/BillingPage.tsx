@@ -230,6 +230,52 @@ const BillingPage: React.FC = () => {
 
     const labels = billingData.serviceBreakdown.map((s) => s.name || 'Unknown');
     const data = billingData.serviceBreakdown.map((s) => (s.cost != null ? s.cost : 0));
+    const totalCost = data.reduce((acc, curr) => acc + curr, 0);
+
+    // Create dynamic gradients for each segment
+    const backgroundColors = data.map((_, i) => {
+      const colors = [
+        ['#6366f1', '#4f46e5'], // Indigo
+        ['#8b5cf6', '#7c3aed'], // Violet
+        ['#d946ef', '#c026d3'], // Fuchsia
+        ['#ec4899', '#db2777'], // Pink
+        ['#f43f5e', '#e11d48'], // Rose
+        ['#f97316', '#ea580c'], // Orange
+        ['#10b981', '#059669'], // Emerald
+        ['#0ea5e9', '#0284c7'], // Sky
+      ];
+      const colorPair = colors[i % colors.length];
+      const gradient = ctx.createLinearGradient(0, 0, 0, 150);
+      gradient.addColorStop(0, colorPair[0]);
+      gradient.addColorStop(1, colorPair[1]);
+      return gradient;
+    });
+
+    // Custom plugin for center text
+    const centerTextPlugin = {
+      id: 'centerText',
+      afterDraw: (chart: any) => {
+        const { ctx, chartArea: { left, right, top, bottom } } = chart;
+        ctx.save();
+
+        const centerX = (left + right) / 2;
+        const centerY = (top + bottom) / 2;
+
+        // Label
+        ctx.font = '600 12px Inter, sans-serif';
+        ctx.fillStyle = '#64748b';
+        ctx.textAlign = 'center';
+        ctx.fillText('TOTAL COST', centerX, centerY - 15);
+
+        // Value
+        ctx.font = 'bold 22px Inter, sans-serif';
+        ctx.fillStyle = '#1e293b';
+        ctx.textAlign = 'center';
+        ctx.fillText(formatCurrency(totalCost), centerX, centerY + 15);
+
+        ctx.restore();
+      }
+    };
 
     // Cast to any to avoid complex Chart.js generic type mismatch
     serviceBreakdownChartInstance.current = new Chart(ctx, {
@@ -240,52 +286,47 @@ const BillingPage: React.FC = () => {
           {
             label: 'Cost',
             data,
-            backgroundColor: [
-              '#6366f1', // Indigo
-              '#8b5cf6', // Violet
-              '#d946ef', // Fuchsia
-              '#ec4899', // Pink
-              '#f43f5e', // Rose
-              '#f97316', // Orange
-              '#eab308', // Yellow
-              '#22c55e', // Green
-            ],
-            borderWidth: 2,
-            borderColor: '#ffffff',
-            hoverBorderWidth: 0,
-            hoverOffset: 10,
+            backgroundColor: backgroundColors,
+            borderWidth: 0,
+            hoverOffset: 12,
+            borderRadius: 8,
+            spacing: 2,
           },
         ],
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        cutout: '70%',
+        cutout: '78%',
         plugins: {
           legend: {
             position: 'right',
             labels: {
               usePointStyle: true,
-              pointStyle: 'circle',
-              padding: 20,
-              font: { weight: '500', size: 12 },
-              color: '#4b5563',
+              pointStyle: 'rectRounded',
+              padding: 25,
+              font: { weight: '600', size: 12, family: 'Inter, sans-serif' },
+              color: '#475569',
             },
           },
           tooltip: {
-            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-            titleColor: '#1f2937',
-            bodyColor: '#1f2937',
-            borderColor: '#e5e7eb',
+            backgroundColor: 'rgba(255, 255, 255, 0.98)',
+            titleColor: '#1e293b',
+            bodyColor: '#475569',
+            borderColor: '#f1f5f9',
             borderWidth: 1,
-            padding: 12,
+            padding: 14,
             usePointStyle: true,
+            boxPadding: 8,
+            cornerRadius: 12,
+            titleFont: { weight: 'bold', size: 13 },
             callbacks: {
               label: (context: any) => ` ${context.label}: ${formatCurrency(context.raw as number)}`,
             },
           },
         },
       },
+      plugins: [centerTextPlugin],
     } as any);
 
     return () => {

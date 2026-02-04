@@ -260,7 +260,7 @@ public class GcpCostService {
 
         String query = String.format(
                 "WITH MonthlyCosts AS (" +
-                        "  SELECT FORMAT_DATE('%%%%Y-%%%%m', usage_start_time) as name, SUM(cost) as total_cost " +
+                        "  SELECT FORMAT_DATE('%%Y-%%m', usage_start_time) as name, SUM(cost) as total_cost " +
                         "  FROM %s " +
                         "  WHERE DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
                         "  GROUP BY 1" +

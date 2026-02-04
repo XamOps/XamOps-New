@@ -132,15 +132,37 @@ const GcpBillingPage: React.FC = () => {
     const ctx = costHistoryChartRef.current.getContext('2d');
     if (!ctx) return;
 
-    // Create gradient
+    // Create multi-stop gradient for area fill
     const gradient = ctx.createLinearGradient(0, 0, 0, 400);
-    gradient.addColorStop(0, 'rgba(99, 102, 241, 0.5)'); // Indigo-500
+    gradient.addColorStop(0, 'rgba(99, 102, 241, 0.4)'); // Indigo-500
     gradient.addColorStop(0.5, 'rgba(99, 102, 241, 0.1)');
     gradient.addColorStop(1, 'rgba(99, 102, 241, 0)');
 
     const history = dashboardData.costHistory || [];
     const labels = history.map((h) => h.date || h.month || h.name || '');
     const data = history.map((h) => h.amount || h.cost || 0);
+
+    // Custom plugin for vertical line on hover (crosshair)
+    const crosshairPlugin = {
+      id: 'crosshair',
+      afterDraw: (chart: any) => {
+        if (chart.tooltip?._active?.length) {
+          const { ctx, chartArea: { top, bottom } } = chart;
+          const activePoint = chart.tooltip._active[0];
+          const x = activePoint.element.x;
+
+          ctx.save();
+          ctx.beginPath();
+          ctx.setLineDash([5, 5]);
+          ctx.moveTo(x, top);
+          ctx.lineTo(x, bottom);
+          ctx.lineWidth = 1;
+          ctx.strokeStyle = 'rgba(99, 102, 241, 0.5)';
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+    };
 
     costHistoryChartInstance.current = new Chart(ctx, {
       type: 'line',
@@ -156,35 +178,43 @@ const GcpBillingPage: React.FC = () => {
             fill: true,
             tension: 0.4,
             pointRadius: 4,
-            pointHoverRadius: 8,
+            pointHoverRadius: 7,
             pointBackgroundColor: '#fff',
             pointBorderColor: '#6366f1',
             pointBorderWidth: 2,
             pointHoverBackgroundColor: '#6366f1',
             pointHoverBorderColor: '#fff',
+            pointHoverBorderWidth: 3,
           },
         ],
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        layout: {
+          padding: {
+            top: 10,
+            bottom: 10,
+          }
+        },
         plugins: {
           legend: {
             display: false,
           },
           tooltip: {
-            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-            titleColor: '#1f2937',
-            bodyColor: '#1f2937',
-            borderColor: '#e5e7eb',
+            backgroundColor: 'rgba(255, 255, 255, 0.98)',
+            titleColor: '#1e293b',
+            bodyColor: '#1e293b',
+            borderColor: '#f1f5f9',
             borderWidth: 1,
-            padding: 12,
-            boxPadding: 6,
+            padding: 14,
+            boxPadding: 8,
             usePointStyle: true,
-            titleFont: { size: 13, weight: '600' },
-            bodyFont: { size: 13 },
+            cornerRadius: 12,
+            titleFont: { size: 13, weight: 'bold', family: 'Inter, sans-serif' },
+            bodyFont: { size: 13, family: 'Inter, sans-serif' },
             callbacks: {
-              label: (context) => `Cost: ${formatCurrency(context.raw as number)}`,
+              label: (context) => ` Cost: ${formatCurrency(context.raw as number)}`,
             },
             displayColors: true,
           },
@@ -193,13 +223,14 @@ const GcpBillingPage: React.FC = () => {
           y: {
             beginAtZero: true,
             grid: {
-              color: '#f3f4f6',
+              color: '#f1f5f9',
+              tickBorderDash: [5, 5],
               drawBorder: false,
-            } as any, // Type cast for older types
+            } as any,
             ticks: {
-              color: '#9ca3af',
-              font: { size: 11 },
-              padding: 10,
+              color: '#94a3b8',
+              font: { size: 11, family: 'Inter, sans-serif' },
+              padding: 12,
               callback: (value) => {
                 const num = Number(value);
                 if (num >= 1000) return '₹' + (num / 1000).toFixed(1) + 'k';
@@ -208,10 +239,14 @@ const GcpBillingPage: React.FC = () => {
             },
           },
           x: {
-            grid: { display: false },
+            grid: {
+              display: false,
+              drawBorder: false,
+            } as any,
             ticks: {
-              color: '#9ca3af',
-              font: { size: 11 },
+              color: '#94a3b8',
+              font: { size: 11, family: 'Inter, sans-serif' },
+              padding: 10,
             },
           },
         },
@@ -220,6 +255,7 @@ const GcpBillingPage: React.FC = () => {
           mode: 'index',
         },
       },
+      plugins: [crosshairPlugin],
     });
 
     return () => {
@@ -247,16 +283,52 @@ const GcpBillingPage: React.FC = () => {
     const topServices = services.slice(0, 8); // Top 8 only for cleaner look
     const labels = topServices.map((item) => item.serviceName || item.name || 'Unknown');
     const data = topServices.map((item) => item.amount || 0);
-    const colors = [
-      '#6366f1', // Indigo
-      '#8b5cf6', // Violet
-      '#d946ef', // Fuchsia
-      '#ec4899', // Pink
-      '#f43f5e', // Rose
-      '#f97316', // Orange
-      '#eab308', // Yellow
-      '#22c55e', // Green
-    ];
+    const totalCost = data.reduce((acc, curr) => acc + curr, 0);
+
+    // Create dynamic gradients for each segment
+    const backgroundColors = data.map((_, i) => {
+      const colors = [
+        ['#6366f1', '#4f46e5'], // Indigo
+        ['#8b5cf6', '#7c3aed'], // Violet
+        ['#d946ef', '#c026d3'], // Fuchsia
+        ['#ec4899', '#db2777'], // Pink
+        ['#f43f5e', '#e11d48'], // Rose
+        ['#f97316', '#ea580c'], // Orange
+        ['#10b981', '#059669'], // Emerald
+        ['#0ea5e9', '#0284c7'], // Sky
+      ];
+      const colorPair = colors[i % colors.length];
+      const gradient = ctx.createLinearGradient(0, 0, 0, 150);
+      gradient.addColorStop(0, colorPair[0]);
+      gradient.addColorStop(1, colorPair[1]);
+      return gradient;
+    });
+
+    // Custom plugin for center text
+    const centerTextPlugin = {
+      id: 'centerText',
+      afterDraw: (chart: any) => {
+        const { ctx, chartArea: { left, right, top, bottom } } = chart;
+        ctx.save();
+
+        const centerX = (left + right) / 2;
+        const centerY = (top + bottom) / 2;
+
+        // Label
+        ctx.font = '600 12px Inter, sans-serif';
+        ctx.fillStyle = '#64748b';
+        ctx.textAlign = 'center';
+        ctx.fillText('TOTAL COST', centerX, centerY - 15);
+
+        // Value
+        ctx.font = 'bold 22px Inter, sans-serif';
+        ctx.fillStyle = '#1e293b';
+        ctx.textAlign = 'center';
+        ctx.fillText(formatCurrency(totalCost), centerX, centerY + 15);
+
+        ctx.restore();
+      }
+    };
 
     serviceBreakdownChartInstance.current = new Chart(ctx, {
       type: 'doughnut',
@@ -265,37 +337,40 @@ const GcpBillingPage: React.FC = () => {
         datasets: [
           {
             data,
-            backgroundColor: colors,
-            borderWidth: 2,
-            borderColor: '#ffffff',
-            hoverBorderWidth: 0,
-            hoverOffset: 10,
+            backgroundColor: backgroundColors,
+            borderWidth: 0,
+            hoverOffset: 12,
+            borderRadius: 8,
+            spacing: 2,
           },
         ],
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        cutout: '75%',
+        cutout: '78%',
         plugins: {
           legend: {
             position: 'right',
             labels: {
               usePointStyle: true,
-              pointStyle: 'circle',
-              padding: 20,
-              font: { weight: '500', size: 12 },
-              color: '#4b5563',
+              pointStyle: 'rectRounded',
+              padding: 25,
+              font: { weight: '600', size: 12, family: 'Inter, sans-serif' },
+              color: '#475569',
             },
           },
           tooltip: {
-            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-            titleColor: '#1f2937',
-            bodyColor: '#1f2937',
-            borderColor: '#e5e7eb',
+            backgroundColor: 'rgba(255, 255, 255, 0.98)',
+            titleColor: '#1e293b',
+            bodyColor: '#475569',
+            borderColor: '#f1f5f9',
             borderWidth: 1,
-            padding: 12,
+            padding: 14,
             usePointStyle: true,
+            boxPadding: 8,
+            cornerRadius: 12,
+            titleFont: { weight: 'bold', size: 13 },
             callbacks: {
               label: (context) => {
                 const value = context.raw as number;
@@ -305,6 +380,7 @@ const GcpBillingPage: React.FC = () => {
           },
         },
       },
+      plugins: [centerTextPlugin],
     });
 
     return () => {
