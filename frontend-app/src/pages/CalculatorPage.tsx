@@ -20,7 +20,6 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useCalculator } from '../hooks/useCalculator';
 import { useEstimateCart } from '../hooks/useEstimateCart';
 import { ServiceSelection } from '../components/Calculator/ServiceSelection';
@@ -30,7 +29,6 @@ import { EstimateCart } from '../components/Calculator/EstimateCart';
 import type { FormValues } from '../types/calculator';
 
 const CalculatorPage: React.FC = () => {
-  const navigate = useNavigate();
   const {
     regions,
     services,

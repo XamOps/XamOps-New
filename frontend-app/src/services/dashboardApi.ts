@@ -230,7 +230,7 @@ export const fetchAllGranularData = async (
     const dashboardData = {
       accountId: accountId,
       accountName: '', // Will be filled from account context
-      provider: 'AWS', // Will be filled from account context
+      provider: 'AWS' as const, // Will be filled from account context
       kpi: {
         mtdSpend,
         forecastedSpend,

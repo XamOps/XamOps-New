@@ -14,7 +14,7 @@ interface GcpWasteKPICardsProps {
 
 const GcpWasteKPICards: React.FC<GcpWasteKPICardsProps> = ({ wasteItems, isLoading }) => {
   const chartRef = useRef<HTMLCanvasElement>(null);
-  const chartInstanceRef = useRef<Chart | null>(null);
+  const chartInstanceRef = useRef<Chart<'doughnut'> | null>(null);
 
   // Calculate total savings
   const totalSavings = wasteItems.reduce((sum, item) => sum + (item.monthlySavings || 0), 0);

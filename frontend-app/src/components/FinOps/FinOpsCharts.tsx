@@ -15,10 +15,10 @@ interface FinOpsChartsProps {
 const FinOpsCharts: React.FC<FinOpsChartsProps> = ({ costBreakdown }) => {
   const serviceChartRef = useRef<HTMLCanvasElement>(null);
   const regionChartRef = useRef<HTMLCanvasElement>(null);
-  const serviceChartInstance = useRef<Chart | null>(null);
-  const regionChartInstance = useRef<Chart | null>(null);
+  const serviceChartInstance = useRef<Chart<'doughnut'> | null>(null);
+  const regionChartInstance = useRef<Chart<'bar'> | null>(null);
 
-  const handleChartClick = (event: any, chart: Chart, type: string) => {
+  const handleChartClick = (event: any, chart: any, type: string) => {
     const points = chart.getElementsAtEventForMode(event, 'nearest', { intersect: true }, true);
     if (points.length) {
       const firstPoint = points[0];

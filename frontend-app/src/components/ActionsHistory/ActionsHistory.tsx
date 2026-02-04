@@ -14,9 +14,9 @@
  * - Empty states
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useActionsHistory } from '../../hooks/useActionsHistory';
-import { ActionsHistoryFilters, ActionsHistoryEvent } from '../../types/actionsHistory';
+import { ActionsHistoryFilters } from '../../types/actionsHistory';
 
 interface ActionsHistoryProps {
   accountId: string | null;

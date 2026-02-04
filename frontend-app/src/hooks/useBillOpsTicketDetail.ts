@@ -15,8 +15,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   BillOpsTicketDetail,
   BillOpsUserProfile,
-  RCAFormData,
-  RCAFormSection
+  RCAFormData
 } from '../types/billopsTickets';
 
 interface UseBillOpsTicketDetailReturn {

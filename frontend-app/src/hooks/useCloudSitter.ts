@@ -23,7 +23,7 @@ export const useCloudSitter = (accountId: string | null) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [resources, setResources] = useState<EC2Resource[]>([]);
   const [policies, setPolicies] = useState<CloudSitterPolicy[]>([]);
-  const [assignments, setAssignments] = useState<Record<string, PolicyAssignment>>({});
+  const [, setAssignments] = useState<Record<string, PolicyAssignment>>({});
 
   // Policy Form State
   const [policyForm, setPolicyForm] = useState<PolicyFormData>({

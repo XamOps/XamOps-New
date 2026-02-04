@@ -43,7 +43,6 @@ const AccountManagerPage: React.FC = () => {
     removeGitHubConfig,
     removeJenkinsConfig,
     verifyAccount,
-    getStatusColor,
   } = useAccountManager();
 
   console.log('🏗️ AccountManagerPage render:', {
@@ -169,7 +168,6 @@ const AccountManagerPage: React.FC = () => {
         <CloudAccountsTable
           accounts={accounts}
           isLoading={isLoading}
-          getStatusColor={getStatusColor}
           onVerify={handleOpenVerificationModal}
           onRemove={handleRemoveAccount}
         />

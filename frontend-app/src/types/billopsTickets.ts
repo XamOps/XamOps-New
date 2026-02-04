@@ -44,6 +44,13 @@ export const SERVICE_OPTIONS: Record<TicketCategory, string[]> = {
     'Payment Issue',
     'Cost Explorer',
     'Invoice Dispute'
+  ],
+  'Technical': [
+    'Infrastructure Issue',
+    'Performance Problem',
+    'Security Concern',
+    'Integration Help',
+    'Other Technical'
   ]
 };
 
