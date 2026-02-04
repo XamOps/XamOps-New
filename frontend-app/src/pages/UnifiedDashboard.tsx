@@ -259,7 +259,7 @@ export const UnifiedDashboard: React.FC = () => {
 
   return (
     <div className="flex-1 flex flex-col h-screen overflow-y-auto overflow-x-hidden bg-slate-50 font-sans text-slate-800">
-      <div id="main-content" className="flex flex-col h-full w-full">
+      <div id="unified-dashboard-container" className="flex flex-col h-full w-full">
         {/* Ticker - Now glass effect */}
         <Ticker />
 

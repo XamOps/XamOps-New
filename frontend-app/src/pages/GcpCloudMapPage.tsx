@@ -53,6 +53,15 @@ interface GraphElement {
   data: NodeData;
 }
 
+// GCP Icons mapping
+const GCP_ICONS: Record<string, string> = {
+  'VPC': '/icons/gcp-vpc.png',
+  'Instance': '/icons/gcp-compute-engine.png',
+  'Subnet': '/icons/gcp-vpc.png',
+  'Firewall': '/icons/gcp-firewall.png',
+  'Region': '/icons/gcp-icon.png',
+};
+
 const GcpCloudMapPage: React.FC = () => {
   const navigate = useNavigate();
   const { selectedAccountIds } = useAccounts();
@@ -79,91 +88,7 @@ const GcpCloudMapPage: React.FC = () => {
     type?: 'loading' | 'error' | 'info';
   }>({ show: true, title: 'Ready to Visualize', subtitle: 'Please select a VPC to begin mapping your infrastructure.', type: 'info' });
 
-  // GCP Icons mapping
-  const icons: Record<string, string> = {
-    'VPC': '/icons/gcp-vpc.png',
-    'Instance': '/icons/gcp-compute-engine.png',
-    'Subnet': '/icons/gcp-vpc.png',
-    'Firewall': '/icons/gcp-firewall.png',
-    'Region': '/icons/gcp-icon.png',
-  };
 
-  /**
-   * Load VPCs when account changes
-   */
-  const loadVpcs = useCallback(async () => {
-    if (!accountId) return;
-
-    try {
-      const vpcsData = await fetchGcpVpcs(accountId);
-      // Auto-select first VPC if available
-      if (vpcsData.length > 0) {
-        setSelectedVpcValue(vpcsData[0].id);
-        loadGraph(vpcsData[0].id);
-      }
-    } catch (error) {
-      console.error('Error loading VPCs:', error);
-    }
-  }, [accountId, fetchGcpVpcs]);
-
-  /**
-   * Initialize component
-   */
-  useEffect(() => {
-    if (accountId) {
-      loadVpcs();
-    }
-  }, [accountId, loadVpcs]);
-
-  /**
-   * Load graph data for selected VPC
-   */
-  const loadGraph = useCallback(async (vpcId: string) => {
-    if (!accountId) {
-      console.error('No account ID found for loading graph.');
-      return;
-    }
-
-    // Destroy existing graph
-    if (cyRef.current) {
-      cyRef.current.destroy();
-      cyRef.current = null;
-    }
-    setInfoPanelOpen(false);
-
-    const url = `/api/xamops/gcp/cloudmap/graph?accountId=${accountId}&vpcId=${vpcId || ''}`;
-
-    setMessageOverlay({
-      show: true,
-      title: 'Loading Infrastructure',
-      subtitle: 'Analyzing your GCP topology...',
-      type: 'loading'
-    });
-    setLoadingGraph(true);
-    setGraphError(null);
-
-    try {
-      const response = await fetch(url, { credentials: 'include' });
-      if (!response.ok) {
-        throw new Error('Failed to fetch graph data');
-      }
-
-      const graphData = await response.json();
-      setMessageOverlay({ show: false, title: '' });
-      renderGraph(graphData);
-    } catch (error) {
-      console.error('Error fetching graph data:', error);
-      setGraphError('Could not load graph data. Please try again.');
-      setMessageOverlay({
-        show: true,
-        title: 'Load Error',
-        subtitle: 'Could not load graph data. Please try again.',
-        type: 'error'
-      });
-    } finally {
-      setLoadingGraph(false);
-    }
-  }, [accountId]);
 
   /**
    * Render Cytoscape graph
@@ -177,6 +102,7 @@ const GcpCloudMapPage: React.FC = () => {
         elements: graphData,
         layout: {
           name: 'dagre',
+          // @ts-ignore - dagre-specific options not in base LayoutOptions type
           nodeSep: 80,
           edgeSep: 20,
           rankSep: 100,
@@ -190,8 +116,8 @@ const GcpCloudMapPage: React.FC = () => {
             style: {
               'shape': 'rectangle',
               'label': 'data(label)',
-              'font-size': '11px',
-              'font-weight': '600',
+              'font-size': 11,
+              'font-weight': 600,
               'text-valign': 'bottom',
               'text-halign': 'center',
               'color': '#374151',
@@ -199,14 +125,14 @@ const GcpCloudMapPage: React.FC = () => {
               'width': 60,
               'height': 60,
               'background-opacity': 0,
-              'background-image': (node: any) => icons[node.data('type')] || '/icons/gcp-icon.png',
+              'background-image': (node: any) => GCP_ICONS[node.data('type')] || '/icons/gcp-icon.png',
               'background-fit': 'contain',
               'background-clip': 'none',
               'border-width': 2,
               'border-color': '#e5e7eb',
               'border-opacity': 0.8,
               'transition-property': 'background-color, border-color, width, height',
-              'transition-duration': '0.3s'
+              'transition-duration': 300
             }
           },
           {
@@ -225,9 +151,9 @@ const GcpCloudMapPage: React.FC = () => {
             style: {
               'text-valign': 'top',
               'text-halign': 'center',
-              'font-weight': 'bold',
+              'font-weight': 700,
               'color': '#1f2937',
-              'font-size': '16px',
+              'font-size': 16,
               'background-opacity': 1,
               'background-image': 'none',
               'padding': '20px'
@@ -310,7 +236,84 @@ const GcpCloudMapPage: React.FC = () => {
     } catch (error) {
       console.error('Error rendering graph:', error);
     }
-  }, [icons]);
+  }, []);
+
+  /**
+   * Load graph data for selected VPC
+   */
+  const loadGraph = useCallback(async (vpcId: string) => {
+    if (!accountId) {
+      console.error('No account ID found for loading graph.');
+      return;
+    }
+
+    // Destroy existing graph
+    if (cyRef.current) {
+      cyRef.current.destroy();
+      cyRef.current = null;
+    }
+    setInfoPanelOpen(false);
+
+    const url = `/api/xamops/gcp/cloudmap/graph?accountId=${accountId}&vpcId=${vpcId || ''}`;
+
+    setMessageOverlay({
+      show: true,
+      title: 'Loading Infrastructure',
+      subtitle: 'Analyzing your GCP topology...',
+      type: 'loading'
+    });
+    setLoadingGraph(true);
+    setGraphError(null);
+
+    try {
+      const response = await fetch(url, { credentials: 'include' });
+      if (!response.ok) {
+        throw new Error('Failed to fetch graph data');
+      }
+
+      const graphData = await response.json();
+      setMessageOverlay({ show: false, title: '' });
+      renderGraph(graphData);
+    } catch (error) {
+      console.error('Error fetching graph data:', error);
+      setGraphError('Could not load graph data. Please try again.');
+      setMessageOverlay({
+        show: true,
+        title: 'Load Error',
+        subtitle: 'Could not load graph data. Please try again.',
+        type: 'error'
+      });
+    } finally {
+      setLoadingGraph(false);
+    }
+  }, [accountId, renderGraph]);
+
+  /**
+   * Load VPCs when account changes
+   */
+  const loadVpcs = useCallback(async () => {
+    if (!accountId) return;
+
+    try {
+      const vpcsData = await fetchGcpVpcs(accountId);
+      // Auto-select first VPC if available
+      if (vpcsData.length > 0) {
+        setSelectedVpcValue(vpcsData[0].id);
+        loadGraph(vpcsData[0].id);
+      }
+    } catch (error) {
+      console.error('Error loading VPCs:', error);
+    }
+  }, [accountId, fetchGcpVpcs, loadGraph]);
+
+  /**
+   * Initialize component
+   */
+  useEffect(() => {
+    if (accountId) {
+      loadVpcs();
+    }
+  }, [accountId, loadVpcs]);
 
   /**
    * Get icon for node type
@@ -326,14 +329,7 @@ const GcpCloudMapPage: React.FC = () => {
     return iconMap[type] || 'cube';
   };
 
-  /**
-   * Initialize component
-   */
-  useEffect(() => {
-    if (accountId) {
-      loadVpcs();
-    }
-  }, [accountId, loadVpcs]);
+
 
   /**
    * Handle VPC selection change

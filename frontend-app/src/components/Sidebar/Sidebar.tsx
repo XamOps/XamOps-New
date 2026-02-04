@@ -23,7 +23,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useAccounts } from '../../contexts/AccountContext';
 import AccountSelector from './AccountSelector';
@@ -32,6 +32,7 @@ import NavSection from './NavSection';
 import clsx from 'clsx';
 
 const Sidebar: React.FC = () => {
+  const location = useLocation();
   const { hasAnyRole } = useAuth();
   const { selectedAccountDisplay, accounts, selectedAccountIds } = useAccounts();
 
@@ -95,7 +96,7 @@ const Sidebar: React.FC = () => {
    * Check if current path matches the nav item
    */
   const isActive = useCallback((path: string): boolean => {
-    const currentPath = globalThis.location.pathname;
+    const currentPath = location.pathname;
 
     // Special case: Root path matches both / and /index.html
     if (path === '/') {
@@ -401,7 +402,7 @@ const Sidebar: React.FC = () => {
     }
 
     return false;
-  }, []);
+  }, [location.pathname]);
 
 
   return (
@@ -640,8 +641,12 @@ const Sidebar: React.FC = () => {
                 label="Rightsizing"
                 isActive={isActive('/rightsizing') || isActive('/gcp-rightsizing')}
               />
-              <NavItem href="/cloudsitter" icon="fas fa-clock" label="CloudSitter" isActive={isActive('/cloudsitter')} />
-              <NavItem href="/spot-automation" icon="fas fa-bolt" label="Spot Automation" isActive={isActive('/spot-automation')} />
+              {selectedAccountDisplay.provider === 'AWS' && (
+                <NavItem href="/cloudsitter" icon="fas fa-clock" label="CloudSitter" isActive={isActive('/cloudsitter')} />
+              )}
+              {selectedAccountDisplay.provider === 'AWS' && (
+                <NavItem href="/spot-automation" icon="fas fa-bolt" label="Spot Automation" isActive={isActive('/spot-automation')} />
+              )}
             </NavSection>
           )}
 

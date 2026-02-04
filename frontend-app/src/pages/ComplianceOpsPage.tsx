@@ -20,7 +20,7 @@ const ComplianceOpsPage: React.FC = () => {
     }, [clearActions]);
 
     return (
-        <main id="main-content" className="flex-1 flex flex-col min-h-screen">
+        <main id="compliance-main-container" className="flex-1 flex flex-col min-h-screen">
             {/* Main Content Area */}
             <div className="flex-1 flex items-center justify-center p-8 bg-gray-50">
                 <div className="max-w-6xl mx-auto w-full">

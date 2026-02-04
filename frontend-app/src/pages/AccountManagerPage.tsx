@@ -55,7 +55,7 @@ const AccountManagerPage: React.FC = () => {
     isJenkinsLoading
   });
 
-  const { setActions, clearActions } = useTopbar();
+  const { setActions, clearActions, setOnHelpClick } = useTopbar();
 
   React.useEffect(() => {
     console.log('🚀 AccountManagerPage Mounted!');
@@ -80,8 +80,14 @@ const AccountManagerPage: React.FC = () => {
       </div>
     );
 
-    return () => clearActions();
-  }, [setActions, clearActions]);
+    // Register help button click handler
+    setOnHelpClick(() => setIsHelpModalOpen(true));
+
+    return () => {
+      clearActions();
+      setOnHelpClick(null);
+    };
+  }, [setActions, clearActions, setOnHelpClick]);
 
   // Modal states
   const [isVerificationModalOpen, setIsVerificationModalOpen] = useState(false);
@@ -182,15 +188,6 @@ const AccountManagerPage: React.FC = () => {
           onRemove={handleRemoveJenkinsConfig}
         />
       </div>
-
-      {/* Floating Help Button */}
-      <button
-        onClick={() => setIsHelpModalOpen(true)}
-        className="help-fab"
-        aria-label="Open help guide"
-      >
-        <i className="fas fa-question" />
-      </button>
 
       {/* Verification Modal */}
       <VerificationModal
