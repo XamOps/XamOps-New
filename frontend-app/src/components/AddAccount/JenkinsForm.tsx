@@ -31,33 +31,35 @@ const JenkinsForm: React.FC<JenkinsFormProps> = ({
         <div className="step-number large">2</div>
         <div>
           <h2 className="form-card-title">Connect Jenkins Server</h2>
-          <p className="form-card-subtitle">Enter your Jenkins URL and API Token</p>
+          <p className="form-card-subtitle">
+            Enter your Jenkins server URL and API credentials
+          </p>
         </div>
       </div>
 
       <form onSubmit={handleSubmit}>
         <div className="form-group">
           <label htmlFor="jenkinsUrl" className="form-label">
-            <i className="fas fa-link" style={{ color: 'var(--aa-jenkins-red)' }} />
+            <i className="fas fa-server" />
             Jenkins URL
           </label>
           <input
             type="url"
             id="jenkinsUrl"
             className="form-input"
-            placeholder="http://jenkins.yourcompany.com:8080"
+            placeholder="https://jenkins.yourcompany.com"
             value={jenkinsDetails.url}
             onChange={(e) => onJenkinsDetailsChange({ url: e.target.value })}
             required
           />
           <p className="form-hint">
-            Include http:// or https:// and the port if necessary.
+            Full URL including protocol (http/https) and port if applicable
           </p>
         </div>
 
         <div className="form-group">
           <label htmlFor="jenkinsUsername" className="form-label">
-            <i className="fas fa-user-circle" style={{ color: 'var(--aa-jenkins-red)' }} />
+            <i className="fas fa-user" />
             Username
           </label>
           <input
@@ -69,11 +71,12 @@ const JenkinsForm: React.FC<JenkinsFormProps> = ({
             onChange={(e) => onJenkinsDetailsChange({ username: e.target.value })}
             required
           />
+          <p className="form-hint">Your Jenkins username</p>
         </div>
 
         <div className="form-group">
           <label htmlFor="jenkinsToken" className="form-label">
-            <i className="fas fa-key" style={{ color: 'var(--aa-jenkins-red)' }} />
+            <i className="fas fa-key" />
             API Token
           </label>
           <input
@@ -86,16 +89,16 @@ const JenkinsForm: React.FC<JenkinsFormProps> = ({
             required
           />
           <p className="form-hint">
-            Found in Jenkins User Profile → Configure → API Token.
+            Generate at: User Profile → Configure → API Token
           </p>
         </div>
 
         <div className="form-actions">
-          <button type="submit" className="btn-primary" disabled={isLoading} style={{ background: 'var(--aa-jenkins-red)', border: 'none' }}>
+          <button type="submit" className="btn-primary jenkins" disabled={isLoading}>
             {isLoading ? (
               <>
                 <span className="loading-spinner" />
-                Connecting...
+                <span>Connecting...</span>
               </>
             ) : (
               <>

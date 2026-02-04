@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import apiClient from '../utils/apiClient';
-import { useAuth } from '../contexts/AuthContext';
 import ClientDetailsSkeleton from '../components/Shared/ClientDetailsSkeleton';
 import '../styles/billopsAdminDashboard.css';
 import '../styles/billopsClientDetails.css';
@@ -30,7 +29,6 @@ interface ClientDetails {
 }
 
 const ClientDetailsPage: React.FC = () => {
-    const { hasAnyRole } = useAuth();
     const [clients, setClients] = useState<ClientDetails[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);

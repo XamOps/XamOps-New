@@ -54,24 +54,23 @@ const AWSForm: React.FC<AWSFormProps> = ({
           <div>
             <h2 className="form-card-title">Verify Connection</h2>
             <p className="form-card-subtitle">
-              Enter the AWS Account ID and Role Name to complete setup.
+              Enter the details from your CloudFormation stack outputs
             </p>
           </div>
         </div>
 
-        <div className="success-message" style={{ marginBottom: '1.5rem', background: '#f0fdf4', borderRadius: '0.75rem', padding: '1rem', border: '1px solid #bbf7d0' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: '#166534' }}>
-            <i className="fas fa-check-circle" style={{ fontSize: '1.25rem' }} />
-            <div>
-              <strong style={{ display: 'block', fontSize: '0.875rem' }}>Stack Launched Successfully!</strong>
-              <span style={{ fontSize: '0.875rem' }}>Please enter the details created by the CloudFormation stack below.</span>
-            </div>
+        <div className="success-message">
+          <i className="fas fa-check-circle" />
+          <div>
+            <strong>Stack Launched Successfully!</strong>
+            <span>Enter the AWS Account ID and Role Name from the stack outputs below.</span>
           </div>
         </div>
 
         <form onSubmit={handleSubmit}>
           <div className="form-group">
             <label htmlFor="awsAccountId" className="form-label">
+              <i className="fas fa-id-card" />
               AWS Account ID
             </label>
             <input
@@ -85,10 +84,12 @@ const AWSForm: React.FC<AWSFormProps> = ({
               }
               required
             />
+            <p className="form-hint">12-digit AWS account identifier</p>
           </div>
 
           <div className="form-group">
             <label htmlFor="roleName" className="form-label">
+              <i className="fas fa-user-shield" />
               IAM Role Name
             </label>
             <input
@@ -102,12 +103,13 @@ const AWSForm: React.FC<AWSFormProps> = ({
               }
               required
             />
+            <p className="form-hint">Name of the IAM role created by the stack</p>
           </div>
 
           {verificationError && (
             <div className="error-message">
               <i className="fas fa-exclamation-circle" />
-              {verificationError}
+              <span>{verificationError}</span>
             </div>
           )}
 
@@ -140,9 +142,9 @@ const AWSForm: React.FC<AWSFormProps> = ({
       <div className="form-card-header">
         <div className="step-number large">2</div>
         <div>
-          <h2 className="form-card-title">Configure Access</h2>
+          <h2 className="form-card-title">Configure AWS Access</h2>
           <p className="form-card-subtitle">
-            Set up your AWS account connection details.
+            Set up a secure cross-account IAM role using CloudFormation
           </p>
         </div>
       </div>
@@ -150,7 +152,7 @@ const AWSForm: React.FC<AWSFormProps> = ({
       <form onSubmit={handleSubmit}>
         <div className="form-group">
           <label htmlFor="accountName" className="form-label">
-            <i className="fas fa-tag" style={{ color: 'var(--aa-primary-gradient)' }} />
+            <i className="fas fa-tag" />
             Account Name
           </label>
           <input
@@ -163,18 +165,18 @@ const AWSForm: React.FC<AWSFormProps> = ({
             required
           />
           <p className="form-hint">
-            A friendly name to identify this account in XamOps.
+            A friendly name to identify this account in XamOps
           </p>
         </div>
 
         <div className="form-group">
-          <label className="form-label">
-            <i className="fas fa-shield-alt" style={{ color: 'var(--aa-primary-gradient)' }} />
+          <label htmlFor="read-only" className="form-label">
+            <i className="fas fa-shield-alt" />
             Access Level
           </label>
-          <div
+          <label
+            htmlFor="read-only"
             className={`radio-option ${accessType === 'read-only' ? 'selected' : ''}`}
-            onClick={() => onAccessTypeChange('read-only')}
           >
             <input
               type="radio"
@@ -185,20 +187,20 @@ const AWSForm: React.FC<AWSFormProps> = ({
               onChange={() => onAccessTypeChange('read-only')}
             />
             <div className="radio-option-content">
-              <label htmlFor="read-only" className="radio-option-label">
+              <span className="radio-option-label">
                 Read-Only Access (Recommended)
-              </label>
+              </span>
               <p className="radio-option-description">
-                Grants visibility into costs, usage, and inventory without modification rights.
+                Grants visibility into costs, usage, and inventory without modification rights
               </p>
             </div>
-          </div>
+          </label>
         </div>
 
-        <div className="form-group" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem', background: 'rgba(255,255,255,0.5)', borderRadius: '0.75rem', border: '1px solid var(--aa-glass-border)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <i className="fas fa-file-contract" style={{ color: '#64748b' }} />
-            <span style={{ fontSize: '0.875rem', color: '#334155', fontWeight: 500 }}>IAM Policies</span>
+        <div className="iam-policies-box">
+          <div className="info-content">
+            <i className="fas fa-file-contract" />
+            <span>IAM Policies</span>
           </div>
           <button type="button" className="btn-link" onClick={onOpenPolicyModal}>
             View Required Permissions
@@ -214,7 +216,7 @@ const AWSForm: React.FC<AWSFormProps> = ({
             {isLoading ? (
               <>
                 <span className="loading-spinner" />
-                Generating...
+                <span>Generating...</span>
               </>
             ) : (
               <>

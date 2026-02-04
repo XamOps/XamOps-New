@@ -27,8 +27,10 @@
  * - Same visual design with enhancements
  */
 
-import React from 'react';
+import React, { useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAddAccount } from '../hooks/useAddAccount';
+import { useTopbar } from '../contexts/TopbarContext';
 import {
   ProviderSelector,
   ConnectionSteps,
@@ -43,6 +45,9 @@ import {
 import '../styles/addAccount.css';
 
 const AddAccountPage: React.FC = () => {
+  const navigate = useNavigate();
+  const { setActions, clearActions } = useTopbar();
+
   const {
     // State
     provider,
@@ -72,6 +77,46 @@ const AddAccountPage: React.FC = () => {
     addJenkinsAccount,
     copyToClipboard,
   } = useAddAccount();
+
+  const getProviderInfo = () => {
+    switch (provider) {
+      case 'aws':
+        return { name: 'AWS', icon: 'fab fa-aws', colorClass: 'aws' };
+      case 'gcp':
+        return { name: 'GCP', icon: 'fab fa-google', colorClass: 'gcp' };
+      case 'azure':
+        return { name: 'Azure', icon: 'fab fa-microsoft', colorClass: 'azure' };
+      case 'jenkins':
+        return { name: 'Jenkins', icon: 'fab fa-jenkins', colorClass: 'jenkins' };
+      default:
+        return { name: 'Cloud', icon: 'fas fa-cloud', colorClass: 'default' };
+    }
+  };
+
+  const providerInfo = getProviderInfo();
+
+  // Set topbar actions
+  useEffect(() => {
+    setActions(
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => navigate('/account-manager')}
+          className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all"
+        >
+          <i className="fas fa-arrow-left"></i>
+          <span>Back to Accounts</span>
+        </button>
+        {provider && (
+          <div className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium aa-provider-badge-topbar ${providerInfo.colorClass}`}>
+            <i className={providerInfo.icon}></i>
+            <span>{providerInfo.name}</span>
+          </div>
+        )}
+      </div>
+    );
+
+    return () => clearActions();
+  }, [provider, providerInfo, setActions, clearActions, navigate]);
 
   const renderProviderForm = () => {
     switch (provider) {
@@ -121,15 +166,15 @@ const AddAccountPage: React.FC = () => {
   return (
     <main className="add-account-page fade-in">
       {/* Content */}
-      <div className="add-account-content container">
-        <div className="split-layout">
+      <div className="aa-content">
+        <div className="aa-layout">
           {/* Left Column - Connection Steps */}
-          <div className="sidebar-column">
+          <aside className="aa-sidebar">
             <ConnectionSteps provider={provider} />
-          </div>
+          </aside>
 
           {/* Right Column - Forms */}
-          <div className="content-column">
+          <div className="aa-main">
             {/* Provider Selector */}
             <ProviderSelector
               selectedProvider={provider}

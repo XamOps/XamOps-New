@@ -21,6 +21,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import apiClient from '../utils/apiClient';
+import {
+  initNotificationService,
+  notifyNewSupportReply,
+} from '../utils/notificationService';
 
 export interface ChatMessage {
   id?: string;
@@ -71,6 +75,8 @@ export const useSupportChat = (): UseSupportChatReturn => {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isInitializedRef = useRef(false);
+  const previousMessageCountRef = useRef(0);
+  const notificationInitializedRef = useRef(false);
 
   // Check if user has ROLE_XAMOPS
   const isXamopsUser = hasAnyRole('ROLE_XAMOPS');
@@ -99,18 +105,37 @@ export const useSupportChat = (): UseSupportChatReturn => {
       const history = await apiClient.get<ChatHistoryItem[]>(url);
 
       if (Array.isArray(history)) {
-        setMessages(history.map((msg, index) => ({
+        const mappedMessages = history.map((msg, index) => ({
           id: `msg-${index}-${msg.timestamp}`,
           text: msg.content,
           isUser: msg.userMessage,
           timestamp: msg.timestamp
-        })));
+        }));
+
+        // Check for new admin messages (non-user messages)
+        const previousCount = previousMessageCountRef.current;
+        const newCount = mappedMessages.length;
+
+        if (previousCount > 0 && newCount > previousCount) {
+          // Find new messages that are from admin (not user)
+          const newMessages = mappedMessages.slice(previousCount);
+          const newAdminMessages = newMessages.filter(msg => !msg.isUser);
+
+          // Notify if there are new admin messages and chat is closed or page not visible
+          if (newAdminMessages.length > 0 && (!isOpen || document.hidden)) {
+            const latestMessage = newAdminMessages[newAdminMessages.length - 1];
+            notifyNewSupportReply(latestMessage.text);
+          }
+        }
+
+        previousMessageCountRef.current = newCount;
+        setMessages(mappedMessages);
         scrollToBottom();
       }
     } catch (error) {
       console.error('Failed to fetch chat history:', error);
     }
-  }, [isXamopsUser, scrollToBottom]);
+  }, [isXamopsUser, isOpen, scrollToBottom]);
 
   /**
    * Send a new message
@@ -177,6 +202,12 @@ export const useSupportChat = (): UseSupportChatReturn => {
     if (!isXamopsUser || isInitializedRef.current) return;
 
     isInitializedRef.current = true;
+
+    // Initialize notification service (requests permission)
+    if (!notificationInitializedRef.current) {
+      notificationInitializedRef.current = true;
+      initNotificationService();
+    }
 
     // Initial fetch
     fetchHistory();
