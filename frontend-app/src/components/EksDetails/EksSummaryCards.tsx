@@ -14,7 +14,6 @@ const EksSummaryCards: React.FC<EksSummaryCardsProps> = ({ eksData }) => {
   const {
     dashboard,
     costEfficiency,
-    idleCostPercentage,
     totalPodsCount,
     setActiveTab
   } = eksData;

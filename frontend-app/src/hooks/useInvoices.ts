@@ -21,7 +21,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { apiFetch } from '../utils/apiClient';
-import Big from 'big.js';
 import type {
   Invoice,
   ServiceCost,
@@ -29,7 +28,6 @@ import type {
   ResourceCost,
   Month,
   UseInvoicesReturn,
-  InvoiceDiscount,
 } from '../types/invoices';
 
 const CACHE_KEY = 'invoices_list_admin';

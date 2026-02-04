@@ -28,7 +28,6 @@ import { useBillOpsAdminTickets } from '../hooks/useBillOpsAdminTickets';
 import { useTopbar } from '../contexts/TopbarContext';
 import {
   AdminTicket,
-  AdminTicketTab,
   ADMIN_TICKET_TABS
 } from '../types/billopsAdminTickets';
 

@@ -136,17 +136,22 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
                 .durationSeconds(3600) // 1 hour session duration
                 .build());
 
+        String bashCommand = "export TMOUT=1800 && " +
+                "echo '' && " +
+                "echo 'Authenticated to AWS Account' && " +
+                "echo '' && " +
+                "exec /bin/bash -i";
+
         return new ProcessBuilder(
                 "docker", "run", "--rm", "-i",
                 "--memory=512m", "--cpus=0.5",
-                "--entrypoint", "script",
                 "-e", "AWS_ACCESS_KEY_ID=" + assumeRole.credentials().accessKeyId(),
                 "-e", "AWS_SECRET_ACCESS_KEY=" + assumeRole.credentials().secretAccessKey(),
                 "-e", "AWS_SESSION_TOKEN=" + assumeRole.credentials().sessionToken(),
                 "-e", "AWS_DEFAULT_REGION=us-east-1",
-                "-e", "TMOUT=1800", // 30 minute shell timeout
+                "-e", "TMOUT=1800",
                 "shivam777707/xamops-shell:fixed-08-Dec",
-                "-qfc", "/bin/bash -i", "/dev/null");
+                "/bin/bash", "-c", bashCommand);
     }
 
     private ProcessBuilder setupGcpProcess(String sessionId, CloudAccount account) {
@@ -168,8 +173,8 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
                         "echo '' && " +
                         "echo 'Authenticated to GCP Project: %s' && " +
                         "echo '' && " +
-                        "export TMOUT=1800 && " + // 30 minute shell timeout
-                        "/bin/bash -i",
+                        "export TMOUT=1800 && " +
+                        "exec /bin/bash -i",
                 projectId, projectId);
 
         return new ProcessBuilder(
@@ -178,7 +183,7 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
                 "-e", "GCP_KEY_B64=" + encodedKey,
                 "-e", "TMOUT=1800",
                 "shivam777707/xamops-shell:fixed-08-Dec",
-                "script", "-qfc", bashCommand, "/dev/null");
+                "/bin/bash", "-c", bashCommand);
     }
 
     private ProcessBuilder setupAzureProcess(String sessionId, CloudAccount account) {

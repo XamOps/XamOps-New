@@ -16,7 +16,6 @@
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAccounts } from '../contexts/AccountContext';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useVPC } from '../contexts/VPCContext';
@@ -43,7 +42,6 @@ cytoscape.use(cytoscapeDagre);
 cytoscape.use(cytoscapeEdgehandles);
 
 const CloudMapPage: React.FC = () => {
-  const navigate = useNavigate();
   const { selectedAccountIds } = useAccounts();
   const { awsVpcs, awsVpcsLoading, fetchAwsVpcs } = useVPC();
   const { setActions } = useTopbar();
@@ -70,7 +68,7 @@ const CloudMapPage: React.FC = () => {
   }>({ show: false, title: '' });
 
   // Drag & drop state
-  const [draggedType, setDraggedType] = useState<string | null>(null);
+  const [, setDraggedType] = useState<string | null>(null);
 
   // Local UI state
   const [selectedVpcValue, setSelectedVpcValue] = useState<string>('');
@@ -86,8 +84,6 @@ const CloudMapPage: React.FC = () => {
     loadGraph,
     blueprints,
     selectedBlueprintId,
-    setSelectedBlueprintId,
-    loadingBlueprints,
     savingBlueprint,
     saveBlueprint,
     loadBlueprint,
@@ -96,7 +92,6 @@ const CloudMapPage: React.FC = () => {
   } = useCloudMap({
     accountId,
     mode,
-    selectedVpcValue,
   });
 
   // Load VPCs when account changes (Live Mode only)
@@ -139,7 +134,7 @@ const CloudMapPage: React.FC = () => {
           name: 'dagre',
           nodeSep: 80,
           rankDir: 'TB',
-        },
+        } as any,
       style: getCytoscapeStyle(),
       wheelSensitivity: 0.2,
     });

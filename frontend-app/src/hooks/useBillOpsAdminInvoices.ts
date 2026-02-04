@@ -239,7 +239,7 @@ export const useBillOpsAdminInvoices = (): UseBillOpsAdminInvoicesReturn => {
    * Check if invoice is CloudFront type
    */
   const isCloudFront = useCallback((invoice: AdminInvoiceItem): boolean => {
-    return invoice.invoiceNumber && invoice.invoiceNumber.startsWith('CF-');
+    return !!(invoice.invoiceNumber && invoice.invoiceNumber.startsWith('CF-'));
   }, []);
 
   /**

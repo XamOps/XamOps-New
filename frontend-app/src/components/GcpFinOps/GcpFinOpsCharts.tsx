@@ -24,8 +24,8 @@ const formatCurrency = (value: number): string => {
 const GcpFinOpsCharts: React.FC<GcpFinOpsChartsProps> = ({ costBreakdown }) => {
   const serviceChartRef = useRef<HTMLCanvasElement>(null);
   const regionChartRef = useRef<HTMLCanvasElement>(null);
-  const serviceChartInstance = useRef<Chart | null>(null);
-  const regionChartInstance = useRef<Chart | null>(null);
+  const serviceChartInstance = useRef<Chart<'doughnut'> | null>(null);
+  const regionChartInstance = useRef<Chart<'bar'> | null>(null);
 
   useEffect(() => {
     // Render Service Chart

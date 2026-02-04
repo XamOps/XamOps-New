@@ -62,7 +62,7 @@ export const ConfigurationForm: React.FC<ConfigurationFormProps> = ({
   };
 
   // Handle input change
-  const handleInputChange = (name: string, value: any, field: FormField) => {
+  const handleInputChange = (name: string, value: any, _field: FormField) => {
     setFormValues((prev) => ({
       ...prev,
       [name]: value,
@@ -91,8 +91,42 @@ export const ConfigurationForm: React.FC<ConfigurationFormProps> = ({
     const commonClasses =
       'w-full bg-gray-50 border-0 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-500 transition-all text-gray-700';
 
-    if (field.type === 'select' || field.type === 'select-dynamic') {
-      const options = field.type === 'select' ? field.options || [] : dynamicOptions[field.name] || [];
+    if (field.type === 'select') {
+      const selectOptions = field.options || [];
+
+      return (
+        <div key={field.name} className="mb-4">
+          <label
+            htmlFor={field.name}
+            className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2"
+          >
+            {field.label}
+            {field.required && ' *'}
+          </label>
+          <select
+            id={field.name}
+            name={field.name}
+            className={commonClasses}
+            value={formValues[field.name] as string || ''}
+            onChange={(e) => handleInputChange(field.name, e.target.value, field)}
+            required={field.required}
+          >
+            <option value="">-- Select --</option>
+            {selectOptions.map((opt) => (
+              <option key={opt} value={opt}>
+                {opt}
+              </option>
+            ))}
+          </select>
+          {field.help && (
+            <p className="mt-1.5 text-[11px] text-gray-400 leading-relaxed">{field.help}</p>
+          )}
+        </div>
+      );
+    }
+
+    if (field.type === 'select-dynamic') {
+      const dynamicOpts = dynamicOptions[field.name] || [];
 
       return (
         <div key={field.name} className="mb-4">
@@ -110,29 +144,22 @@ export const ConfigurationForm: React.FC<ConfigurationFormProps> = ({
             value={formValues[field.name] as string || ''}
             onChange={(e) => handleInputChange(field.name, e.target.value, field)}
             onFocus={() => {
-              if (field.type === 'select-dynamic' && options.length === 0) {
+              if (dynamicOpts.length === 0) {
                 loadOptionsForField(field);
               }
             }}
             required={field.required}
           >
             <option value="">-- Select --</option>
-            {field.type === 'select' &&
-              options.map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt}
+            {dynamicOpts.map((opt) => {
+              const value = opt.instanceType || opt.code || '';
+              const label = opt.description ? `${value} (${opt.description})` : value;
+              return (
+                <option key={value} value={value}>
+                  {label}
                 </option>
-              ))}
-            {field.type === 'select-dynamic' &&
-              options.map((opt) => {
-                const value = opt.instanceType || opt.code || String(opt);
-                const label = opt.description ? `${value} (${opt.description})` : value;
-                return (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                );
-              })}
+              );
+            })}
           </select>
           {field.help && (
             <p className="mt-1.5 text-[11px] text-gray-400 leading-relaxed">{field.help}</p>

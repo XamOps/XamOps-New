@@ -25,7 +25,7 @@ interface UseLayoutReturn {
 
 export const useLayout = (): UseLayoutReturn => {
   const [layoutChanged, setLayoutChanged] = useState(false);
-  const [originalOrder, setOriginalOrder] = useState<string[]>([]);
+  const [, setOriginalOrder] = useState<string[]>([]);
   const sortableInstanceRef = useRef<any>(null);
 
   /**

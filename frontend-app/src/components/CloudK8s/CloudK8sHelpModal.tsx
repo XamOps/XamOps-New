@@ -12,7 +12,7 @@ interface CloudK8sHelpModalProps {
 }
 
 interface CopyButtonProps {
-  codeRef: React.RefObject<HTMLElement>;
+  codeRef: React.RefObject<HTMLElement | null>;
 }
 
 const CopyButton: React.FC<CopyButtonProps> = ({ codeRef }) => {

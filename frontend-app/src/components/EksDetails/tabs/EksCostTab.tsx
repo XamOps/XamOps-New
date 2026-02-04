@@ -385,7 +385,7 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
             </thead>
             <tbody>
               {sortedNodesByCost
-                .filter((node: any) => true) // No capacity filter
+                .filter(() => true) // No capacity filter
                 .sort((a: any, b: any) => {
                   const aReady = (a.condition === 'Ready' || a.condition === 'ready' || !a.condition) ? 1 : 0;
                   const bReady = (b.condition === 'Ready' || b.condition === 'ready' || !b.condition) ? 1 : 0;

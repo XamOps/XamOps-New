@@ -20,7 +20,6 @@
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAccounts } from '../contexts/AccountContext';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useVPC } from '../contexts/VPCContext';
@@ -63,7 +62,6 @@ const GCP_ICONS: Record<string, string> = {
 };
 
 const GcpCloudMapPage: React.FC = () => {
-  const navigate = useNavigate();
   const { selectedAccountIds } = useAccounts();
   const { gcpVpcs, gcpVpcsLoading, gcpVpcsError, fetchGcpVpcs } = useVPC();
   const { setActions } = useTopbar();
@@ -77,8 +75,9 @@ const GcpCloudMapPage: React.FC = () => {
 
   // UI State
   const [selectedVpcValue, setSelectedVpcValue] = useState<string>('');
-  const [loadingGraph, setLoadingGraph] = useState<boolean>(false);
-  const [graphError, setGraphError] = useState<string | null>(null);
+  const [loadingVpcs, setLoadingVpcs] = useState<boolean>(false);
+  const [, setLoadingGraph] = useState<boolean>(false);
+  const [, setGraphError] = useState<string | null>(null);
   const [infoPanelOpen, setInfoPanelOpen] = useState(false);
   const [selectedNodeData, setSelectedNodeData] = useState<NodeData | null>(null);
   const [messageOverlay, setMessageOverlay] = useState<{
@@ -109,7 +108,7 @@ const GcpCloudMapPage: React.FC = () => {
           rankDir: 'TB',
           align: 'UL',
           spacingFactor: 1.5,
-        },
+        } as any,
         style: [
           {
             selector: 'node',
@@ -121,7 +120,7 @@ const GcpCloudMapPage: React.FC = () => {
               'text-valign': 'bottom',
               'text-halign': 'center',
               'color': '#374151',
-              'text-margin-y': 8,
+              'text-margin-y': 8 as any,
               'width': 60,
               'height': 60,
               'background-opacity': 0,
