@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import type { Tenant, TenantUser, UserRole } from '../../types/auth';
 import { useAuth } from '../../contexts/AuthContext';
-import { useTopbar } from '../../contexts/TopbarContext';
+import { useTopbarActions } from '../../contexts/TopbarContext';
 
 interface DashboardHeaderProps {
   hasAnyRole: (roles: UserRole | UserRole[]) => boolean;
@@ -34,7 +34,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   getLink,
 }) => {
   const { switchTenant, switchUser, resetContext, fetchTenantUsers } = useAuth();
-  const { setActions, clearActions } = useTopbar();
+  const { setActions, clearActions } = useTopbarActions();
 
   const handleTenantChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     const tenantId = e.target.value;
