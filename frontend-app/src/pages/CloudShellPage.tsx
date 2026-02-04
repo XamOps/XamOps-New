@@ -13,11 +13,11 @@
  * - Professional GitHub-inspired dark theme
  */
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { useAccounts } from '../contexts/AccountContext';
-import { useTopbar } from '../contexts/TopbarContext';
+import { useTopbarActions } from '../contexts/TopbarContext';
 import '@xterm/xterm/css/xterm.css';
 
 interface TerminalTab {
@@ -27,11 +27,6 @@ interface TerminalTab {
   status: 'initializing' | 'connecting' | 'connected' | 'disconnected' | 'error';
 }
 
-// Store terminal instances outside React state to avoid stale closures
-const terminalInstances = new Map<string, Terminal>();
-const socketInstances = new Map<string, WebSocket>();
-const fitAddonInstances = new Map<string, FitAddon>();
-
 const CloudShellPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
 
@@ -40,10 +35,60 @@ const CloudShellPage: React.FC = () => {
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [currentAccountId, setCurrentAccountId] = useState<string | null>(null);
 
+  // Store terminal instances in refs to allow proper cleanup on unmount
+  const terminalInstancesRef = useRef<Map<string, Terminal>>(new Map());
+  const socketInstancesRef = useRef<Map<string, WebSocket>>(new Map());
+  const fitAddonInstancesRef = useRef<Map<string, FitAddon>>(new Map());
+
   // Refs for lifecycle management
-  const mountedRef = useRef<boolean>(true);
+  const mountedRef = useRef<boolean>(false);
   const tabCounterRef = useRef<number>(0);
   const initializedRef = useRef<boolean>(false);
+
+  /**
+   * Cleanup all terminal resources - must be synchronous and not throw
+   */
+  const cleanupAllResources = useCallback(() => {
+    console.log('CloudShell: Cleaning up all resources');
+
+    // Close all WebSocket connections first
+    socketInstancesRef.current.forEach((socket) => {
+      try {
+        socket.onopen = null;
+        socket.onmessage = null;
+        socket.onclose = null;
+        socket.onerror = null;
+        if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+          socket.close(1000, 'Cleanup');
+        }
+      } catch (e) {
+        // Ignore errors during cleanup
+      }
+    });
+    socketInstancesRef.current.clear();
+
+    // Dispose all terminal instances
+    terminalInstancesRef.current.forEach((term) => {
+      try {
+        term.dispose();
+      } catch (e) {
+        // Ignore errors during cleanup
+      }
+    });
+    terminalInstancesRef.current.clear();
+
+    // Clear fit addons
+    fitAddonInstancesRef.current.clear();
+
+    // Clear container safely
+    if (terminalContainerRef.current) {
+      while (terminalContainerRef.current.firstChild) {
+        terminalContainerRef.current.removeChild(terminalContainerRef.current.firstChild);
+      }
+    }
+
+    console.log('CloudShell: Cleanup complete');
+  }, []);
 
   /**
    * Get account ID from URL params or session storage
@@ -67,6 +112,7 @@ const CloudShellPage: React.FC = () => {
    * Update tab status
    */
   const updateTabStatus = useCallback((tabId: string, status: TerminalTab['status']) => {
+    if (!mountedRef.current) return;
     setTabs((prev) =>
       prev.map((tab) => (tab.id === tabId ? { ...tab, status } : tab))
     );
@@ -78,12 +124,14 @@ const CloudShellPage: React.FC = () => {
   const initWebSocketForTab = useCallback(
     (tabId: string, accountId: string, terminal: Terminal) => {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const host = import.meta.env.MODE === 'development' ? 'localhost:8080' : window.location.host;
+      // @ts-ignore - Vite env variable
+      const isDev = import.meta.env?.MODE === 'development' || window.location.port === '5173';
+      const host = isDev ? 'localhost:8080' : window.location.host;
       const tenantId = sessionStorage.getItem('selectedTenantId') || 'customer1';
       const wsUrl = `${protocol}//${host}/terminal?accountId=${accountId}&tenantId=${tenantId}`;
 
       const socket = new WebSocket(wsUrl);
-      socketInstances.set(tabId, socket);
+      socketInstancesRef.current.set(tabId, socket);
 
       socket.onopen = () => {
         console.log(`WebSocket Connected for tab ${tabId}`);
@@ -107,7 +155,7 @@ const CloudShellPage: React.FC = () => {
           return;
         }
 
-        // Write directly to the terminal instance (not through state)
+        // Write directly to the terminal instance
         terminal.write(data);
       };
 
@@ -192,9 +240,9 @@ const CloudShellPage: React.FC = () => {
       term.loadAddon(fitAddon);
       term.open(container);
 
-      // Store instances
-      terminalInstances.set(tabId, term);
-      fitAddonInstances.set(tabId, fitAddon);
+      // Store instances in refs
+      terminalInstancesRef.current.set(tabId, term);
+      fitAddonInstancesRef.current.set(tabId, fitAddon);
 
       // Fit terminal after it's visible
       setTimeout(() => {
@@ -204,13 +252,14 @@ const CloudShellPage: React.FC = () => {
         }
       }, 100);
 
-      // Initialize WebSocket (pass terminal directly to avoid closure issues)
-      const socket = initWebSocketForTab(tabId, accountId, term);
+      // Initialize WebSocket (stores in socketInstancesRef)
+      initWebSocketForTab(tabId, accountId, term);
 
       // Handle terminal input
       term.onData((data) => {
-        if (socket && socket.readyState === WebSocket.OPEN) {
-          socket.send(data);
+        const currentSocket = socketInstancesRef.current.get(tabId);
+        if (currentSocket && currentSocket.readyState === WebSocket.OPEN) {
+          currentSocket.send(data);
         }
       });
 
@@ -226,8 +275,9 @@ const CloudShellPage: React.FC = () => {
           }
           if (e.ctrlKey && e.shiftKey && e.key === 'V') {
             navigator.clipboard.readText().then((text) => {
-              if (socket && socket.readyState === WebSocket.OPEN) {
-                socket.send(text);
+              const currentSocket = socketInstancesRef.current.get(tabId);
+              if (currentSocket && currentSocket.readyState === WebSocket.OPEN) {
+                currentSocket.send(text);
               }
             });
             return false;
@@ -261,20 +311,28 @@ const CloudShellPage: React.FC = () => {
    */
   const closeTab = useCallback(
     (tabId: string) => {
-      // Cleanup instances
-      const socket = socketInstances.get(tabId);
+      // Cleanup instances for this tab
+      const socket = socketInstancesRef.current.get(tabId);
       if (socket) {
-        socket.close(1000, 'Tab closed');
-        socketInstances.delete(tabId);
+        try {
+          socket.close(1000, 'Tab closed');
+        } catch (e) {
+          console.warn('Error closing socket:', e);
+        }
+        socketInstancesRef.current.delete(tabId);
       }
 
-      const terminal = terminalInstances.get(tabId);
+      const terminal = terminalInstancesRef.current.get(tabId);
       if (terminal) {
-        terminal.dispose();
-        terminalInstances.delete(tabId);
+        try {
+          terminal.dispose();
+        } catch (e) {
+          console.warn('Error disposing terminal:', e);
+        }
+        terminalInstancesRef.current.delete(tabId);
       }
 
-      fitAddonInstances.delete(tabId);
+      fitAddonInstancesRef.current.delete(tabId);
 
       // Remove container
       const container = document.getElementById(`terminal-${tabId}`);
@@ -300,8 +358,8 @@ const CloudShellPage: React.FC = () => {
 
           // Fit the new active terminal
           setTimeout(() => {
-            const fitAddon = fitAddonInstances.get(newActiveId);
-            const term = terminalInstances.get(newActiveId);
+            const fitAddon = fitAddonInstancesRef.current.get(newActiveId);
+            const term = terminalInstancesRef.current.get(newActiveId);
             if (fitAddon && term) {
               fitAddon.fit();
               term.focus();
@@ -332,8 +390,8 @@ const CloudShellPage: React.FC = () => {
 
       // Fit and focus the active terminal
       setTimeout(() => {
-        const fitAddon = fitAddonInstances.get(tabId);
-        const term = terminalInstances.get(tabId);
+        const fitAddon = fitAddonInstancesRef.current.get(tabId);
+        const term = terminalInstancesRef.current.get(tabId);
         if (fitAddon && term) {
           fitAddon.fit();
           term.focus();
@@ -348,7 +406,7 @@ const CloudShellPage: React.FC = () => {
   useEffect(() => {
     const handleResize = () => {
       if (activeTabId) {
-        const fitAddon = fitAddonInstances.get(activeTabId);
+        const fitAddon = fitAddonInstancesRef.current.get(activeTabId);
         if (fitAddon) {
           fitAddon.fit();
         }
@@ -374,7 +432,42 @@ const CloudShellPage: React.FC = () => {
   }, [activeTabId]);
 
   /**
-   * Initialize first tab on mount
+   * Synchronous cleanup on unmount using useLayoutEffect
+   * This ensures cleanup happens before React removes the DOM
+   */
+  useLayoutEffect(() => {
+    return () => {
+      console.log('CloudShell: useLayoutEffect cleanup triggered');
+      mountedRef.current = false;
+      initializedRef.current = false;
+
+      // Blur any focused terminal elements to release keyboard capture
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
+
+      cleanupAllResources();
+    };
+  }, [cleanupAllResources]);
+
+  /**
+   * Handle visibility change - cleanup when tab becomes hidden
+   * This helps with navigation issues
+   */
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      cleanupAllResources();
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [cleanupAllResources]);
+
+  /**
+   * Initialize on mount
    */
   useEffect(() => {
     mountedRef.current = true;
@@ -386,23 +479,15 @@ const CloudShellPage: React.FC = () => {
 
       // Create first tab after a small delay
       const initTimeout = setTimeout(() => {
-        if (mountedRef.current && tabs.length === 0) {
+        if (mountedRef.current) {
           createAndInitTab(accountId);
         }
       }, 150);
 
-      return () => clearTimeout(initTimeout);
+      return () => {
+        clearTimeout(initTimeout);
+      };
     }
-
-    return () => {
-      mountedRef.current = false;
-      // Cleanup all instances
-      socketInstances.forEach((socket) => socket.close(1000, 'Component unmounted'));
-      socketInstances.clear();
-      terminalInstances.forEach((term) => term.dispose());
-      terminalInstances.clear();
-      fitAddonInstances.clear();
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -411,22 +496,12 @@ const CloudShellPage: React.FC = () => {
    */
   useEffect(() => {
     const newAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
-    if (newAccountId && newAccountId !== currentAccountId && initializedRef.current) {
+    if (newAccountId && newAccountId !== currentAccountId && initializedRef.current && mountedRef.current) {
       console.log('Account changed from', currentAccountId, 'to', newAccountId);
       setCurrentAccountId(newAccountId);
 
-      // Close all existing tabs
-      socketInstances.forEach((socket) => socket.close(1000, 'Account changed'));
-      socketInstances.clear();
-      terminalInstances.forEach((term) => term.dispose());
-      terminalInstances.clear();
-      fitAddonInstances.clear();
-
-      // Clear terminal containers
-      if (terminalContainerRef.current) {
-        terminalContainerRef.current.innerHTML = '';
-      }
-
+      // Cleanup existing resources
+      cleanupAllResources();
       setTabs([]);
       tabCounterRef.current = 0;
 
@@ -493,10 +568,11 @@ const CloudShellPage: React.FC = () => {
     }
   };
 
-  const statusDisplay = getConnectionStatusDisplay();
-
   // Topbar Integration
-  const { setActions, clearActions } = useTopbar();
+  const { setActions, clearActions } = useTopbarActions();
+
+  const statusDisplay = React.useMemo(() => getConnectionStatusDisplay(), [connectionStatus, currentAccountId]);
+
   useEffect(() => {
     setActions(
       <div className="flex items-center gap-4">
@@ -509,7 +585,7 @@ const CloudShellPage: React.FC = () => {
       </div>
     );
     return () => clearActions();
-  }, [setActions, clearActions, connectionStatus, currentAccountId, statusDisplay]);
+  }, [setActions, clearActions, connectionStatus, statusDisplay]);
 
   return (
     <main className="flex-1 flex flex-col min-h-0 h-full relative bg-gray-50">
@@ -522,11 +598,10 @@ const CloudShellPage: React.FC = () => {
             <div
               key={tab.id}
               onClick={() => switchTab(tab.id)}
-              className={`flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-t-md cursor-pointer transition-colors group ${
-                activeTabId === tab.id
-                  ? 'bg-[#0d1117] border-t border-l border-r border-orange-500 text-white -mb-px z-10'
-                  : 'bg-[#21262d] text-gray-400 hover:bg-[#30363d] hover:text-white border border-transparent'
-              }`}
+              className={`flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-t-md cursor-pointer transition-colors group ${activeTabId === tab.id
+                ? 'bg-[#0d1117] border-t border-l border-r border-orange-500 text-white -mb-px z-10'
+                : 'bg-[#21262d] text-gray-400 hover:bg-[#30363d] hover:text-white border border-transparent'
+                }`}
             >
               <i className="fab fa-linux text-gray-400 text-xs"></i>
               <span>{tab.name}</span>
