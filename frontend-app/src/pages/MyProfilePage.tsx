@@ -103,7 +103,7 @@ const MyProfilePage: React.FC = () => {
   }
 
   return (
-    <main id="main-content" className="flex-1 w-full flex flex-col items-stretch p-6 lg:p-8 bg-[#f8fafc] my-profile-page">
+    <main id="profile-main-container" className="flex-1 w-full flex flex-col items-stretch p-6 lg:p-8 bg-[#f8fafc] my-profile-page">
       {loading && !profile.username ? (
         <ProfileSkeleton />
       ) : (

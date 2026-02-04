@@ -643,17 +643,6 @@ const AppContent: React.FC = () => {
           }
         />
 
-        {/* Account Manager Route (converted from account-manager.html) */}
-        <Route
-          path="/account-manager"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <AccountManagerPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
 
         {/* Add Account Route (converted from add-account.html) */}
         <Route
@@ -844,17 +833,6 @@ const AppContent: React.FC = () => {
           }
         />
 
-        {/* BillOps Invoices Route (converted from billops/invoices.html) */}
-        <Route
-          path="/billops-invoices"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <InvoicesPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
 
         {/* BillOps Credits Route (converted from billops/credits.html) */}
         <Route

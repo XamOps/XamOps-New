@@ -7,7 +7,7 @@ import LogoutModal from './LogoutModal';
 
 const Topbar: React.FC = () => {
     const location = useLocation();
-    const { actions } = useTopbar();
+    const { actions, onHelpClick } = useTopbar();
     const { userProfile, logout, hasAnyRole } = useAuth();
     const [isProfileOpen, setIsProfileOpen] = useState(false);
     const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
@@ -90,9 +90,15 @@ const Topbar: React.FC = () => {
                             <i className="fas fa-bell"></i>
                             <span className="absolute top-2 right-2 w-2 h-2 bg-rose-500 rounded-full border-2 border-white"></span>
                         </button>
-                        <button className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-100/50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-all">
-                            <i className="fas fa-question-circle"></i>
-                        </button>
+                        {onHelpClick && (
+                            <button
+                                onClick={onHelpClick}
+                                className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-100/50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-all"
+                                aria-label="Open help guide"
+                            >
+                                <i className="fas fa-question-circle"></i>
+                            </button>
+                        )}
                     </div>
 
                     <div className="h-8 w-[1px] bg-slate-200 mx-1"></div>
