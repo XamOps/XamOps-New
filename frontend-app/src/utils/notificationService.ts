@@ -20,12 +20,20 @@ let audioContext: AudioContext | null = null;
  * Requests permission and preloads the notification sound
  */
 export const initNotificationService = async (): Promise<void> => {
+  console.log('[NotificationService] Initializing...');
+
   // Request notification permission
   if ('Notification' in window) {
     notificationPermission = Notification.permission;
+    console.log('[NotificationService] Current permission:', notificationPermission);
+
     if (notificationPermission === 'default') {
+      console.log('[NotificationService] Requesting permission...');
       notificationPermission = await Notification.requestPermission();
+      console.log('[NotificationService] Permission result:', notificationPermission);
     }
+  } else {
+    console.warn('[NotificationService] Browser does not support notifications');
   }
 
   // Preload notification sound
@@ -34,9 +42,12 @@ export const initNotificationService = async (): Promise<void> => {
     notificationAudio.volume = 0.5;
     // Preload the audio
     notificationAudio.load();
+    console.log('[NotificationService] Audio preloaded');
   } catch (error) {
-    console.warn('Failed to load notification sound:', error);
+    console.warn('[NotificationService] Failed to load notification sound:', error);
   }
+
+  console.log('[NotificationService] Initialization complete');
 };
 
 /**
@@ -56,7 +67,10 @@ export const requestNotificationPermission = async (): Promise<NotificationPermi
  * Check if notifications are enabled
  */
 export const isNotificationEnabled = (): boolean => {
-  return 'Notification' in window && notificationPermission === 'granted';
+  // Always check the actual browser permission, not our cached value
+  const enabled = 'Notification' in window && Notification.permission === 'granted';
+  console.log('[NotificationService] isNotificationEnabled:', enabled, 'Browser permission:', Notification.permission);
+  return enabled;
 };
 
 /**
@@ -119,18 +133,22 @@ export const showNotification = (
     onClick?: () => void;
   }
 ): void => {
+  console.log('[NotificationService] showNotification called:', title, options?.body);
+
   // Play sound regardless of notification permission
   playNotificationSound();
 
   // Show browser notification if permitted
   if (isNotificationEnabled()) {
     try {
+      console.log('[NotificationService] Creating browser notification...');
       const notification = new Notification(title, {
         body: options?.body,
         icon: options?.icon || '/icons/XamOps.png',
         tag: options?.tag || 'support-chat',
         requireInteraction: false,
       });
+      console.log('[NotificationService] Browser notification created successfully');
 
       // Handle click
       if (options?.onClick) {
@@ -144,8 +162,10 @@ export const showNotification = (
       // Auto-close after 5 seconds
       setTimeout(() => notification.close(), 5000);
     } catch (error) {
-      console.warn('Failed to show notification:', error);
+      console.warn('[NotificationService] Failed to show notification:', error);
     }
+  } else {
+    console.log('[NotificationService] Notifications not enabled, skipping browser notification');
   }
 };
 

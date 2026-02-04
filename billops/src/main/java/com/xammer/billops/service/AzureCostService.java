@@ -13,11 +13,9 @@ public class AzureCostService {
 
     private static final Logger log = LoggerFactory.getLogger(AzureCostService.class);
     private final RedisCacheService redisCache;
-    private final AzureBillingDataIngestionService ingestionService; // Inject to trigger on-demand if needed
 
-    public AzureCostService(RedisCacheService redisCache, AzureBillingDataIngestionService ingestionService) {
+    public AzureCostService(RedisCacheService redisCache) {
         this.redisCache = redisCache;
-        this.ingestionService = ingestionService;
     }
 
     /**
@@ -44,13 +42,11 @@ public class AzureCostService {
         Optional<AzureBillingDashboardDto> cachedData = redisCache.get(cacheKey, AzureBillingDashboardDto.class);
 
         if (cachedData.isPresent()) {
+            log.info("✅ [AZURE DEBUG] Found cached data for {}. Cost: {}", cacheKey, cachedData.get().getTotalCost());
             return cachedData.get();
         } else {
-            log.warn("Cache miss for {}. Data might not be ingested yet.", cacheKey);
-
-            // Optional: If specific historical data is requested and missing, return empty
-            // If current month is missing, we might return an empty object or trigger an
-            // ingestion check (though ingestion is slow)
+            log.warn("⚠️ [AZURE DEBUG] Cache MISS for {}. This usually means ingestion hasn't run or failed.",
+                    cacheKey);
             return new AzureBillingDashboardDto();
         }
     }

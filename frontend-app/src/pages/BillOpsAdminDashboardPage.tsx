@@ -30,9 +30,12 @@ import { useBillOpsAdminDashboard } from '../hooks/useBillOpsAdminDashboard';
 import { useTopbar } from '../contexts/TopbarContext';
 import type { TopSpendingAccount, AdminInvoice, AdminTicket } from '../types/billopsAdminDashboard';
 
+import { useCurrency } from '../hooks/useCurrency';
+
 const BillOpsAdminDashboardPage: React.FC = () => {
   const { data, loading, isRefreshing, error, refreshDashboard } = useBillOpsAdminDashboard();
   const { setActions, clearActions } = useTopbar();
+  const { loadRates, convert, loading: currencyLoading } = useCurrency();
 
   // Chart refs
   const providerChartRef = useRef<HTMLCanvasElement>(null);
@@ -40,17 +43,33 @@ const BillOpsAdminDashboardPage: React.FC = () => {
   const providerChartInstance = useRef<Chart<'doughnut'> | null>(null);
   const statusChartInstance = useRef<Chart<'bar'> | null>(null);
 
+  // Load currency rates (Assuming GCP data is in INR and needs conversion to USD)
+  useEffect(() => {
+    loadRates('inr');
+  }, [loadRates]);
+
   /**
    * Format currency value
    */
-  const formatCurrency = (value: number | null | undefined): string => {
+  const formatCurrency = (value: number | null | undefined, provider?: string): string => {
     if (value === null || value === undefined) return '$0.00';
+
+    let finalValue = value;
+
+    // Convert GCP data (assumed INR) to USD
+    if (provider === 'GCP') {
+      const converted = convert(value, 'usd');
+      if (converted !== null) {
+        finalValue = converted;
+      }
+    }
+
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
-    }).format(value);
+    }).format(finalValue);
   };
 
   /**
@@ -504,10 +523,10 @@ const BillOpsAdminDashboardPage: React.FC = () => {
                           </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-black text-gray-900">
-                          {formatCurrency(account.currentMonthSpending)}
+                          {formatCurrency(account.currentMonthSpending, account.provider)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
-                          {formatCurrency(account.lastMonthSpending)}
+                          {formatCurrency(account.lastMonthSpending, account.provider)}
                         </td>
                       </tr>
                     ))

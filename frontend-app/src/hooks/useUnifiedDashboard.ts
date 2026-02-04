@@ -15,8 +15,10 @@ import type {
   ViewMode,
   SubAccount,
 } from '../types/dashboard';
+import { useCurrency } from './useCurrency';
 
 export const useUnifiedDashboard = () => {
+  const { convert, loadRates } = useCurrency();
   // Loading states
   const [isLoading, setIsLoading] = useState<DashboardLoading>({
     summary: true,
@@ -125,10 +127,15 @@ export const useUnifiedDashboard = () => {
       const data: ProviderData = await res.json();
       if (data.error) throw new Error(data.error);
 
+      let processedData = data;
+      if (provider === 'gcp') {
+        processedData = convertGcpDataToUSD(data);
+      }
+
       // Update state based on provider
-      if (provider === 'aws') setAwsData(data);
-      else if (provider === 'gcp') setGcpData(data);
-      else if (provider === 'azure') setAzureData(data);
+      if (provider === 'aws') setAwsData(processedData);
+      else if (provider === 'gcp') setGcpData(processedData);
+      else if (provider === 'azure') setAzureData(processedData);
 
       // Update server time
       if (data.lastUpdated) {
@@ -218,8 +225,53 @@ export const useUnifiedDashboard = () => {
     return JSON.parse(JSON.stringify(all));
   }, [awsData, gcpData, azureData]);
 
+  // Helper to convert GCP data to USD
+  const convertGcpDataToUSD = useCallback((data: ProviderData): ProviderData => {
+    if (!data.selectedAccount) return data;
+
+    const convertValue = (val: number | undefined) => {
+      if (!val) return 0;
+      const converted = convert(val, 'usd');
+      return converted !== null ? converted : val;
+    };
+
+    const convertedAccount = {
+      ...data.selectedAccount,
+      monthToDateSpend: convertValue(data.selectedAccount.monthToDateSpend),
+      forecastedSpend: convertValue(data.selectedAccount.forecastedSpend),
+      optimizationSummary: {
+        ...data.selectedAccount.optimizationSummary,
+        totalPotentialSavings: convertValue(data.selectedAccount.optimizationSummary?.totalPotentialSavings),
+      },
+      costHistory: {
+        ...data.selectedAccount.costHistory,
+        costs: data.selectedAccount.costHistory?.costs?.map((c) => {
+          const converted = convert(c, 'usd');
+          return converted !== null ? converted : c;
+        }) || [],
+      },
+      subAccounts: data.selectedAccount.subAccounts?.map((acc) => ({
+        ...acc,
+        monthToDateSpend: convertValue(acc.monthToDateSpend),
+        forecastedSpend: convertValue(acc.forecastedSpend),
+        optimizationSummary: acc.optimizationSummary ? {
+          ...acc.optimizationSummary,
+          totalPotentialSavings: convertValue(acc.optimizationSummary.totalPotentialSavings),
+        } : undefined,
+      })) || [],
+    };
+
+    return {
+      ...data,
+      selectedAccount: convertedAccount,
+    };
+  }, [convert]);
+
   // Initialize on mount - only run once
   useEffect(() => {
+    // Load INR rates for GCP conversion
+    loadRates('inr');
+
     // Guard against double initialization (React Strict Mode)
     if (initializedRef.current) {
       return;
