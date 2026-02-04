@@ -2,6 +2,7 @@ package com.xammer.cloud.service.gcp;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.cloud.bigquery.*;
+import com.google.cloud.bigquery.QueryParameterValue;
 import com.xammer.cloud.dto.DetailedCostDto; // <-- NEW IMPORT
 import com.xammer.cloud.dto.gcp.GcpCostDto;
 import com.xammer.cloud.service.RedisCacheService;
@@ -40,6 +41,9 @@ public class GcpCostService {
     // --- NEW CACHE KEY ---
     private static final String COST_BY_SERVICE_REGION_CACHE_PREFIX = "gcp:cost-by-service-region:";
 
+    private static final Set<String> ALLOWED_DIMENSIONS = Set.of(
+            "service.description", "location.region", "project.name"
+    );
 
     public GcpCostService(GcpClientProvider gcpClientProvider, RedisCacheService redisCacheService) {
         this.gcpClientProvider = gcpClientProvider;
@@ -75,18 +79,21 @@ public class GcpCostService {
                         "    location.region as region, " +
                         "    SUM(cost) as total_cost " +
                         "FROM `%s` " +
-                        "WHERE DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
+                        "WHERE DATE(usage_start_time) >= @startDate AND DATE(usage_start_time) <= @endDate " +
                         "GROUP BY 1, 2 " +
                         "HAVING total_cost > 0.01 " +
                         "ORDER BY total_cost DESC",
-                tableNameOpt.get(),
-                startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
-                endDate.format(DateTimeFormatter.ISO_LOCAL_DATE)
+                tableNameOpt.get()
         );
 
         try {
+            QueryJobConfiguration queryConfig = QueryJobConfiguration.newBuilder(query)
+                    .addNamedParameter("startDate", QueryParameterValue.date(startDate.format(DateTimeFormatter.ISO_LOCAL_DATE)))
+                    .addNamedParameter("endDate", QueryParameterValue.date(endDate.format(DateTimeFormatter.ISO_LOCAL_DATE)))
+                    .build();
+
             log.info("Executing BigQuery query for project {}: {}", gcpProjectId, query);
-            TableResult results = bigquery.query(QueryJobConfiguration.newBuilder(query).build());
+            TableResult results = bigquery.query(queryConfig);
             List<DetailedCostDto> resultList = StreamSupport.stream(results.iterateAll().spliterator(), false)
                     .map(row -> new DetailedCostDto(
                             row.get("service").isNull() ? "Uncategorized" : row.get("service").getStringValue(),
@@ -135,17 +142,17 @@ public class GcpCostService {
 
         LocalDate today = LocalDate.now();
         LocalDate startDate = today.withDayOfMonth(1);
-        String query = String.format(
-                "SELECT l.value as name, SUM(cost) as total_cost, false as is_anomaly " +
+        QueryJobConfiguration queryConfig = QueryJobConfiguration.newBuilder(
+                String.format("SELECT l.value as name, SUM(cost) as total_cost, false as is_anomaly " +
                         "FROM `%s`, UNNEST(labels) as l " +
-                        "WHERE l.key = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
-                        "GROUP BY 1 ORDER BY total_cost DESC",
-                tableNameOpt.get(), tagKey,
-                startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
-                today.format(DateTimeFormatter.ISO_LOCAL_DATE)
-        );
+                        "WHERE l.key = @tagKey AND DATE(usage_start_time) >= @startDate AND DATE(usage_start_time) <= @endDate " +
+                        "GROUP BY 1 ORDER BY total_cost DESC", tableNameOpt.get()))
+                .addNamedParameter("tagKey", QueryParameterValue.string(tagKey))
+                .addNamedParameter("startDate", QueryParameterValue.date(startDate.format(DateTimeFormatter.ISO_LOCAL_DATE)))
+                .addNamedParameter("endDate", QueryParameterValue.date(today.format(DateTimeFormatter.ISO_LOCAL_DATE)))
+                .build();
 
-        List<GcpCostDto> result = executeQuery(bigquery, query, gcpProjectId);
+        List<GcpCostDto> result = executeQuery(bigquery, queryConfig, gcpProjectId);
         redisCacheService.put(cacheKey, result, 10);
         return result;
     }
@@ -176,15 +183,15 @@ public class GcpCostService {
 
         LocalDate today = LocalDate.now();
         LocalDate startDate = today.withDayOfMonth(1);
-        String query = String.format(
-                "SELECT SUM(cost) as total_cost FROM `%s` WHERE DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s'",
-                tableNameOpt.get(),
-                startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
-                today.format(DateTimeFormatter.ISO_LOCAL_DATE)
-        );
+        QueryJobConfiguration queryConfig = QueryJobConfiguration.newBuilder(
+                String.format("SELECT SUM(cost) as total_cost FROM `%s` WHERE DATE(usage_start_time) >= @startDate AND DATE(usage_start_time) <= @endDate",
+                        tableNameOpt.get()))
+                .addNamedParameter("startDate", QueryParameterValue.date(startDate.format(DateTimeFormatter.ISO_LOCAL_DATE)))
+                .addNamedParameter("endDate", QueryParameterValue.date(today.format(DateTimeFormatter.ISO_LOCAL_DATE)))
+                .build();
 
         try {
-            TableResult results = bigquery.query(QueryJobConfiguration.newBuilder(query).build());
+            TableResult results = bigquery.query(queryConfig);
             FieldValue value = results.getValues().iterator().next().get("total_cost");
             Double result = value.isNull() ? 0.0 : value.getDoubleValue();
             redisCacheService.put(cacheKey, result, 10);
@@ -260,14 +267,16 @@ public class GcpCostService {
         String endDate = today.format(DateTimeFormatter.ISO_LOCAL_DATE);
         String startDate = today.minusMonths(6).withDayOfMonth(1).format(DateTimeFormatter.ISO_LOCAL_DATE);
 
-        String query = String.format(
-                "WITH MonthlyCosts AS (SELECT FORMAT_DATE('%%%%Y-%%%%m', usage_start_time) as name, SUM(cost) as total_cost FROM `%s` WHERE DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' GROUP BY 1), " +
+        QueryJobConfiguration queryConfig = QueryJobConfiguration.newBuilder(
+                String.format("WITH MonthlyCosts AS (SELECT FORMAT_DATE('%%%%Y-%%%%m', usage_start_time) as name, SUM(cost) as total_cost FROM `%s` WHERE DATE(usage_start_time) >= @startDate AND DATE(usage_start_time) <= @endDate GROUP BY 1), " +
                         "MonthlyCostsWithLag AS (SELECT name, total_cost, LAG(total_cost, 1, 0) OVER (ORDER BY name) as prev_month_cost FROM MonthlyCosts) " +
                         "SELECT name, total_cost, (total_cost > prev_month_cost * 1.2 AND prev_month_cost > 10) as is_anomaly FROM MonthlyCostsWithLag ORDER BY name",
-                tableNameOpt.get(), startDate, endDate
-        );
+                        tableNameOpt.get()))
+                .addNamedParameter("startDate", QueryParameterValue.date(startDate))
+                .addNamedParameter("endDate", QueryParameterValue.date(endDate))
+                .build();
 
-        List<GcpCostDto> result = executeQuery(bigquery, query, gcpProjectId);
+        List<GcpCostDto> result = executeQuery(bigquery, queryConfig, gcpProjectId);
         redisCacheService.put(cacheKey, result, 10);
         return result;
     }
@@ -335,20 +344,23 @@ public class GcpCostService {
         LocalDate endDate = LocalDate.now();
         LocalDate startDate = endDate.minusDays(days);
 
-        String serviceFilter = (serviceName != null && !serviceName.isEmpty() && !"ALL".equalsIgnoreCase(serviceName))
-                ? String.format("AND service.description = '%s'", serviceName)
-                : "";
-
+        boolean filterService = (serviceName != null && !serviceName.isEmpty() && !"ALL".equalsIgnoreCase(serviceName));
         String query = String.format(
-                "SELECT FORMAT_DATE('%%%%Y-%%%%m-%%%%d', usage_start_time) as date, SUM(cost) as cost FROM `%s` WHERE DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) < '%s' %s GROUP BY 1 ORDER BY 1",
+                "SELECT FORMAT_DATE('%%%%Y-%%%%m-%%%%d', usage_start_time) as date, SUM(cost) as cost FROM `%s` WHERE DATE(usage_start_time) >= @startDate AND DATE(usage_start_time) < @endDate %s GROUP BY 1 ORDER BY 1",
                 tableNameOpt.get(),
-                startDate.toString(),
-                endDate.toString(),
-                serviceFilter
+                filterService ? "AND service.description = @serviceName" : ""
         );
 
         try {
-            TableResult results = bigquery.query(QueryJobConfiguration.newBuilder(query).build());
+            QueryJobConfiguration.Builder queryConfigBuilder = QueryJobConfiguration.newBuilder(query)
+                    .addNamedParameter("startDate", QueryParameterValue.date(startDate.toString()))
+                    .addNamedParameter("endDate", QueryParameterValue.date(endDate.toString()));
+
+            if (filterService) {
+                queryConfigBuilder.addNamedParameter("serviceName", QueryParameterValue.string(serviceName));
+            }
+
+            TableResult results = bigquery.query(queryConfigBuilder.build());
             List<Map<String, Object>> result = StreamSupport.stream(results.iterateAll().spliterator(), false)
                     .map(row -> Map.<String, Object>of("date", row.get("date").getStringValue(), "cost", row.get("cost").getDoubleValue()))
                     .collect(Collectors.toList());
@@ -426,20 +438,29 @@ public class GcpCostService {
     }
 
     private List<GcpCostDto> queryCostData(BigQuery bigquery, String gcpProjectId, String dimension, LocalDate startDate, LocalDate endDate) {
+        if (!ALLOWED_DIMENSIONS.contains(dimension)) {
+            log.error("Invalid dimension provided for GCP cost query: {}", dimension);
+            return Collections.emptyList();
+        }
+
         Optional<String> tableNameOpt = getBillingTableName(bigquery, gcpProjectId);
         if (tableNameOpt.isEmpty()) return Collections.emptyList();
 
         String query = String.format(
-                "SELECT COALESCE(%s, 'Uncategorized') as name, SUM(cost) as total_cost, false as is_anomaly FROM `%s` WHERE DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' GROUP BY 1 HAVING total_cost > 0 ORDER BY total_cost DESC",
-                dimension, tableNameOpt.get(), startDate.format(DateTimeFormatter.ISO_LOCAL_DATE), endDate.format(DateTimeFormatter.ISO_LOCAL_DATE)
+                "SELECT COALESCE(%s, 'Uncategorized') as name, SUM(cost) as total_cost, false as is_anomaly FROM `%s` WHERE DATE(usage_start_time) >= @startDate AND DATE(usage_start_time) <= @endDate GROUP BY 1 HAVING total_cost > 0 ORDER BY total_cost DESC",
+                dimension, tableNameOpt.get()
         );
-        return executeQuery(bigquery, query, gcpProjectId);
+        QueryJobConfiguration queryConfig = QueryJobConfiguration.newBuilder(query)
+                .addNamedParameter("startDate", QueryParameterValue.date(startDate.format(DateTimeFormatter.ISO_LOCAL_DATE)))
+                .addNamedParameter("endDate", QueryParameterValue.date(endDate.format(DateTimeFormatter.ISO_LOCAL_DATE)))
+                .build();
+        return executeQuery(bigquery, queryConfig, gcpProjectId);
     }
 
-    private List<GcpCostDto> executeQuery(BigQuery bigquery, String query, String gcpProjectId) {
+    private List<GcpCostDto> executeQuery(BigQuery bigquery, QueryJobConfiguration queryConfig, String gcpProjectId) {
         try {
-            log.info("Executing BigQuery query for project {}: {}", gcpProjectId, query);
-            TableResult results = bigquery.query(QueryJobConfiguration.newBuilder(query).build());
+            log.info("Executing BigQuery query for project {}: {}", gcpProjectId, queryConfig.getQuery());
+            TableResult results = bigquery.query(queryConfig);
             return StreamSupport.stream(results.iterateAll().spliterator(), false)
                     .map(row -> new GcpCostDto(
                             row.get("name").getStringValue(),
