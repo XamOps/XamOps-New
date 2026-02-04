@@ -227,6 +227,11 @@ const DashboardGuard: React.FC<{ children: React.ReactNode }> = ({ children }) =
     );
   }
 
+  if (hasAnyRole('ROLE_BILLOPS_ADMIN') && !hasAnyRole('ROLE_SUPER_ADMIN')) {
+    console.log('🚫 Restricted Admin role detected, redirecting to BillOps Admin dashboard');
+    return <Navigate to="/billops-admin-dashboard" replace />;
+  }
+
   if (hasAnyRole('ROLE_BILLOPS') && !hasAnyRole('ROLE_XAMOPS') && !hasAnyRole('ROLE_SUPER_ADMIN')) {
     console.log('🚫 Restricted role detected, redirecting to BillOps dashboard');
     return <Navigate to="/billops-dashboard" replace />;

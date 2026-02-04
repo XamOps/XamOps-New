@@ -288,10 +288,13 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
     // Determine target page based on provider
     let targetPage = '/dashboard';
 
-    // Check if user is ROLE_BILLOPS (and not ROLE_XAMOPS)
+    // Check if user is ROLE_BILLOPS (and not ROLE_XAMOPS) or ROLE_BILLOPS_ADMIN
     const isBillOpsOnly = hasAnyRole('ROLE_BILLOPS') && !hasAnyRole('ROLE_XAMOPS');
+    const isBillOpsAdmin = hasAnyRole('ROLE_BILLOPS_ADMIN');
 
-    if (isBillOpsOnly) {
+    if (isBillOpsAdmin) {
+      targetPage = '/billops-admin-dashboard';
+    } else if (isBillOpsOnly) {
       targetPage = '/billops-dashboard';
     } else {
       if (provider === 'GCP') targetPage = '/gcp-dashboard';
