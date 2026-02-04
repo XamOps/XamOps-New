@@ -77,9 +77,16 @@ export const useSupportChat = (): UseSupportChatReturn => {
   const isInitializedRef = useRef(false);
   const previousMessageCountRef = useRef(0);
   const notificationInitializedRef = useRef(false);
+  const isOpenRef = useRef(isOpen); // Ref to track current isOpen state for use in callbacks
+  const fetchHistoryRef = useRef<() => Promise<void>>(); // Ref to store latest fetchHistory function
 
   // Check if user has ROLE_XAMOPS
   const isXamopsUser = hasAnyRole('ROLE_XAMOPS');
+
+  // Keep isOpenRef in sync with isOpen state
+  useEffect(() => {
+    isOpenRef.current = isOpen;
+  }, [isOpen]);
 
   /**
    * Scroll to bottom of chat
@@ -122,7 +129,8 @@ export const useSupportChat = (): UseSupportChatReturn => {
           const newAdminMessages = newMessages.filter(msg => !msg.isUser);
 
           // Notify if there are new admin messages and chat is closed or page not visible
-          if (newAdminMessages.length > 0 && (!isOpen || document.hidden)) {
+          // Use isOpenRef.current to get the latest value (avoids stale closure in interval)
+          if (newAdminMessages.length > 0 && (!isOpenRef.current || document.hidden)) {
             const latestMessage = newAdminMessages[newAdminMessages.length - 1];
             notifyNewSupportReply(latestMessage.text);
           }
@@ -135,7 +143,12 @@ export const useSupportChat = (): UseSupportChatReturn => {
     } catch (error) {
       console.error('Failed to fetch chat history:', error);
     }
-  }, [isXamopsUser, isOpen, scrollToBottom]);
+  }, [isXamopsUser, scrollToBottom]);
+
+  // Keep fetchHistoryRef updated with the latest fetchHistory function
+  useEffect(() => {
+    fetchHistoryRef.current = fetchHistory;
+  }, [fetchHistory]);
 
   /**
    * Send a new message
@@ -210,11 +223,12 @@ export const useSupportChat = (): UseSupportChatReturn => {
     }
 
     // Initial fetch
-    fetchHistory();
+    fetchHistoryRef.current?.();
 
     // Set up polling every 5 seconds
+    // Use fetchHistoryRef.current to always call the latest version of fetchHistory
     intervalRef.current = setInterval(() => {
-      fetchHistory();
+      fetchHistoryRef.current?.();
     }, 5000);
 
     return () => {
@@ -222,7 +236,7 @@ export const useSupportChat = (): UseSupportChatReturn => {
         clearInterval(intervalRef.current);
       }
     };
-  }, [isXamopsUser, fetchHistory]);
+  }, [isXamopsUser]);
 
   // Fetch history when chat opens
   useEffect(() => {
