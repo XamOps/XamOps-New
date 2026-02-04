@@ -103,7 +103,7 @@ const SupportChatWidget: React.FC = () => {
               <i className="fas fa-robot" />
             </div>
             <div className="support-chat-header-text">
-              <h3 className="support-chat-header-title">BillOps AI Assistant</h3>
+              <h3 className="support-chat-header-title">XamOps Chat Assistant</h3>
               <p className="support-chat-header-status">
                 <span className="support-chat-status-dot" />
                 Online - Ready to help

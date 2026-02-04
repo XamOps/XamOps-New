@@ -13,23 +13,35 @@ const GCPForm: React.FC = () => {
       <div className="form-card-header">
         <div className="step-number large">2</div>
         <div>
-          <h2 className="form-card-title">GCP Connection Details</h2>
+          <h2 className="form-card-title">Google Cloud Setup</h2>
           <p className="form-card-subtitle">
-            Connect using a dedicated Service Account.
+            Connect your GCP project using a Service Account
           </p>
         </div>
       </div>
 
-      <div style={{ marginBottom: '1.5rem' }}>
-        <p style={{ color: '#374151', fontSize: '0.875rem', lineHeight: '1.6' }}>
-          To connect your Google Cloud project, you will be redirected to a dedicated
-          page to provide a Service Account Key with the required permissions.
-        </p>
+      <div className="gcp-info-box">
+        <div className="gcp-info-icon">
+          <i className="fab fa-google" />
+        </div>
+        <div className="gcp-info-content">
+          <h4>Service Account Authentication</h4>
+          <p>
+            You'll create a dedicated Service Account with the required permissions
+            to securely access your Google Cloud resources and billing data.
+          </p>
+          <ul className="gcp-features-list">
+            <li><i className="fas fa-check" /><span>Cost and billing analytics</span></li>
+            <li><i className="fas fa-check" /><span>Resource inventory tracking</span></li>
+            <li><i className="fas fa-check" /><span>Performance monitoring</span></li>
+          </ul>
+        </div>
       </div>
 
       <div className="form-actions">
         <Link to="/add-gcp-account" className="btn-primary gcp">
-          Continue to GCP Setup
+          <span>Continue to GCP Setup</span>
+          <i className="fas fa-arrow-right" />
         </Link>
       </div>
     </div>

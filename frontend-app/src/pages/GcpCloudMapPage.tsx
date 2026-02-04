@@ -34,11 +34,6 @@ import cytoscapeDagre from 'cytoscape-dagre';
 cytoscape.use(cytoscapeDagre);
 
 // Types
-interface VpcOption {
-  id: string;
-  name: string;
-}
-
 interface NodeData {
   id: string;
   label: string;
@@ -63,7 +58,7 @@ const GCP_ICONS: Record<string, string> = {
 
 const GcpCloudMapPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
-  const { gcpVpcs, gcpVpcsLoading, gcpVpcsError, fetchGcpVpcs } = useVPC();
+  const { gcpVpcs, gcpVpcsLoading, fetchGcpVpcs } = useVPC();
   const { setActions } = useTopbar();
 
   // Get the first selected account ID
@@ -75,7 +70,6 @@ const GcpCloudMapPage: React.FC = () => {
 
   // UI State
   const [selectedVpcValue, setSelectedVpcValue] = useState<string>('');
-  const [loadingVpcs, setLoadingVpcs] = useState<boolean>(false);
   const [, setLoadingGraph] = useState<boolean>(false);
   const [, setGraphError] = useState<string | null>(null);
   const [infoPanelOpen, setInfoPanelOpen] = useState(false);

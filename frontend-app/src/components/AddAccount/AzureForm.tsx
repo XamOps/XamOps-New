@@ -78,17 +78,17 @@ const AzureForm: React.FC<AzureFormProps> = ({
           <div>
             <h2 className="form-card-title">Run Azure Setup Script</h2>
             <p className="form-card-subtitle">
-              Run these commands one by one in Azure Cloud Shell to get your credentials.
+              Execute these commands in Azure Cloud Shell to create a Service Principal
             </p>
           </div>
         </div>
 
         <p>
-          Open the{' '}
+          Open{' '}
           <a href="https://shell.azure.com/" target="_blank" rel="noopener noreferrer">
             Azure Cloud Shell
           </a>
-          , select <strong>PowerShell</strong>, and run the following commands one at a time.
+          {' '}and select <strong>PowerShell</strong>. Run each command below in sequence.
         </p>
 
         {commands.map((cmd) => (
@@ -116,23 +116,20 @@ const AzureForm: React.FC<AzureFormProps> = ({
       </div>
 
       {/* Credentials Form */}
-      <form
-        onSubmit={handleSubmit}
-        style={{ borderTop: '1px solid var(--aa-glass-border)', paddingTop: '2rem', marginTop: '2rem' }}
-      >
+      <form onSubmit={handleSubmit} className="azure-credentials-form">
         <div className="form-card-header">
           <div className="step-number large">3</div>
           <div>
-            <h2 className="form-card-title">Enter Details & Connect</h2>
+            <h2 className="form-card-title">Enter Credentials</h2>
             <p className="form-card-subtitle">
-              Paste the JSON output from the script below.
+              Paste the JSON output from the setup script
             </p>
           </div>
         </div>
 
         <div className="form-group">
           <label htmlFor="azureAccountName" className="form-label">
-            <i className="fas fa-tag" style={{ color: 'var(--aa-azure-blue)' }} />
+            <i className="fas fa-tag" />
             Account Name
           </label>
           <input
@@ -144,17 +141,18 @@ const AzureForm: React.FC<AzureFormProps> = ({
             onChange={(e) => onAzureDetailsChange({ accountName: e.target.value })}
             required
           />
+          <p className="form-hint">A friendly name for this Azure subscription</p>
         </div>
 
         <div className="form-group">
           <label htmlFor="azureCredentialsJson" className="form-label">
-            <i className="fas fa-key" style={{ color: 'var(--aa-azure-blue)' }} />
+            <i className="fas fa-key" />
             Azure Credentials (JSON)
           </label>
           <textarea
             id="azureCredentialsJson"
             className="form-input"
-            placeholder="Paste the JSON output from the Cloud Shell script here..."
+            placeholder='{"appId": "...", "password": "...", "tenant": "..."}'
             value={azureDetails.azureCredentialsJson}
             onChange={(e) =>
               onAzureDetailsChange({ azureCredentialsJson: e.target.value })
@@ -162,6 +160,7 @@ const AzureForm: React.FC<AzureFormProps> = ({
             rows={8}
             required
           />
+          <p className="form-hint">The JSON credentials output from the PowerShell script</p>
         </div>
 
         <div className="form-actions">
@@ -173,7 +172,7 @@ const AzureForm: React.FC<AzureFormProps> = ({
             {isLoading ? (
               <>
                 <span className="loading-spinner" />
-                Connecting...
+                <span>Connecting...</span>
               </>
             ) : (
               <>

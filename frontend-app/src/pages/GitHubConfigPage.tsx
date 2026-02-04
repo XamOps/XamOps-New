@@ -24,15 +24,19 @@
  * - Same success flow (redirect to account-manager)
  */
 
-import React from 'react';
-import { Link } from 'react-router-dom';
+import React, { useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useGitHubConfig } from '../hooks/useGitHubConfig';
+import { useTopbar } from '../contexts/TopbarContext';
 
 // Import styles
 import '../styles/addAccount.css';
 import '../styles/githubConfig.css';
 
 const GitHubConfigPage: React.FC = () => {
+  const navigate = useNavigate();
+  const { setActions, clearActions } = useTopbar();
+
   const {
     githubDetails,
     isLoading,
@@ -41,6 +45,32 @@ const GitHubConfigPage: React.FC = () => {
     connectGitHub,
   } = useGitHubConfig();
 
+  useEffect(() => {
+    console.log('🚀 [GitHubConfig] Page Mounted');
+    console.log('📍 [GitHubConfig] Current URL:', globalThis.location.pathname);
+  }, []);
+
+  // Set topbar actions
+  useEffect(() => {
+    setActions(
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => navigate('/add-account')}
+          className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all"
+        >
+          <i className="fas fa-arrow-left"></i>
+          <span>Back to Add Account</span>
+        </button>
+        <div className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-gradient-to-r from-gray-800/10 to-gray-700/10 border border-gray-300 text-gray-700">
+          <i className="fab fa-github"></i>
+          <span>GitHub</span>
+        </div>
+      </div>
+    );
+
+    return () => clearActions();
+  }, [setActions, clearActions, navigate]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     connectGitHub();
@@ -48,23 +78,6 @@ const GitHubConfigPage: React.FC = () => {
 
   return (
     <main className="github-config-page">
-      {/* Header */}
-      <header className="github-config-header">
-        <div className="header-left">
-          <div className="header-icon github">
-            <i className="fab fa-github" />
-          </div>
-          <div>
-            <h1 className="header-title">Connect GitHub Repository</h1>
-            <p className="header-subtitle">Add a repository to monitor its GitHub Actions status</p>
-          </div>
-        </div>
-        <Link to="/add-account" className="back-button">
-          <i className="fas fa-chevron-left" />
-          Back to Add Account
-        </Link>
-      </header>
-
       {/* Content */}
       <div className="github-config-content">
         <div className="github-config-container">
@@ -102,7 +115,7 @@ const GitHubConfigPage: React.FC = () => {
               {/* GitHub Owner */}
               <div className="form-group">
                 <label htmlFor="githubOwner" className="form-label">
-                  <i className="fas fa-user" />
+                  <i className="fas fa-folder mr-2" />
                   GitHub Owner (User or Organization)
                 </label>
                 <input
@@ -123,7 +136,7 @@ const GitHubConfigPage: React.FC = () => {
               {/* Repository Name */}
               <div className="form-group">
                 <label htmlFor="githubRepo" className="form-label">
-                  <i className="fas fa-code-branch" />
+                  <i className="fas fa-code-branch mr-2" />
                   Repository Name
                 </label>
                 <input
@@ -144,7 +157,7 @@ const GitHubConfigPage: React.FC = () => {
               {/* Personal Access Token */}
               <div className="form-group">
                 <label htmlFor="githubPat" className="form-label">
-                  <i className="fas fa-key" />
+                  <i className="fas fa-key mr-2" />
                   Personal Access Token (PAT)
                 </label>
                 <input
@@ -158,7 +171,7 @@ const GitHubConfigPage: React.FC = () => {
                   required
                 />
                 <p className="form-hint">
-                  <i className="fas fa-lock" style={{ marginRight: '0.25rem' }} />
+                  <i className="fas fa-lock mr-2" />
                   Your token will be stored securely encrypted.
                 </p>
               </div>
@@ -174,7 +187,7 @@ const GitHubConfigPage: React.FC = () => {
               {/* Token Help Section */}
               <div className="token-help-section">
                 <h4>
-                  <i className="fas fa-info-circle" />
+                  <i className="fas fa-info-circle mr-2" />
                   How to create a Personal Access Token
                 </h4>
                 <ol>
@@ -188,14 +201,18 @@ const GitHubConfigPage: React.FC = () => {
 
               {/* Submit Button */}
               <div className="form-actions">
-                <Link to="/add-account" className="btn-secondary">
+                <button
+                  type="button"
+                  onClick={() => navigate('/add-account')}
+                  className="btn-secondary"
+                >
                   <i className="fas fa-times" />
                   Cancel
-                </Link>
+                </button>
                 <button type="submit" className="btn-primary github" disabled={isLoading}>
                   {isLoading ? (
                     <>
-                      <span className="loading-spinner" />
+                      <span className="loading-spinner mr-2" />
                       Connecting...
                     </>
                   ) : (
