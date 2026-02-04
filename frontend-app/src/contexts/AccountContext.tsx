@@ -9,6 +9,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, Rea
 import { useLocation, useNavigate } from 'react-router-dom';
 import apiClient from '../utils/apiClient';
 import { Account, CloudProvider } from '../types/account';
+import { useAuth } from './AuthContext';
 
 interface AccountContextValue {
   accounts: Account[];
@@ -51,6 +52,7 @@ const AccountContext = createContext<AccountContextValue | undefined>(undefined)
 export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
+  const { hasAnyRole } = useAuth();
 
   // Load from cache immediately to prevent flicker
   const [accounts, setAccounts] = useState<Account[]>(() => {
@@ -285,12 +287,20 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     // Determine target page based on provider
     let targetPage = '/dashboard';
-    if (provider === 'GCP') targetPage = '/gcp-dashboard';
-    if (provider === 'Azure') targetPage = '/azure-dashboard';
 
-    // If on a specialized page, stay there
-    if (location.pathname.includes('billing') || location.pathname.includes('finops') || location.pathname.includes('cloudlist')) {
-      targetPage = location.pathname;
+    // Check if user is ROLE_BILLOPS (and not ROLE_XAMOPS)
+    const isBillOpsOnly = hasAnyRole('ROLE_BILLOPS') && !hasAnyRole('ROLE_XAMOPS');
+
+    if (isBillOpsOnly) {
+      targetPage = '/billops-dashboard';
+    } else {
+      if (provider === 'GCP') targetPage = '/gcp-dashboard';
+      if (provider === 'Azure') targetPage = '/azure-dashboard';
+
+      // If on a specialized page, stay there
+      if (location.pathname.includes('billing') || location.pathname.includes('finops') || location.pathname.includes('cloudlist')) {
+        targetPage = location.pathname;
+      }
     }
 
     const urlParams = new URL(globalThis.location.href).searchParams;

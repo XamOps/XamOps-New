@@ -13,7 +13,7 @@
 
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { AuthProvider } from './contexts/AuthContext';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AccountProvider } from './contexts/AccountContext';
 import { VPCProvider } from './contexts/VPCContext';
 import { Sidebar } from './components/Sidebar';
@@ -212,6 +212,29 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   return <>{children}</>;
 };
 
+/**
+ * Dashboard Guard - Redirects ROLE_BILLOPS (non-XAMOPS) users to BillOps dashboard
+ * whenever they try to access standard dashboards.
+ */
+const DashboardGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { hasAnyRole, isLoading } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-gray-600">Checking permissions...</div>
+      </div>
+    );
+  }
+
+  if (hasAnyRole('ROLE_BILLOPS') && !hasAnyRole('ROLE_XAMOPS') && !hasAnyRole('ROLE_SUPER_ADMIN')) {
+    console.log('🚫 Restricted role detected, redirecting to BillOps dashboard');
+    return <Navigate to="/billops-dashboard" replace />;
+  }
+
+  return <>{children}</>;
+};
+
 // Authenticated Layout - Just handles the visual wrapper for protected routes
 const AuthenticatedLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return (
@@ -245,7 +268,9 @@ const AppContent: React.FC = () => {
           element={
             <ProtectedRoute>
               <AuthenticatedLayout>
-                <UnifiedDashboard />
+                <DashboardGuard>
+                  <UnifiedDashboard />
+                </DashboardGuard>
               </AuthenticatedLayout>
             </ProtectedRoute>
           }
@@ -257,7 +282,9 @@ const AppContent: React.FC = () => {
           element={
             <ProtectedRoute>
               <AuthenticatedLayout>
-                <Dashboard />
+                <DashboardGuard>
+                  <Dashboard />
+                </DashboardGuard>
               </AuthenticatedLayout>
             </ProtectedRoute>
           }
@@ -269,7 +296,9 @@ const AppContent: React.FC = () => {
           element={
             <ProtectedRoute>
               <AuthenticatedLayout>
-                <GcpDashboard />
+                <DashboardGuard>
+                  <GcpDashboard />
+                </DashboardGuard>
               </AuthenticatedLayout>
             </ProtectedRoute>
           }
@@ -281,7 +310,9 @@ const AppContent: React.FC = () => {
           element={
             <ProtectedRoute>
               <AuthenticatedLayout>
-                <AzureDashboard />
+                <DashboardGuard>
+                  <AzureDashboard />
+                </DashboardGuard>
               </AuthenticatedLayout>
             </ProtectedRoute>
           }

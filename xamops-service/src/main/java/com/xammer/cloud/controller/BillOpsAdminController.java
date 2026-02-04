@@ -8,6 +8,8 @@ import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.UserCloudAccountAccessRepository;
 import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.service.CostService;
+import com.xammer.cloud.service.gcp.GcpCostService;
+import com.xammer.cloud.service.azure.AzureCostService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -190,6 +192,12 @@ public class BillOpsAdminController {
     @Autowired
     private CostService costService;
 
+    @Autowired
+    private GcpCostService gcpCostService;
+
+    @Autowired
+    private AzureCostService azureCostService;
+
     @GetMapping("/clients")
     public List<BillOpsClientDetailsDto> getClients() {
         log.info("Fetching client details for BillOps Admin (Consolidated)");
@@ -216,8 +224,19 @@ public class BillOpsAdminController {
 
                 try {
                     String providerAccId = account.getProviderAccountId();
+                    String provider = account.getProvider();
+
                     if (providerAccId != null && !providerAccId.isEmpty()) {
-                        Double consumption = costService.getTotalMonthToDateCost(providerAccId, false).join();
+                        Double consumption = 0.0;
+
+                        if ("AWS".equalsIgnoreCase(provider)) {
+                            consumption = costService.getTotalMonthToDateCost(providerAccId, false).join();
+                        } else if ("GCP".equalsIgnoreCase(provider)) {
+                            consumption = gcpCostService.getUnfilteredMonthToDateSpend(providerAccId).join();
+                        } else if ("Azure".equalsIgnoreCase(provider)) {
+                            consumption = azureCostService.getTotalMonthToDateCost(providerAccId).join();
+                        }
+
                         accDto.setConsumption(consumption != null ? consumption : 0.0);
                         totalConsumption += accDto.getConsumption();
                     } else {

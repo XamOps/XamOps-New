@@ -56,42 +56,64 @@ public class GcpCostService {
     @CachePut(value = "gcpDashboard", key = "#accountIdentifier")
     public Optional<GcpBillingDashboardDto> getGcpBillingDashboardDtoAndCache(String accountIdentifier)
             throws IOException, InterruptedException {
-        // Renamed from getGcpBillingDashboardDto
-        logger.info("Attempting to find GCP account with identifier: '{}'", accountIdentifier);
+        logger.info("🚀 [GCP DEBUG] Starting fetch for identifier: '{}'", accountIdentifier);
 
         Optional<CloudAccount> accountOpt = findAccount(accountIdentifier);
 
         if (accountOpt.isEmpty()) {
-            logger.error("GCP Cloud account could not be found with identifier: {}", accountIdentifier);
+            logger.error("❌ [GCP DEBUG] Account NOT FOUND in database for identifier: {}", accountIdentifier);
             throw new IllegalArgumentException("Cloud account not found with identifier: " + accountIdentifier);
         }
 
         CloudAccount account = accountOpt.get();
-        logger.info("Successfully found account with ID: {}", account.getId());
+        logger.info("✅ [GCP DEBUG] Found account in DB: ID={}, ProjectID={}, Provider={}",
+                account.getId(), account.getGcpProjectId(), account.getProvider());
 
-        BigQuery bigquery = gcpClientProvider.createBigQueryClient(account.getGcpProjectId(),
-                account.getGcpServiceAccountKey());
-
-        Optional<String> tableNameOpt = getBillingTableName(bigquery, account.getGcpProjectId());
-        if (tableNameOpt.isEmpty()) {
-            throw new IllegalStateException(
-                    "Could not find a valid BigQuery billing export table for project: " + account.getGcpProjectId());
+        if (account.getGcpServiceAccountKey() == null || account.getGcpServiceAccountKey().isBlank()) {
+            logger.error("❌ [GCP DEBUG] Service Account Key is MISSING for account: {}", account.getAccountName());
+            return Optional.empty();
         }
-        String tableName = "`" + tableNameOpt.get() + "`";
-        LocalDate today = LocalDate.now();
 
-        List<GcpBillingDashboardDto.CostHistory> costHistory = getCostHistory(bigquery, tableName, today);
-        List<GcpBillingDashboardDto.ServiceBreakdown> serviceBreakdown = getServiceBreakdown(bigquery, tableName,
-                today);
+        try {
+            logger.info("🔑 [GCP DEBUG] Creating BigQuery client for project: {}", account.getGcpProjectId());
+            BigQuery bigquery = gcpClientProvider.createBigQueryClient(account.getGcpProjectId(),
+                    account.getGcpServiceAccountKey());
 
-        BigDecimal totalCost = getMonthToDateSpend(bigquery, tableName, today);
-        BigDecimal lastMonthSpend = getLastMonthSpend(costHistory);
+            Optional<String> tableNameOpt = getBillingTableName(bigquery, account.getGcpProjectId());
+            if (tableNameOpt.isEmpty()) {
+                logger.error("❌ [GCP DEBUG] Table discovery FAILED for project: {}", account.getGcpProjectId());
+                return Optional.empty();
+            }
 
-        GcpBillingDashboardDto dashboardDto = new GcpBillingDashboardDto(totalCost, costHistory, serviceBreakdown);
-        dashboardDto.setCostLastMonth(lastMonthSpend);
-        dashboardDto.setCostThisMonth(totalCost);
+            String tableName = "`" + tableNameOpt.get() + "`";
+            logger.info("🔍 [GCP DEBUG] Using Billing Table: {}", tableName);
 
-        return Optional.of(dashboardDto); // MODIFIED: Return as Optional
+            LocalDate today = LocalDate.now();
+            logger.info("📅 [GCP DEBUG] Fetching data for date range up to: {}", today);
+
+            List<GcpBillingDashboardDto.CostHistory> costHistory = getCostHistory(bigquery, tableName, today);
+            logger.info("📊 [GCP DEBUG] Fetched {} history records", costHistory.size());
+
+            List<GcpBillingDashboardDto.ServiceBreakdown> serviceBreakdown = getServiceBreakdown(bigquery, tableName,
+                    today);
+            logger.info("📊 [GCP DEBUG] Fetched {} service breakdown records", serviceBreakdown.size());
+
+            BigDecimal totalCost = getMonthToDateSpend(bigquery, tableName, today);
+            logger.info("💰 [GCP DEBUG] MTD Total Spend (Raw): {}", totalCost);
+
+            BigDecimal lastMonthSpend = getLastMonthSpend(costHistory);
+
+            GcpBillingDashboardDto dashboardDto = new GcpBillingDashboardDto(totalCost, costHistory, serviceBreakdown);
+            dashboardDto.setCostLastMonth(lastMonthSpend);
+            dashboardDto.setCostThisMonth(totalCost);
+
+            logger.info("🏁 [GCP DEBUG] Successfully built DTO for {}", accountIdentifier);
+            return Optional.of(dashboardDto);
+        } catch (Exception e) {
+            logger.error("💥 [GCP DEBUG] CRITICAL FAILURE during BigQuery fetch for {}: {}", accountIdentifier,
+                    e.getMessage(), e);
+            throw e;
+        }
     }
 
     // --- NEW METHOD (Cache-Only) ---
@@ -216,27 +238,35 @@ public class GcpCostService {
 
     private Optional<String> getBillingTableName(BigQuery bigquery, String gcpProjectId) {
         if (billingExportTableName != null && !billingExportTableName.isBlank()) {
+            logger.info("📋 [GCP DEBUG] Using configured table name: {}", billingExportTableName);
             return Optional.of(billingExportTableName);
         }
         try {
+            logger.info("🔍 [GCP DEBUG] Starting discovery for datasets in project: {}", gcpProjectId);
             for (Dataset dataset : bigquery.listDatasets(gcpProjectId).iterateAll()) {
+                String datasetId = dataset.getDatasetId().getDataset();
+                logger.info("📂 [GCP DEBUG] Checking dataset: {}", datasetId);
                 for (Table table : bigquery.listTables(dataset.getDatasetId()).iterateAll()) {
-                    if (table.getTableId().getTable().startsWith("gcp_billing_export_v1")) {
+                    String tableId = table.getTableId().getTable();
+                    logger.info("   📄 [GCP DEBUG] Checking table: {}", tableId);
+                    if (tableId.startsWith("gcp_billing_export_v1") ||
+                            tableId.startsWith("gcp_billing_export_resource_v1")) {
                         String fullName = String.format("%s.%s.%s",
                                 table.getTableId().getProject(),
                                 table.getTableId().getDataset(),
-                                table.getTableId().getTable());
-                        logger.info("Dynamically found billing table: {}", fullName);
+                                tableId);
+                        logger.info("✅ [GCP DEBUG] Found billing table: {}", fullName);
                         return Optional.of(fullName);
                     }
                 }
             }
         } catch (Exception e) {
-            logger.error("Failed to discover BigQuery billing table for project {}: {}", gcpProjectId, e.getMessage());
+            logger.error("❌ [GCP DEBUG] Failed to discover BigQuery billing table for project {}: {}", gcpProjectId,
+                    e.getMessage(), e);
         }
 
         logger.warn(
-                "Could not find a GCP billing export table for project {}. Please configure gcp.billing.export-table-name.",
+                "⚠️ [GCP DEBUG] Could not find a GCP billing export table for project {}.",
                 gcpProjectId);
         return Optional.empty();
     }
@@ -260,7 +290,7 @@ public class GcpCostService {
 
         String query = String.format(
                 "WITH MonthlyCosts AS (" +
-                        "  SELECT FORMAT_DATE('%%%%Y-%%%%m', usage_start_time) as name, SUM(cost) as total_cost " +
+                        "  SELECT FORMAT_DATE('%%Y-%%m', usage_start_time) as name, SUM(cost) as total_cost " +
                         "  FROM %s " +
                         "  WHERE DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
                         "  GROUP BY 1" +
@@ -279,7 +309,8 @@ public class GcpCostService {
         List<GcpBillingDashboardDto.CostHistory> costHistory = new ArrayList<>();
         for (FieldValueList row : results.iterateAll()) {
             String date = row.get("name").getStringValue();
-            BigDecimal amount = row.get("total_cost").getNumericValue();
+            // Use getDoubleValue() for FLOAT64 columns
+            BigDecimal amount = BigDecimal.valueOf(row.get("total_cost").getDoubleValue());
             boolean isAnomaly = row.get("is_anomaly").getBooleanValue();
             costHistory.add(new GcpBillingDashboardDto.CostHistory(date, amount, isAnomaly));
         }
@@ -304,7 +335,8 @@ public class GcpCostService {
         List<GcpBillingDashboardDto.ServiceBreakdown> serviceBreakdown = new ArrayList<>();
         for (FieldValueList row : results.iterateAll()) {
             String serviceName = row.get("service_name").getStringValue();
-            BigDecimal amount = row.get("total_cost").getNumericValue();
+            // Use getDoubleValue() for FLOAT64 columns
+            BigDecimal amount = BigDecimal.valueOf(row.get("total_cost").getDoubleValue());
             serviceBreakdown.add(new GcpBillingDashboardDto.ServiceBreakdown(serviceName, amount));
         }
         return serviceBreakdown;
@@ -324,7 +356,8 @@ public class GcpCostService {
         if (row.get("total_cost").isNull()) {
             return BigDecimal.ZERO;
         }
-        return row.get("total_cost").getNumericValue();
+        // Use getDoubleValue() for FLOAT64 columns
+        return BigDecimal.valueOf(row.get("total_cost").getDoubleValue());
     }
 
     private BigDecimal getLastMonthSpend(List<GcpBillingDashboardDto.CostHistory> costHistory) {

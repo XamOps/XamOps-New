@@ -23,6 +23,8 @@ public class BillingService {
 
     private static final Logger logger = LoggerFactory.getLogger(BillingService.class);
     private final CostService costService;
+    private final GcpCostService gcpCostService;
+    private final AzureCostService azureCostService;
     private final CloudAccountRepository cloudAccountRepository;
     private final RedisCacheService redisCache;
 
@@ -32,9 +34,13 @@ public class BillingService {
     private static final long CACHE_TTL_MINUTES = 60;
 
     public BillingService(CostService costService,
+            GcpCostService gcpCostService,
+            AzureCostService azureCostService,
             CloudAccountRepository cloudAccountRepository,
             RedisCacheService redisCache) {
         this.costService = costService;
+        this.gcpCostService = gcpCostService;
+        this.azureCostService = azureCostService;
         this.cloudAccountRepository = cloudAccountRepository;
         this.redisCache = redisCache;
     }
@@ -138,32 +144,135 @@ public class BillingService {
 
     public BillingDashboardDto getAccountBillingSummary(CloudAccount account, Integer year, Integer month) {
         try {
-            BillingDashboardDto dto = new BillingDashboardDto();
-
-            // Fetch Cost History
-            List<Map<String, Object>> costHistoryRaw = costService.getCostHistory(account, year, month);
-            List<BillingDashboardDto.CostHistory> costHistory = costHistoryRaw.stream()
-                    .map(item -> new BillingDashboardDto.CostHistory(
-                            (String) item.get("date"),
-                            ((Number) Optional.ofNullable(item.get("cost")).orElse(0.0)).doubleValue()))
-                    .collect(Collectors.toList());
-            dto.setCostHistory(costHistory);
-
-            // Fetch Service Breakdown
-            List<Map<String, Object>> serviceBreakdownRaw = costService.getCostByDimension(account, "SERVICE", year,
-                    month);
-            List<BillingDashboardDto.ServiceBreakdown> serviceBreakdown = serviceBreakdownRaw.stream()
-                    .map(item -> new BillingDashboardDto.ServiceBreakdown(
-                            (String) item.get("name"),
-                            ((Number) Optional.ofNullable(item.get("cost")).orElse(0.0)).doubleValue()))
-                    .collect(Collectors.toList());
-            dto.setServiceBreakdown(serviceBreakdown);
-
-            return dto;
+            String provider = account.getProvider();
+            if ("GCP".equalsIgnoreCase(provider)) {
+                return fetchGcpBillingSummary(account, year, month);
+            } else if ("Azure".equalsIgnoreCase(provider)) {
+                return fetchAzureBillingSummary(account, year, month);
+            } else {
+                // Default: AWS
+                return fetchAwsBillingSummary(account, year, month);
+            }
         } catch (Exception e) {
-            logger.error("Error fetching summary for account {}: {}", account.getAwsAccountId(), e.getMessage());
-            return new BillingDashboardDto(); // Return empty to avoid breaking the stream
+            logger.error("Error fetching summary for account {}: {}",
+                    account.getAwsAccountId() != null ? account.getAwsAccountId() : account.getAccountName(),
+                    e.getMessage());
+            return new BillingDashboardDto();
         }
+    }
+
+    private BillingDashboardDto fetchAwsBillingSummary(CloudAccount account, Integer year, Integer month) {
+        BillingDashboardDto dto = new BillingDashboardDto();
+
+        // Fetch Cost History
+        List<Map<String, Object>> costHistoryRaw = costService.getCostHistory(account, year, month);
+        List<BillingDashboardDto.CostHistory> costHistory = costHistoryRaw.stream()
+                .map(item -> new BillingDashboardDto.CostHistory(
+                        (String) item.get("date"),
+                        ((Number) Optional.ofNullable(item.get("cost")).orElse(0.0)).doubleValue()))
+                .collect(Collectors.toList());
+        dto.setCostHistory(costHistory);
+
+        // Fetch Service Breakdown
+        List<Map<String, Object>> serviceBreakdownRaw = costService.getCostByDimension(account, "SERVICE", year,
+                month);
+        List<BillingDashboardDto.ServiceBreakdown> serviceBreakdown = serviceBreakdownRaw.stream()
+                .map(item -> new BillingDashboardDto.ServiceBreakdown(
+                        (String) item.get("name"),
+                        ((Number) Optional.ofNullable(item.get("cost")).orElse(0.0)).doubleValue()))
+                .collect(Collectors.toList());
+        dto.setServiceBreakdown(serviceBreakdown);
+
+        return dto;
+    }
+
+    private BillingDashboardDto fetchGcpBillingSummary(CloudAccount account, Integer year, Integer month) {
+        try {
+            String accountIdentifier = account.getGcpProjectId();
+            logger.info("🔍 Fetching GCP billing summary for account: {} | Project ID: {}", account.getAccountName(),
+                    accountIdentifier);
+
+            if (accountIdentifier == null || accountIdentifier.isBlank()) {
+                logger.warn("⚠️ GCP Project ID is missing for account: {}", account.getAccountName());
+                return new BillingDashboardDto();
+            }
+
+            Optional<com.xammer.billops.dto.GcpBillingDashboardDto> gcpDtoOpt = gcpCostService
+                    .getGcpBillingDashboardDtoAndCache(accountIdentifier);
+
+            if (gcpDtoOpt.isPresent()) {
+                com.xammer.billops.dto.GcpBillingDashboardDto gcpDto = gcpDtoOpt.get();
+                logger.info("✅ Successfully fetched GCP data for {}. MTD Cost: {}", accountIdentifier,
+                        gcpDto.getCostThisMonth());
+
+                BillingDashboardDto dto = new BillingDashboardDto();
+
+                // Map History
+                if (gcpDto.getCostHistory() != null) {
+                    dto.setCostHistory(gcpDto.getCostHistory().stream()
+                            .map(h -> new BillingDashboardDto.CostHistory(h.getDate(), h.getAmount().doubleValue()))
+                            .collect(Collectors.toList()));
+                }
+
+                // Map Service Breakdown
+                if (gcpDto.getServiceBreakdown() != null) {
+                    dto.setServiceBreakdown(gcpDto.getServiceBreakdown().stream()
+                            .map(s -> new BillingDashboardDto.ServiceBreakdown(s.getServiceName(),
+                                    s.getAmount().doubleValue()))
+                            .collect(Collectors.toList()));
+                }
+
+                return dto;
+            } else {
+                logger.warn("⚠️ GcpCostService returned empty Optional for project: {}", accountIdentifier);
+            }
+        } catch (Exception e) {
+            logger.error("❌ Error fetching GCP summary for account {}: {}", account.getGcpProjectId(), e.getMessage(),
+                    e);
+        }
+        return new BillingDashboardDto();
+    }
+
+    private BillingDashboardDto fetchAzureBillingSummary(CloudAccount account, Integer year, Integer month) {
+        try {
+            String subscriptionId = account.getAzureSubscriptionId();
+            logger.info("🔍 Fetching Azure billing summary for account: {} | Subscription: {}",
+                    account.getAccountName(), subscriptionId);
+
+            if (subscriptionId == null || subscriptionId.isBlank()) {
+                logger.warn("⚠️ Azure Subscription ID is missing for account: {}", account.getAccountName());
+                return new BillingDashboardDto();
+            }
+
+            com.xammer.billops.dto.azure.AzureBillingDashboardDto azureDto = azureCostService
+                    .getBillingDashboard(subscriptionId, year, month);
+
+            if (azureDto != null) {
+                logger.info("✅ Successfully fetched Azure data for {}. Total Cost: {}", subscriptionId,
+                        azureDto.getTotalCost());
+                BillingDashboardDto dto = new BillingDashboardDto();
+
+                // Map History
+                if (azureDto.getCostHistory() != null) {
+                    dto.setCostHistory(azureDto.getCostHistory().stream()
+                            .map(h -> new BillingDashboardDto.CostHistory(h.getDate(), h.getCost()))
+                            .collect(Collectors.toList()));
+                }
+
+                // Map Service Breakdown
+                if (azureDto.getServiceBreakdown() != null) {
+                    dto.setServiceBreakdown(azureDto.getServiceBreakdown().stream()
+                            .map(s -> new BillingDashboardDto.ServiceBreakdown(s.getServiceName(), s.getAmount()))
+                            .collect(Collectors.toList()));
+                }
+
+                return dto;
+            }
+        } catch (Exception e) {
+            logger.error("❌ Error fetching Azure summary for account {}: {}", account.getAzureSubscriptionId(),
+                    e.getMessage(), e);
+        }
+        return new BillingDashboardDto();
     }
 
     private List<ServiceCostDetailDto> fetchSingleAccountDetails(CloudAccount account, Integer year, Integer month) {
