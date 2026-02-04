@@ -121,7 +121,7 @@ public class SecurityConfig {
                                                                 new AntPathRequestMatcher("/grafana-dashboard"),
                                                                 new AntPathRequestMatcher("/cloudk8s"),
                                                                 new AntPathRequestMatcher("/eks-details"),
-                                                                new AntPathRequestMatcher("/terminal"),
+                                                                new AntPathRequestMatcher("/terminal/**"),
                                                                 new AntPathRequestMatcher("/gcp-dashboard"),
                                                                 new AntPathRequestMatcher("/gcp-finops"),
                                                                 new AntPathRequestMatcher("/gcp-cost"),

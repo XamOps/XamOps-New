@@ -31,10 +31,32 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
     private final Map<String, Process> sessions = new ConcurrentHashMap<>();
     private final Map<String, Thread> outputThreads = new ConcurrentHashMap<>();
     private final Map<String, Long> sessionStartTimes = new ConcurrentHashMap<>();
+    // Locks for synchronized message sending per session (prevents TEXT_PARTIAL_WRITING errors)
+    private final Map<String, Object> sessionLocks = new ConcurrentHashMap<>();
 
     public CloudShellSocketHandler(AwsConfig awsConfig, CloudAccountRepository cloudAccountRepository) {
         this.awsConfig = awsConfig;
         this.cloudAccountRepository = cloudAccountRepository;
+    }
+
+    /**
+     * Thread-safe message sending to prevent TEXT_PARTIAL_WRITING errors.
+     * Multiple threads sending to the same WebSocket session must be synchronized.
+     */
+    private void sendMessageSafe(WebSocketSession session, String message) {
+        if (session == null || !session.isOpen()) {
+            return;
+        }
+        Object lock = sessionLocks.computeIfAbsent(session.getId(), k -> new Object());
+        synchronized (lock) {
+            try {
+                if (session.isOpen()) {
+                    session.sendMessage(new TextMessage(message));
+                }
+            } catch (IOException e) {
+                log.warn("Failed to send message to session {}: {}", session.getId(), e.getMessage());
+            }
+        }
     }
 
     @Override
@@ -43,8 +65,11 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
         String accountId = queryParams.get("accountId");
         String tenantId = queryParams.get("tenantId");
 
+        // Initialize session lock for thread-safe message sending
+        sessionLocks.put(session.getId(), new Object());
+
         if (accountId == null) {
-            session.sendMessage(new TextMessage("Error: No accountId provided.\r\n"));
+            sendMessageSafe(session, "Error: No accountId provided.\r\n");
             session.close();
             return;
         }
@@ -61,7 +86,7 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
 
             CloudAccount account = findAccount(accountId);
             if (account == null) {
-                session.sendMessage(new TextMessage("Error: Account not found.\r\n"));
+                sendMessageSafe(session, "Error: Account not found.\r\n");
                 session.close();
                 return;
             }
@@ -77,7 +102,7 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
             } else if ("Azure".equalsIgnoreCase(provider)) {
                 pb = setupAzureProcess(session.getId(), account);
             } else {
-                session.sendMessage(new TextMessage("Error: Unsupported provider: " + provider + "\r\n"));
+                sendMessageSafe(session, "Error: Unsupported provider: " + provider + "\r\n");
                 session.close();
                 return;
             }
@@ -86,21 +111,27 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
             Process process = pb.start();
             sessions.put(session.getId(), process);
 
-            Thread outputThread = new Thread(() -> streamProcessOutput(process, session));
-            outputThread.start();
-            outputThreads.put(session.getId(), outputThread);
-
+            // Send welcome message BEFORE starting output thread to avoid race condition
             String welcomeMsg = String.format(
                     "\r\n\u001B[1;32mWelcome to XamOps Shell!\u001B[0m\r\n" +
                             "Connected to \u001B[1;36m%s\u001B[0m Account: %s\r\n" +
                             "Session timeout: 30 minutes\r\n\r\n",
                     provider, account.getAccountName() != null ? account.getAccountName() : accountId);
-            session.sendMessage(new TextMessage(welcomeMsg));
+            sendMessageSafe(session, welcomeMsg);
 
-        } catch (Exception e) {
-            log.error("Shell setup failed", e);
-            session.sendMessage(new TextMessage("Error: " + e.getMessage() + "\r\n"));
-            session.close();
+            // Start output thread AFTER welcome message is sent
+            Thread outputThread = new Thread(() -> streamProcessOutput(process, session));
+            outputThread.start();
+            outputThreads.put(session.getId(), outputThread);
+
+        } catch (Throwable e) {
+            log.error("Shell setup CRITICAL FAILURE", e);
+            try {
+                sendMessageSafe(session, "Error: " + e.getMessage() + "\r\n");
+                session.close();
+            } catch (IOException ex) {
+                log.error("Failed to send error message to client", ex);
+            }
         }
     }
 
@@ -135,6 +166,8 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
                 .externalId(externalId)
                 .durationSeconds(3600) // 1 hour session duration
                 .build());
+
+        log.info("AWS Role Assumed Successfully. Credentials obtained.");
 
         String bashCommand = "export TMOUT=1800 && " +
                 "echo '' && " +
@@ -187,66 +220,93 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
     }
 
     private ProcessBuilder setupAzureProcess(String sessionId, CloudAccount account) {
-    String clientId = account.getAzureClientId();
-    String clientSecret = account.getAzureClientSecret();
-    String tenantId = account.getAzureTenantId();
-    String subscriptionId = account.getAzureSubscriptionId();
+        String clientId = account.getAzureClientId();
+        String clientSecret = account.getAzureClientSecret();
+        String tenantId = account.getAzureTenantId();
+        String subscriptionId = account.getAzureSubscriptionId();
 
-    if (clientId == null || clientSecret == null || tenantId == null) {
-        throw new RuntimeException("Azure credentials not configured");
+        if (clientId == null || clientSecret == null || tenantId == null) {
+            throw new RuntimeException("Azure credentials not configured. Missing: " +
+                    (clientId == null ? "clientId " : "") +
+                    (clientSecret == null ? "clientSecret " : "") +
+                    (tenantId == null ? "tenantId" : ""));
+        }
+
+        if (subscriptionId == null || subscriptionId.isEmpty()) {
+            throw new RuntimeException("Azure subscription ID not configured");
+        }
+
+        log.info("Setting up Azure shell for subscription: {}", subscriptionId);
+        log.debug("Azure credentials - ClientId: {}, TenantId: {}", clientId, tenantId);
+
+        // Improved: Show errors instead of suppressing them, better error handling
+        String bashCommand = String.format(
+                "echo 'Authenticating to Azure...' && " +
+                        "az login --service-principal -u \"$AZ_CLIENT\" -p \"$AZ_SECRET\" --tenant \"$AZ_TENANT\" --output none || " +
+                        "{ echo '\033[1;31mAzure authentication failed. Check credentials.\033[0m'; exit 1; } && " +
+                        "az account set --subscription %s --output none || " +
+                        "{ echo '\033[1;31mFailed to set subscription: %s\033[0m'; exit 1; } && " +
+                        "echo '' && " +
+                        "echo '\033[1;32mAuthenticated to Azure Subscription: %s\033[0m' && " +
+                        "echo '' && " +
+                        "export TMOUT=1800 && " +
+                        "export PS1='\\[\\e[1;32m\\]\\u@\\h\\[\\e[0m\\]:\\[\\e[1;34m\\]\\w\\[\\e[0m\\]# ' && " +
+                        "exec /bin/bash -i",
+                subscriptionId, subscriptionId, subscriptionId);
+
+        return new ProcessBuilder(
+                "docker", "run", "--rm", "-i",
+                "--memory=512m", "--cpus=0.5",
+                "-e", "AZ_CLIENT=" + clientId,
+                "-e", "AZ_SECRET=" + clientSecret,
+                "-e", "AZ_TENANT=" + tenantId,
+                "-e", "TMOUT=1800",
+                "shivam777707/xamops-shell:fixed-08-Dec",
+                "/bin/bash", "-c", bashCommand);
     }
 
-    log.info("Setting up Azure shell for subscription: {}", subscriptionId);
-
-    // Fixed: Use exec to replace the script process with bash, ensuring proper PTY handling
-    String bashCommand = String.format(
-            "az login --service-principal -u \"$AZ_CLIENT\" -p \"$AZ_SECRET\" --tenant \"$AZ_TENANT\" --output none 2>/dev/null && " +
-                    "az account set --subscription %s --output none 2>/dev/null && " +
-                    "echo '' && " +
-                    "echo '\033[1;32mAuthenticated to Azure Subscription: %s\033[0m' && " +
-                    "echo '' && " +
-                    "export TMOUT=1800 && " +
-                    "export PS1='\\[\\e[1;32m\\]\\u@\\h\\[\\e[0m\\]:\\[\\e[1;34m\\]\\w\\[\\e[0m\\]# ' && " +
-                    "exec /bin/bash -i",
-            subscriptionId, subscriptionId);
-
-    return new ProcessBuilder(
-            "docker", "run", "--rm", "-i",
-            "--memory=512m", "--cpus=0.5",
-            "-e", "AZ_CLIENT=" + clientId,
-            "-e", "AZ_SECRET=" + clientSecret,
-            "-e", "AZ_TENANT=" + tenantId,
-            "-e", "TMOUT=1800",
-            "shivam777707/xamops-shell:fixed-08-Dec",
-            "/bin/bash", "-c", bashCommand);
-}
-
     private void streamProcessOutput(Process process, WebSocketSession session) {
+        log.info("Starting output stream thread for session {}", session.getId());
         try (InputStream is = process.getInputStream()) {
             byte[] buffer = new byte[1024];
             int read;
             while ((read = is.read(buffer)) != -1) {
+                String data = new String(buffer, 0, read);
+                log.debug("Read from Docker process ({} bytes)", read); // Changed to debug level
+
                 if (session.isOpen()) {
                     // Check for session timeout
                     Long startTime = sessionStartTimes.get(session.getId());
                     if (startTime != null &&
                             (System.currentTimeMillis() - startTime) > SESSION_TIMEOUT_MS) {
-                        session.sendMessage(new TextMessage(
-                                "\r\n\u001B[1;33mSession timeout reached. Disconnecting...\u001B[0m\r\n"));
+                        sendMessageSafe(session,
+                                "\r\n\u001B[1;33mSession timeout reached. Disconnecting...\u001B[0m\r\n");
                         break;
                     }
-                    session.sendMessage(new TextMessage(new String(buffer, 0, read)));
+                    // Use synchronized sending to prevent TEXT_PARTIAL_WRITING errors
+                    sendMessageSafe(session, data);
                 } else {
+                    log.warn("Session closed during read loop: {}", session.getId());
                     break;
                 }
             }
+            log.info("Process output stream finished (read returned -1).");
+
+            // Check exit code
+            if (process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                log.info("Process exited with code: {}", process.exitValue());
+            } else {
+                log.warn("Process is still alive after stream close?");
+            }
+
         } catch (IOException e) {
-            // Normal closure
+            log.error("IOException in streamProcessOutput for session {}", session.getId(), e);
         } catch (Exception e) {
             log.error("Output stream error for session {}", session.getId(), e);
         } finally {
             try {
                 if (session.isOpen()) {
+                    log.info("Closing session from finally block: {}", session.getId());
                     session.close();
                 }
             } catch (IOException e) {
@@ -272,9 +332,17 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
     protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
         Process process = sessions.get(session.getId());
         if (process != null && process.isAlive()) {
-            OutputStream os = process.getOutputStream();
-            os.write(message.getPayload().getBytes());
-            os.flush();
+            try {
+                OutputStream os = process.getOutputStream();
+                os.write(message.getPayload().getBytes());
+                os.flush();
+                // log.debug("Wrote {} bytes to process for session {}",
+                // message.getPayload().length(), session.getId());
+            } catch (IOException e) {
+                log.error("Failed to write to process for session {}", session.getId(), e);
+            }
+        } else {
+            log.warn("Process not found or not alive for session {}. Cannot write message.", session.getId());
         }
     }
 
@@ -287,6 +355,7 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
         sessions.remove(session.getId());
         outputThreads.remove(session.getId());
         sessionStartTimes.remove(session.getId());
+        sessionLocks.remove(session.getId()); // Clean up the session lock
         TenantContext.clear();
         log.info("WS Closed: Session={}, Status={}", session.getId(), status);
     }

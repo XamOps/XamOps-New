@@ -92,13 +92,12 @@ const InsightsTable: React.FC<InsightsTableProps> = ({
                   <div className="flex items-start space-x-3">
                     <div className="flex-shrink-0 mt-1">
                       <i
-                        className={`fas ${
-                          insight.severity === 'CRITICAL'
+                        className={`fas ${insight.severity === 'CRITICAL'
                             ? 'fa-exclamation-triangle text-red-500'
                             : insight.severity === 'WARNING'
-                            ? 'fa-exclamation-circle text-orange-500'
-                            : 'fa-info-circle text-yellow-500'
-                        }`}
+                              ? 'fa-exclamation-circle text-orange-500'
+                              : 'fa-info-circle text-yellow-500'
+                          }`}
                       ></i>
                     </div>
                     <div className="flex-1">
