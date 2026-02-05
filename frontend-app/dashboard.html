@@ -680,8 +680,9 @@
 
                                 <button x-show="selectedTenant" @click="resetContext()"
                                     class="text-red-500 hover:text-red-700 hover:bg-red-50 p-2 rounded-lg transition-colors"
-                                    title="Reset Context">
-                                    <i class="fas fa-times-circle text-lg"></i>
+                                    title="Reset Context"
+                                    aria-label="Reset Context">
+                                    <i class="fas fa-times-circle text-lg" aria-hidden="true"></i>
                                 </button>
                             </div>
                         </div>
@@ -707,8 +708,9 @@
                         <!-- Calculator Button -->
                         <a :href="getLink('/calculator.html')"
                             class="flex items-center justify-center w-10 h-10 text-gray-600 hover:text-purple-600 bg-white hover:bg-purple-50 rounded-lg transition-all border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-md group"
-                            title="Pricing Calculator">
-                            <i class="fas fa-calculator text-lg group-hover:scale-110 transition-transform"></i>
+                            title="Pricing Calculator"
+                            aria-label="Pricing Calculator">
+                            <i class="fas fa-calculator text-lg group-hover:scale-110 transition-transform" aria-hidden="true"></i>
                         </a>
 
                         <!-- CloudShell Button -->
@@ -2177,9 +2179,10 @@
      }">
 
                     <button @click="open = !open; if(open) scrollToBottom()"
-                        class="w-14 h-14 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-full shadow-2xl flex items-center justify-center hover:scale-110 transition-all duration-300 focus:outline-none z-50"
-                        title="Ask XamOps AI">
-                        <i class="fas fa-robot text-white text-2xl"></i>
+                        class="w-14 h-14 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-full shadow-2xl flex items-center justify-center hover:scale-110 transition-all duration-300 focus:outline-none focus-visible:ring-4 focus-visible:ring-indigo-500 focus-visible:ring-opacity-50 z-50"
+                        title="Ask XamOps AI"
+                        aria-label="Ask XamOps AI">
+                        <i class="fas fa-robot text-white text-2xl" aria-hidden="true"></i>
                         <span class="absolute -top-1 -right-1 flex h-4 w-4">
                             <span
                                 class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
@@ -2205,13 +2208,14 @@
                                 <div>
                                     <h3 class="font-bold text-sm">XamOps AI Assistant</h3>
                                     <p class="text-xs opacity-80 flex items-center gap-1">
-                                        <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span> Online
+                                        <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse" aria-hidden="true"></span> Online
                                     </p>
                                 </div>
                             </div>
                             <button @click="open = false"
-                                class="hover:bg-white hover:bg-opacity-20 rounded-lg p-2 transition-colors">
-                                <i class="fas fa-times"></i>
+                                class="hover:bg-white hover:bg-opacity-20 rounded-lg p-2 transition-colors"
+                                aria-label="Close chat">
+                                <i class="fas fa-times" aria-hidden="true"></i>
                             </button>
                         </div>
 
@@ -2240,8 +2244,9 @@
                                     placeholder="Ask about costs, instances, or alerts..."
                                     class="w-full bg-gray-100 text-gray-800 text-sm rounded-xl pl-4 pr-12 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all border-0">
                                 <button @click="sendMessage()" :disabled="isLoading || newMessage.trim() === ''"
-                                    class="absolute right-2 p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm">
-                                    <i class="fas fa-paper-plane text-xs"></i>
+                                    class="absolute right-2 p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+                                    aria-label="Send message">
+                                    <i class="fas fa-paper-plane text-xs" aria-hidden="true"></i>
                                 </button>
                             </div>
                             <div class="text-center mt-2">
