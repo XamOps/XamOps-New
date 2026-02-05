@@ -23,211 +23,115 @@ const AzureOptimizationSection: React.FC<AzureOptimizationSectionProps> = ({ opt
   }
 
   return (
-    <div className="chart-container p-6 rounded-xl fade-in">
+    <div className="glass-card chart-container p-6 rounded-xl fade-in col-span-full">
       <div className="flex items-center justify-between mb-6">
-        <h3 className="text-lg font-bold text-gray-800 flex items-center">
-          <i className="fas fa-arrows-alt widget-handle mr-3 text-gray-400"></i>
-          <i className="fas fa-lightbulb mr-2 text-yellow-500"></i>
-          Optimization Hub
-        </h3>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-        <div className="bg-gradient-to-br from-green-50 to-green-100 border border-green-200 p-6 rounded-xl text-center">
-          <div className="flex items-center justify-center mb-3">
-            <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-green-600 rounded-xl flex items-center justify-center">
-              <i className="fas fa-piggy-bank text-white text-xl"></i>
-            </div>
-          </div>
-          <p className="text-sm text-green-700 font-semibold uppercase tracking-wide">Potential Savings</p>
-          <p className="text-3xl font-bold text-green-800 my-2">{formatCurrency(optimization.summary.totalPotentialSavings)}</p>
-          <p className="text-sm text-green-600">per month</p>
-        </div>
-        <div className="bg-gradient-to-br from-red-50 to-red-100 border border-red-200 p-6 rounded-xl text-center">
-          <div className="flex items-center justify-center mb-3">
-            <div className="w-12 h-12 bg-gradient-to-br from-red-500 to-red-600 rounded-xl flex items-center justify-center">
-              <i className="fas fa-exclamation-triangle text-white text-xl"></i>
-            </div>
-          </div>
-          <p className="text-sm text-red-700 font-semibold uppercase tracking-wide">Critical Alerts</p>
-          <p className="text-3xl font-bold text-red-800 my-2">{optimization.summary.criticalAlertsCount}</p>
-          <p className="text-sm text-red-600">items to review</p>
+        <div className="flex items-center text-slate-600">
+          <i className="fas fa-arrows-alt widget-handle mr-3 text-lg cursor-move opacity-40 hover:opacity-100 transition-opacity"></i>
+          <h3 className="text-lg font-black tracking-tight text-slate-800 uppercase italic flex items-center">
+            <i className="fas fa-lightbulb mr-2 text-yellow-500"></i>
+            Optimization Hub
+          </h3>
         </div>
       </div>
 
-      {/* VM Recommendations */}
-      {optimization.vmRecommendations && optimization.vmRecommendations.length > 0 && (
-        <div className="optimization-card rounded-xl p-6 border-t-4 border-orange-500 mt-6">
-          <div className="flex items-center justify-between mb-4">
-            <h4 className="font-bold text-lg text-gray-800 flex items-center">
-              <div className="w-8 h-8 bg-gradient-to-br from-orange-500 to-orange-600 rounded-lg flex items-center justify-center mr-3">
-                <i className="fas fa-server text-white text-sm"></i>
-              </div>
-              Virtual Machine Right-Sizing
-            </h4>
-            <span className="bg-orange-100 text-orange-800 text-xs font-semibold px-2 py-1 rounded-full">{optimization.vmRecommendations.length} recommendations</span>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        <div className="bg-gradient-to-br from-emerald-50 to-emerald-100/50 border border-emerald-100 p-6 rounded-2xl relative overflow-hidden group">
+          <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
+            <i className="fas fa-piggy-bank text-6xl text-emerald-600"></i>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 rounded-lg">
-                <tr>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700 rounded-l-lg">Resource</th>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700">Recommendation</th>
-                  <th className="px-4 py-3 text-right font-semibold text-gray-700 rounded-r-lg">Monthly Savings</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {optimization.vmRecommendations.slice(0, 3).map((rec, index) => (
-                  <tr key={index} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3 font-mono text-xs text-gray-600">{rec.resourceId}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center space-x-2">
-                        <span className="text-gray-600">{rec.currentType}</span>
-                        <i className="fas fa-arrow-right text-gray-400"></i>
-                        <span className="font-semibold text-orange-600">{rec.recommendedType}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-right font-bold text-orange-600">{formatCurrency(rec.estimatedMonthlySavings)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <p className="text-[10px] text-emerald-700 font-black uppercase tracking-widest mb-1">Potential Savings</p>
+          <p className="text-4xl font-black text-emerald-900 metric-value">{formatCurrency(optimization.summary.totalPotentialSavings)}</p>
+          <p className="text-[11px] font-bold text-emerald-600/70 mt-1">ESTIMATED MONTHLY REDUCTION</p>
+        </div>
+        <div className="bg-gradient-to-br from-rose-50 to-rose-100/50 border border-rose-100 p-6 rounded-2xl relative overflow-hidden group">
+          <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
+            <i className="fas fa-exclamation-triangle text-6xl text-rose-600"></i>
           </div>
-          {optimization.vmRecommendations.length > 3 && (
-            <div className="mt-4 text-center">
-              <Link to={`/rightsizing.html?accountIds=${selectedAccountIds.join(',')}`} className="inline-flex items-center text-sm text-orange-600 hover:text-orange-800 font-medium">
-                View all {optimization.vmRecommendations.length} recommendations
-                <i className="fas fa-arrow-right ml-1"></i>
-              </Link>
+          <p className="text-[10px] text-rose-700 font-black uppercase tracking-widest mb-1">Critical Alerts</p>
+          <p className="text-4xl font-black text-rose-900 metric-value">{optimization.summary.criticalAlertsCount}</p>
+          <p className="text-[11px] font-bold text-rose-600/70 mt-1">ITEMS REQUIRING IMMEDIATE ATTENTION</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* VM Recommendations */}
+        {optimization.vmRecommendations && optimization.vmRecommendations.length > 0 && (
+          <div className="glass-card p-6 border-t-4 border-amber-500">
+            <div className="flex items-center justify-between mb-4">
+              <h4 className="font-black text-sm text-slate-800 uppercase tracking-tight flex items-center">
+                <i className="fas fa-server mr-2 text-amber-500"></i>
+                VM Right-Sizing
+              </h4>
+              <span className="bg-amber-100 text-amber-800 text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter">{optimization.vmRecommendations.length} Found</span>
             </div>
-          )}
-        </div>
-      )}
-
-      {/* Disk Recommendations */}
-      {optimization.diskRecommendations && optimization.diskRecommendations.length > 0 && (
-        <div className="optimization-card rounded-xl p-6 border-t-4 border-purple-500 mt-6">
-          <div className="flex items-center justify-between mb-4">
-            <h4 className="font-bold text-lg text-gray-800 flex items-center">
-              <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-purple-600 rounded-lg flex items-center justify-center mr-3">
-                <i className="fas fa-hdd text-white text-sm"></i>
-              </div>
-              Disk Storage Optimization
-            </h4>
-            <span className="bg-purple-100 text-purple-800 text-xs font-semibold px-2 py-1 rounded-full">{optimization.diskRecommendations.length} recommendations</span>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 rounded-lg">
-                <tr>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700 rounded-l-lg">Resource</th>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700">Recommendation</th>
-                  <th className="px-4 py-3 text-right font-semibold text-gray-700 rounded-r-lg">Monthly Savings</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {optimization.diskRecommendations.slice(0, 3).map((rec, index) => (
-                  <tr key={index} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3 font-mono text-xs text-gray-600">{rec.resourceId}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center space-x-2">
-                        <span className="text-gray-600">{rec.currentType}</span>
-                        <i className="fas fa-arrow-right text-gray-400"></i>
-                        <span className="font-semibold text-purple-600">{rec.recommendedType}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-right font-bold text-purple-600">{formatCurrency(rec.estimatedMonthlySavings)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {optimization.diskRecommendations.length > 3 && (
-            <div className="mt-4 text-center">
-              <Link to={`/rightsizing.html?accountIds=${selectedAccountIds.join(',')}`} className="inline-flex items-center text-sm text-purple-600 hover:text-purple-800 font-medium">
-                View all {optimization.diskRecommendations.length} recommendations
-                <i className="fas fa-arrow-right ml-1"></i>
-              </Link>
+            <div className="space-y-3">
+              {optimization.vmRecommendations.slice(0, 3).map((rec, index) => (
+                <div key={index} className="flex items-center justify-between p-3 bg-slate-50/50 rounded-xl border border-slate-100 group hover:border-amber-200 transition-colors">
+                  <div className="min-w-0 flex-1 mr-4">
+                    <p className="font-mono text-[10px] text-slate-400 truncate">{rec.resourceId}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-[11px] font-bold text-slate-600">{rec.currentType}</span>
+                      <i className="fas fa-chevron-right text-[10px] text-slate-300"></i>
+                      <span className="text-[11px] font-black text-amber-600">{rec.recommendedType}</span>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-black text-slate-900 metric-value">{formatCurrency(rec.estimatedMonthlySavings)}</p>
+                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">SAVINGS</p>
+                  </div>
+                </div>
+              ))}
             </div>
-          )}
-        </div>
-      )}
-
-      {/* Function Recommendations */}
-      {optimization.functionRecommendations && optimization.functionRecommendations.length > 0 && (
-        <div className="optimization-card rounded-xl p-6 border-t-4 border-yellow-500 mt-6">
-          <div className="flex items-center justify-between mb-4">
-            <h4 className="font-bold text-lg text-gray-800 flex items-center">
-              <div className="w-8 h-8 bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-lg flex items-center justify-center mr-3">
-                <i className="fas fa-bolt text-white text-sm"></i>
+            {optimization.vmRecommendations.length > 3 && (
+              <div className="mt-4 pt-3 border-t border-slate-100 text-center">
+                <Link to={`/rightsizing.html?accountIds=${selectedAccountIds.join(',')}`} className="text-[10px] font-black uppercase text-amber-600 hover:text-amber-700 tracking-widest transition-colors flex items-center justify-center gap-2">
+                  View All Recommendations
+                  <i className="fas fa-arrow-right"></i>
+                </Link>
               </div>
-              Function App Optimization
-            </h4>
-            <span className="bg-yellow-100 text-yellow-800 text-xs font-semibold px-2 py-1 rounded-full">{optimization.functionRecommendations.length} recommendations</span>
+            )}
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 rounded-lg">
-                <tr>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700 rounded-l-lg">Resource</th>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700">Recommendation</th>
-                  <th className="px-4 py-3 text-right font-semibold text-gray-700 rounded-r-lg">Monthly Savings</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {optimization.functionRecommendations.slice(0, 3).map((rec, index) => (
-                  <tr key={index} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3 font-mono text-xs text-gray-600">{rec.resourceId}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center space-x-2">
-                        <span className="text-gray-600">{rec.currentType}</span>
-                        <i className="fas fa-arrow-right text-gray-400"></i>
-                        <span className="font-semibold text-yellow-600">{rec.recommendedType}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-right font-bold text-yellow-600">{formatCurrency(rec.estimatedMonthlySavings)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+        )}
 
-      {/* Cost Anomalies */}
-      {optimization.costAnomalies && optimization.costAnomalies.length > 0 && (
-        <div className="anomaly-card rounded-xl p-6 border-t-4 border-red-500 mt-6">
-          <div className="flex items-center justify-between mb-4">
-            <h4 className="font-bold text-lg text-gray-800 flex items-center">
-              <div className="w-8 h-8 bg-gradient-to-br from-red-500 to-red-600 rounded-lg flex items-center justify-center mr-3">
-                <i className="fas fa-exclamation-triangle text-white text-sm"></i>
+        {/* Disk Recommendations */}
+        {optimization.diskRecommendations && optimization.diskRecommendations.length > 0 && (
+          <div className="glass-card p-6 border-t-4 border-indigo-500">
+            <div className="flex items-center justify-between mb-4">
+              <h4 className="font-black text-sm text-slate-800 uppercase tracking-tight flex items-center">
+                <i className="fas fa-hdd mr-2 text-indigo-500"></i>
+                Disk Optimization
+              </h4>
+              <span className="bg-indigo-100 text-indigo-800 text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter">{optimization.diskRecommendations.length} Found</span>
+            </div>
+            <div className="space-y-3">
+              {optimization.diskRecommendations.slice(0, 3).map((rec, index) => (
+                <div key={index} className="flex items-center justify-between p-3 bg-slate-50/50 rounded-xl border border-slate-100 group hover:border-indigo-200 transition-colors">
+                  <div className="min-w-0 flex-1 mr-4">
+                    <p className="font-mono text-[10px] text-slate-400 truncate">{rec.resourceId}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-[11px] font-bold text-slate-600">{rec.currentType}</span>
+                      <i className="fas fa-chevron-right text-[10px] text-slate-300"></i>
+                      <span className="text-[11px] font-black text-indigo-600">{rec.recommendedType}</span>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-black text-slate-900 metric-value">{formatCurrency(rec.estimatedMonthlySavings)}</p>
+                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">SAVINGS</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {optimization.diskRecommendations.length > 3 && (
+              <div className="mt-4 pt-3 border-t border-slate-100 text-center">
+                <Link to={`/rightsizing.html?accountIds=${selectedAccountIds.join(',')}`} className="text-[10px] font-black uppercase text-indigo-600 hover:text-indigo-700 tracking-widest transition-colors flex items-center justify-center gap-2">
+                  View All Recommendations
+                  <i className="fas fa-arrow-right"></i>
+                </Link>
               </div>
-              Cost Anomalies
-            </h4>
-            <span className="bg-red-100 text-red-800 text-xs font-semibold px-2 py-1 rounded-full">{optimization.costAnomalies.length} detected</span>
+            )}
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 rounded-lg">
-                <tr>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700 rounded-l-lg">Service</th>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700">Date</th>
-                  <th className="px-4 py-3 text-right font-semibold text-gray-700 rounded-r-lg">Unexpected Spend</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {optimization.costAnomalies.slice(0, 3).map((a, index) => (
-                  <tr key={index} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3 font-semibold text-gray-800">{a.service}</td>
-                    <td className="px-4 py-3 text-gray-600">{a.startDate}</td>
-                    <td className="px-4 py-3 text-right font-bold text-red-600">{formatCurrency(a.unexpectedSpend)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 };
