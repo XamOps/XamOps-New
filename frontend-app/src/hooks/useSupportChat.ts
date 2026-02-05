@@ -21,10 +21,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import apiClient from '../utils/apiClient';
-import {
-  initNotificationService,
-  notifyNewSupportReply,
-} from '../utils/notificationService';
+import { initNotificationService } from '../utils/notificationService';
 
 export interface ChatMessage {
   id?: string;
@@ -78,7 +75,7 @@ export const useSupportChat = (): UseSupportChatReturn => {
   const previousMessageCountRef = useRef(0);
   const notificationInitializedRef = useRef(false);
   const isOpenRef = useRef(isOpen); // Ref to track current isOpen state for use in callbacks
-  const fetchHistoryRef = useRef<() => Promise<void>>(); // Ref to store latest fetchHistory function
+  const fetchHistoryRef = useRef<(() => Promise<void>) | undefined>(undefined); // Ref to store latest fetchHistory function
 
   // Check if user has ROLE_XAMOPS
   const isXamopsUser = hasAnyRole('ROLE_XAMOPS');
@@ -99,6 +96,8 @@ export const useSupportChat = (): UseSupportChatReturn => {
 
   /**
    * Fetch chat history from API
+   * Note: Notifications are handled by the global UserSupportNotificationListener
+   * to avoid duplicate sounds. This function only updates UI state.
    */
   const fetchHistory = useCallback(async () => {
     if (!isXamopsUser) return;
@@ -119,24 +118,7 @@ export const useSupportChat = (): UseSupportChatReturn => {
           timestamp: msg.timestamp
         }));
 
-        // Check for new admin messages (non-user messages)
-        const previousCount = previousMessageCountRef.current;
-        const newCount = mappedMessages.length;
-
-        if (previousCount > 0 && newCount > previousCount) {
-          // Find new messages that are from admin (not user)
-          const newMessages = mappedMessages.slice(previousCount);
-          const newAdminMessages = newMessages.filter(msg => !msg.isUser);
-
-          // Notify if there are new admin messages and chat is closed or page not visible
-          // Use isOpenRef.current to get the latest value (avoids stale closure in interval)
-          if (newAdminMessages.length > 0 && (!isOpenRef.current || document.hidden)) {
-            const latestMessage = newAdminMessages[newAdminMessages.length - 1];
-            notifyNewSupportReply(latestMessage.text);
-          }
-        }
-
-        previousMessageCountRef.current = newCount;
+        previousMessageCountRef.current = mappedMessages.length;
         setMessages(mappedMessages);
         scrollToBottom();
       }
@@ -238,11 +220,34 @@ export const useSupportChat = (): UseSupportChatReturn => {
     };
   }, [isXamopsUser]);
 
-  // Fetch history when chat opens
+  // Listen for new admin message events from the global UserSupportNotificationListener
+  useEffect(() => {
+    const handleNewAdminMessage = () => {
+      // Refresh chat history when global listener detects new messages
+      fetchHistoryRef.current?.();
+      scrollToBottom();
+    };
+
+    window.addEventListener('newAdminMessage', handleNewAdminMessage);
+    return () => {
+      window.removeEventListener('newAdminMessage', handleNewAdminMessage);
+    };
+  }, [scrollToBottom]);
+
+  // Fetch history and mark messages as read when chat opens
   useEffect(() => {
     if (isOpen && isXamopsUser) {
       fetchHistory();
       scrollToBottom();
+
+      // Mark admin messages as read when chat is opened
+      const accountId = getSelectedAccountId();
+      const url = accountId
+        ? `/api/ai/chat/mark-read?accountId=${encodeURIComponent(accountId)}`
+        : '/api/ai/chat/mark-read';
+      apiClient.post(url, {}).catch(err => {
+        console.warn('Failed to mark messages as read:', err);
+      });
     }
   }, [isOpen, isXamopsUser, fetchHistory, scrollToBottom]);
 

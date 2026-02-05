@@ -136,20 +136,47 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
     }
 
     private CloudAccount findAccount(String id) {
+        // Try provider account ID first
         Optional<CloudAccount> account = cloudAccountRepository.findByProviderAccountId(id);
         if (account.isPresent())
             return account.get();
 
+        // Try AWS account ID
         List<CloudAccount> awsMatches = cloudAccountRepository.findByAwsAccountId(id);
         if (!awsMatches.isEmpty())
             return awsMatches.get(0);
 
-        Optional<CloudAccount> gcpMatch = cloudAccountRepository.findByGcpProjectId(id);
-        if (gcpMatch.isPresent())
-            return gcpMatch.get();
+        // Try GCP project ID - handle potential duplicates gracefully
+        try {
+            Optional<CloudAccount> gcpMatch = cloudAccountRepository.findByGcpProjectId(id);
+            if (gcpMatch.isPresent())
+                return gcpMatch.get();
+        } catch (Exception e) {
+            // Handle NonUniqueResultException - if duplicates exist, log warning and try to find first match
+            log.warn("Multiple GCP accounts found for project ID '{}'. Using first match. Please remove duplicates.", id);
+            List<CloudAccount> gcpAccounts = cloudAccountRepository.findAll().stream()
+                    .filter(acc -> id.equals(acc.getGcpProjectId()))
+                    .collect(java.util.stream.Collectors.toList());
+            if (!gcpAccounts.isEmpty()) {
+                return gcpAccounts.get(0);
+            }
+        }
 
-        Optional<CloudAccount> azureMatch = cloudAccountRepository.findByAzureSubscriptionId(id);
-        return azureMatch.orElse(null);
+        // Try Azure subscription ID - handle potential duplicates gracefully
+        try {
+            Optional<CloudAccount> azureMatch = cloudAccountRepository.findByAzureSubscriptionId(id);
+            return azureMatch.orElse(null);
+        } catch (Exception e) {
+            log.warn("Multiple Azure accounts found for subscription ID '{}'. Using first match. Please remove duplicates.", id);
+            List<CloudAccount> azureAccounts = cloudAccountRepository.findAll().stream()
+                    .filter(acc -> id.equals(acc.getAzureSubscriptionId()))
+                    .collect(java.util.stream.Collectors.toList());
+            if (!azureAccounts.isEmpty()) {
+                return azureAccounts.get(0);
+            }
+        }
+
+        return null;
     }
 
     private ProcessBuilder setupAwsProcess(String sessionId, CloudAccount account) {

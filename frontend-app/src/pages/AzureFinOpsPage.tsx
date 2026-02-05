@@ -65,8 +65,8 @@ const AzureFinOpsPage: React.FC = () => {
   // Chart refs
   const serviceChartRef = useRef<HTMLCanvasElement>(null);
   const regionChartRef = useRef<HTMLCanvasElement>(null);
-  const serviceChartInstance = useRef<Chart | null>(null);
-  const regionChartInstance = useRef<Chart | null>(null);
+  const serviceChartInstance = useRef<any | null>(null);
+  const regionChartInstance = useRef<any | null>(null);
 
   // Update cloudAccountId when subscriptionId changes
   useEffect(() => {

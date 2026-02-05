@@ -5,7 +5,9 @@ import com.xammer.cloud.dto.ChatRequest;
 import com.xammer.cloud.dto.ChatResponse;
 import com.xammer.cloud.service.SupportChatService;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -22,7 +24,6 @@ public class ChatbotController {
 
     @PostMapping("/chat")
     @PreAuthorize("hasAuthority('ROLE_XAMOPS')")
-    
     public ChatResponse chat(@RequestBody ChatRequest request) {
         // 1. Send message to Human Support (Database)
         supportChatService.sendUserMessage(request.getMessage(), request.getAccountId());
@@ -38,5 +39,29 @@ public class ChatbotController {
         return supportChatService.getMessagesForCurrentUser(accountId);
     }
 
+    /**
+     * Get unread count of admin messages for the current user.
+     * This allows the frontend to efficiently check for new messages without fetching full history.
+     */
+    @GetMapping("/chat/unread")
+    @PreAuthorize("hasAuthority('ROLE_XAMOPS')")
+    public Map<String, Object> getUnreadCount(@RequestParam(required = false) String accountId) {
+        long unreadCount = supportChatService.getUnreadAdminMessageCount(accountId);
+        Map<String, Object> response = new HashMap<>();
+        response.put("unreadCount", unreadCount);
+        return response;
+    }
 
+    /**
+     * Mark all admin messages as read for the current user's conversation.
+     * Called when the user opens the chat widget.
+     */
+    @PostMapping("/chat/mark-read")
+    @PreAuthorize("hasAuthority('ROLE_XAMOPS')")
+    public Map<String, Object> markMessagesAsRead(@RequestParam(required = false) String accountId) {
+        supportChatService.markAdminMessagesAsRead(accountId);
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", true);
+        return response;
+    }
 }
