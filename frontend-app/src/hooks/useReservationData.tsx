@@ -6,9 +6,10 @@
  * Features:
  * - Fetches reservation inventory, savings plans, and analysis
  * - Fetches purchase recommendations with filters
- * - Session storage caching
+ * - Session storage caching with expiration
  * - Force refresh capability
  * - Loading and error states
+ * - Cache versioning and invalidation
  */
 
 import { useState, useCallback, useEffect } from 'react';
@@ -17,6 +18,79 @@ import type {
   PurchaseRecommendation,
   RecommendationFilters,
 } from '../types/reservation';
+
+// Cache configuration
+const CACHE_VERSION = 'v1';
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
+
+interface CachedData<T> {
+  data: T;
+  timestamp: number;
+  version: string;
+}
+
+/**
+ * Get data from cache if valid
+ */
+const getCachedData = <T,>(key: string): T | null => {
+  try {
+    const cached = sessionStorage.getItem(key);
+    if (!cached) return null;
+
+    const { data, timestamp, version }: CachedData<T> = JSON.parse(cached);
+
+    // Check version
+    if (version !== CACHE_VERSION) {
+      sessionStorage.removeItem(key);
+      return null;
+    }
+
+    // Check expiration
+    const now = Date.now();
+    if (now - timestamp > CACHE_DURATION) {
+      sessionStorage.removeItem(key);
+      return null;
+    }
+
+    return data;
+  } catch (err) {
+    console.error('[Cache] Failed to read cache:', err);
+    return null;
+  }
+};
+
+/**
+ * Set data in cache with timestamp and version
+ */
+const setCachedData = <T,>(key: string, data: T): void => {
+  try {
+    const cached: CachedData<T> = {
+      data,
+      timestamp: Date.now(),
+      version: CACHE_VERSION,
+    };
+    sessionStorage.setItem(key, JSON.stringify(cached));
+  } catch (err) {
+    console.error('[Cache] Failed to write cache:', err);
+  }
+};
+
+/**
+ * Clear all reservation caches
+ */
+const clearReservationCache = (): void => {
+  try {
+    const keys = Object.keys(sessionStorage);
+    keys.forEach((key) => {
+      if (key.startsWith('reservationData-') || key.startsWith('reservationRecs-')) {
+        sessionStorage.removeItem(key);
+      }
+    });
+    console.log('[Cache] Cleared all reservation caches');
+  } catch (err) {
+    console.error('[Cache] Failed to clear cache:', err);
+  }
+};
 
 interface UseReservationDataProps {
   selectedAccountId: string | null;
@@ -67,15 +141,20 @@ export const useReservationData = ({
       }
 
       const cacheKey = `reservationData-${selectedAccountId}`;
-      const cachedData = sessionStorage.getItem(cacheKey);
 
       // Return cached data if available and not forcing refresh
-      if (cachedData && !forceRefresh) {
-        const parsed = JSON.parse(cachedData);
-        if (!parsed.savingsPlans) parsed.savingsPlans = [];
-        setData(parsed);
-        setIsLoading(false);
-        return;
+      if (!forceRefresh) {
+        const cachedData = getCachedData<ReservationData>(cacheKey);
+        if (cachedData) {
+          console.log('[Reservation] Using cached data');
+          if (!cachedData.savingsPlans) cachedData.savingsPlans = [];
+          setData(cachedData);
+          setIsLoading(false);
+          return;
+        }
+      } else {
+        // Clear cache on force refresh
+        clearReservationCache();
       }
 
       setIsLoading(true);
@@ -101,7 +180,7 @@ export const useReservationData = ({
 
         if (!responseData.savingsPlans) responseData.savingsPlans = [];
         setData(responseData);
-        sessionStorage.setItem(cacheKey, JSON.stringify(responseData));
+        setCachedData(cacheKey, responseData);
       } catch (err) {
         console.error('[Reservation] Failed to load data:', err);
         setError(err instanceof Error ? err : new Error('Failed to load reservation data'));
@@ -119,10 +198,25 @@ export const useReservationData = ({
     async (forceRefresh = false) => {
       if (!selectedAccountId) return;
 
+      const { term, paymentOption, lookback, offeringClass } = recFilters;
+      const cacheKey = `reservationRecs-${selectedAccountId}-${term}-${paymentOption}-${lookback}-${offeringClass}`;
+
+      // Return cached recommendations if available and not forcing refresh
+      if (!forceRefresh) {
+        const cachedRecs = getCachedData<PurchaseRecommendation[]>(cacheKey);
+        if (cachedRecs) {
+          console.log('[Reservation] Using cached recommendations');
+          setData((prev) => ({
+            ...prev,
+            purchaseRecommendations: cachedRecs,
+          }));
+          return;
+        }
+      }
+
       setIsRecsLoading(true);
 
       try {
-        const { term, paymentOption, lookback, offeringClass } = recFilters;
         const url = `/api/xamops/reservations/recommendations?accountId=${selectedAccountId}&term=${term}&paymentOption=${paymentOption}&lookback=${lookback}&offeringClass=${offeringClass}&forceRefresh=${forceRefresh}`;
         console.log('[Reservation] Fetching recommendations from:', url);
 
@@ -144,6 +238,7 @@ export const useReservationData = ({
           ...prev,
           purchaseRecommendations: recommendations,
         }));
+        setCachedData(cacheKey, recommendations);
       } catch (err) {
         console.error('[Reservation] Failed to load recommendations:', err);
         setData((prev) => ({

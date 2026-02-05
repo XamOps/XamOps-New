@@ -185,19 +185,7 @@ const InvoicesPage: React.FC = () => {
         className="flex-1 overflow-x-hidden overflow-y-auto custom-scrollbar p-8"
       >
         <div className="w-full space-y-8">
-          {/* Header Summary (Simplified) */}
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-2">
-            <div>
-              <div className="flex items-center gap-3 mt-1">
-                {selectedAccountName && (
-                  <span className="text-xs font-medium px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-100">
-                    Account: {selectedAccountName} ({selectedAccountId})
-                  </span>
-                )}
-                {isUpdating && <span className="inline-block w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></span>}
-              </div>
-            </div>
-          </div>
+
 
           {/* Filters & Controls */}
           <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col md:flex-row items-center justify-between gap-4">
